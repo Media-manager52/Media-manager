@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" role="img" aria-label="Movie artwork unavailable">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#202b42"/><stop offset="1" stop-color="#0b0f17"/></linearGradient></defs>
+  <rect width="600" height="900" fill="url(#g)"/><rect x="128" y="230" width="344" height="240" rx="34" fill="none" stroke="#9bb0ff" stroke-width="18" opacity=".7"/><path d="M214 230l64-92m16 92l64-92m16 92l64-92" stroke="#9bb0ff" stroke-width="18" opacity=".7"/><text x="300" y="600" fill="#dfe6ff" font-family="system-ui,sans-serif" font-size="42" font-weight="700" text-anchor="middle">MOVIE</text><text x="300" y="654" fill="#7f8ca5" font-family="system-ui,sans-serif" font-size="22" text-anchor="middle">Artwork unavailable</text>
+</svg>

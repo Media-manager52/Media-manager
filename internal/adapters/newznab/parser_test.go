@@ -1,0 +1,69 @@
+package newznab
+
+import (
+	"errors"
+	"testing"
+	"time"
+)
+
+func TestParsersRejectUnrelatedXML(t *testing.T) {
+	if _, err := ParseSearch([]byte(`<html><body>ok</body></html>`), "", "search", time.Now()); !errors.Is(err, ErrMalformedXML) {
+		t.Fatalf("unrelated search XML accepted: %v", err)
+	}
+	if _, err := ParseCaps([]byte(`<html><body>ok</body></html>`), time.Now()); !errors.Is(err, ErrMalformedXML) {
+		t.Fatalf("unrelated CAPS XML accepted: %v", err)
+	}
+	if _, err := ParseSearch([]byte(`<html><rss><channel/></rss></html>`), "", "search", time.Now()); !errors.Is(err, ErrMalformedXML) {
+		t.Fatalf("nested RSS envelope accepted: %v", err)
+	}
+}
+
+func TestParseSearchPreservesRepeatedAttributes(t *testing.T) {
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Show.S01E01.2160p</title><guid>native-1</guid><newznab:attr name="category" value="5000"/><newznab:attr name="category" value="5040"/><newznab:attr name="tvdbid" value="42"/></item></channel></rss>`)
+	items, err := ParseSearch(body, "", "tvsearch", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || len(items[0].Fields) != 3 {
+		t.Fatalf("unexpected items: %#v", items)
+	}
+	if items[0].Fields[0].Value != "5000" || items[0].Fields[1].Value != "5040" {
+		t.Fatal("duplicate order was not retained")
+	}
+}
+
+func TestProviderUnsupportedIsExplicit(t *testing.T) {
+	_, err := ParseSearch([]byte(`<error code="203" description="No such function"/>`), "", "anime", time.Now())
+	provider, ok := err.(ProviderError)
+	if !ok || !provider.Unsupported {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseCapsPreservesDuplicateAdvertisedParams(t *testing.T) {
+	body := []byte(`<caps><server title="Example" version="1"/><limits default="100" max="100"/><registration available="yes" open="no"/><searching><tv-search available="yes" supportedParams="q,tvdbid,tvdbid,season,ep"/></searching></caps>`)
+	caps, err := ParseCaps(body, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caps.Searches[1].Params) != 5 || caps.Searches[1].Params[1] != "tvdbid" || caps.Searches[1].Params[2] != "tvdbid" {
+		t.Fatalf("duplicate params lost: %#v", caps.Searches[1].Params)
+	}
+}
+
+func TestValidateNZBRequiresParsedDocumentWithFilesAndSegments(t *testing.T) {
+	valid := []byte(`<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><file poster="owner"><groups><group>alt.binaries.test</group></groups><segments><segment bytes="12" number="1">message@example</segment></segments></file></nzb>`)
+	if err := validateNZB(valid); err != nil {
+		t.Fatalf("valid NZB rejected: %v", err)
+	}
+	invalid := [][]byte{
+		[]byte(`<?xml version="1.0"?><html><!-- <nzb><file><segment>fake</segment></file></nzb> --></html>`),
+		[]byte(`<nzb><file></nzb>`),
+		[]byte(`<nzb></nzb>`),
+	}
+	for _, body := range invalid {
+		if err := validateNZB(body); err == nil {
+			t.Fatalf("invalid NZB accepted: %s", body)
+		}
+	}
+}

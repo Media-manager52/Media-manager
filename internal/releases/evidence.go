@@ -1,0 +1,242 @@
+package releases
+
+import (
+	"errors"
+	"sort"
+	"strings"
+	"time"
+	"uuid"
+)
+
+// RawField is intentionally a list element rather than a map entry. Newznab
+// providers repeat attributes and Media Manager must retain their original
+// order instead of silently discarding evidence.
+type RawField struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Value     string `json:"value"`
+	Ordinal   int    `json:"ordinal"`
+}
+
+type FactState string
+
+const (
+	FactObserved    FactState = "observed"
+	FactInferred    FactState = "inferred"
+	FactUnknown     FactState = "unknown"
+	FactConflicting FactState = "conflicting"
+)
+
+type Fact struct {
+	Name       string    `json:"name"`
+	Values     []string  `json:"values"`
+	State      FactState `json:"state"`
+	EvidenceAt []int     `json:"evidence_at"`
+	ObservedAt time.Time `json:"observed_at"`
+}
+
+type Observation struct {
+	ID           uuid.UUID  `json:"id"`
+	IndexerID    uuid.UUID  `json:"indexer_id"`
+	Operation    string     `json:"operation"`
+	NativeGUID   string     `json:"native_guid"`
+	Title        string     `json:"title"`
+	DownloadURL  string     `json:"-"`
+	Fields       []RawField `json:"fields"`
+	Facts        []Fact     `json:"facts"`
+	BodyHash     string     `json:"body_hash"`
+	ObservedAt   time.Time  `json:"observed_at"`
+	ParseVersion string     `json:"parse_version"`
+	Problems     []string   `json:"problems,omitempty"`
+}
+
+type RuleKind string
+
+const (
+	RuleRequired  RuleKind = "required"
+	RulePreferred RuleKind = "preferred"
+)
+
+type UnknownPolicy string
+
+const (
+	UnknownReject UnknownPolicy = "reject"
+	UnknownHold   UnknownPolicy = "hold"
+	UnknownAllow  UnknownPolicy = "allow"
+)
+
+type Rule struct {
+	Name          string        `json:"name"`
+	Fact          string        `json:"fact"`
+	AllowedValues []string      `json:"allowed_values"`
+	Kind          RuleKind      `json:"kind"`
+	Weight        int           `json:"weight"`
+	Unknown       UnknownPolicy `json:"unknown"`
+}
+
+type RuleDecision string
+
+const (
+	DecisionPass    RuleDecision = "pass"
+	DecisionFail    RuleDecision = "fail"
+	DecisionUnknown RuleDecision = "unknown"
+)
+
+type Explanation struct {
+	Rule     string       `json:"rule"`
+	Fact     string       `json:"fact"`
+	Decision RuleDecision `json:"decision"`
+	Values   []string     `json:"values,omitempty"`
+	Score    int          `json:"score"`
+	Reason   string       `json:"reason"`
+}
+
+type Verdict string
+
+const (
+	VerdictEligible Verdict = "eligible"
+	VerdictHeld     Verdict = "held"
+	VerdictRejected Verdict = "rejected"
+)
+
+type Evaluation struct {
+	ObservationID uuid.UUID     `json:"observation_id"`
+	Verdict       Verdict       `json:"verdict"`
+	Score         int           `json:"score"`
+	Explanations  []Explanation `json:"explanations"`
+}
+
+var ErrInvalidRule = errors.New("invalid release rule")
+
+func ValidateRules(rules []Rule) error {
+	if len(rules) == 0 {
+		return ErrInvalidRule
+	}
+	for _, rule := range rules {
+		if strings.TrimSpace(rule.Name) == "" || strings.TrimSpace(rule.Fact) == "" || len(rule.AllowedValues) == 0 || (rule.Kind != RuleRequired && rule.Kind != RulePreferred) {
+			return ErrInvalidRule
+		}
+		for _, value := range rule.AllowedValues {
+			if strings.TrimSpace(value) == "" {
+				return ErrInvalidRule
+			}
+		}
+		if rule.Unknown != "" && rule.Unknown != UnknownReject && rule.Unknown != UnknownHold && rule.Unknown != UnknownAllow {
+			return ErrInvalidRule
+		}
+	}
+	return nil
+}
+
+func Evaluate(observation Observation, rules []Rule) (Evaluation, error) {
+	if err := ValidateRules(rules); err != nil {
+		return Evaluation{}, err
+	}
+	facts := make(map[string]Fact, len(observation.Facts))
+	for _, fact := range observation.Facts {
+		facts[normalize(fact.Name)] = fact
+	}
+	result := Evaluation{ObservationID: observation.ID, Verdict: VerdictEligible}
+	for _, rule := range rules {
+		unknown := rule.Unknown
+		if unknown == "" {
+			if rule.Kind == RuleRequired {
+				unknown = UnknownHold
+			} else {
+				unknown = UnknownAllow
+			}
+		}
+		if unknown != UnknownReject && unknown != UnknownHold && unknown != UnknownAllow {
+			return Evaluation{}, ErrInvalidRule
+		}
+		fact, exists := facts[normalize(rule.Fact)]
+		if !exists || fact.State == FactUnknown || len(fact.Values) == 0 {
+			explanation := Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionUnknown, Reason: "the provider supplied no conclusive evidence"}
+			result.Explanations = append(result.Explanations, explanation)
+			if rule.Kind == RuleRequired {
+				switch unknown {
+				case UnknownReject:
+					result.Verdict = VerdictRejected
+				case UnknownHold:
+					if result.Verdict != VerdictRejected {
+						result.Verdict = VerdictHeld
+					}
+				}
+			}
+			continue
+		}
+		if fact.State == FactConflicting {
+			result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionUnknown, Values: append([]string(nil), fact.Values...), Reason: "the evidence conflicts"})
+			if rule.Kind == RuleRequired && result.Verdict != VerdictRejected {
+				result.Verdict = VerdictHeld
+			}
+			continue
+		}
+		matched := intersectsFold(fact.Values, rule.AllowedValues)
+		if matched {
+			score := 0
+			if rule.Kind == RulePreferred {
+				score = rule.Weight
+				result.Score += score
+			}
+			result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionPass, Values: append([]string(nil), fact.Values...), Score: score, Reason: "observed evidence satisfies the rule"})
+			continue
+		}
+		result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionFail, Values: append([]string(nil), fact.Values...), Reason: "observed evidence does not satisfy the rule"})
+		if rule.Kind == RuleRequired {
+			result.Verdict = VerdictRejected
+		}
+	}
+	return result, nil
+}
+
+func Rank(observations []Observation, evaluations []Evaluation) []Evaluation {
+	byID := make(map[uuid.UUID]Observation, len(observations))
+	for _, observation := range observations {
+		byID[observation.ID] = observation
+	}
+	result := append([]Evaluation(nil), evaluations...)
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].Verdict != result[j].Verdict {
+			return verdictOrder(result[i].Verdict) < verdictOrder(result[j].Verdict)
+		}
+		if result[i].Score != result[j].Score {
+			return result[i].Score > result[j].Score
+		}
+		left, right := byID[result[i].ObservationID], byID[result[j].ObservationID]
+		if !left.ObservedAt.Equal(right.ObservedAt) {
+			return left.ObservedAt.After(right.ObservedAt)
+		}
+		return left.NativeGUID < right.NativeGUID
+	})
+	return result
+}
+
+func normalize(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
+
+func intersectsFold(values, allowed []string) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	set := make(map[string]struct{}, len(allowed))
+	for _, value := range allowed {
+		set[normalize(value)] = struct{}{}
+	}
+	for _, value := range values {
+		if _, ok := set[normalize(value)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func verdictOrder(verdict Verdict) int {
+	switch verdict {
+	case VerdictEligible:
+		return 0
+	case VerdictHeld:
+		return 1
+	default:
+		return 2
+	}
+}

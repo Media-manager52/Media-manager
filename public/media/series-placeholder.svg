@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" role="img" aria-label="Series artwork unavailable">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#24372f"/><stop offset="1" stop-color="#0a100d"/></linearGradient></defs>
+  <rect width="600" height="900" fill="url(#g)"/><rect x="125" y="205" width="350" height="270" rx="38" fill="none" stroke="#72d7a8" stroke-width="18" opacity=".72"/><path d="M230 540h140M270 475v65m60-65v65" stroke="#72d7a8" stroke-width="18" stroke-linecap="round" opacity=".72"/><text x="300" y="630" fill="#dff9ec" font-family="system-ui,sans-serif" font-size="42" font-weight="700" text-anchor="middle">SERIES</text><text x="300" y="684" fill="#81998e" font-family="system-ui,sans-serif" font-size="22" text-anchor="middle">Artwork unavailable</text>
+</svg>

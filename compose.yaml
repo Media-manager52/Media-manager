@@ -1,0 +1,101 @@
+name: media-manager
+
+services:
+  postgres:
+    image: postgres:18.6-alpine3.24
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-media_manager}
+      POSTGRES_USER: ${POSTGRES_USER:-media_manager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [backend]
+
+  api:
+    build:
+      context: .
+      target: api
+      args:
+        VERSION: ${MEDIA_MANAGER_VERSION:-development}
+        COMMIT: ${MEDIA_MANAGER_COMMIT:-local}
+    restart: unless-stopped
+    user: ${MEDIA_MANAGER_UID:-65532}:${MEDIA_MANAGER_GID:-65532}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-media_manager}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-media_manager}
+      PGSSLMODE: disable
+      OWNER_TOKEN: ${OWNER_TOKEN:?set a random OWNER_TOKEN of at least 32 characters}
+      AUTO_MIGRATE: "true"
+      LISTEN_ADDR: 0.0.0.0:8080
+      SEERR_BASE_URL: ${SEERR_BASE_URL:-}
+      SEERR_API_KEY: ${SEERR_API_KEY:-}
+      SEERR_INSTANCE_ID: ${SEERR_INSTANCE_ID:-}
+      SEERR_WEBHOOK_SECRET: ${SEERR_WEBHOOK_SECRET:-}
+      SEERR_ALLOW_HTTP: ${SEERR_ALLOW_HTTP:-false}
+    env_file:
+      - .env.integrations
+    volumes:
+      - ${ALTMOUNT_HOST_PATH:?set ALTMOUNT_HOST_PATH}:/mnt/altmount:ro
+      - ${MOVIES_HOST_PATH:?set MOVIES_HOST_PATH}:/libraries/movies:rw
+      - ${TV_HOST_PATH:?set TV_HOST_PATH}:/libraries/tv:rw
+    networks: [frontend, backend, integrations]
+
+  ui:
+    build:
+      context: .
+      target: ui
+      args:
+        NEXT_PUBLIC_MEDIA_MANAGER_MODE: live
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [frontend]
+
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      api:
+        condition: service_healthy
+      ui:
+        condition: service_healthy
+    environment:
+      OWNER_TOKEN: ${OWNER_TOKEN:?set OWNER_TOKEN}
+      OWNER_USERNAME: ${OWNER_USERNAME:?set OWNER_USERNAME}
+      OWNER_PASSWORD_HASH: ${OWNER_PASSWORD_HASH:?set OWNER_PASSWORD_HASH}
+    ports:
+      - ${MEDIA_MANAGER_BIND:-127.0.0.1}:${MEDIA_MANAGER_PORT:-8080}:8080
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks: [frontend, gateway_publish]
+
+volumes:
+  postgres-data:
+
+networks:
+  frontend:
+    internal: true
+  gateway_publish:
+    driver: bridge
+  backend:
+    internal: true
+  integrations:
+    name: ${MEDIA_NETWORK:-media-manager}
+    external: true

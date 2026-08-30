@@ -1,0 +1,35 @@
+{
+	auto_https off
+	admin off
+}
+
+:8080 {
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	@seerr path /api/v1/integrations/seerr/webhook
+	handle @seerr {
+		reverse_proxy api:8080
+	}
+
+	@owner not path /api/v1/integrations/seerr/webhook
+	basic_auth @owner {
+		{$OWNER_USERNAME} {$OWNER_PASSWORD_HASH}
+	}
+
+	@api path /api/* /health/*
+	handle @api {
+		reverse_proxy api:8080 {
+			header_up Authorization "Bearer {$OWNER_TOKEN}"
+		}
+	}
+
+	handle {
+		reverse_proxy ui:3000
+	}
+}
