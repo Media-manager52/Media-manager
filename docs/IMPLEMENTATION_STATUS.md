@@ -104,11 +104,13 @@ for smoke testing without explicit approval.
 - The four Compose services are healthy: PostgreSQL, API, UI, and gateway.
 - The gateway is bound to `127.0.0.1:28080` through its dedicated publish
   network and retains `NET_BIND_SERVICE` only.
-- Cosmos 0.23.2 still points the Media Manager domain at
-  `http://media-manager-ui-1:3000`. The supported Cosmos route API was identified,
-  but the existing protected local API token returns HTTP 401. The target must be
-  changed to `http://127.0.0.1:28080` once a current route-management token is
-  available; unrelated Cosmos configuration must remain untouched.
+- Cosmos 0.23.2 now points the Media Manager domain at
+  `http://127.0.0.1:28080`. The change used the supported route-detail/PUT API;
+  the authoritative route list contains no old-target reference, and canonical
+  before/after comparison proved all 35 unrelated route fields stayed unchanged.
+  The protected hostname returns Cosmos authentication, while the loopback target
+  returns the Media Manager gateway's expected authentication response and
+  security headers.
 - Baseline verification passed: ESLint, TypeScript, UI build/tests, Go tests with
   race detection, and `docker compose config --quiet`.
 - The live UI artifact is dependency-separated from the development concept
@@ -116,9 +118,7 @@ for smoke testing without explicit approval.
 
 ## Implementation order from this audit
 
-1. Correct and externally verify the single Cosmos route when its credential is
-   available.
-2. Add richer adoption journal and recovery detail without expanding the live-action batch limit.
-3. Complete configuration edit/disable/test lifecycles and full profile rules.
-4. Finish remaining partial read models and approved route interactions, preserving
+1. Add richer adoption journal and recovery detail without expanding the live-action batch limit.
+2. Complete configuration edit/disable/test lifecycles and full profile rules.
+3. Finish remaining partial read models and approved route interactions, preserving
    truthful empty/error states and never substituting fixture data.
