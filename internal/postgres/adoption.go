@@ -42,6 +42,7 @@ type AdoptionItem struct {
 	MediaID              *uuid.UUID      `json:"media_id,omitempty"`
 	RootID               *uuid.UUID      `json:"root_id,omitempty"`
 	QualityProfileID     *uuid.UUID      `json:"quality_profile_id,omitempty"`
+	Variant              string          `json:"variant,omitempty"`
 	MonitoringEnabled    *bool           `json:"monitoring_enabled,omitempty"`
 	SearchImmediately    *bool           `json:"search_immediately,omitempty"`
 	RecognizedCompanions json.RawMessage `json:"recognized_companions"`
@@ -154,7 +155,7 @@ func (store *Store) AdoptionBatch(ctx context.Context, id uuid.UUID) (AdoptionBa
 	if err != nil {
 		return AdoptionBatch{}, err
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT id::text,batch_id::text,original_relative,COALESCE(proposed_relative,''),media_id::text,root_id::text,quality_profile_id::text,monitoring_enabled,search_immediately,recognized_companions,unknown_companions,review_state,execution_state FROM adoption_items WHERE batch_id=$1 ORDER BY original_relative`, id.String())
+	rows, err := store.Pool.Query(ctx, `SELECT id::text,batch_id::text,original_relative,COALESCE(proposed_relative,''),media_id::text,root_id::text,quality_profile_id::text,COALESCE(variant,''),monitoring_enabled,search_immediately,recognized_companions,unknown_companions,review_state,execution_state FROM adoption_items WHERE batch_id=$1 ORDER BY original_relative`, id.String())
 	if err != nil {
 		return AdoptionBatch{}, err
 	}
@@ -165,7 +166,7 @@ func (store *Store) AdoptionBatch(ctx context.Context, id uuid.UUID) (AdoptionBa
 		var idText, batchText string
 		var mediaText, rootText, profileText *string
 		var recognized, unknown []byte
-		if err := rows.Scan(&idText, &batchText, &item.OriginalRelative, &item.ProposedRelative, &mediaText, &rootText, &profileText, &item.MonitoringEnabled, &item.SearchImmediately, &recognized, &unknown, &item.ReviewState, &item.ExecutionState); err != nil {
+		if err := rows.Scan(&idText, &batchText, &item.OriginalRelative, &item.ProposedRelative, &mediaText, &rootText, &profileText, &item.Variant, &item.MonitoringEnabled, &item.SearchImmediately, &recognized, &unknown, &item.ReviewState, &item.ExecutionState); err != nil {
 			return AdoptionBatch{}, err
 		}
 		item.ID, _ = uuid.Parse(idText)
@@ -195,6 +196,7 @@ type AdoptionReview struct {
 	RootID            *uuid.UUID
 	QualityProfileID  *uuid.UUID
 	ProposedRelative  string
+	Variant           string
 	MonitoringEnabled bool
 	SearchImmediately bool
 }
@@ -226,9 +228,13 @@ func (store *Store) ReviewAdoptionItem(ctx context.Context, batchID, itemID uuid
 		return ErrNotFound
 	}
 	if review.State == "rejected" {
-		_, err = transaction.Exec(ctx, `UPDATE adoption_items SET review_state='rejected',media_id=NULL,root_id=NULL,quality_profile_id=NULL,proposed_relative=NULL,monitoring_enabled=NULL,search_immediately=NULL WHERE id=$1`, itemID.String())
+		_, err = transaction.Exec(ctx, `UPDATE adoption_items SET review_state='rejected',media_id=NULL,root_id=NULL,quality_profile_id=NULL,proposed_relative=NULL,variant=NULL,monitoring_enabled=NULL,search_immediately=NULL WHERE id=$1`, itemID.String())
 	} else {
-		if review.MediaID == nil || review.RootID == nil || review.QualityProfileID == nil || !safeRelative(review.ProposedRelative) || review.SearchImmediately && !review.MonitoringEnabled {
+		review.Variant = strings.TrimSpace(review.Variant)
+		if kind == catalog.KindMovie {
+			review.Variant = "default"
+		}
+		if review.MediaID == nil || review.RootID == nil || review.QualityProfileID == nil || !safeRelative(review.ProposedRelative) || !validAdoptionVariant(kind, review.Variant) || review.SearchImmediately && !review.MonitoringEnabled {
 			return errors.New("approved adoption item is incomplete")
 		}
 		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM media_items media,library_roots root,quality_profiles profile WHERE media.id=$1 AND media.kind=$4 AND media.deleted_at IS NULL AND root.id=$2 AND root.media_kind=$4 AND root.enabled AND profile.id=$3 AND profile.media_kind=$4 AND profile.enabled)`, review.MediaID.String(), review.RootID.String(), review.QualityProfileID.String(), kind).Scan(&exists); err != nil {
@@ -241,22 +247,34 @@ func (store *Store) ReviewAdoptionItem(ctx context.Context, batchID, itemID uuid
 			SELECT 1 FROM adoption_items WHERE batch_id=$1 AND id<>$2 AND review_state='approved' AND root_id=$3 AND lower(proposed_relative)=lower($4)
 			UNION ALL
 			SELECT 1 FROM library_links WHERE root_id=$3 AND lower(destination_relative)=lower($4)
+			UNION ALL
+			SELECT 1 FROM adopted_files WHERE root_id=$3 AND lower(destination_relative)=lower($4) AND state='current'
 		)`, batchID.String(), itemID.String(), review.RootID.String(), filepath.ToSlash(filepath.Clean(review.ProposedRelative))).Scan(&exists); err != nil {
 			return err
 		}
 		if exists {
 			return errors.New("proposed adoption destination is already planned or managed")
 		}
-		_, err = transaction.Exec(ctx, `UPDATE adoption_items SET review_state='approved',media_id=$2,root_id=$3,quality_profile_id=$4,proposed_relative=$5,monitoring_enabled=$6,search_immediately=$7 WHERE id=$1`, itemID.String(), review.MediaID.String(), review.RootID.String(), review.QualityProfileID.String(), filepath.ToSlash(filepath.Clean(review.ProposedRelative)), review.MonitoringEnabled, review.SearchImmediately)
+		_, err = transaction.Exec(ctx, `UPDATE adoption_items SET review_state='approved',media_id=$2,root_id=$3,quality_profile_id=$4,proposed_relative=$5,variant=$6,monitoring_enabled=$7,search_immediately=$8 WHERE id=$1`, itemID.String(), review.MediaID.String(), review.RootID.String(), review.QualityProfileID.String(), filepath.ToSlash(filepath.Clean(review.ProposedRelative)), review.Variant, review.MonitoringEnabled, review.SearchImmediately)
 	}
 	if err != nil {
 		return err
 	}
-	detail, _ := json.Marshal(map[string]any{"review_state": review.State, "proposed_relative": review.ProposedRelative})
+	detail, _ := json.Marshal(map[string]any{"review_state": review.State, "proposed_relative": review.ProposedRelative, "variant": review.Variant})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','adoption.item_reviewed','adoption_item',$2,$3,$4)`, uuid.NewV7().String(), itemID.String(), detail, now.UTC()); err != nil {
 		return err
 	}
 	return transaction.Commit(ctx)
+}
+
+func validAdoptionVariant(kind catalog.MediaKind, variant string) bool {
+	if kind == catalog.KindMovie {
+		return variant == "default"
+	}
+	if kind != catalog.KindSeries || len(variant) != len("season:00") || !strings.HasPrefix(variant, "season:") {
+		return false
+	}
+	return variant[7] >= '0' && variant[7] <= '9' && variant[8] >= '0' && variant[8] <= '9'
 }
 
 func safeRelative(value string) bool {

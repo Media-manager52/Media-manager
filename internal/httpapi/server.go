@@ -577,6 +577,7 @@ func (server *Server) reviewAdoptionItem(writer http.ResponseWriter, request *ht
 		RootID            string `json:"root_id"`
 		QualityProfileID  string `json:"quality_profile_id"`
 		ProposedRelative  string `json:"proposed_relative"`
+		Variant           string `json:"variant"`
 		MonitoringEnabled bool   `json:"monitoring_enabled"`
 		SearchImmediately bool   `json:"search_immediately"`
 	}
@@ -591,7 +592,7 @@ func (server *Server) reviewAdoptionItem(writer http.ResponseWriter, request *ht
 		writeError(writer, http.StatusUnprocessableEntity, "invalid_configuration", "review IDs are invalid")
 		return
 	}
-	err := server.store.ReviewAdoptionItem(request.Context(), batchID, itemID, postgres.AdoptionReview{State: input.ReviewState, MediaID: mediaID, RootID: rootID, QualityProfileID: profileID, ProposedRelative: input.ProposedRelative, MonitoringEnabled: input.MonitoringEnabled, SearchImmediately: input.SearchImmediately}, time.Now().UTC())
+	err := server.store.ReviewAdoptionItem(request.Context(), batchID, itemID, postgres.AdoptionReview{State: input.ReviewState, MediaID: mediaID, RootID: rootID, QualityProfileID: profileID, ProposedRelative: input.ProposedRelative, Variant: input.Variant, MonitoringEnabled: input.MonitoringEnabled, SearchImmediately: input.SearchImmediately}, time.Now().UTC())
 	if errors.Is(err, postgres.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, "not_found", "adoption batch or item was not found")
 		return

@@ -35,7 +35,8 @@ func (store *Store) Dashboard(ctx context.Context, now time.Time) (DashboardSnap
 		count(*) FILTER (WHERE kind='series' AND deleted_at IS NULL),
 		(SELECT count(*) FROM workflows WHERE terminal_at IS NULL),
 		(SELECT count(*) FROM workflows WHERE terminal_at IS NULL AND state IN ('needs_attention','held','blocked','quarantined','transport_unknown')),
-		(SELECT count(*) FROM library_link_versions WHERE state='current'),
+		(SELECT count(*) FROM library_link_versions WHERE state='current') +
+			(SELECT count(*) FROM adopted_files WHERE state='current'),
 		(SELECT count(*) FROM recycle_entries WHERE state NOT IN ('restored','purged')),
 		(SELECT count(*) FROM outbox_events WHERE completed_at IS NULL)
 		FROM media_items`).Scan(
@@ -102,21 +103,31 @@ func (store *Store) ListActivity(ctx context.Context, limit int) ([]ActivityEven
 }
 
 type ManagedFile struct {
-	ID                  uuid.UUID         `json:"id"`
-	MediaID             uuid.UUID         `json:"media_id"`
-	MediaKind           catalog.MediaKind `json:"media_kind"`
-	Title               string            `json:"title"`
-	Year                *uint16           `json:"year,omitempty"`
-	RootName            string            `json:"root_name"`
-	DestinationRelative string            `json:"destination_relative"`
-	SourceRelative      string            `json:"source_relative"`
-	PlexVisibleTarget   string            `json:"plex_visible_target"`
-	State               string            `json:"state"`
-	Generation          int               `json:"generation"`
-	PlexConfirmed       bool              `json:"plex_confirmed"`
-	VerifiedAt          *time.Time        `json:"verified_at,omitempty"`
-	DisplacedAt         *time.Time        `json:"displaced_at,omitempty"`
-	RemovedAt           *time.Time        `json:"removed_at,omitempty"`
+	ID                   uuid.UUID         `json:"id"`
+	MediaID              uuid.UUID         `json:"media_id"`
+	MediaKind            catalog.MediaKind `json:"media_kind"`
+	Title                string            `json:"title"`
+	Year                 *uint16           `json:"year,omitempty"`
+	RootName             string            `json:"root_name"`
+	DestinationRelative  string            `json:"destination_relative"`
+	SourceRelative       string            `json:"source_relative"`
+	PlexVisibleTarget    string            `json:"plex_visible_target"`
+	State                string            `json:"state"`
+	Generation           int               `json:"generation"`
+	PlexConfirmed        bool              `json:"plex_confirmed"`
+	VerifiedAt           *time.Time        `json:"verified_at,omitempty"`
+	DisplacedAt          *time.Time        `json:"displaced_at,omitempty"`
+	RemovedAt            *time.Time        `json:"removed_at,omitempty"`
+	Variant              string            `json:"variant"`
+	Origin               string            `json:"origin"`
+	QualityProfile       string            `json:"quality_profile"`
+	QualityEvidenceState string            `json:"quality_evidence_state"`
+	QualityEvidence      json.RawMessage   `json:"quality_evidence"`
+	SourceSizeBytes      *int64            `json:"source_size_bytes,omitempty"`
+	SourceModifiedAt     *time.Time        `json:"source_modified_at,omitempty"`
+	OriginalSourceRoot   string            `json:"original_source_root,omitempty"`
+	AdoptionBatchID      *uuid.UUID        `json:"adoption_batch_id,omitempty"`
+	PlexProviderGUID     string            `json:"plex_provider_guid,omitempty"`
 }
 
 func (store *Store) ListManagedFiles(ctx context.Context, limit int) ([]ManagedFile, error) {
@@ -146,19 +157,52 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 	if mediaID != nil {
 		mediaIDValue = mediaID.String()
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT version.id::text,media.id::text,media.kind,media.title,media.year,root.name,link.destination_relative,
-		version.source_relative,version.plex_visible_target,version.state,version.generation,
-		EXISTS(SELECT 1 FROM plex_confirmations confirmation WHERE confirmation.link_version_id=version.id),
-		version.verified_at,version.displaced_at,removal.removed_at
-		FROM library_link_versions version
-		JOIN library_links link ON link.id=version.library_link_id
-		JOIN library_roots root ON root.id=link.root_id
-		JOIN workflows workflow ON workflow.id=version.workflow_id
-		JOIN media_items media ON media.id=workflow.media_id
-		LEFT JOIN library_link_removals removal ON removal.version_id=version.id
-		WHERE ($1::uuid IS NULL OR version.id=$1::uuid) AND ($2::uuid IS NULL OR media.id=$2::uuid)
-		ORDER BY CASE version.state WHEN 'current' THEN 0 WHEN 'verified' THEN 1 WHEN 'publishing' THEN 2 ELSE 3 END,
-			COALESCE(version.verified_at,workflow.updated_at) DESC,version.id
+	rows, err := store.Pool.Query(ctx, `SELECT item.id,item.media_id,item.media_kind,item.title,item.year,item.root_name,item.destination_relative,
+		item.source_relative,item.plex_visible_target,item.state,item.generation,item.plex_confirmed,
+		item.verified_at,item.displaced_at,item.removed_at,item.variant,item.origin,item.quality_profile,
+		item.quality_evidence_state,item.quality_evidence,item.source_size_bytes,item.source_modified_at,
+		item.original_source_root,item.adoption_batch_id,item.plex_provider_guid
+		FROM (
+			SELECT version.id::text AS id,media.id::text AS media_id,media.kind AS media_kind,media.title,media.year,
+				root.name AS root_name,link.destination_relative,version.source_relative,version.plex_visible_target,
+				version.state,version.generation,(confirmation.provider_namespace IS NOT NULL) AS plex_confirmed,
+				version.verified_at,version.displaced_at,removal.removed_at,workflow.variant,'altmount'::text AS origin,
+				profile.name AS quality_profile,
+				CASE WHEN asset.media_info IS NOT NULL THEN 'media_info' WHEN observation.id IS NOT NULL THEN 'release_evidence' ELSE 'unassessed' END AS quality_evidence_state,
+				COALESCE(asset.media_info,observation.normalized_facts,'{}'::jsonb) AS quality_evidence,
+				asset.size_bytes AS source_size_bytes,NULL::timestamptz AS source_modified_at,''::text AS original_source_root,
+				NULL::text AS adoption_batch_id,
+				COALESCE(confirmation.provider_namespace || '://' || confirmation.provider_value,'') AS plex_provider_guid,
+				COALESCE(version.verified_at,workflow.updated_at) AS sort_at
+			FROM library_link_versions version
+			JOIN library_links link ON link.id=version.library_link_id
+			JOIN library_roots root ON root.id=link.root_id
+			JOIN workflows workflow ON workflow.id=version.workflow_id
+			JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
+			JOIN media_items media ON media.id=workflow.media_id
+			JOIN altmount_output_assets asset ON asset.id=version.source_asset_id
+			LEFT JOIN release_candidates candidate ON candidate.id=workflow.selected_release_id
+			LEFT JOIN release_observations observation ON observation.id=candidate.observation_id
+			LEFT JOIN LATERAL (
+				SELECT item.provider_namespace,item.provider_value FROM plex_confirmations item
+				WHERE item.link_version_id=version.id ORDER BY item.confirmed_at DESC LIMIT 1
+			) confirmation ON true
+			LEFT JOIN library_link_removals removal ON removal.version_id=version.id
+			UNION ALL
+			SELECT adopted.id::text,media.id::text,media.kind,media.title,media.year,root.name,
+				adopted.destination_relative,adopted.original_relative,adopted.plex_observed_path,
+				adopted.state,1,true,adopted.verified_at,NULL::timestamptz,NULL::timestamptz,
+				adopted.variant,'adoption'::text,profile.name,adopted.quality_evidence_state,
+				adopted.quality_evidence,adopted.source_size,to_timestamp(adopted.source_modtime_ns / 1000000000.0),
+				adopted.original_source_root,adopted.adoption_batch_id::text,adopted.provider_guid,adopted.verified_at
+			FROM adopted_files adopted
+			JOIN media_items media ON media.id=adopted.media_id
+			JOIN library_roots root ON root.id=adopted.root_id
+			JOIN quality_profiles profile ON profile.id=adopted.quality_profile_id
+		) item
+		WHERE ($1::uuid IS NULL OR item.id::uuid=$1::uuid) AND ($2::uuid IS NULL OR item.media_id::uuid=$2::uuid)
+		ORDER BY CASE item.state WHEN 'current' THEN 0 WHEN 'verified' THEN 1 WHEN 'publishing' THEN 2 ELSE 3 END,
+			item.sort_at DESC,item.id
 		LIMIT $3`, idValue, mediaIDValue, limit)
 	if err != nil {
 		return nil, err
@@ -168,8 +212,10 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 	for rows.Next() {
 		var item ManagedFile
 		var idText, mediaText string
+		var adoptionBatchText *string
 		var year *int16
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.RootName, &item.DestinationRelative, &item.SourceRelative, &item.PlexVisibleTarget, &item.State, &item.Generation, &item.PlexConfirmed, &item.VerifiedAt, &item.DisplacedAt, &item.RemovedAt); err != nil {
+		var qualityEvidence []byte
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.RootName, &item.DestinationRelative, &item.SourceRelative, &item.PlexVisibleTarget, &item.State, &item.Generation, &item.PlexConfirmed, &item.VerifiedAt, &item.DisplacedAt, &item.RemovedAt, &item.Variant, &item.Origin, &item.QualityProfile, &item.QualityEvidenceState, &qualityEvidence, &item.SourceSizeBytes, &item.SourceModifiedAt, &item.OriginalSourceRoot, &adoptionBatchText, &item.PlexProviderGUID); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)
@@ -177,6 +223,14 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 		if year != nil {
 			converted := uint16(*year)
 			item.Year = &converted
+		}
+		item.QualityEvidence = append(json.RawMessage(nil), qualityEvidence...)
+		if adoptionBatchText != nil {
+			parsed, parseErr := uuid.Parse(*adoptionBatchText)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			item.AdoptionBatchID = &parsed
 		}
 		result = append(result, item)
 	}
@@ -331,9 +385,15 @@ func (store *Store) ListWanted(ctx context.Context, limit int) ([]WantedItem, er
 		JOIN media_items media ON media.id=workflow.media_id
 		JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
 		LEFT JOIN LATERAL (
-			SELECT true AS present FROM library_link_versions version
-			JOIN workflows published_workflow ON published_workflow.id=version.workflow_id
-			WHERE published_workflow.media_id=workflow.media_id AND published_workflow.variant=workflow.variant AND version.state='current'
+			SELECT true AS present FROM (
+				SELECT published_workflow.media_id,published_workflow.variant
+				FROM library_link_versions version
+				JOIN workflows published_workflow ON published_workflow.id=version.workflow_id
+				WHERE version.state='current'
+				UNION ALL
+				SELECT adopted.media_id,adopted.variant FROM adopted_files adopted WHERE adopted.state='current'
+			) current_file
+			WHERE current_file.media_id=workflow.media_id AND current_file.variant=workflow.variant
 			LIMIT 1
 		) current_link ON true
 		WHERE workflow.terminal_at IS NULL AND media.deleted_at IS NULL

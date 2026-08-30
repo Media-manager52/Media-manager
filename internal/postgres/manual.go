@@ -209,7 +209,12 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	} else if err != nil {
 		return workflows.Workflow{}, err
 	}
-	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id WHERE workflow.media_id=$1 AND workflow.variant=$2 AND version.state='current')`, item.ID.String(), variant).Scan(&hasCurrent); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id
+		WHERE workflow.media_id=$1 AND workflow.variant=$2 AND version.state='current'
+		UNION ALL
+		SELECT 1 FROM adopted_files adopted WHERE adopted.media_id=$1 AND adopted.variant=$2 AND adopted.state='current'
+	)`, item.ID.String(), variant).Scan(&hasCurrent); err != nil {
 		return workflows.Workflow{}, err
 	}
 	if hasCurrent && !upgradesEnabled {

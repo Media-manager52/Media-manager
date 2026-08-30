@@ -288,6 +288,31 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || completedAdoption.State != "complete" || completedAdoption.Items[0].ExecutionState != "complete" {
 		t.Fatalf("completed adoption=%+v err=%v", completedAdoption, err)
 	}
+	files, err = store.ListManagedFiles(ctx, 100)
+	if err != nil || len(files) != 1 || files[0].ID != adoptionItem.ID || files[0].Origin != "adoption" || files[0].Variant != "default" || files[0].State != "current" || !files[0].PlexConfirmed || files[0].QualityEvidenceState != "unassessed" || files[0].SourceSizeBytes == nil || *files[0].SourceSizeBytes != 1024 || files[0].AdoptionBatchID == nil || *files[0].AdoptionBatchID != adoptionBatch.ID {
+		t.Fatalf("adopted current-file read model=%+v err=%v", files, err)
+	}
+	movieDetail, err = store.MediaDetail(ctx, movie.ID)
+	if err != nil || len(movieDetail.Files) != 1 || movieDetail.Files[0].Origin != "adoption" {
+		t.Fatalf("adopted media detail=%+v err=%v", movieDetail, err)
+	}
+	dashboard, err = store.Dashboard(ctx, time.Now().UTC())
+	if err != nil || dashboard.Counts.CurrentFiles != 1 {
+		t.Fatalf("dashboard adopted current count=%+v err=%v", dashboard.Counts, err)
+	}
+	wanted, err = store.ListWanted(ctx, 100)
+	if err != nil || len(wanted) != 3 {
+		t.Fatalf("wanted after adoption=%+v err=%v", wanted, err)
+	}
+	var movieGap string
+	for _, item := range wanted {
+		if item.MediaID == movie.ID {
+			movieGap = item.Gap
+		}
+	}
+	if movieGap != "upgrade" {
+		t.Fatalf("adopted movie wanted gap=%q, want upgrade", movieGap)
+	}
 	destination, err := store.CreateNotificationDestination(ctx, NotificationDestination{Name: "Owner webhook", Endpoint: "https://notifications.invalid/hook", Enabled: true, Events: []string{"collection.created"}, SecretRef: "NOTIFICATION_TEST_SECRET"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)

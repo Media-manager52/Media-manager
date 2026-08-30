@@ -60,6 +60,13 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 	if active > 0 {
 		return nil, errors.New("media has an active workflow; cancel or finish it before deleting")
 	}
+	var adoptedCurrent bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND state='current')`, mediaID.String()).Scan(&adoptedCurrent); err != nil {
+		return nil, err
+	}
+	if adoptedCurrent {
+		return nil, errors.New("adopted real files require a separately confirmed recycle workflow")
+	}
 	rows, err := transaction.Query(ctx, `SELECT version.id::text,link.id::text,root.id::text,root.destination_root,link.destination_relative,version.plex_visible_target
 		FROM library_link_versions version JOIN library_links link ON link.id=version.library_link_id JOIN library_roots root ON root.id=link.root_id JOIN workflows workflow ON workflow.id=version.workflow_id
 		WHERE workflow.media_id=$1 AND version.state='current' FOR UPDATE OF version,link`, mediaID.String())

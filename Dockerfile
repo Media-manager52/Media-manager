@@ -40,6 +40,10 @@ ARG NEXT_PUBLIC_MEDIA_MANAGER_MODE=live
 ENV NEXT_PUBLIC_MEDIA_MANAGER_MODE=${NEXT_PUBLIC_MEDIA_MANAGER_MODE}
 RUN npm run build
 
+FROM ui-build AS ui-test
+COPY tests ./tests
+RUN node --test tests/*.test.mjs
+
 FROM node:24-alpine AS ui
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000

@@ -320,13 +320,43 @@ func (store *Store) CompleteAdoptionExecution(ctx context.Context, batchID uuid.
 	if approved != confirmed {
 		return errors.New("not every adopted item has Plex confirmation")
 	}
+	_, err = transaction.Exec(ctx, `INSERT INTO adopted_files(
+		id,adoption_batch_id,adoption_item_id,media_id,root_id,quality_profile_id,variant,
+		original_source_root,original_relative,destination_relative,source_size,source_modtime_ns,
+		plex_observed_path,plex_item_key,provider_guid,quality_evidence_state,quality_evidence,state,verified_at)
+		SELECT item.id,item.batch_id,item.id,item.media_id,item.root_id,item.quality_profile_id,item.variant,
+			batch.source_root,item.original_relative,item.proposed_relative,operation.source_size,operation.source_modtime_ns,
+			confirmation.observed_path,confirmation.rating_key,confirmation.provider_guid,'unassessed','{}'::jsonb,'current',confirmation.confirmed_at
+		FROM adoption_items item
+		JOIN adoption_batches batch ON batch.id=item.batch_id
+		JOIN LATERAL (
+			SELECT source_size,source_modtime_ns FROM adoption_operations
+			WHERE item_id=item.id AND kind='primary' AND state='verified'
+			ORDER BY ordinal LIMIT 1
+		) operation ON true
+		JOIN LATERAL (
+			SELECT observed_path,rating_key,provider_guid,confirmed_at FROM adoption_plex_confirmations
+			WHERE item_id=item.id ORDER BY confirmed_at DESC,id DESC LIMIT 1
+		) confirmation ON true
+		WHERE item.batch_id=$1 AND item.review_state='approved'
+		ON CONFLICT(adoption_item_id) DO NOTHING`, batchID.String())
+	if err != nil {
+		return err
+	}
+	var represented int
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM adopted_files WHERE adoption_batch_id=$1`, batchID.String()).Scan(&represented); err != nil {
+		return err
+	}
+	if represented != approved {
+		return errors.New("not every adopted item has durable current-file provenance")
+	}
 	if _, err := transaction.Exec(ctx, `UPDATE adoption_items SET execution_state='complete' WHERE batch_id=$1 AND review_state='approved'`, batchID.String()); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE adoption_batches SET state='complete',completed_at=$2 WHERE id=$1`, batchID.String(), now.UTC()); err != nil {
 		return err
 	}
-	detail, _ := json.Marshal(map[string]any{"items": approved, "plex_confirmed": confirmed, "monitoring_changes": 0, "rollback_required": false})
+	detail, _ := json.Marshal(map[string]any{"items": approved, "plex_confirmed": confirmed, "current_files_recorded": represented, "quality_evidence": "unassessed", "monitoring_changes": 0, "rollback_required": false})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'system','adoption.execution_completed','adoption_batch',$2,$3,$4)`, uuid.NewV7().String(), batchID.String(), detail, now.UTC()); err != nil {
 		return err
 	}
