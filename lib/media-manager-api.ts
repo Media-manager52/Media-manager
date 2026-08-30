@@ -21,7 +21,7 @@ export type APIDashboard = {
   generated_at: string
 }
 export type APIManagedFile = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; root_name: string; destination_relative: string; source_relative: string; plex_visible_target: string; state: string; generation: number; plex_confirmed: boolean; verified_at?: string; displaced_at?: string; removed_at?: string }
-export type APIReleaseCandidate = { id: string; workflow_id: string; media_id: string; media_kind: "movie" | "series"; media_title: string; media_year?: number; title: string; indexer_id: string; indexer_name: string; size_bytes?: number; published_at?: string; verdict?: string; score?: number; reasons: unknown[]; normalized_facts: Record<string, unknown>; problems: unknown[]; selected: boolean; observed_at: string }
+export type APIReleaseCandidate = { id: string; workflow_id: string; media_id: string; media_kind: "movie" | "series"; media_title: string; media_year?: number; variant: string; title: string; indexer_id: string; indexer_name: string; size_bytes?: number; published_at?: string; verdict?: string; score?: number; reasons: unknown[]; normalized_facts: Record<string, unknown>; problems: unknown[]; selected: boolean; observed_at: string }
 export type APISourceStatus = APIIntegration & { configuration_state: "configured" | "disabled" | "awaiting_commission"; minimum_interval_ms?: number; next_allowed_at?: string; cooldown_until?: string; consecutive_failure: number; last_outcome?: string; budget_updated_at?: string }
 export type APISystemHealth = { database_state: string; database_latency_ms: number; schema_version: number; expected_schema: number; outbox: { pending: number; due: number; retrying: number; oldest_due_at?: string }; components: APISourceStatus[]; checked_at: string }
 export type APIMediaSeason = { number: number; monitored: boolean; prefer_season_pack: boolean; search_immediately: boolean; state: string; expected_episodes: number; workflow_id?: string; workflow_state?: string; updated_at: string }
@@ -34,6 +34,7 @@ export type APIDiscoverySearchResult = { id: number; mediaType: "movie" | "tv"; 
 export type APIDiscoverySearchPage = { page: number; totalPages: number; totalResults: number; results: APIDiscoverySearchResult[] }
 export type APIDiscoverySeason = { number: number; episodes: Array<{ number: number; provider_id: string; title: string; air_date: string }> }
 export type APIDiscoveryDetail = { kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; tmdb_id: number; season?: APIDiscoverySeason }
+export type APIReleaseBlock = { id: string; scope: "native_release" | "pack_release"; indexer_instance_id?: string; indexer_name?: string; media_id?: string; media_title?: string; variant?: string; native_key?: string; release_title: string; reason: string; expires_at?: string; created_at: string; created_by: string }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -90,6 +91,7 @@ export const loadTasks = (signal?: AbortSignal) => requestJSON<APITasks>("/api/v
 export const loadSystemInfo = (signal?: AbortSignal) => requestJSON<APISystemInfo>("/api/v1/system/info", { signal })
 export const searchMetadata = (query: string, page = 1, signal?: AbortSignal) => requestJSON<APIDiscoverySearchPage>(`/api/v1/discovery/search?query=${encodeURIComponent(query)}&page=${page}`, { signal })
 export const loadDiscoveryMetadata = (kind: "movie" | "tv", tmdbID: number, season?: number, signal?: AbortSignal) => requestJSON<APIDiscoveryDetail>(`/api/v1/discovery/${kind}/${tmdbID}${season === undefined ? "" : `?season=${season}`}`, { signal })
+export const loadReleaseBlocks = async (signal?: AbortSignal) => await requestJSON<APIReleaseBlock[] | null>("/api/v1/blocklist?limit=300", { signal }) ?? []
 
 export type CreateMediaInput = {
   kind: "movie" | "series"
@@ -113,5 +115,7 @@ export const createQualityProfile = (input: Omit<APIQualityProfile, "id">) => re
 export const createExistingWorkflow = (mediaId: string, input: Record<string, unknown>) => requestJSON<Record<string, unknown>>(`/api/v1/media/${encodeURIComponent(mediaId)}/workflows`, { method: "POST", body: JSON.stringify(input) })
 export const searchWorkflow = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/search`, { method: "POST" })
 export const cancelWorkflow = (id: string) => requestJSON<Record<string, unknown>>(`/api/v1/workflows/${encodeURIComponent(id)}/cancel`, { method: "POST" })
+export const createReleaseBlock = (input: { candidate_id: string; scope: "native_release" | "pack_release"; reason: string; retention_days?: 30 | 90 }) => requestJSON<APIReleaseBlock>("/api/v1/blocklist", { method: "POST", body: JSON.stringify(input) })
+export const deleteReleaseBlock = (id: string) => requestJSON<void>(`/api/v1/blocklist/${encodeURIComponent(id)}`, { method: "DELETE" })
 export const uploadProwlarrBackup = (file: File) => requestJSON<APIProwlarrImport>("/api/v1/imports/prowlarr", { method: "POST", headers: { "Content-Type": "application/zip" }, body: file })
 export const approveProwlarrImport = (id: string, candidates: Array<{ id: string; secret_ref: string }>) => requestJSON<APIProwlarrImport>(`/api/v1/imports/prowlarr/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ candidates }) })

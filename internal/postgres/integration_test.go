@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -179,6 +180,32 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	candidates, err := store.ListReleaseCandidates(ctx, 100)
 	if err != nil || len(candidates) != 0 {
 		t.Fatalf("release read model before search worker: items=%d err=%v", len(candidates), err)
+	}
+	blockedCandidateID := uuid.NewV7()
+	runID, observationID := uuid.NewV7(), uuid.NewV7()
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO search_runs(id,workflow_id,mode,query_fingerprint,state,policy_version,started_at,completed_at) VALUES($1,$2,'targeted',$3,'complete',1,now(),now())`, runID.String(), movieWorkflows[0].ID.String(), []byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_observations(id,indexer_instance_id,operation_key,native_guid,title,body_sha256,raw_fields,normalized_facts,parse_version,problems,observed_at) VALUES($1,$2,'test','native-guid','Integration.Movie.2026.1080p-GROUP',$3,'{}','{}','test','[]',now())`, observationID.String(), indexer.ID.String(), []byte{2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at) VALUES($1,$2,$3,$4,$5,'native-guid','Integration.Movie.2026.1080p-GROUP','native:native-guid',now())`, blockedCandidateID.String(), movieWorkflows[0].ID.String(), runID.String(), observationID.String(), indexer.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().UTC().Add(90 * 24 * time.Hour)
+	block, err := store.CreateReleaseBlockFromCandidate(ctx, blockedCandidateID, "native_release", "passworded payload", &expires, time.Now().UTC())
+	if err != nil || !block.Matches(indexer.ID, "native-guid", movie.ID, "default", "ignored") {
+		t.Fatalf("create native release block=%+v err=%v", block, err)
+	}
+	if _, err := store.CreateReleaseBlockFromCandidate(ctx, blockedCandidateID, "native_release", "duplicate block", &expires, time.Now().UTC()); !errors.Is(err, ErrReleaseBlockExists) {
+		t.Fatalf("duplicate native release block error=%v", err)
+	}
+	activeBlocks, err := store.ListActiveReleaseBlocks(ctx, movie.ID, "default", time.Now().UTC())
+	if err != nil || len(activeBlocks) != 1 {
+		t.Fatalf("active release blocks=%+v err=%v", activeBlocks, err)
+	}
+	if err := store.DeleteReleaseBlock(ctx, block.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
 	}
 	sources, err := store.ListSourceStatuses(ctx)
 	if err != nil || len(sources) != 3 {

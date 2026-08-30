@@ -74,6 +74,7 @@ import {
 } from "./live-screens"
 import {
   LiveActivityHistoryScreen,
+  LiveBlocklistScreen,
   LiveComponentHealthScreen,
   LiveFileDetailScreen,
   LiveFilesScreen,
@@ -104,6 +105,7 @@ const liveNavigation: NavGroup[] = [
   { label: "Activity", items: [
     { label: "Workflows", href: "/activity/queue", icon: Activity },
     { label: "History", href: "/activity/history", icon: FileClock },
+    { label: "Blocklist", href: "/activity/blocklist", icon: ShieldCheck },
   ] },
   { label: "Intelligence", items: [
     { label: "Release Intelligence", href: "/intelligence/releases", icon: Sparkles },
@@ -243,6 +245,7 @@ function RouteContent({ path }: { path: string }) {
   if (path === "/activity/queue") return <LiveWorkflowScreen />
   if (path === "/activity/recycle") return <LiveRecycleScreen />
   if (path === "/activity/history") return <LiveActivityHistoryScreen />
+  if (path === "/activity/blocklist") return <LiveBlocklistScreen />
   if (path === "/intelligence/releases") return <LiveReleaseIntelligenceScreen />
   if (path === "/intelligence/groups") return <LiveReleaseIntelligenceScreen mode="groups" />
   if (path === "/intelligence/evidence") return <LiveReleaseIntelligenceScreen mode="evidence" />

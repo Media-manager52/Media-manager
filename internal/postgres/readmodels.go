@@ -357,6 +357,7 @@ type ReleaseCandidateSummary struct {
 	MediaKind       catalog.MediaKind `json:"media_kind"`
 	MediaTitle      string            `json:"media_title"`
 	MediaYear       *uint16           `json:"media_year,omitempty"`
+	Variant         string            `json:"variant"`
 	Title           string            `json:"title"`
 	IndexerID       uuid.UUID         `json:"indexer_id"`
 	IndexerName     string            `json:"indexer_name"`
@@ -375,7 +376,7 @@ func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]Rel
 	if limit < 1 || limit > 500 {
 		limit = 200
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT candidate.id::text,candidate.workflow_id::text,media.id::text,media.kind,media.title,media.year,
+	rows, err := store.Pool.Query(ctx, `SELECT candidate.id::text,candidate.workflow_id::text,media.id::text,media.kind,media.title,media.year,workflow.variant,
 		candidate.title,indexer.id::text,indexer.name,candidate.size_bytes,candidate.published_at,
 		COALESCE(decision.verdict,''),decision.score,COALESCE(decision.reasons,'[]'::jsonb),observation.normalized_facts,observation.problems,
 		(selection.candidate_id IS NOT NULL),observation.observed_at
@@ -401,7 +402,7 @@ func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]Rel
 		var idText, workflowText, mediaText, indexerText string
 		var year *int16
 		var reasons, facts, problems []byte
-		if err := rows.Scan(&idText, &workflowText, &mediaText, &item.MediaKind, &item.MediaTitle, &year, &item.Title, &indexerText, &item.IndexerName, &item.SizeBytes, &item.PublishedAt, &item.Verdict, &item.Score, &reasons, &facts, &problems, &item.Selected, &item.ObservedAt); err != nil {
+		if err := rows.Scan(&idText, &workflowText, &mediaText, &item.MediaKind, &item.MediaTitle, &year, &item.Variant, &item.Title, &indexerText, &item.IndexerName, &item.SizeBytes, &item.PublishedAt, &item.Verdict, &item.Score, &reasons, &facts, &problems, &item.Selected, &item.ObservedAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

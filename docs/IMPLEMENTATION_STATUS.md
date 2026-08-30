@@ -37,7 +37,7 @@ screens.
 | `/activity/queue` | Partial | Lists real workflow summaries and queues safe search/cancel transitions. | Add job/attempt detail, phase evidence, per-operation progress, and attention recovery. |
 | `/activity/recycle` | Partial | Lists persisted recycle cycles and queues whole-media restore. | Add cycle detail and explicit confirmation UI for real-file purge cases. |
 | `/activity/history` | Partial | Merges real workflow transitions and audit events into a bounded durable timeline. | Add correlation, filtering, pagination, and complete audit coverage. |
-| `/activity/blocklist` | Mock-only | Live build reports unavailable. | Add exact-release/pack-scope block persistence and APIs. |
+| `/activity/blocklist` | Real | Creates blocks only from persisted observations, scopes them to an indexer/native GUID or exact media/season/title, supports 30/90-day or manual retention, audits create/remove, and makes future searches persist a rejected blocklist decision. | — |
 | `/discover` | Partial | Searches real Seerr metadata on owner action, verifies TMDB/TVDB/IMDb identities with a detail lookup, resolves exact TV episode snapshots per selected season, and creates workflows with root/profile/client overrides. A clearly labeled manual-ID fallback remains. | Add result pagination, richer disambiguation, duplicate preview, and artwork selection. |
 | `/intelligence/releases` | Partial | Lists real persisted candidates, observations, policy verdicts/scores, selections, size, and indexer provenance. | Add per-search comparison, complete explanations, and pagination. |
 | `/intelligence/groups` | Partial | Aggregates observed group facts from persisted release evidence and explicitly avoids trust labels. | Add time windows, contradiction detail, and server-side aggregation. |
@@ -72,6 +72,7 @@ screens.
 | Newznab commissioning | Partial | A disabled instance is paced at at least three seconds, fetches CAPS, requires generic search, and performs one random negative query before enablement. The approved multi-phase lab and detailed evidence are not implemented. |
 | Newznab runtime pacing | Real | Per-indexer single-flight lanes, a global bound, persisted next-allowed/cooldown state, `Retry-After`, and bounded backoff wrap supported indexer requests. |
 | Release search/evidence/policy | Partial UI | Search runs, raw observations, normalized evidence, decisions, and selection are persisted and now have bounded read screens. Raw provenance, comparison detail, and pagination remain incomplete. |
+| Narrow release blocklist | Real | Owner blocks originate from persisted candidates; native blocks bind indexer plus native GUID and pack blocks bind media plus season variant plus exact title. Matching observations remain visible but are rejected before ranking. |
 | AltMount retrieval and reconciliation | Real | Submission intent, unknown-outcome recovery, queue observation, SSE/poll reconciliation, output inventory, and read-only source paths are implemented. |
 | Complete TV season packs as one job | Real | One season workflow creates an immutable expectation; one AltMount job is evaluated for exact episode coverage and published only from verified content groups. |
 | Plex-safe symlink publication | Real | Paths are containment-checked, names require verified Plex-supported identity, symlinks are batch-published, and Plex confirms every expected path/identity. |
@@ -83,12 +84,12 @@ screens.
 | Integration/profile/root lifecycle | Partial | Create and list are real. Update, disable/delete, default reassignment, and most safe tests are missing. |
 | Audit/history | Partial | Core writes append `audit_events` and workflow transitions and now have a bounded owner read API/UI; not every operation emits an audit event and pagination/filtering are missing. |
 | Component health | Partial | Process, PostgreSQL/schema, outbox, integration configuration, and persisted indexer-operation state are real. Bounded Plex/AltMount/Seerr operation status is still missing. |
-| Backups, notifications, import lists, collections, blocklist, machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
+| Backups, notifications, import lists, collections, machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
 
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
+release intelligence and narrow blocklist; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.

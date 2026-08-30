@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 import {
   Activity,
   AlertTriangle,
@@ -28,12 +29,15 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
+  createReleaseBlock,
+  deleteReleaseBlock,
   loadActivity,
   loadDashboard,
   loadMedia,
   loadManagedFile,
   loadManagedFiles,
   loadReleaseCandidates,
+  loadReleaseBlocks,
   loadSources,
   loadSystemHealth,
   loadSystemInfo,
@@ -124,6 +128,7 @@ const dashboardLoader = (signal: AbortSignal) => loadDashboard(signal)
 const activityLoader = (signal: AbortSignal) => loadActivity(signal)
 const filesLoader = (signal: AbortSignal) => loadManagedFiles(signal)
 const releasesLoader = (signal: AbortSignal) => loadReleaseCandidates(signal)
+const blocksLoader = (signal: AbortSignal) => loadReleaseBlocks(signal)
 const sourcesLoader = (signal: AbortSignal) => loadSources(signal)
 const healthLoader = (signal: AbortSignal) => loadSystemHealth(signal)
 const wantedLoader = (signal: AbortSignal) => loadWanted(signal)
@@ -241,6 +246,44 @@ export function LiveReleaseIntelligenceScreen({ mode = "releases" }: { mode?: "r
     {error ? <ErrorNotice error={error} /> : null}
     <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Eligible" value={String(eligible)} note="Passed required rules" tone="good" icon={CheckCircle2} /><MetricCard label="Held" value={String(held)} note="Unknown or conflicting evidence" tone={held ? "warn" : "good"} icon={AlertTriangle} /><MetricCard label="Rejected" value={String(rejected)} note="Failed a hard requirement" tone={rejected ? "bad" : "neutral"} icon={ShieldCheck} /></div>
     {!data && !error ? <LoadingPanel label="Loading persisted release evidence…" /> : mode === "evidence" ? <EvidenceTable items={items} refresh={refresh} /> : <ReleaseTable items={items} refresh={refresh} />}
+  </div>
+}
+
+export function LiveBlocklistScreen() {
+  const blocksState = useLiveData(blocksLoader)
+  const candidatesState = useLiveData(releasesLoader)
+  const blocks = blocksState.data ?? []
+  const candidates = candidatesState.data ?? []
+  const [candidateID, setCandidateID] = React.useState("")
+  const [scope, setScope] = React.useState<"native_release" | "pack_release">("native_release")
+  const [reason, setReason] = React.useState("")
+  const [retention, setRetention] = React.useState("90")
+  const [busy, setBusy] = React.useState("")
+  const selected = candidates.find((candidate) => candidate.id === candidateID)
+  const active = blocks.filter((block) => !block.expires_at || new Date(block.expires_at) > new Date())
+  async function add(event: React.FormEvent) {
+    event.preventDefault()
+    if (!selected) return
+    setBusy("create")
+    try {
+      const days = Number(retention) as 0 | 30 | 90
+      await createReleaseBlock({ candidate_id: selected.id, scope, reason: reason.trim(), ...(days ? { retention_days: days } : {}) })
+      toast.success("Release block persisted"); setReason(""); await blocksState.refresh()
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not block release") }
+    finally { setBusy("") }
+  }
+  async function remove(id: string) {
+    if (!window.confirm("Remove this release block? Future searches may consider the release again.")) return
+    setBusy(id)
+    try { await deleteReleaseBlock(id); toast.success("Release block removed"); await blocksState.refresh() }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not remove block") }
+    finally { setBusy("") }
+  }
+  const error = blocksState.error || candidatesState.error
+  return <div className="space-y-4">
+    {error ? <ErrorNotice error={error} /> : null}
+    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Active blocks" value={String(active.length)} note="Exact release scopes only" tone={active.length ? "warn" : "good"} icon={ShieldCheck} /><MetricCard label="Native release" value={String(active.filter((item) => item.scope === "native_release").length)} note="Indexer plus native GUID" icon={Globe2} /><MetricCard label="Season packs" value={String(active.filter((item) => item.scope === "pack_release").length)} note="Media, season, and exact title" icon={ListChecks} /></div>
+    <div className="grid gap-4 xl:grid-cols-[1.3fr_380px]"><Panel className="!p-0" title="Release blocklist" subtitle="Blocks reject only the persisted native release or exact media/season pack; provider health is unaffected." action={<RefreshButton onClick={() => { blocksState.refresh(); candidatesState.refresh() }} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Release</TableHead><TableHead>Scope</TableHead><TableHead>Reason</TableHead><TableHead>Expires</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{blocks.map((block) => { const expired = Boolean(block.expires_at && new Date(block.expires_at) <= new Date()); return <TableRow key={block.id}><TableCell className="max-w-lg font-semibold text-[#dfe5ec]">{block.release_title}<div className="mt-1 text-[9px] text-[#748090]">{block.scope === "native_release" ? block.indexer_name : `${block.media_title} · ${block.variant}`}</div></TableCell><TableCell><StatusChip tone={expired ? "neutral" : "warn"}>{expired ? "Expired" : pretty(block.scope)}</StatusChip></TableCell><TableCell className="max-w-sm">{block.reason}</TableCell><TableCell>{block.expires_at ? new Date(block.expires_at).toLocaleDateString() : "Manual removal"}</TableCell><TableCell><Button size="sm" variant="ghost" disabled={busy === block.id} onClick={() => void remove(block.id)}>Remove</Button></TableCell></TableRow> })}</TableBody></Table></div>{blocks.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No releases are blocked.</div> : null}</Panel><Panel title="Block observed release" subtitle="Only a persisted candidate can become a block; arbitrary broad patterns are not accepted."><form className="grid gap-3" onSubmit={add}><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Observed candidate<select className="mm-input h-10 rounded-md px-3" value={candidateID} onChange={(event) => { const value = event.target.value; setCandidateID(value); const item = candidates.find((candidate) => candidate.id === value); if (!item?.variant.startsWith("season:")) setScope("native_release") }} required><option value="">Select a persisted candidate</option>{candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.media_title} · {candidate.title}</option>)}</select></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Scope<select className="mm-input h-10 rounded-md px-3" value={scope} onChange={(event) => setScope(event.target.value as "native_release" | "pack_release")}><option value="native_release">This indexer + native release</option><option value="pack_release" disabled={!selected?.variant.startsWith("season:")}>This exact media + season pack title</option></select></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Retention<select className="mm-input h-10 rounded-md px-3" value={retention} onChange={(event) => setRetention(event.target.value)}><option value="30">30 days</option><option value="90">90 days</option><option value="0">Until manually removed</option></select></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Reason<Input className="mm-input" minLength={3} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why this exact release is unsafe" required /></label><Button type="submit" disabled={!selected || busy === "create"}><ShieldCheck /> Persist narrow block</Button></form><InlineNotice tone="info" title="Search behavior">Blocked observations remain in evidence history with a rejected policy decision. No request is sent to an indexer from this screen.</InlineNotice></Panel></div>
   </div>
 }
 

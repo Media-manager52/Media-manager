@@ -117,6 +117,7 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 				evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native release identity", Decision: releases.DecisionUnknown, Reason: "provider supplied no retrievable native GUID"})
 			}
 			evaluation = constrainMediaMatch(observation, evaluation, search.Media)
+			evaluation = applyReleaseBlocks(observation, evaluation, search)
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
 		}
 	}
@@ -126,6 +127,18 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 	fingerprint := sha256.Sum256([]byte(search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)))
 	_, err = service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, time.Now().UTC())
 	return err
+}
+
+func applyReleaseBlocks(observation releases.Observation, evaluation releases.Evaluation, search postgres.SearchContext) releases.Evaluation {
+	for _, block := range search.Blocks {
+		if !block.Matches(observation.IndexerID, observation.NativeGUID, search.Media.ID, search.Variant, observation.Title) {
+			continue
+		}
+		evaluation.Verdict = releases.VerdictRejected
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "release blocklist", Fact: "native_release", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: block.Reason})
+		return evaluation
+	}
+	return evaluation
 }
 
 func constrainMediaMatch(observation releases.Observation, evaluation releases.Evaluation, media catalog.MediaItem) releases.Evaluation {

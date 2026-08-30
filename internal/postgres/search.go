@@ -22,6 +22,7 @@ type SearchContext struct {
 	PolicyVersion uint64
 	Policy        json.RawMessage
 	Indexers      []Integration
+	Blocks        []ReleaseBlock
 }
 type EvaluatedObservation struct {
 	Observation releases.Observation
@@ -87,6 +88,10 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 		if integration.Kind == "newznab" && integration.Enabled && json.Unmarshal(integration.Config, &config) == nil && config.ModeVerified {
 			result.Indexers = append(result.Indexers, integration)
 		}
+	}
+	result.Blocks, err = store.ListActiveReleaseBlocks(ctx, result.Media.ID, result.Variant, time.Now().UTC())
+	if err != nil {
+		return SearchContext{}, err
 	}
 	return result, nil
 }
