@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/adoption"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/importlists"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/prowlarrbackup"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -96,6 +98,10 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("DELETE /api/v1/blocklist/{id}", server.requireOwner(server.deleteReleaseBlock))
 	server.mux.HandleFunc("GET /api/v1/wanted", server.requireOwner(server.listWanted))
 	server.mux.HandleFunc("GET /api/v1/sources", server.requireOwner(server.listSources))
+	server.mux.HandleFunc("GET /api/v1/import-lists", server.requireOwner(server.listImportLists))
+	server.mux.HandleFunc("POST /api/v1/import-lists", server.requireOwner(server.createImportList))
+	server.mux.HandleFunc("GET /api/v1/import-lists/{id}", server.requireOwner(server.getImportList))
+	server.mux.HandleFunc("POST /api/v1/import-lists/{id}/snapshots", server.requireOwner(server.createImportListSnapshot))
 	server.mux.HandleFunc("GET /api/v1/system/health", server.requireOwner(server.systemHealth))
 	server.mux.HandleFunc("GET /api/v1/system/tasks", server.requireOwner(server.listTasks))
 	server.mux.HandleFunc("GET /api/v1/system/info", server.requireOwner(server.systemInfo))
@@ -116,6 +122,100 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("PATCH /api/v1/settings/notifications/{id}", server.requireOwner(server.setNotificationDestinationState))
 	server.mux.HandleFunc("GET /api/v1/notifications/deliveries", server.requireOwner(server.listNotificationDeliveries))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+}
+
+func (server *Server) listImportLists(writer http.ResponseWriter, request *http.Request) {
+	items, err := server.store.ListImportLists(request.Context())
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load import lists")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items})
+}
+
+func (server *Server) createImportList(writer http.ResponseWriter, request *http.Request) {
+	var input struct {
+		Name                  string `json:"name"`
+		Provider              string `json:"provider"`
+		Enabled               bool   `json:"enabled"`
+		MovieRootID           string `json:"movie_root_id"`
+		MovieQualityProfileID string `json:"movie_quality_profile_id"`
+	}
+	if err := decodeJSON(request, &input, 32<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	rootID, rootErr := optionalUUID(input.MovieRootID)
+	profileID, profileErr := optionalUUID(input.MovieQualityProfileID)
+	if rootErr != nil || profileErr != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_configuration", "movie root or profile ID is invalid")
+		return
+	}
+	item, err := server.store.CreateImportList(request.Context(), postgres.ImportList{Name: input.Name, Provider: input.Provider, Enabled: input.Enabled, MovieRootID: rootID, MovieQualityProfileID: profileID}, time.Now().UTC())
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_import_list", "import list is invalid or conflicts with an existing name")
+		return
+	}
+	writer.Header().Set("Location", "/api/v1/import-lists/"+item.ID.String())
+	writeJSON(writer, http.StatusCreated, dataEnvelope{Data: item})
+}
+
+func (server *Server) getImportList(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "import-list ID is invalid")
+		return
+	}
+	item, err := server.store.ImportList(request.Context(), id)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "import list was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load import list")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: item})
+}
+
+func (server *Server) createImportListSnapshot(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "import-list ID is invalid")
+		return
+	}
+	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(request.Header.Get("Content-Type"), ";")[0]))
+	if mediaType != "text/csv" && mediaType != "application/csv" && mediaType != "application/vnd.ms-excel" {
+		writeError(writer, http.StatusUnsupportedMediaType, "invalid_content_type", "an IMDb CSV export is required")
+		return
+	}
+	const maxSnapshotBytes = 2 << 20
+	body, err := io.ReadAll(io.LimitReader(request.Body, maxSnapshotBytes+1))
+	if err != nil || len(body) == 0 || len(body) > maxSnapshotBytes {
+		writeError(writer, http.StatusBadRequest, "invalid_snapshot", "IMDb export must be non-empty and no larger than 2 MiB")
+		return
+	}
+	parsed, err := importlists.ParseIMDbExport(strings.NewReader(string(body)))
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_snapshot", err.Error())
+		return
+	}
+	digestBytes := sha256.Sum256(body)
+	snapshot, err := server.store.CreateImportListSnapshot(request.Context(), id, hex.EncodeToString(digestBytes[:]), parsed, time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "import list was not found")
+		return
+	}
+	if errors.Is(err, postgres.ErrDuplicateSnapshot) {
+		writeError(writer, http.StatusConflict, "duplicate_snapshot", "this exact IMDb export was already reviewed")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "snapshot_failed", "could not persist the import-list review snapshot")
+		return
+	}
+	writer.Header().Set("Location", "/api/v1/import-lists/"+id.String())
+	writeJSON(writer, http.StatusCreated, dataEnvelope{Data: snapshot})
 }
 
 func (server *Server) listNotificationDestinations(writer http.ResponseWriter, request *http.Request) {

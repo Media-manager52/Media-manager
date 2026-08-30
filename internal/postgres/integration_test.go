@@ -16,6 +16,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/adoption"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/importlists"
 	"github.com/media-manager/media-manager/internal/releases"
 )
 
@@ -109,6 +110,29 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 		t.Fatalf("movie workflows=%d, want 1", len(movieWorkflows))
 	}
 	assertWorkflowIntent(t, ctx, store, movieWorkflows[0].ID, "default", 0, 1)
+	configuredList, err := store.CreateImportList(ctx, ImportList{Name: "IMDb owner export", Provider: "imdb_export", Enabled: true, MovieRootID: &movieRoot, MovieQualityProfileID: &movieProfile}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mediaBeforeSnapshot, workflowsBeforeSnapshot int
+	if err := store.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM media_items),(SELECT count(*) FROM workflows)`).Scan(&mediaBeforeSnapshot, &workflowsBeforeSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.CreateImportListSnapshot(ctx, configuredList.ID, strings.Repeat("a", 64), []importlists.Item{{Ordinal: 1, MediaKind: "movie", Provider: "imdb", ProviderID: "tt1234567", Title: "Snapshot Movie", State: "pending_review"}, {Ordinal: 2, MediaKind: "series", Provider: "imdb", ProviderID: "tt7654321", Title: "Snapshot Series", State: "unsupported", Attention: "Exact TV season selection is required before monitoring."}}, time.Now().UTC())
+	if err != nil || snapshot.ItemCount != 2 || snapshot.PendingCount != 1 || snapshot.UnsupportedCount != 1 {
+		t.Fatalf("import-list snapshot=%+v err=%v", snapshot, err)
+	}
+	loadedList, err := store.ImportList(ctx, configuredList.ID)
+	if err != nil || loadedList.LatestSnapshot == nil || len(loadedList.LatestSnapshot.Items) != 2 {
+		t.Fatalf("loaded import list=%+v err=%v", loadedList, err)
+	}
+	if _, err := store.CreateImportListSnapshot(ctx, configuredList.ID, strings.Repeat("a", 64), []importlists.Item{{Ordinal: 1, MediaKind: "movie", Provider: "imdb", ProviderID: "tt1234567", Title: "Snapshot Movie", State: "pending_review"}}, time.Now().UTC()); !errors.Is(err, ErrDuplicateSnapshot) {
+		t.Fatalf("duplicate snapshot error=%v", err)
+	}
+	var mediaAfterSnapshot, workflowsAfterSnapshot int
+	if err := store.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM media_items),(SELECT count(*) FROM workflows)`).Scan(&mediaAfterSnapshot, &workflowsAfterSnapshot); err != nil || mediaAfterSnapshot != mediaBeforeSnapshot || workflowsAfterSnapshot != workflowsBeforeSnapshot {
+		t.Fatalf("snapshot changed monitoring state: media %d/%d workflows %d/%d err=%v", mediaBeforeSnapshot, mediaAfterSnapshot, workflowsBeforeSnapshot, workflowsAfterSnapshot, err)
+	}
 
 	seriesRoot, seriesProfile, seriesClient, err := store.ResolveMediaConfiguration(ctx, catalog.KindSeries, nil, nil, nil)
 	if err != nil || seriesClient != altMount.ID {

@@ -46,7 +46,7 @@ screens.
 | `/sources/indexers/:id` | Partial | Shows real endpoint, secret reference name, commission state, minimum interval, cooldown, failures, and latest outcome. | Add capability detail and commissioning history. |
 | `/sources/indexer-lab` | Partial | The live route is a real Prowlarr ZIP review/import flow; approved instances remain disabled pending commissioning. | Separate backup import from the approved paced commissioning diagnostics and remove the route-name mismatch. |
 | `/sources/download-clients` | Partial | Exposes real AltMount configuration state and endpoint without probing or claiming synthetic health. | Add capability/path observations, queue summaries, and edit/disable controls. |
-| `/sources/import-lists` | Mock-only | Live build reports unavailable. | Implement list sources and monitoring-only synchronization, or remove only after an explicit product decision. |
+| `/sources/import-lists` | Partial | Persists owner-configured IMDb CSV export lists and bounded, digest-deduplicated review snapshots. Rows are classified as pending review, already cataloged, or unsupported; snapshot upload is proven not to create media, workflows, searches, release evidence, or downloads. TV rows are held because exact-season selection is required. | Implement explicit movie monitoring approval with metadata verification, exact-season TV review, repeat-snapshot reconciliation, and only then additional approved providers such as Trakt. |
 | `/settings/profiles` | Partial | Lists and creates real quality profiles with one required and one preferred rule. | Implement the full approved rule editor, validation, versioning, cutoff, language/audio/subtitle goals, edit, and disable. |
 | `/settings/metadata` | Partial | Reports whether the running Seerr metadata provider is configured, the verified identity namespaces, exact-season snapshot behavior, and the absence of artwork persistence without probing on page load. | Add separate provider lifecycle/status, artwork choices and locks, catalog refresh state, and sidecar output. |
 | `/settings/media-management` | Partial | Reports the running read-only AltMount, Plex-safe symlink, Plex-confirmed upgrade gate, and 30-day recycle contracts without pretending unsupported policies are editable. | Add configuration only for narrowly supported lifecycle policies and naming/companion behavior. |
@@ -85,12 +85,13 @@ screens.
 | Audit/history | Partial | Core writes append `audit_events` and workflow transitions and now have a bounded owner read API/UI; not every operation emits an audit event and pagination/filtering are missing. |
 | Component health | Partial | Process, PostgreSQL/schema, outbox, integration configuration, and persisted indexer-operation state are real. Bounded Plex/AltMount/Seerr operation status is still missing. |
 | Owner notifications | Real | Exact audit-event subscriptions queue durable webhook deliveries; endpoint paths, audit detail, and secret values are excluded from owner responses and delivery payloads. Delivery attempts, bounded errors, response status, and retry state are persisted. |
-| Backups, import lists, machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
+| Import-list snapshots | Partial | Owner-supplied IMDb exports are parsed with strict identity/year/duplicate bounds and persisted as review-only snapshots. Applying monitoring decisions and external provider synchronization are deliberately absent. |
+| Backups and machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
 
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence and narrow blocklist; dated episode calendar; manual collections; owner notifications and delivery history; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
+release intelligence and narrow blocklist; dated episode calendar; manual collections; owner notifications and delivery history; review-only import-list snapshots; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.

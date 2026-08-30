@@ -31,6 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   createReleaseBlock,
   createNotificationDestination,
+  createImportList,
   deleteReleaseBlock,
   loadActivity,
   loadCalendar,
@@ -40,6 +41,8 @@ import {
   loadManagedFiles,
   loadNotificationDeliveries,
   loadNotificationDestinations,
+  loadImportList,
+  loadImportLists,
   loadReleaseCandidates,
   loadReleaseBlocks,
   loadSources,
@@ -48,12 +51,14 @@ import {
   loadTasks,
   loadWanted,
   setNotificationDestinationEnabled,
+  uploadImportListSnapshot,
   type APIActivity,
   type APIReleaseCandidate,
   type APISourceStatus,
   type APISystemHealth,
   type APISystemInfo,
   type APITasks,
+  type APIImportList,
 } from "@/lib/media-manager-api"
 import { InlineNotice, KeyValue, MetricCard, Panel, StatusChip } from "./ui"
 
@@ -142,6 +147,7 @@ const tasksLoader = (signal: AbortSignal) => loadTasks(signal)
 const systemInfoLoader = (signal: AbortSignal) => loadSystemInfo(signal)
 const notificationDestinationsLoader = (signal: AbortSignal) => loadNotificationDestinations(signal)
 const notificationDeliveriesLoader = (signal: AbortSignal) => loadNotificationDeliveries(signal)
+const importListsLoader = (signal: AbortSignal) => loadImportLists(signal)
 
 export function LiveOperationalDashboardScreen() {
   const { data, error, refresh } = useLiveData(dashboardLoader)
@@ -417,6 +423,35 @@ export function LiveNotificationsScreen() {
   const deliveries = deliveriesState.data ?? []
   const error = destinationsState.error || deliveriesState.error
   return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}<div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Destinations" value={String(destinations.length)} note={`${destinations.filter((item) => item.enabled).length} enabled`} icon={Globe2} /><MetricCard label="Delivered" value={String(deliveries.filter((item) => item.state === "delivered").length)} note="Bounded durable history" tone="good" icon={CheckCircle2} /><MetricCard label="Failed" value={String(deliveries.filter((item) => item.state === "failed").length)} note="Worker retries remain visible" tone={deliveries.some((item) => item.state === "failed") ? "warn" : "good"} icon={AlertTriangle} /></div><div className="grid gap-4 xl:grid-cols-[1.3fr_380px]"><Panel className="!p-0" title="Notification destinations" subtitle="Payloads contain event identity and object references, never audit detail or secret values." action={<RefreshButton onClick={() => { destinationsState.refresh(); deliveriesState.refresh() }} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Endpoint</TableHead><TableHead>Events</TableHead><TableHead>Secret reference</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{destinations.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell className="max-w-sm break-all font-mono text-[9px]">{item.endpoint}</TableCell><TableCell className="max-w-sm text-[9px]">{item.events.join(" · ")}</TableCell><TableCell className="font-mono text-[9px]">{item.secret_ref || "—"}</TableCell><TableCell><StatusChip tone={item.enabled ? "good" : "neutral"}>{item.enabled ? "Enabled" : "Disabled"}</StatusChip></TableCell><TableCell><Button size="sm" variant="outline" disabled={busy === item.id} onClick={() => void toggle(item.id, !item.enabled)}>{item.enabled ? "Disable" : "Enable"}</Button></TableCell></TableRow>)}</TableBody></Table></div>{destinations.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No notification destinations configured.</div> : null}</Panel><Panel title="Add owner webhook" subtitle="Saving does not send a test message. HTTPS is required unless local HTTP is explicitly allowed."><form className="grid gap-3" onSubmit={create}><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Name<Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Webhook endpoint<Input className="mm-input" type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://notify.example/hook" required /></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Events<Input className="mm-input" value={events} onChange={(event) => setEvents(event.target.value)} required /></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Bearer secret environment name<Input className="mm-input font-mono" value={secretRef} onChange={(event) => setSecretRef(event.target.value)} placeholder="Optional" /></label><label className="flex items-center gap-2 text-[9.5px] text-[#8d98a6]"><input type="checkbox" checked={allowHTTP} onChange={(event) => setAllowHTTP(event.target.checked)} />Allow plain HTTP for an explicitly local destination</label><Button type="submit" disabled={busy === "create"}>Save destination</Button></form></Panel></div><Panel className="!p-0" title="Delivery history" subtitle="Durable attempts and bounded, redacted event payloads."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Created</TableHead><TableHead>Destination</TableHead><TableHead>Event</TableHead><TableHead>Object</TableHead><TableHead>State</TableHead><TableHead>Attempts</TableHead></TableRow></TableHeader><TableBody>{deliveries.map((item) => <TableRow key={item.id}><TableCell>{new Date(item.created_at).toLocaleString()}</TableCell><TableCell>{item.destination}</TableCell><TableCell className="font-mono text-[9px]">{item.payload.action}</TableCell><TableCell>{item.payload.aggregate_type}</TableCell><TableCell><StatusChip tone={item.state === "delivered" ? "good" : item.state === "failed" ? "warn" : "info"}>{pretty(item.state)}{item.response_status ? ` · ${item.response_status}` : ""}</StatusChip>{item.last_error ? <div className="mt-1 text-[9px] text-[#c6a867]">{item.last_error}</div> : null}</TableCell><TableCell>{item.attempts}</TableCell></TableRow>)}</TableBody></Table></div>{deliveries.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No delivery attempts have been queued.</div> : null}</Panel></div>
+}
+
+export function LiveImportListsScreen() {
+  const listsState = useLiveData(importListsLoader)
+  const [selectedID, setSelectedID] = React.useState("")
+  const lists = listsState.data ?? []
+  const effectiveSelectedID = selectedID || lists[0]?.id || ""
+  const selectedLoader = React.useCallback((signal: AbortSignal) => effectiveSelectedID ? loadImportList(effectiveSelectedID, signal) : Promise.resolve(null), [effectiveSelectedID])
+  const selectedState = useLiveData<APIImportList | null>(selectedLoader)
+  const [name, setName] = React.useState("")
+  const [file, setFile] = React.useState<File | null>(null)
+  const [busy, setBusy] = React.useState("")
+  async function create(event: React.FormEvent) {
+    event.preventDefault(); setBusy("create")
+    try { const created = await createImportList({ name: name.trim(), provider: "imdb_export", enabled: true }); toast.success("Import list persisted"); setName(""); setSelectedID(created.id); listsState.refresh() }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not create import list") }
+    finally { setBusy("") }
+  }
+  async function upload(event: React.FormEvent) {
+    event.preventDefault(); if (!effectiveSelectedID || !file) return; setBusy("upload")
+    try { await uploadImportListSnapshot(effectiveSelectedID, file); toast.success("IMDb snapshot persisted for review; no monitoring changed"); setFile(null); selectedState.refresh(); listsState.refresh() }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not review IMDb export") }
+    finally { setBusy("") }
+  }
+  const selected = selectedState.data
+  const snapshot = selected?.latest_snapshot
+  const items = snapshot?.items ?? []
+  const error = listsState.error || selectedState.error
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}<InlineNotice tone="info" title="Review only">IMDb exports are parsed into persisted review rows. Uploading a snapshot creates no media, workflows, searches, release evidence, or downloads. TV rows remain unsupported until an exact season can be chosen.</InlineNotice><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Lists" value={String(lists.length)} note="Owner-supplied IMDb exports" icon={ListChecks} /><MetricCard label="Pending review" value={String(snapshot?.pending_count ?? 0)} note="No monitoring change has been applied" tone={snapshot?.pending_count ? "warn" : "neutral"} icon={SearchCheck} /><MetricCard label="Already cataloged" value={String(snapshot?.existing_count ?? 0)} note={`${snapshot?.unsupported_count ?? 0} unsupported rows`} tone="info" icon={CheckCircle2} /></div><div className="grid gap-4 xl:grid-cols-[1.3fr_380px]"><Panel className="!p-0" title="Import lists" subtitle="Persisted source configuration and latest bounded snapshot counts." action={<RefreshButton onClick={listsState.refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Source</TableHead><TableHead>Movie profile</TableHead><TableHead>Latest snapshot</TableHead><TableHead>Items</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{lists.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell>IMDb CSV export</TableCell><TableCell>{item.movie_quality_profile || "Type default"}</TableCell><TableCell>{item.latest_snapshot ? timeAgo(item.latest_snapshot.created_at) : "Never"}</TableCell><TableCell>{item.latest_snapshot?.item_count ?? 0}</TableCell><TableCell><Button size="sm" variant={effectiveSelectedID === item.id ? "default" : "outline"} onClick={() => setSelectedID(item.id)}>Review</Button></TableCell></TableRow>)}</TableBody></Table></div>{lists.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No import lists configured.</div> : null}</Panel><div className="space-y-4"><Panel title="Add IMDb export list" subtitle="This creates configuration only; it does not fetch or import anything."><form className="grid gap-3" onSubmit={create}><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Name<Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="IMDb owner watchlist" required /></label><KeyValue label="Provider" value="IMDb CSV export" /><KeyValue label="Monitoring defaults" value="Movie type defaults; search off" /><Button type="submit" disabled={busy === "create"}>Save list</Button></form></Panel><Panel title="Review a new snapshot" subtitle={selected ? `Selected: ${selected.name}` : "Select or create a list first."}><form className="grid gap-3" onSubmit={upload}><Input className="mm-input" type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} disabled={!selected} /><Button type="submit" disabled={!selected || !file || busy === "upload"}>Parse snapshot for review</Button></form></Panel></div></div><Panel className="!p-0" title={selected ? `${selected.name} · latest review` : "Latest review"} subtitle={snapshot ? `${snapshot.item_count} rows persisted ${new Date(snapshot.created_at).toLocaleString()}. Digest ${snapshot.source_digest.slice(0, 12)}…` : "No snapshot has been uploaded."}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>#</TableHead><TableHead>Title</TableHead><TableHead>Identity</TableHead><TableHead>Kind</TableHead><TableHead>Review state</TableHead><TableHead>Attention</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell>{item.ordinal}</TableCell><TableCell className="font-semibold">{item.title}{item.year ? ` (${item.year})` : ""}</TableCell><TableCell className="font-mono text-[9px]">IMDb {item.provider_id}</TableCell><TableCell>{pretty(item.media_kind)}</TableCell><TableCell><StatusChip tone={item.state === "already_cataloged" ? "good" : item.state === "pending_review" ? "warn" : "neutral"}>{pretty(item.state)}</StatusChip></TableCell><TableCell className="max-w-md text-[9px]">{item.attention || (item.state === "pending_review" ? "Awaiting an implemented monitoring review action." : "—")}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No persisted review rows.</div> : null}</Panel></div>
 }
 
 function SystemInfoContent({ data, mode, refresh }: { data: APISystemInfo; mode: "media-management" | "security" | "api"; refresh: () => void }) {

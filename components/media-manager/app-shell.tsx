@@ -82,6 +82,7 @@ import {
   LiveFileDetailScreen,
   LiveFilesScreen,
   LiveIndexerDetailScreen,
+  LiveImportListsScreen,
   LiveLibraryScreen,
   LiveMetadataSettingsScreen,
   LiveNotificationsScreen,
@@ -122,6 +123,7 @@ const liveNavigation: NavGroup[] = [
   { label: "Sources", items: [
     { label: "Indexers", href: "/sources/indexers", icon: Globe2 },
     { label: "Prowlarr import", href: "/sources/indexer-lab", icon: DatabaseBackup },
+    { label: "Import Lists", href: "/sources/import-lists", icon: ListChecks },
     { label: "Download Clients", href: "/sources/download-clients", icon: ServerCog },
   ] },
   { label: "Setup", items: [
@@ -265,6 +267,7 @@ function RouteContent({ path }: { path: string }) {
   if (path === "/sources/download-clients") return <LiveSourcesScreen kind="altmount" />
   if (path === "/settings/connections") return <LiveConnectionsScreen />
   if (path === "/sources/indexer-lab") return <LiveProwlarrImportScreen />
+  if (path === "/sources/import-lists") return <LiveImportListsScreen />
   if (path === "/settings/storage") return <LiveRootsScreen />
   if (path === "/settings/profiles") return <LiveProfilesScreen />
   if (path === "/settings/metadata") return <LiveMetadataSettingsScreen />
