@@ -33,7 +33,7 @@ screens.
 | `/collections` | Partial | Persists audited manual groupings of real catalog items and requires a server-side exact-member preview before creation; deleting a collection never changes media or files. | Add approved evidence-backed smart rules, rule previews, and membership refresh history. |
 | `/calendar` | Partial | Persists exact Seerr episode air dates with immutable season expectations and lists dated episodes with real monitoring/workflow state; missing dates are omitted and dates never trigger search. | Add movie release/digital dates, provider refresh history, owner range controls, and timezone preferences. |
 | `/wanted` | Partial | Derives missing versus upgrade gaps from active workflows, current publication by item/scope, and the persisted target profile. | Add independent quality/language/audio/subtitle goal deltas and pagination. |
-| `/import` | Partial | Performs a bounded read-only directory-entry scan under a configured library root without following symlinks, persists every video/companion review item, requires an explicit catalog/root/profile/path decision or rejection, and can approve a fully reviewed plan without executing it. | Implement journaled execution, verification, rollback, Plex reconciliation, and separately gated live-action confirmation. |
+| `/import` | Partial | Performs bounded read-only discovery and per-item review, then requires an exact owner confirmation before a maximum 25-item same-root execution. Primary files and recognized companions are renamed through contained filesystem roots; unknown companions are fingerprinted and preserved. Every path is journaled before mutation, retries recover unknown rename outcomes, failures roll back in reverse order, and completion requires durable Plex path plus provider-identity confirmation. | Apply reviewed monitoring/search only after current-file representation is completed, add explicitly reviewed cross-root handling, expose operation/confirmation detail, and support larger batches without stressing Plex. |
 | `/activity/queue` | Partial | Lists real workflow summaries and queues safe search/cancel transitions. | Add job/attempt detail, phase evidence, per-operation progress, and attention recovery. |
 | `/activity/recycle` | Partial | Lists persisted recycle cycles and queues whole-media restore. | Add cycle detail and explicit confirmation UI for real-file purge cases. |
 | `/activity/history` | Partial | Merges real workflow transitions and audit events into a bounded durable timeline. | Add correlation, filtering, pagination, and complete audit coverage. |
@@ -79,7 +79,7 @@ screens.
 | Safe upgrades | Real invariant, partial product | Existing current links are displaced and removed only inside the transaction triggered after Plex confirms the replacement. Current-quality comparison, cutoff presentation, and owner-facing upgrade evidence remain incomplete. |
 | Multiple roots/defaults/per-item override | Real backend, partial UI | Movie/series defaults and explicit request overrides are enforced. UI can create/list but cannot validate, edit, or disable roots. |
 | Recycle retention | Real | Managed links enter a 30-day persisted cycle; AltMount source is retained. Restore and due-purge workers exist, with confirmation required for real files. |
-| Existing-library adoption review | Partial | Read-only bounded discovery, companion classification, per-item review, compatible catalog/root/profile validation, path containment, batch approval, and audit are real. Plan approval queues no work; journaled execution, verification, rollback, and Plex reconciliation remain missing and must stay separately gated. |
+| Existing-library adoption | Partial | Read-only bounded discovery, companion classification, per-item review, compatible catalog/root/profile validation, exact live-action confirmation, contained same-root renames, durable path fingerprints, retry recovery, reverse rollback, and Plex path/identity confirmation are real. Execution is capped at 25 approved items and rejects monitoring/search rather than silently ignoring it. | Persist adopted-current file quality/provenance, then apply reviewed monitoring and safe upgrade state; add reviewed cross-root execution and richer journal UI. |
 | Prowlarr backup-only import | Real, with a review gap | ZIP/SQLite parsing is bounded and review creates disabled Newznab instances. The owner must manually place extracted keys into the secret environment before approval; import history/listing is absent. There is no Prowlarr runtime connection. |
 | Integration/profile/root lifecycle | Partial | Create and list are real. Update, disable/delete, default reassignment, and most safe tests are missing. |
 | Audit/history | Partial | Core writes append `audit_events` and workflow transitions and now have a bounded owner read API/UI; not every operation emits an audit event and pagination/filtering are missing. |
@@ -92,7 +92,7 @@ screens.
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence and narrow blocklist; dated episode calendar; manual collections; owner notifications and delivery history; review-only import-list snapshots; encrypted backup history/queue/download; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
+release intelligence and narrow blocklist; dated episode calendar; manual collections; owner notifications and delivery history; review-only import-list snapshots; encrypted backup history/queue/download; journaled same-root adoption review/execution/Plex confirmation; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.
@@ -123,7 +123,8 @@ for smoke testing without explicit approval.
 3. Replace `LiveUnavailableScreen` route by route using the approved concept
    layout and truthful empty/error states.
 4. Complete configuration edit/disable/test lifecycles and full profile rules.
-5. Implement adoption discovery/review/execution as a separately gated,
-   reversible milestone; never execute it as part of automated verification.
+5. Complete adopted-current provenance and reviewed monitoring on top of the
+   separately gated, reversible same-root execution path; never execute it as
+   part of automated verification.
 6. Implement remaining approved persisted domains (collections, calendar/wanted,
    blocklist, import lists, notifications, backups) in small verified milestones.

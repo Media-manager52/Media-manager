@@ -15,6 +15,7 @@ import (
 
 	"github.com/media-manager/media-manager/internal/acquisition"
 	seerradapter "github.com/media-manager/media-manager/internal/adapters/seerr"
+	"github.com/media-manager/media-manager/internal/adoptionexec"
 	"github.com/media-manager/media-manager/internal/backups"
 	"github.com/media-manager/media-manager/internal/commissioning"
 	"github.com/media-manager/media-manager/internal/httpapi"
@@ -149,6 +150,11 @@ func run() error {
 	handlers["plex.scan_requested"] = plexService.HandleScan
 	handlers["plex.confirm_requested"] = plexService.HandleConfirm
 	handlers["plex.recycle_refresh_requested"] = plexService.HandleRecycleRefresh
+	adoptionService := &adoptionexec.Service{Store: store, PlexClientFor: func(integration postgres.Integration) (adoptionexec.PlexClient, error) {
+		return plexService.ClientFor(integration)
+	}}
+	handlers["adoption.execute_requested"] = adoptionService.HandleExecute
+	handlers["adoption.plex_confirm_requested"] = adoptionService.HandlePlexConfirm
 	recycleService := &recycle.Service{Store: store}
 	handlers["recycle.move_requested"] = recycleService.HandleMove
 	handlers["recycle.restore_requested"] = recycleService.HandleRestore

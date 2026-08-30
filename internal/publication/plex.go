@@ -49,7 +49,7 @@ func (service *PlexService) HandleScan(ctx context.Context, event postgres.Outbo
 	if scan.State != "planned" {
 		return nil
 	}
-	client, err := service.clientFor(scan.Integration)
+	client, err := service.ClientFor(scan.Integration)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (service *PlexService) HandleConfirm(ctx context.Context, event postgres.Ou
 	if !now.Before(scan.DeadlineAt) {
 		return service.Store.TimeoutPlexScan(ctx, scan, now)
 	}
-	client, err := service.clientFor(scan.Integration)
+	client, err := service.ClientFor(scan.Integration)
 	if err != nil {
 		return err
 	}
@@ -139,14 +139,14 @@ func (service *PlexService) HandleRecycleRefresh(ctx context.Context, event post
 	if err != nil {
 		return err
 	}
-	client, err := service.clientFor(integration)
+	client, err := service.ClientFor(integration)
 	if err != nil {
 		return err
 	}
 	return client.Refresh(ctx, root.PlexLibraryID, filepath.Dir(filepath.Join(root.PlexVisibleRoot, entry.OriginalRelative)))
 }
 
-func (service *PlexService) clientFor(integration postgres.Integration) (*plex.Client, error) {
+func (service *PlexService) ClientFor(integration postgres.Integration) (*plex.Client, error) {
 	if integration.Kind != "plex" || !integration.Enabled {
 		return nil, errors.New("Plex integration is disabled")
 	}

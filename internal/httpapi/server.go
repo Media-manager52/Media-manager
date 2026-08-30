@@ -76,6 +76,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/adoption/{id}", server.requireOwner(server.getAdoptionBatch))
 	server.mux.HandleFunc("PATCH /api/v1/adoption/{id}/items/{itemID}", server.requireOwner(server.reviewAdoptionItem))
 	server.mux.HandleFunc("POST /api/v1/adoption/{id}/approve", server.requireOwner(server.approveAdoptionBatch))
+	server.mux.HandleFunc("POST /api/v1/adoption/{id}/execute", server.requireOwner(server.executeAdoptionBatch))
 	server.mux.HandleFunc("GET /api/v1/collections", server.requireOwner(server.listCollections))
 	server.mux.HandleFunc("POST /api/v1/collections", server.requireOwner(server.createCollection))
 	server.mux.HandleFunc("POST /api/v1/collections/preview", server.requireOwner(server.previewCollection))
@@ -620,6 +621,36 @@ func (server *Server) approveAdoptionBatch(writer http.ResponseWriter, request *
 	}
 	item, _ := server.store.AdoptionBatch(request.Context(), id)
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: item})
+}
+
+func (server *Server) executeAdoptionBatch(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "adoption batch ID is invalid")
+		return
+	}
+	var input struct {
+		Confirmation string `json:"confirmation"`
+	}
+	if err := decodeJSON(request, &input, 8<<10); err != nil || input.Confirmation != "EXECUTE REVIEWED ADOPTION" {
+		writeError(writer, http.StatusBadRequest, "confirmation_required", "exact adoption execution confirmation is required")
+		return
+	}
+	err = server.store.QueueAdoptionExecution(request.Context(), id, time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "adoption batch was not found")
+		return
+	}
+	if errors.Is(err, postgres.ErrAdoptionMonitoringUnsupported) {
+		writeError(writer, http.StatusConflict, "monitoring_not_supported", "this execution slice requires monitoring and immediate search to be off")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusConflict, "execution_failed", "adoption plan is not executable in its current state")
+		return
+	}
+	item, _ := server.store.AdoptionBatch(request.Context(), id)
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: item})
 }
 
 func (server *Server) listReleaseBlocks(writer http.ResponseWriter, request *http.Request) {

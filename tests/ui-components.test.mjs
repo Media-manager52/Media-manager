@@ -155,6 +155,7 @@ test("maps persisted operational read models into the live route switch", async 
     "/api/v1/discovery/search",
     "/api/v1/blocklist",
     "/api/v1/adoption",
+    "/execute",
     "/api/v1/collections",
     "/api/v1/calendar",
     "/api/v1/settings/notifications",

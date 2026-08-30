@@ -256,6 +256,38 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || approvedAdoption.State != "approved" || approvedAdoption.ApprovedItems != 1 || approvedAdoption.Items[0].ExecutionState != "pending" {
 		t.Fatalf("approved adoption plan=%+v err=%v", approvedAdoption, err)
 	}
+	if err := store.QueueAdoptionExecution(ctx, adoptionBatch.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	executionContext, err := store.AdoptionExecutionContext(ctx, adoptionBatch.ID)
+	if err != nil || len(executionContext.Items) != 1 || executionContext.Batch.ExecutionDeadline == nil {
+		t.Fatalf("adoption execution context=%+v err=%v", executionContext, err)
+	}
+	operations, err := store.PrepareAdoptionOperations(ctx, adoptionBatch.ID, []AdoptionOperation{{ItemID: adoptionItem.ID, Ordinal: 1, Kind: "primary", SourceRelative: "existing/Integration Movie.mkv", DestinationRelative: "Integration Movie (2026)/Integration Movie (2026).mkv", SourceSize: 1024, SourceModTimeNS: 1}})
+	if err != nil || len(operations) != 1 {
+		t.Fatalf("adoption operations=%+v err=%v", operations, err)
+	}
+	if err := store.MarkAdoptionOperation(ctx, operations[0].ID, "verified", "", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueueAdoptionPlexConfirmation(ctx, adoptionBatch.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	confirmation := AdoptionPlexConfirmation{ItemID: adoptionItem.ID, ObservedPath: "/libraries/movies/Integration Movie (2026)/Integration Movie (2026).mkv", RatingKey: "123", ProviderGUID: "tmdb://123456", ConfirmedAt: time.Now().UTC()}
+	if err := store.RecordAdoptionPlexConfirmation(ctx, adoptionBatch.ID, confirmation); err != nil {
+		t.Fatal(err)
+	}
+	confirmedContext, err := store.AdoptionExecutionContext(ctx, adoptionBatch.ID)
+	if err != nil || !confirmedContext.ConfirmedItems[adoptionItem.ID] {
+		t.Fatalf("persisted adoption confirmation=%+v err=%v", confirmedContext.ConfirmedItems, err)
+	}
+	if err := store.CompleteAdoptionExecution(ctx, adoptionBatch.ID, nil, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	completedAdoption, err := store.AdoptionBatch(ctx, adoptionBatch.ID)
+	if err != nil || completedAdoption.State != "complete" || completedAdoption.Items[0].ExecutionState != "complete" {
+		t.Fatalf("completed adoption=%+v err=%v", completedAdoption, err)
+	}
 	destination, err := store.CreateNotificationDestination(ctx, NotificationDestination{Name: "Owner webhook", Endpoint: "https://notifications.invalid/hook", Enabled: true, Events: []string{"collection.created"}, SecretRef: "NOTIFICATION_TEST_SECRET"}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
