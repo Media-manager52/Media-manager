@@ -27,14 +27,18 @@ import {
   loadLibraryRoots,
   loadMedia,
   loadMediaDetail,
+  loadDiscoveryMetadata,
   loadQualityProfiles,
   loadRecycle,
   loadWorkflows,
   recycleMedia,
   restoreRecycle,
+  searchMetadata,
   searchWorkflow,
   uploadProwlarrBackup,
   type APIIntegration,
+  type APIDiscoveryDetail,
+  type APIDiscoverySearchResult,
   type APILibraryRoot,
   type APIMediaDetail,
   type APIQualityProfile,
@@ -136,6 +140,12 @@ function parseSeasonSpec(value: string) {
   })
 }
 
+function parseSeasonNumbers(value: string) {
+  const numbers = value.split(",").map((part) => Number(part.trim()))
+  if (numbers.length === 0 || numbers.some((number) => !Number.isInteger(number) || number < 0 || number > 999) || new Set(numbers).size !== numbers.length) throw new Error("Use unique season numbers, for example 1, 2")
+  return numbers
+}
+
 export function LiveDiscoverScreen() {
   const router = useRouter()
   const [kind, setKind] = React.useState<"movie" | "series">("movie")
@@ -144,6 +154,11 @@ export function LiveDiscoverScreen() {
   const [provider, setProvider] = React.useState("tmdb")
   const [providerID, setProviderID] = React.useState("")
   const [seasonSpec, setSeasonSpec] = React.useState("1:10")
+  const [metadataQuery, setMetadataQuery] = React.useState("")
+  const [metadataResults, setMetadataResults] = React.useState<APIDiscoverySearchResult[]>([])
+  const [metadataDetail, setMetadataDetail] = React.useState<APIDiscoveryDetail | null>(null)
+  const [metadataBusy, setMetadataBusy] = React.useState(false)
+  const [metadataError, setMetadataError] = React.useState("")
   const [searchNow, setSearchNow] = React.useState(true)
   const [roots, setRoots] = React.useState<APILibraryRoot[]>([])
   const [profiles, setProfiles] = React.useState<APIQualityProfile[]>([])
@@ -158,30 +173,61 @@ export function LiveDiscoverScreen() {
   React.useEffect(() => {
     Promise.all([loadLibraryRoots(), loadQualityProfiles(), loadIntegrations()]).then(([nextRoots, nextProfiles, integrations]) => { setRoots(nextRoots); setProfiles(nextProfiles); setClients(integrations.filter((item) => item.kind === "altmount" && item.enabled)); setIndexers(integrations.filter((item) => item.kind === "newznab" && item.enabled)) }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not load configuration")).finally(() => setLoading(false))
   }, [])
-  function changeKind(value: "movie" | "series") { setKind(value); setProvider(value === "movie" ? "tmdb" : "tvdb"); setRootID("default"); setProfileID("default") }
+  function changeKind(value: "movie" | "series") { setKind(value); setProvider(value === "movie" ? "tmdb" : "tvdb"); setRootID("default"); setProfileID("default"); setMetadataDetail(null); setSeasonSpec(value === "series" ? "1:10" : "") }
   const compatibleRoots = roots.filter((root) => root.media_kind === kind && root.enabled)
   const compatibleProfiles = profiles.filter((profile) => profile.media_kind === kind && profile.enabled)
   const configured = compatibleRoots.length > 0 && compatibleProfiles.length > 0 && clients.length > 0 && (!searchNow || indexers.length > 0)
+  async function findMetadata(event: React.FormEvent) {
+    event.preventDefault(); setMetadataBusy(true); setMetadataError(""); setMetadataDetail(null)
+    try { const page = await searchMetadata(metadataQuery.trim()); setMetadataResults(page.results); if (page.results.length === 0) setMetadataError("Seerr returned no movie or TV matches.") }
+    catch (reason) { setMetadataResults([]); setMetadataError(reason instanceof Error ? reason.message : "Could not search Seerr metadata") }
+    finally { setMetadataBusy(false) }
+  }
+  async function selectMetadata(result: APIDiscoverySearchResult) {
+    setMetadataBusy(true); setMetadataError("")
+    try {
+      const detail = await loadDiscoveryMetadata(result.mediaType, result.id)
+      setMetadataDetail(detail); setKind(detail.kind); setTitle(detail.title); setYear(detail.year ? String(detail.year) : ""); setProvider("tmdb"); setProviderID(String(detail.tmdb_id)); setRootID("default"); setProfileID("default"); setSeasonSpec(detail.kind === "series" ? "1" : "")
+    } catch (reason) { setMetadataError(reason instanceof Error ? reason.message : "Could not verify metadata") }
+    finally { setMetadataBusy(false) }
+  }
+  function clearVerifiedSelection() { setMetadataDetail(null) }
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setError(""); setSubmitting(true)
     try {
       const parsedYear = Number(year)
       if (!title.trim() || parsedYear < 1800 || parsedYear > 9999 || !providerID.trim()) throw new Error("Title, valid year, and provider ID are required")
-      const seasons = kind === "series" ? parseSeasonSpec(seasonSpec).map((season) => ({ ...season, search_immediately: searchNow })) : undefined
-      await createMedia({ kind, title: title.trim(), year: parsedYear, identities: [{ namespace: provider, value: providerID.trim(), state: "verified", source: "manual" }], search_immediately: searchNow, ...(rootID !== "default" ? { root_id: rootID } : {}), ...(profileID !== "default" ? { quality_profile_id: profileID } : {}), ...(clientID !== "default" ? { download_client_id: clientID } : {}), ...(seasons ? { seasons } : {}) })
+      let seasons
+      if (kind === "series" && metadataDetail) {
+        seasons = []
+        for (const number of parseSeasonNumbers(seasonSpec)) {
+          const snapshot = await loadDiscoveryMetadata("tv", metadataDetail.tmdb_id, number)
+          if (!snapshot.season || snapshot.season.episodes.length === 0) throw new Error(`Seerr returned no exact episode snapshot for season ${number}`)
+          seasons.push({ number, monitored: true, search_immediately: searchNow, prefer_season_pack: true, episodes: snapshot.season.episodes.map((episode) => ({ number: episode.number, provider_id: episode.provider_id, title: episode.title, air_date: episode.air_date })) })
+        }
+      } else if (kind === "series") seasons = parseSeasonSpec(seasonSpec).map((season) => ({ ...season, search_immediately: searchNow }))
+      const identities = metadataDetail ? metadataDetail.identities.map((identity) => ({ ...identity, state: "verified" as const, source: "seerr_metadata" as const })) : [{ namespace: provider, value: providerID.trim(), state: "verified" as const, source: "manual" as const }]
+      await createMedia({ kind, title: title.trim(), year: parsedYear, identities, search_immediately: searchNow, ...(rootID !== "default" ? { root_id: rootID } : {}), ...(profileID !== "default" ? { quality_profile_id: profileID } : {}), ...(clientID !== "default" ? { download_client_id: clientID } : {}), ...(seasons ? { seasons } : {}) })
       toast.success(kind === "movie" ? "Movie workflow created" : "Season-pack workflows created")
       router.push("/activity/queue")
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not add media") } finally { setSubmitting(false) }
   }
-  return <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
-    <Panel title="Add directly to Media Manager" subtitle="A manual add creates durable workflow intent. Series snapshots become one preferred pack job per season.">
+  return <div className="space-y-4">
+    <Panel title="Search verified metadata through Seerr" subtitle="Search is owner-triggered. Selecting a result performs a detail lookup before its identities can be submitted.">
+      <form className="flex flex-col gap-2 sm:flex-row" onSubmit={findMetadata}><Input className="mm-input flex-1" value={metadataQuery} onChange={(event) => setMetadataQuery(event.target.value)} minLength={2} maxLength={200} placeholder="Search movies and TV series…" required /><Button type="submit" disabled={metadataBusy}>{metadataBusy ? <LoaderCircle className="animate-spin" /> : <Search />} Search metadata</Button></form>
+      {metadataError ? <div className="mt-3"><InlineNotice tone="warn" title="Metadata search unavailable">{metadataError}</InlineNotice></div> : null}
+      {metadataResults.length > 0 ? <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{metadataResults.slice(0, 24).map((result) => { const resultTitle = result.mediaType === "movie" ? result.title : result.name; const resultDate = result.mediaType === "movie" ? result.releaseDate : result.firstAirDate; return <button type="button" key={`${result.mediaType}:${result.id}`} disabled={metadataBusy} onClick={() => void selectMetadata(result)} className="rounded-xl border border-white/[0.07] bg-[#0c1015] p-3 text-left transition hover:border-[#46536a] disabled:opacity-50"><div className="text-[10.5px] font-bold text-[#e4e9ef]">{resultTitle || "Untitled result"}</div><div className="mt-1 text-[9px] text-[#788493]">{result.mediaType === "movie" ? "Movie" : "TV series"} · {resultDate?.slice(0, 4) || "Year unavailable"} · TMDB {result.id}</div>{result.overview ? <div className="mt-2 line-clamp-2 text-[9px] leading-4 text-[#707c8b]">{result.overview}</div> : null}</button> })}</div> : null}
+    </Panel>
+    <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
+    <Panel title="Add directly to Media Manager" subtitle={metadataDetail ? "Verified Seerr metadata is selected. Series season numbers resolve to immutable episode snapshots before creation." : "Manual identity fallback. Series snapshots become one preferred pack job per season."}>
       {error ? <div className="mb-4"><ErrorNotice error={error} /></div> : null}
+      {metadataDetail ? <div className="mb-4"><InlineNotice tone="info" title="Verified metadata selected">{metadataDetail.identities.map((identity) => `${identity.namespace.toUpperCase()} ${identity.value}`).join(" · ")}. Editing identity fields switches this submission back to manual provenance.</InlineNotice></div> : null}
       {!loading && !configured ? <div className="mb-4"><InlineNotice tone="warn" title="Finish setup first">You need an enabled Plex-backed {kind} root, {kind} quality profile, AltMount client{searchNow ? ", and at least one Newznab indexer" : ""}. <Link className="underline" href="/settings/connections">Open setup</Link>.</InlineNotice></div> : null}
       <form className="grid gap-4" onSubmit={submit}>
         <div className="grid gap-3 sm:grid-cols-2"><Field label="Media type"><Select value={kind} onValueChange={(value) => changeKind(value as "movie" | "series")}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="movie">Movie</SelectItem><SelectItem value="series">TV series</SelectItem></SelectContent></Select></Field><Field label="Release year"><Input className="mm-input" inputMode="numeric" value={year} onChange={(event) => setYear(event.target.value)} placeholder="2026" required /></Field></div>
         <Field label="Title"><Input className="mm-input" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={kind === "movie" ? "Movie title" : "Series title"} required /></Field>
-        <div className="grid gap-3 sm:grid-cols-2"><Field label="Verified provider"><Select value={provider} onValueChange={setProvider}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent>{kind === "movie" ? <><SelectItem value="tmdb">TMDB</SelectItem><SelectItem value="imdb">IMDb</SelectItem></> : <><SelectItem value="tvdb">TVDB</SelectItem><SelectItem value="tmdb">TMDB</SelectItem></>}</SelectContent></Select></Field><Field label={`${provider.toUpperCase()} ID`}><Input className="mm-input" value={providerID} onChange={(event) => setProviderID(event.target.value)} placeholder={provider === "imdb" ? "tt1234567" : "12345"} required /></Field></div>
-        {kind === "series" ? <Field label="Exact seasons and episode counts" hint="Format season:count. Example: 1:10, 2:8 creates two immutable episode snapshots."><Input className="mm-input" value={seasonSpec} onChange={(event) => setSeasonSpec(event.target.value)} required /></Field> : null}
+        <div className="grid gap-3 sm:grid-cols-2"><Field label="Verified provider"><Select value={provider} onValueChange={(value) => { clearVerifiedSelection(); setProvider(value) }}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent>{kind === "movie" ? <><SelectItem value="tmdb">TMDB</SelectItem><SelectItem value="imdb">IMDb</SelectItem></> : <><SelectItem value="tvdb">TVDB</SelectItem><SelectItem value="tmdb">TMDB</SelectItem></>}</SelectContent></Select></Field><Field label={`${provider.toUpperCase()} ID`}><Input className="mm-input" value={providerID} onChange={(event) => { clearVerifiedSelection(); setProviderID(event.target.value) }} placeholder={provider === "imdb" ? "tt1234567" : "12345"} required /></Field></div>
+        {kind === "series" ? <Field label={metadataDetail ? "Season numbers" : "Exact seasons and episode counts"} hint={metadataDetail ? "Comma-separated seasons. Seerr supplies each exact episode snapshot, for example 1, 2." : "Format season:count. Example: 1:10, 2:8 creates two immutable episode snapshots."}><Input className="mm-input" value={seasonSpec} onChange={(event) => setSeasonSpec(event.target.value)} required /></Field> : null}
         <div className="grid gap-3 sm:grid-cols-3"><ConfigSelect label="Library root" value={rootID} onChange={setRootID} items={compatibleRoots.map((item) => ({ id: item.id, label: `${item.name}${item.is_default ? " · default" : ""}` }))} /><ConfigSelect label="Quality profile" value={profileID} onChange={setProfileID} items={compatibleProfiles.map((item) => ({ id: item.id, label: `${item.name}${item.is_default ? " · default" : ""}` }))} /><ConfigSelect label="Download client" value={clientID} onChange={setClientID} items={clients.map((item) => ({ id: item.id, label: `${item.name}${item.is_default ? " · default" : ""}` }))} /></div>
         <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-[#0b0f14] p-3"><div><div className="text-[11px] font-bold text-[#dfe5ec]">Search immediately</div><div className="mt-1 text-[9.5px] text-[#768292]">Turn off to leave a monitored workflow you can search later.</div></div><Switch checked={searchNow} onCheckedChange={setSearchNow} aria-label="Search immediately" /></div>
         <Button disabled={loading || !configured || submitting} type="submit">{submitting ? <LoaderCircle className="animate-spin" /> : <Plus />} {searchNow ? "Add and search" : "Add without search"}</Button>
@@ -189,8 +235,9 @@ export function LiveDiscoverScreen() {
     </Panel>
     <Panel title="Identity and season safety" subtitle="No single provider ID is required for every media type." className="h-fit">
       <KeyValue label="Movies" value="TMDB or IMDb" /><KeyValue label="Series" value="TVDB or TMDB" /><KeyValue label="Season preference" value="Complete pack" /><KeyValue label="AltMount jobs" value="One per season" /><KeyValue label="Publication" value="Exact coverage + Plex" />
-      <InlineNotice tone="info" title="Best input">Seerr intake supplies canonical metadata and exact episode snapshots automatically. Manual input is available when you already know the identity and season shape.</InlineNotice>
+      <InlineNotice tone="info" title="Best input">Seerr discovery supplies canonical metadata and exact episode snapshots. Manual input remains available when Seerr is not configured or you already know the verified identity and season shape.</InlineNotice>
     </Panel>
+    </div>
   </div>
 }
 

@@ -79,6 +79,22 @@ type SeasonMetadata struct {
 	SeasonNumber int16             `json:"seasonNumber"`
 	Episodes     []EpisodeMetadata `json:"episodes"`
 }
+type SearchResult struct {
+	ID           int64  `json:"id"`
+	MediaType    string `json:"mediaType"`
+	Title        string `json:"title"`
+	Name         string `json:"name"`
+	ReleaseDate  string `json:"releaseDate"`
+	FirstAirDate string `json:"firstAirDate"`
+	Overview     string `json:"overview"`
+	PosterPath   string `json:"posterPath"`
+}
+type SearchPage struct {
+	Page         int            `json:"page"`
+	TotalPages   int            `json:"totalPages"`
+	TotalResults int            `json:"totalResults"`
+	Results      []SearchResult `json:"results"`
+}
 
 type Identifier string
 
@@ -170,6 +186,45 @@ func (client *Client) Request(ctx context.Context, id int64) (Request, error) {
 	var result Request
 	if err := json.Unmarshal(body, &result); err != nil {
 		return Request{}, err
+	}
+	return result, nil
+}
+
+func (client *Client) Search(ctx context.Context, query string, page int) (SearchPage, error) {
+	query = strings.TrimSpace(query)
+	if len(query) < 2 || len(query) > 200 || page < 1 || page > 100 {
+		return SearchPage{}, ErrInvalidConfig
+	}
+	endpoint := *client.base
+	endpoint.Path = strings.TrimSuffix(client.base.Path, "/") + "/api/v1/search"
+	values := endpoint.Query()
+	values.Set("query", query)
+	values.Set("page", strconv.Itoa(page))
+	endpoint.RawQuery = values.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return SearchPage{}, err
+	}
+	request.Header.Set("X-Api-Key", client.apiKey)
+	request.Header.Set("Accept", "application/json")
+	response, err := client.http.Do(request)
+	if err != nil {
+		return SearchPage{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return SearchPage{}, fmt.Errorf("Seerr returned HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, client.responseLimit+1))
+	if err != nil {
+		return SearchPage{}, err
+	}
+	if int64(len(body)) > client.responseLimit {
+		return SearchPage{}, ErrResponseTooLarge
+	}
+	var result SearchPage
+	if err := json.Unmarshal(body, &result); err != nil {
+		return SearchPage{}, err
 	}
 	return result, nil
 }

@@ -30,6 +30,10 @@ export type APIWantedItem = { workflow_id: string; media_id: string; media_kind:
 export type APITaskStatus = { event_type: string; pending: number; due: number; retrying: number; completed: number; highest_attempts: number; oldest_due_at?: string; latest_at: string }
 export type APITasks = { event_types: APITaskStatus[]; recurring: Array<{ name: string; schedule: string; automatic: boolean }> }
 export type APISystemInfo = { version: string; owner_only: boolean; browser_auth: string; api_auth: string; seerr_webhook_enabled: boolean; altmount_source_policy: string; publication_type: string; upgrade_replacement_gate: string; recycle_retention_days: number; public_edge_owner: string; machine_api_keys: boolean; api_prefix: string; checked_at: string }
+export type APIDiscoverySearchResult = { id: number; mediaType: "movie" | "tv"; title?: string; name?: string; releaseDate?: string; firstAirDate?: string; overview?: string; posterPath?: string }
+export type APIDiscoverySearchPage = { page: number; totalPages: number; totalResults: number; results: APIDiscoverySearchResult[] }
+export type APIDiscoverySeason = { number: number; episodes: Array<{ number: number; provider_id: string; title: string; air_date: string }> }
+export type APIDiscoveryDetail = { kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; tmdb_id: number; season?: APIDiscoverySeason }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -84,12 +88,14 @@ export const loadMediaDetail = (id: string, signal?: AbortSignal) => requestJSON
 export const loadWanted = async (signal?: AbortSignal) => await requestJSON<APIWantedItem[] | null>("/api/v1/wanted?limit=300", { signal }) ?? []
 export const loadTasks = (signal?: AbortSignal) => requestJSON<APITasks>("/api/v1/system/tasks", { signal })
 export const loadSystemInfo = (signal?: AbortSignal) => requestJSON<APISystemInfo>("/api/v1/system/info", { signal })
+export const searchMetadata = (query: string, page = 1, signal?: AbortSignal) => requestJSON<APIDiscoverySearchPage>(`/api/v1/discovery/search?query=${encodeURIComponent(query)}&page=${page}`, { signal })
+export const loadDiscoveryMetadata = (kind: "movie" | "tv", tmdbID: number, season?: number, signal?: AbortSignal) => requestJSON<APIDiscoveryDetail>(`/api/v1/discovery/${kind}/${tmdbID}${season === undefined ? "" : `?season=${season}`}`, { signal })
 
 export type CreateMediaInput = {
   kind: "movie" | "series"
   title: string
   year?: number
-  identities: Array<APIIdentity & { state: "verified"; source: "manual" }>
+  identities: Array<APIIdentity & { state: "verified"; source: "manual" | "seerr_metadata" }>
   search_immediately: boolean
   root_id?: string
   quality_profile_id?: string

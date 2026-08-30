@@ -26,6 +26,7 @@ type Config struct {
 	SeerrWebhookSecret string
 	SeerrInstanceID    string
 	Version            string
+	MetadataProvider   *seerr.Client
 	CommissionNewznab  func(context.Context, uuid.UUID) (postgres.Integration, error)
 }
 
@@ -62,6 +63,8 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /health/live", server.live)
 	server.mux.HandleFunc("GET /health/ready", server.ready)
 	server.mux.HandleFunc("GET /api/v1/dashboard", server.requireOwner(server.dashboard))
+	server.mux.HandleFunc("GET /api/v1/discovery/search", server.requireOwner(server.discoverySearch))
+	server.mux.HandleFunc("GET /api/v1/discovery/{kind}/{id}", server.requireOwner(server.discoveryMetadata))
 	server.mux.HandleFunc("GET /api/v1/media", server.requireOwner(server.listMedia))
 	server.mux.HandleFunc("POST /api/v1/media", server.requireOwner(server.createMedia))
 	server.mux.HandleFunc("GET /api/v1/media/{id}", server.requireOwner(server.getMedia))
@@ -94,6 +97,100 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
 	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+}
+
+func (server *Server) discoverySearch(writer http.ResponseWriter, request *http.Request) {
+	if server.config.MetadataProvider == nil {
+		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", "Seerr metadata discovery is not configured")
+		return
+	}
+	query := strings.TrimSpace(request.URL.Query().Get("query"))
+	page, _ := strconv.Atoi(request.URL.Query().Get("page"))
+	if page == 0 {
+		page = 1
+	}
+	if len(query) < 2 || len(query) > 200 || page < 1 || page > 100 {
+		writeError(writer, http.StatusBadRequest, "invalid_query", "query must contain 2 to 200 characters and page must be between 1 and 100")
+		return
+	}
+	result, err := server.config.MetadataProvider.Search(request.Context(), query, page)
+	if err != nil {
+		writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr metadata search failed")
+		return
+	}
+	filtered := result.Results[:0]
+	for _, item := range result.Results {
+		if item.ID > 0 && (item.MediaType == "movie" || item.MediaType == "tv") {
+			filtered = append(filtered, item)
+		}
+	}
+	result.Results = filtered
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: result})
+}
+
+func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *http.Request) {
+	if server.config.MetadataProvider == nil {
+		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", "Seerr metadata discovery is not configured")
+		return
+	}
+	kind := request.PathValue("kind")
+	if kind != "movie" && kind != "tv" {
+		writeError(writer, http.StatusBadRequest, "invalid_kind", "metadata kind must be movie or tv")
+		return
+	}
+	tmdbID, err := strconv.ParseInt(request.PathValue("id"), 10, 64)
+	if err != nil || tmdbID <= 0 {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "TMDB ID is invalid")
+		return
+	}
+	metadata, err := server.config.MetadataProvider.Metadata(request.Context(), kind, tmdbID)
+	if err != nil {
+		writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr metadata lookup failed")
+		return
+	}
+	title, date := metadata.Title, metadata.ReleaseDate
+	mediaKind := catalog.KindMovie
+	if kind == "tv" {
+		title, date, mediaKind = metadata.Name, metadata.FirstAirDate, catalog.KindSeries
+	}
+	identities := []catalog.ExternalIdentity{{Namespace: "tmdb", Value: strconv.FormatInt(tmdbID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"}}
+	if metadata.ExternalIDs.TVDBID != nil && *metadata.ExternalIDs.TVDBID > 0 {
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*metadata.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"})
+	}
+	if strings.TrimSpace(metadata.ExternalIDs.IMDbID) != "" {
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: metadata.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: "seerr_metadata"})
+	}
+	var year *uint16
+	if parsed, parseErr := time.Parse("2006-01-02", date); parseErr == nil && parsed.Year() >= 1800 && parsed.Year() <= 9999 {
+		value := uint16(parsed.Year())
+		year = &value
+	}
+	response := map[string]any{"kind": mediaKind, "title": title, "year": year, "identities": identities, "tmdb_id": tmdbID}
+	if rawSeason := request.URL.Query().Get("season"); rawSeason != "" {
+		if kind != "tv" {
+			writeError(writer, http.StatusBadRequest, "invalid_season", "season metadata is available only for TV")
+			return
+		}
+		season, parseErr := strconv.ParseInt(rawSeason, 10, 16)
+		if parseErr != nil || season < 0 {
+			writeError(writer, http.StatusBadRequest, "invalid_season", "season number is invalid")
+			return
+		}
+		details, detailsErr := server.config.MetadataProvider.SeasonMetadata(request.Context(), tmdbID, int16(season))
+		if detailsErr != nil {
+			writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr season metadata lookup failed")
+			return
+		}
+		episodes := make([]map[string]any, 0, len(details.Episodes))
+		for _, episode := range details.Episodes {
+			if episode.EpisodeNumber <= 0 {
+				continue
+			}
+			episodes = append(episodes, map[string]any{"number": episode.EpisodeNumber, "provider_id": "tmdb:" + strconv.FormatInt(episode.ID, 10), "title": episode.Name, "air_date": episode.AirDate})
+		}
+		response["season"] = map[string]any{"number": details.SeasonNumber, "episodes": episodes}
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: response})
 }
 
 func (server *Server) getMediaDetail(writer http.ResponseWriter, request *http.Request) {

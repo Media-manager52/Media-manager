@@ -79,6 +79,7 @@ import {
   LiveFilesScreen,
   LiveIndexerDetailScreen,
   LiveLibraryScreen,
+  LiveMetadataSettingsScreen,
   LiveOperationalDashboardScreen,
   LiveReleaseIntelligenceScreen,
   LiveSourcesScreen,
@@ -118,6 +119,7 @@ const liveNavigation: NavGroup[] = [
     { label: "Connections", href: "/settings/connections", icon: Webhook },
     { label: "Storage", href: "/settings/storage", icon: HardDrive },
     { label: "Profiles", href: "/settings/profiles", icon: Gauge },
+    { label: "Metadata & Artwork", href: "/settings/metadata", icon: BookOpenCheck },
     { label: "Media Management", href: "/settings/media-management", icon: Settings2 },
   ] },
   { label: "System", items: [
@@ -251,6 +253,7 @@ function RouteContent({ path }: { path: string }) {
   if (path === "/sources/indexer-lab") return <LiveProwlarrImportScreen />
   if (path === "/settings/storage") return <LiveRootsScreen />
   if (path === "/settings/profiles") return <LiveProfilesScreen />
+  if (path === "/settings/metadata") return <LiveMetadataSettingsScreen />
   if (path === "/settings/media-management") return <LiveSystemInfoScreen mode="media-management" />
   if (path === "/system/tasks") return <LiveTasksScreen />
   if (path === "/system/security") return <LiveSystemInfoScreen mode="security" />

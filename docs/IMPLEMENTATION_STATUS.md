@@ -38,7 +38,7 @@ screens.
 | `/activity/recycle` | Partial | Lists persisted recycle cycles and queues whole-media restore. | Add cycle detail and explicit confirmation UI for real-file purge cases. |
 | `/activity/history` | Partial | Merges real workflow transitions and audit events into a bounded durable timeline. | Add correlation, filtering, pagination, and complete audit coverage. |
 | `/activity/blocklist` | Mock-only | Live build reports unavailable. | Add exact-release/pack-scope block persistence and APIs. |
-| `/discover` | Partial | Creates real movie or season workflows from owner-supplied verified IDs and supports root/profile/client override. | Add real metadata search and identity verification before submission. |
+| `/discover` | Partial | Searches real Seerr metadata on owner action, verifies TMDB/TVDB/IMDb identities with a detail lookup, resolves exact TV episode snapshots per selected season, and creates workflows with root/profile/client overrides. A clearly labeled manual-ID fallback remains. | Add result pagination, richer disambiguation, duplicate preview, and artwork selection. |
 | `/intelligence/releases` | Partial | Lists real persisted candidates, observations, policy verdicts/scores, selections, size, and indexer provenance. | Add per-search comparison, complete explanations, and pagination. |
 | `/intelligence/groups` | Partial | Aggregates observed group facts from persisted release evidence and explicitly avoids trust labels. | Add time windows, contradiction detail, and server-side aggregation. |
 | `/intelligence/evidence` | Partial | Expands real normalized facts with their candidate and policy outcome. | Add raw-field provenance, confidence/source attribution, contradictions, and pagination. |
@@ -48,7 +48,7 @@ screens.
 | `/sources/download-clients` | Partial | Exposes real AltMount configuration state and endpoint without probing or claiming synthetic health. | Add capability/path observations, queue summaries, and edit/disable controls. |
 | `/sources/import-lists` | Mock-only | Live build reports unavailable. | Implement list sources and monitoring-only synchronization, or remove only after an explicit product decision. |
 | `/settings/profiles` | Partial | Lists and creates real quality profiles with one required and one preferred rule. | Implement the full approved rule editor, validation, versioning, cutoff, language/audio/subtitle goals, edit, and disable. |
-| `/settings/metadata` | Mock-only | Live build reports unavailable. | Implement provider configuration, lookup status, artwork choices, locks, and refresh state. |
+| `/settings/metadata` | Partial | Reports whether the running Seerr metadata provider is configured, the verified identity namespaces, exact-season snapshot behavior, and the absence of artwork persistence without probing on page load. | Add separate provider lifecycle/status, artwork choices and locks, catalog refresh state, and sidecar output. |
 | `/settings/media-management` | Partial | Reports the running read-only AltMount, Plex-safe symlink, Plex-confirmed upgrade gate, and 30-day recycle contracts without pretending unsupported policies are editable. | Add configuration only for narrowly supported lifecycle policies and naming/companion behavior. |
 | `/settings/storage` | Partial | Lists and creates real Plex-backed movie/TV roots with defaults and path mappings. | Add preflight validation, edit/disable, naming preview from real values, and mount/capacity checks. |
 | `/settings/connections` | Partial | Lists and creates real Plex, Seerr, AltMount, and staged Newznab records; Newznab commissioning is real and paced. | Add safe connection tests and edit/disable/default management; surface operation-level state without fake “ready” labels. |
@@ -67,7 +67,7 @@ screens.
 | Owner-only browser administration | Real | Caddy Basic Auth protects all owner routes and injects the API owner bearer token; every owner API handler independently checks it. The Seerr webhook is the only explicit exception and has separate authentication. |
 | Media Manager and Seerr request intake only | Real | Manual API and authenticated Seerr webhook/poll intake are implemented. Compose and runtime contain no Radarr or Sonarr dependency. |
 | Manual movie and exact-season requests | Real | Catalog, identities, root/profile/client overrides, season monitoring, immutable episode expectations, and workflows are transactionally persisted. |
-| Metadata discovery and identity verification | Missing | The owner currently types provider IDs; no metadata provider client or lookup API exists. |
+| Metadata discovery and identity verification | Partial | Owner-triggered Seerr search/detail APIs return only movie/TV results, verify TMDB plus available TVDB/IMDb aliases, and fetch exact TV season episodes before creation. Search pagination, additional providers, artwork, and refresh persistence remain. |
 | Seerr reconciliation | Real | Webhook deduplication, five-minute polling, provenance, configuration retry, and revocation reconciliation are persisted. Management/status UI is missing. |
 | Newznab commissioning | Partial | A disabled instance is paced at at least three seconds, fetches CAPS, requires generic search, and performs one random negative query before enablement. The approved multi-phase lab and detailed evidence are not implemented. |
 | Newznab runtime pacing | Real | Per-indexer single-flight lanes, a global bound, persisted next-allowed/cooldown state, `Retry-After`, and bounded backoff wrap supported indexer requests. |
@@ -88,7 +88,7 @@ screens.
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence; source/pacing state; system health/tasks/info; wanted gaps; media list/create/detail/recycle;
+release intelligence; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.

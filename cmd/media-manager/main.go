@@ -112,10 +112,17 @@ func run() error {
 			return errors.New("SEERR_INSTANCE_ID must reference an enabled Seerr integration")
 		}
 	}
+	var seerrClient *seerradapter.Client
+	if seerrEnabled {
+		seerrClient, err = seerradapter.New(seerradapter.Config{BaseURL: seerrURL, APIKey: seerrKey, AllowHTTP: strings.EqualFold(os.Getenv("SEERR_ALLOW_HTTP"), "true")}, nil)
+		if err != nil {
+			return err
+		}
+	}
 	scheduler := indexers.NewScheduler(4, store)
 	resolveSecret := func(reference string) (string, error) { return requiredSecret(reference) }
 	commissionService := &commissioning.NewznabService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
-	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, CommissionNewznab: commissionService.Commission}, store)
+	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, MetadataProvider: seerrClient, CommissionNewznab: commissionService.Commission}, store)
 	if err != nil {
 		return err
 	}
@@ -141,10 +148,6 @@ func run() error {
 	handlers["recycle.purge_requested"] = recycleService.HandlePurge
 	handlers["workflow.transitioned"] = func(context.Context, postgres.OutboxEvent) error { return nil }
 	if seerrEnabled {
-		seerrClient, clientErr := seerradapter.New(seerradapter.Config{BaseURL: seerrURL, APIKey: seerrKey, AllowHTTP: strings.EqualFold(os.Getenv("SEERR_ALLOW_HTTP"), "true")}, nil)
-		if clientErr != nil {
-			return clientErr
-		}
 		service := &intake.SeerrService{Client: seerrClient, Store: store, InstanceID: seerrInstance}
 		handlers["seerr.reconcile"] = service.Handle
 	}

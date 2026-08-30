@@ -129,6 +129,7 @@ test("maps persisted operational read models into the live route switch", async 
     "/system/security",
     "/system/api",
     "/settings/media-management",
+    "/settings/metadata",
     "/system/logs",
   ]) {
     assert.match(shell, new RegExp(`path === ["']${route.replaceAll("/", "\\/")}["']`));
@@ -144,6 +145,7 @@ test("maps persisted operational read models into the live route switch", async 
     "/api/v1/wanted",
     "/api/v1/system/tasks",
     "/api/v1/system/info",
+    "/api/v1/discovery/search",
   ]) {
     assert.match(client, new RegExp(endpoint.replaceAll("/", "\\/")));
   }
