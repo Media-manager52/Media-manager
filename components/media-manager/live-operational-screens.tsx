@@ -32,6 +32,7 @@ import {
   createReleaseBlock,
   deleteReleaseBlock,
   loadActivity,
+  loadCalendar,
   loadDashboard,
   loadMedia,
   loadManagedFile,
@@ -126,6 +127,7 @@ function formatBytes(value?: number) {
 
 const dashboardLoader = (signal: AbortSignal) => loadDashboard(signal)
 const activityLoader = (signal: AbortSignal) => loadActivity(signal)
+const calendarLoader = (signal: AbortSignal) => loadCalendar(signal)
 const filesLoader = (signal: AbortSignal) => loadManagedFiles(signal)
 const releasesLoader = (signal: AbortSignal) => loadReleaseCandidates(signal)
 const blocksLoader = (signal: AbortSignal) => loadReleaseBlocks(signal)
@@ -188,6 +190,14 @@ export function LiveWantedScreen() {
     <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Missing" value={String(missing)} note="Active scope has no current publication" tone={missing ? "info" : "good"} icon={Search} /><MetricCard label="Upgrades" value={String(upgrades)} note="Current publication remains until replacement verification" tone={upgrades ? "info" : "good"} icon={Gauge} /><MetricCard label="Needs attention" value={String(attention)} note="Persisted workflow state, not a global failure" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
     {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Panel className="!p-0" title="Wanted and upgrades" subtitle="Derived from active workflows, current publications, and persisted quality policy." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Scope</TableHead><TableHead>Gap</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.workflow_id}><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link></TableCell><TableCell className="font-mono text-[9px]">{item.variant}</TableCell><TableCell><StatusChip tone={item.gap === "upgrade" ? "info" : "warn"}>{pretty(item.gap)}</StatusChip></TableCell><TableCell><StatusChip tone={workflowTone(item.current_state)}>{pretty(item.current_state)}</StatusChip>{item.attention_detail ? <div className="mt-1 max-w-sm text-[9px] text-[#d6b36d]">{item.attention_detail}</div> : null}</TableCell><TableCell>{item.target_profile}<div className="mt-1 text-[9px] text-[#748090]">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell>{timeAgo(item.updated_at)}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No active missing or upgrade workflows.</div> : null}<div className="border-t border-white/[0.06] p-3 text-[9.5px] text-[#748090]">An existing current file is never replaced here. Replacement occurs only after the new generation is verified and Plex confirms its exact path and identity.</div></Panel>}
   </div>
+}
+
+export function LiveCalendarScreen() {
+  const { data, error, refresh } = useLiveData(calendarLoader)
+  const items = data ?? []
+  const monitored = items.filter((item) => item.monitored).length
+  const future = items.filter((item) => new Date(item.air_date).getTime() >= new Date().setHours(0, 0, 0, 0)).length
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}<div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Dated episodes" value={String(items.length)} note="Persisted provider dates only" icon={ListChecks} /><MetricCard label="Monitored" value={String(monitored)} note="Season monitoring state" tone="info" icon={SearchCheck} /><MetricCard label="Upcoming" value={String(future)} note="No date triggers an automatic search" tone="good" icon={Activity} /></div>{!data && !error ? <LoadingPanel /> : <Panel className="!p-0" title="Episode availability calendar" subtitle="Exact Seerr air dates persisted with immutable season expectations; unknown dates are omitted." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Series</TableHead><TableHead>Episode</TableHead><TableHead>Monitoring</TableHead><TableHead>Workflow</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={`${item.workflow_id}:${item.season}:${item.episode}`}><TableCell>{new Date(item.air_date).toLocaleDateString()}</TableCell><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={`/media/series/${item.media_id}`}>{item.media_title}</Link></TableCell><TableCell>S{String(item.season).padStart(2, "0")}E{String(item.episode).padStart(2, "0")}{item.episode_title ? <div className="mt-1 text-[9px] text-[#748090]">{item.episode_title}</div> : null}</TableCell><TableCell><StatusChip tone={item.monitored ? "good" : "neutral"}>{item.monitored ? "Monitored" : "Unmonitored"}</StatusChip></TableCell><TableCell><StatusChip tone={workflowTone(item.workflow_state)}>{pretty(item.workflow_state)}</StatusChip></TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No exact episode air dates are persisted in the current calendar window.</div> : null}</Panel>}</div>
 }
 
 function ActivityList({ items }: { items: APIActivity[] }) {

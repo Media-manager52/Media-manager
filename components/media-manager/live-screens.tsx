@@ -217,7 +217,7 @@ export function LiveDiscoverScreen() {
         for (const number of parseSeasonNumbers(seasonSpec)) {
           const snapshot = await loadDiscoveryMetadata("tv", metadataDetail.tmdb_id, number)
           if (!snapshot.season || snapshot.season.episodes.length === 0) throw new Error(`Seerr returned no exact episode snapshot for season ${number}`)
-          seasons.push({ number, monitored: true, search_immediately: searchNow, prefer_season_pack: true, episodes: snapshot.season.episodes.map((episode) => ({ number: episode.number, provider_id: episode.provider_id, title: episode.title, air_date: episode.air_date })) })
+          seasons.push({ number, monitored: true, search_immediately: searchNow, prefer_season_pack: true, episodes: snapshot.season.episodes.map((episode) => ({ number: episode.number, provider_episode_id: episode.provider_id, title: episode.title, air_date: episode.air_date })) })
         }
       } else if (kind === "series") seasons = parseSeasonSpec(seasonSpec).map((season) => ({ ...season, search_immediately: searchNow }))
       const identities = metadataDetail ? metadataDetail.identities.map((identity) => ({ ...identity, state: "verified" as const, source: "seerr_metadata" as const })) : [{ namespace: provider, value: providerID.trim(), state: "verified" as const, source: "manual" as const }]

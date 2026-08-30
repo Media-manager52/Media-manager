@@ -74,6 +74,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/collections", server.requireOwner(server.createCollection))
 	server.mux.HandleFunc("POST /api/v1/collections/preview", server.requireOwner(server.previewCollection))
 	server.mux.HandleFunc("DELETE /api/v1/collections/{id}", server.requireOwner(server.deleteCollection))
+	server.mux.HandleFunc("GET /api/v1/calendar", server.requireOwner(server.listCalendar))
 	server.mux.HandleFunc("GET /api/v1/discovery/search", server.requireOwner(server.discoverySearch))
 	server.mux.HandleFunc("GET /api/v1/discovery/{kind}/{id}", server.requireOwner(server.discoveryMetadata))
 	server.mux.HandleFunc("GET /api/v1/media", server.requireOwner(server.listMedia))
@@ -111,6 +112,37 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
 	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+}
+
+func (server *Server) listCalendar(writer http.ResponseWriter, request *http.Request) {
+	now := time.Now().UTC()
+	from, to := now.AddDate(0, 0, -30), now.AddDate(1, 0, 0)
+	var err error
+	if value := request.URL.Query().Get("from"); value != "" {
+		from, err = time.Parse("2006-01-02", value)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid_range", "from date is invalid")
+			return
+		}
+	}
+	if value := request.URL.Query().Get("to"); value != "" {
+		to, err = time.Parse("2006-01-02", value)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid_range", "to date is invalid")
+			return
+		}
+	}
+	if to.Before(from) || to.Sub(from) > 2*366*24*time.Hour {
+		writeError(writer, http.StatusBadRequest, "invalid_range", "calendar range must be ordered and no longer than two years")
+		return
+	}
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := server.store.ListCalendar(request.Context(), from, to, limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load calendar")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]any{"count": len(items), "from": from.Format("2006-01-02"), "to": to.Format("2006-01-02")}})
 }
 
 func collectionMediaIDs(values []string) ([]uuid.UUID, error) {

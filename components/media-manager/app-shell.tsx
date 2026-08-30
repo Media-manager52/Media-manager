@@ -77,6 +77,7 @@ import {
 import {
   LiveActivityHistoryScreen,
   LiveBlocklistScreen,
+  LiveCalendarScreen,
   LiveComponentHealthScreen,
   LiveFileDetailScreen,
   LiveFilesScreen,
@@ -100,6 +101,7 @@ const liveNavigation: NavGroup[] = [
   { label: "Library", items: [
     { label: "Media", href: "/media", icon: Library },
     { label: "Collections", href: "/collections", icon: BookOpenCheck },
+    { label: "Calendar", href: "/calendar", icon: FileClock },
     { label: "Wanted & Upgrades", href: "/wanted", icon: ListChecks },
     { label: "File Manager", href: "/files", icon: Files },
     { label: "Adoption Review", href: "/import", icon: DatabaseBackup },
@@ -242,6 +244,7 @@ function RouteContent({ path }: { path: string }) {
   if (path === "/") return <LiveOperationalDashboardScreen />
   if (path === "/media") return <LiveLibraryScreen />
   if (path === "/collections") return <LiveCollectionsScreen />
+  if (path === "/calendar") return <LiveCalendarScreen />
   if (path === "/wanted") return <LiveWantedScreen />
   if (normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId") return <LiveMediaDetailScreen mediaId={path.split("/").at(-1) ?? ""} />
   if (path === "/files") return <LiveFilesScreen />

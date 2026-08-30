@@ -31,7 +31,7 @@ screens.
 | `/files` | Partial | Lists real link generations, destinations, AltMount source provenance, publication state, and Plex confirmation. | Add track/media-info summaries, companion relationships, and bounded filters. |
 | `/files/:id` | Partial | Shows real path relationships, immutable generation, Plex evidence, and displacement/removal timestamps. | Add inventory/media-info evidence and recycle-cycle linkage. |
 | `/collections` | Partial | Persists audited manual groupings of real catalog items and requires a server-side exact-member preview before creation; deleting a collection never changes media or files. | Add approved evidence-backed smart rules, rule previews, and membership refresh history. |
-| `/calendar` | Mock-only | Live build reports unavailable. | Add metadata availability/air-date persistence and read API. |
+| `/calendar` | Partial | Persists exact Seerr episode air dates with immutable season expectations and lists dated episodes with real monitoring/workflow state; missing dates are omitted and dates never trigger search. | Add movie release/digital dates, provider refresh history, owner range controls, and timezone preferences. |
 | `/wanted` | Partial | Derives missing versus upgrade gaps from active workflows, current publication by item/scope, and the persisted target profile. | Add independent quality/language/audio/subtitle goal deltas and pagination. |
 | `/import` | Partial | Performs a bounded read-only directory-entry scan under a configured library root without following symlinks, persists every video/companion review item, requires an explicit catalog/root/profile/path decision or rejection, and can approve a fully reviewed plan without executing it. | Implement journaled execution, verification, rollback, Plex reconciliation, and separately gated live-action confirmation. |
 | `/activity/queue` | Partial | Lists real workflow summaries and queues safe search/cancel transitions. | Add job/attempt detail, phase evidence, per-operation progress, and attention recovery. |
@@ -67,7 +67,7 @@ screens.
 | Owner-only browser administration | Real | Caddy Basic Auth protects all owner routes and injects the API owner bearer token; every owner API handler independently checks it. The Seerr webhook is the only explicit exception and has separate authentication. |
 | Media Manager and Seerr request intake only | Real | Manual API and authenticated Seerr webhook/poll intake are implemented. Compose and runtime contain no Radarr or Sonarr dependency. |
 | Manual movie and exact-season requests | Real | Catalog, identities, root/profile/client overrides, season monitoring, immutable episode expectations, and workflows are transactionally persisted. |
-| Metadata discovery and identity verification | Partial | Owner-triggered Seerr search/detail APIs return only movie/TV results, verify TMDB plus available TVDB/IMDb aliases, and fetch exact TV season episodes before creation. Search pagination, additional providers, artwork, and refresh persistence remain. |
+| Metadata discovery and identity verification | Partial | Owner-triggered Seerr search/detail APIs return only movie/TV results, verify TMDB plus available TVDB/IMDb aliases, and fetch exact TV season episodes and air dates before creation. Search pagination, additional providers, artwork, and refresh persistence remain. |
 | Seerr reconciliation | Real | Webhook deduplication, five-minute polling, provenance, configuration retry, and revocation reconciliation are persisted. Management/status UI is missing. |
 | Newznab commissioning | Partial | A disabled instance is paced at at least three seconds, fetches CAPS, requires generic search, and performs one random negative query before enablement. The approved multi-phase lab and detailed evidence are not implemented. |
 | Newznab runtime pacing | Real | Per-indexer single-flight lanes, a global bound, persisted next-allowed/cooldown state, `Retry-After`, and bounded backoff wrap supported indexer requests. |
@@ -89,7 +89,7 @@ screens.
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence and narrow blocklist; manual collections; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
+release intelligence and narrow blocklist; dated episode calendar; manual collections; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.

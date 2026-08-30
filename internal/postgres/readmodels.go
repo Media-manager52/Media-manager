@@ -272,6 +272,54 @@ type WantedItem struct {
 	UpdatedAt       time.Time         `json:"updated_at"`
 }
 
+type CalendarEntry struct {
+	MediaID       uuid.UUID         `json:"media_id"`
+	MediaKind     catalog.MediaKind `json:"media_kind"`
+	MediaTitle    string            `json:"media_title"`
+	WorkflowID    uuid.UUID         `json:"workflow_id"`
+	Variant       string            `json:"variant"`
+	Season        uint16            `json:"season"`
+	Episode       uint16            `json:"episode"`
+	EpisodeTitle  string            `json:"episode_title,omitempty"`
+	AirDate       time.Time         `json:"air_date"`
+	Monitored     bool              `json:"monitored"`
+	WorkflowState string            `json:"workflow_state"`
+}
+
+func (store *Store) ListCalendar(ctx context.Context, from, to time.Time, limit int) ([]CalendarEntry, error) {
+	if limit < 1 || limit > 1000 {
+		limit = 500
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT media_id,media_kind,media_title,workflow_id,variant,season,episode,episode_title,air_date,monitored,workflow_state FROM (
+		SELECT DISTINCT ON (workflow.id,episode.season,episode.episode) media.id::text AS media_id,media.kind AS media_kind,media.title AS media_title,workflow.id::text AS workflow_id,workflow.variant,episode.season,episode.episode,episode.title AS episode_title,episode.air_date,monitoring.monitored,workflow.state AS workflow_state,expectation.frozen_at
+		FROM pack_expected_episodes episode
+		JOIN pack_expectation_sets expectation ON expectation.id=episode.expectation_id
+		JOIN workflows workflow ON workflow.id=expectation.workflow_id
+		JOIN media_items media ON media.id=workflow.media_id
+		JOIN season_monitoring monitoring ON monitoring.media_id=media.id AND monitoring.season_number=episode.season
+		WHERE episode.air_date BETWEEN $1::date AND $2::date AND media.deleted_at IS NULL
+		ORDER BY workflow.id,episode.season,episode.episode,expectation.frozen_at DESC
+		) item ORDER BY air_date,media_title,season,episode LIMIT $3`, from.UTC(), to.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []CalendarEntry{}
+	for rows.Next() {
+		var item CalendarEntry
+		var mediaText, workflowText string
+		var season, episode int16
+		if err := rows.Scan(&mediaText, &item.MediaKind, &item.MediaTitle, &workflowText, &item.Variant, &season, &episode, &item.EpisodeTitle, &item.AirDate, &item.Monitored, &item.WorkflowState); err != nil {
+			return nil, err
+		}
+		item.MediaID, _ = uuid.Parse(mediaText)
+		item.WorkflowID, _ = uuid.Parse(workflowText)
+		item.Season, item.Episode = uint16(season), uint16(episode)
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
 func (store *Store) ListWanted(ctx context.Context, limit int) ([]WantedItem, error) {
 	if limit < 1 || limit > 500 {
 		limit = 300

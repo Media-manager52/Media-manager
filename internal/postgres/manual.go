@@ -20,6 +20,7 @@ type ManualEpisode struct {
 	Number     uint16 `json:"number"`
 	ProviderID string `json:"provider_episode_id,omitempty"`
 	Title      string `json:"title,omitempty"`
+	AirDate    string `json:"air_date,omitempty"`
 }
 
 type ManualSeason struct {
@@ -150,7 +151,7 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 				return nil, err
 			}
 			for _, episode := range sortedEpisodes {
-				if _, err := transaction.Exec(ctx, `INSERT INTO pack_expected_episodes(expectation_id,season,episode,provider_episode_id,title) VALUES($1,$2,$3,NULLIF($4,''),$5)`, expectationID.String(), int16(season.Number), int16(episode.Number), strings.TrimSpace(episode.ProviderID), strings.TrimSpace(episode.Title)); err != nil {
+				if _, err := transaction.Exec(ctx, `INSERT INTO pack_expected_episodes(expectation_id,season,episode,provider_episode_id,title,air_date) VALUES($1,$2,$3,NULLIF($4,''),$5,NULLIF($6,'')::date)`, expectationID.String(), int16(season.Number), int16(episode.Number), strings.TrimSpace(episode.ProviderID), strings.TrimSpace(episode.Title), strings.TrimSpace(episode.AirDate)); err != nil {
 					return nil, err
 				}
 			}
@@ -231,7 +232,7 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 			return workflows.Workflow{}, err
 		}
 		for _, episode := range sortedEpisodes {
-			if _, err := transaction.Exec(ctx, `INSERT INTO pack_expected_episodes(expectation_id,season,episode,provider_episode_id,title) VALUES($1,$2,$3,NULLIF($4,''),$5)`, expectationID.String(), int16(season.Number), int16(episode.Number), strings.TrimSpace(episode.ProviderID), strings.TrimSpace(episode.Title)); err != nil {
+			if _, err := transaction.Exec(ctx, `INSERT INTO pack_expected_episodes(expectation_id,season,episode,provider_episode_id,title,air_date) VALUES($1,$2,$3,NULLIF($4,''),$5,NULLIF($6,'')::date)`, expectationID.String(), int16(season.Number), int16(episode.Number), strings.TrimSpace(episode.ProviderID), strings.TrimSpace(episode.Title), strings.TrimSpace(episode.AirDate)); err != nil {
 				return workflows.Workflow{}, err
 			}
 		}
@@ -314,14 +315,20 @@ func manualExpectationDigest(mediaID uuid.UUID, season ManualSeason) ([]byte, []
 	episodes := append([]ManualEpisode(nil), season.Episodes...)
 	sort.Slice(episodes, func(i, j int) bool { return episodes[i].Number < episodes[j].Number })
 	hash := sha256.New()
-	fmt.Fprintf(hash, "manual-expectation-v1\x00%s\x00%d\x00", mediaID.String(), season.Number)
+	fmt.Fprintf(hash, "manual-expectation-v2\x00%s\x00%d\x00", mediaID.String(), season.Number)
 	var previous uint16
 	for _, episode := range episodes {
 		if episode.Number == 0 || episode.Number > 999 || episode.Number == previous {
 			return nil, nil, errors.New("episode snapshot contains an invalid or duplicate episode")
 		}
 		previous = episode.Number
-		fmt.Fprintf(hash, "%d\x00%s\x00%s\x00", episode.Number, strings.TrimSpace(episode.ProviderID), strings.TrimSpace(episode.Title))
+		airDate := strings.TrimSpace(episode.AirDate)
+		if airDate != "" {
+			if _, err := time.Parse("2006-01-02", airDate); err != nil {
+				return nil, nil, errors.New("episode snapshot contains an invalid air date")
+			}
+		}
+		fmt.Fprintf(hash, "%d\x00%s\x00%s\x00%s\x00", episode.Number, strings.TrimSpace(episode.ProviderID), strings.TrimSpace(episode.Title), airDate)
 	}
 	return hash.Sum(nil), episodes, nil
 }

@@ -272,7 +272,7 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 					if episode.Number <= 0 {
 						continue
 					}
-					if _, err := transaction.Exec(ctx, `INSERT INTO pack_expected_episodes(expectation_id,season,episode,provider_episode_id,title) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, expectationID.String(), seasonInput.Number, episode.Number, episode.ProviderID, episode.Title); err != nil {
+					if _, err := transaction.Exec(ctx, `INSERT INTO pack_expected_episodes(expectation_id,season,episode,provider_episode_id,title,air_date) VALUES($1,$2,$3,$4,$5,NULLIF($6,'')::date) ON CONFLICT DO NOTHING`, expectationID.String(), seasonInput.Number, episode.Number, episode.ProviderID, episode.Title, episode.AirDate); err != nil {
 						return IntakeResult{}, err
 					}
 				}

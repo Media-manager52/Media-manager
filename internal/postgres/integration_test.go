@@ -119,7 +119,8 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	season := ManualSeason{Number: 1, Monitored: true, SearchImmediately: true, PreferSeasonPack: true, Episodes: []ManualEpisode{{Number: 1, ProviderID: "tvdb:1001", Title: "Pilot"}, {Number: 2, ProviderID: "tvdb:1002", Title: "Second"}}}
+	airDate := time.Now().UTC().AddDate(0, 0, 7).Format("2006-01-02")
+	season := ManualSeason{Number: 1, Monitored: true, SearchImmediately: true, PreferSeasonPack: true, Episodes: []ManualEpisode{{Number: 1, ProviderID: "tvdb:1001", Title: "Pilot", AirDate: airDate}, {Number: 2, ProviderID: "tvdb:1002", Title: "Second"}}}
 	seasonWorkflows, err := store.CreateManualMedia(ctx, series, seriesRoot, seriesProfile, seriesClient, []ManualSeason{season}, false, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -173,6 +174,10 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 		if item.Gap != "missing" {
 			t.Fatalf("wanted item before publication has gap=%q, want missing", item.Gap)
 		}
+	}
+	calendar, err := store.ListCalendar(ctx, time.Now().UTC().AddDate(0, 0, -1), time.Now().UTC().AddDate(0, 0, 30), 100)
+	if err != nil || len(calendar) != 1 || calendar[0].Episode != 1 || calendar[0].EpisodeTitle != "Pilot" {
+		t.Fatalf("calendar read model=%+v err=%v", calendar, err)
 	}
 	tasks, err := store.ListTaskStatuses(ctx)
 	if err != nil || len(tasks) != 1 || tasks[0].EventType != "workflow.search_requested" || tasks[0].Pending != 2 || tasks[0].Due != 2 {

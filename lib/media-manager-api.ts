@@ -38,6 +38,7 @@ export type APIReleaseBlock = { id: string; scope: "native_release" | "pack_rele
 export type APIAdoptionItem = { id: string; batch_id: string; original_relative: string; proposed_relative?: string; media_id?: string; root_id?: string; quality_profile_id?: string; monitoring_enabled?: boolean; search_immediately?: boolean; recognized_companions: string[]; unknown_companions: string[]; review_state: "pending" | "approved" | "rejected" | "needs_attention"; execution_state: string }
 export type APIAdoptionBatch = { id: string; source_root: string; media_kind: "movie" | "series"; default_root_id: string; default_quality_profile_id: string; monitoring_enabled: boolean; search_immediately: boolean; state: string; created_at: string; approved_at?: string; completed_at?: string; pending_items: number; approved_items: number; rejected_items: number; attention_items: number; items?: APIAdoptionItem[] }
 export type APICollection = { id: string; name: string; description: string; created_at: string; updated_at: string; members: APIMedia[] }
+export type APICalendarEntry = { media_id: string; media_kind: "movie" | "series"; media_title: string; workflow_id: string; variant: string; season: number; episode: number; episode_title?: string; air_date: string; monitored: boolean; workflow_state: string }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -99,6 +100,7 @@ export const loadReleaseBlocks = async (signal?: AbortSignal) => await requestJS
 export const loadAdoptionBatches = async (signal?: AbortSignal) => await requestJSON<APIAdoptionBatch[] | null>("/api/v1/adoption?limit=100", { signal }) ?? []
 export const loadAdoptionBatch = (id: string, signal?: AbortSignal) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(id)}`, { signal })
 export const loadCollections = async (signal?: AbortSignal) => await requestJSON<APICollection[] | null>("/api/v1/collections?limit=100", { signal }) ?? []
+export const loadCalendar = async (signal?: AbortSignal) => await requestJSON<APICalendarEntry[] | null>("/api/v1/calendar?limit=500", { signal }) ?? []
 
 export type CreateMediaInput = {
   kind: "movie" | "series"
@@ -109,7 +111,7 @@ export type CreateMediaInput = {
   root_id?: string
   quality_profile_id?: string
   download_client_id?: string
-  seasons?: Array<{ number: number; monitored: boolean; search_immediately: boolean; prefer_season_pack: boolean; episodes: Array<{ number: number }> }>
+  seasons?: Array<{ number: number; monitored: boolean; search_immediately: boolean; prefer_season_pack: boolean; episodes: Array<{ number: number; provider_id?: string; provider_episode_id?: string; title?: string; air_date?: string }> }>
 }
 
 export const createMedia = (input: CreateMediaInput) => requestJSON<{ media: APIMedia; workflows: APIWorkflow[] }>("/api/v1/media", { method: "POST", body: JSON.stringify(input) })
