@@ -1,12 +1,18 @@
 package library
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 )
 
 var (
@@ -345,6 +351,179 @@ func MoveRegularFile(destinationRoot, fromRelative, toRelative string, expectedS
 	return nil
 }
 
+// InspectRegularFile returns a content fingerprint for a contained regular
+// file. The open file is checked again after hashing so review cannot silently
+// accept a file that changed while it was being inspected.
+func InspectRegularFile(ctx context.Context, rootPath, relative string) (int64, int64, string, error) {
+	if !filepath.IsAbs(rootPath) || filepath.Clean(rootPath) != rootPath {
+		return 0, 0, "", ErrUnsafePath
+	}
+	validated, err := ValidateRelative(relative)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	defer root.Close()
+	file, before, err := openRegular(root, validated)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	defer file.Close()
+	digest, err := hashReader(ctx, file)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	after, err := file.Stat()
+	if err != nil || !after.Mode().IsRegular() || before.Size() != after.Size() || before.ModTime() != after.ModTime() {
+		return 0, 0, "", ErrCollision
+	}
+	return after.Size(), after.ModTime().UnixNano(), digest, nil
+}
+
+// TransferRegularFile copies a fingerprinted regular file between contained
+// roots, atomically publishes the destination, verifies its content, and only
+// then removes the source. Retrying safely reconciles crashes before or after
+// the destination rename or source removal. The temporary name must be unique
+// to the durable journal operation that owns it.
+func TransferRegularFile(ctx context.Context, sourceRootPath, sourceRelative, destinationRootPath, destinationRelative, temporaryRelative string, expectedSize, expectedModTimeNS int64, expectedSHA256 string) error {
+	if !filepath.IsAbs(sourceRootPath) || filepath.Clean(sourceRootPath) != sourceRootPath || !filepath.IsAbs(destinationRootPath) || filepath.Clean(destinationRootPath) != destinationRootPath || expectedSize < 0 || len(expectedSHA256) != sha256.Size*2 {
+		return ErrUnsafePath
+	}
+	if _, err := hex.DecodeString(expectedSHA256); err != nil {
+		return ErrUnsafePath
+	}
+	sourceRelative, err := ValidateRelative(sourceRelative)
+	if err != nil {
+		return err
+	}
+	destinationRelative, err = ValidateRelative(destinationRelative)
+	if err != nil {
+		return err
+	}
+	temporaryRelative, err = ValidateRelative(temporaryRelative)
+	if err != nil || temporaryRelative == destinationRelative {
+		return ErrUnsafePath
+	}
+	sourceRoot, err := os.OpenRoot(sourceRootPath)
+	if err != nil {
+		return err
+	}
+	defer sourceRoot.Close()
+	destinationRoot, err := os.OpenRoot(destinationRootPath)
+	if err != nil {
+		return err
+	}
+	defer destinationRoot.Close()
+
+	sourceErr := matchesRegularFingerprint(sourceRoot, sourceRelative, expectedSize, expectedModTimeNS)
+	destinationErr := matchesRegularFingerprint(destinationRoot, destinationRelative, expectedSize, expectedModTimeNS)
+	if errors.Is(sourceErr, fs.ErrNotExist) && destinationErr == nil {
+		if err := matchesRegularContent(ctx, destinationRoot, destinationRelative, expectedSize, expectedModTimeNS, expectedSHA256); err != nil {
+			return ErrCollision
+		}
+		return nil
+	}
+	if sourceErr != nil {
+		return ErrCollision
+	}
+	if destinationErr == nil {
+		if err := matchesRegularContent(ctx, sourceRoot, sourceRelative, expectedSize, expectedModTimeNS, expectedSHA256); err != nil {
+			return ErrCollision
+		}
+		if err := matchesRegularContent(ctx, destinationRoot, destinationRelative, expectedSize, expectedModTimeNS, expectedSHA256); err != nil {
+			return ErrCollision
+		}
+		if err := sourceRoot.Remove(sourceRelative); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return syncParent(sourceRoot, sourceRelative)
+	}
+	if !errors.Is(destinationErr, fs.ErrNotExist) {
+		return ErrCollision
+	}
+
+	parent := filepath.Dir(destinationRelative)
+	if parent != "." {
+		if err := destinationRoot.MkdirAll(parent, 0o755); err != nil {
+			return err
+		}
+	}
+	if filepath.Dir(temporaryRelative) != parent {
+		return ErrUnsafePath
+	}
+	if info, err := destinationRoot.Lstat(temporaryRelative); err == nil {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return ErrCollision
+		}
+		if err := destinationRoot.Remove(temporaryRelative); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+
+	source, before, err := openRegular(sourceRoot, sourceRelative)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	if before.Size() != expectedSize || before.ModTime().UnixNano() != expectedModTimeNS {
+		return ErrCollision
+	}
+	temporary, err := destinationRoot.OpenFile(temporaryRelative, os.O_WRONLY|os.O_CREATE|os.O_EXCL, before.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	copyOK := false
+	defer func() {
+		_ = temporary.Close()
+		if !copyOK {
+			_ = destinationRoot.Remove(temporaryRelative)
+		}
+	}()
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(temporary, hasher), &contextReader{ctx: ctx, reader: source}); err != nil {
+		return err
+	}
+	if hex.EncodeToString(hasher.Sum(nil)) != expectedSHA256 {
+		return ErrCollision
+	}
+	after, err := source.Stat()
+	if err != nil || after.Size() != expectedSize || after.ModTime().UnixNano() != expectedModTimeNS {
+		return ErrCollision
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	modTime := time.Unix(0, expectedModTimeNS)
+	if err := destinationRoot.Chtimes(temporaryRelative, modTime, modTime); err != nil {
+		return err
+	}
+	if err := matchesRegularContent(ctx, destinationRoot, temporaryRelative, expectedSize, expectedModTimeNS, expectedSHA256); err != nil {
+		return ErrCollision
+	}
+	if err := destinationRoot.Rename(temporaryRelative, destinationRelative); err != nil {
+		return err
+	}
+	copyOK = true
+	if err := syncParent(destinationRoot, destinationRelative); err != nil {
+		return err
+	}
+	if err := matchesRegularFingerprint(destinationRoot, destinationRelative, expectedSize, expectedModTimeNS); err != nil {
+		return ErrCollision
+	}
+	if err := sourceRoot.Remove(sourceRelative); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return syncParent(sourceRoot, sourceRelative)
+}
+
 // RemoveRegularFile removes only the exact retained real-file fingerprint. A
 // missing file is treated as an idempotent completion after an unknown worker
 // outcome.
@@ -381,4 +560,77 @@ func matchesRegularFingerprint(root *os.Root, relative string, expectedSize, exp
 		return ErrCollision
 	}
 	return nil
+}
+
+func matchesRegularContent(ctx context.Context, root *os.Root, relative string, expectedSize, expectedModTimeNS int64, expectedSHA256 string) error {
+	file, before, err := openRegular(root, relative)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if before.Size() != expectedSize || before.ModTime().UnixNano() != expectedModTimeNS {
+		return ErrCollision
+	}
+	digest, err := hashReader(ctx, file)
+	if err != nil {
+		return err
+	}
+	after, err := file.Stat()
+	if err != nil || after.Size() != expectedSize || after.ModTime().UnixNano() != expectedModTimeNS || digest != expectedSHA256 {
+		return ErrCollision
+	}
+	return nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader *contextReader) Read(buffer []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return reader.reader.Read(buffer)
+}
+
+func hashReader(ctx context.Context, reader io.Reader) (string, error) {
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, &contextReader{ctx: ctx, reader: reader}); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func syncParent(root *os.Root, relative string) error {
+	parent := filepath.Dir(relative)
+	if parent == "." {
+		parent = "."
+	}
+	directory, err := root.Open(parent)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
+}
+
+func openRegular(root *os.Root, relative string) (*os.File, os.FileInfo, error) {
+	before, err := root.Lstat(relative)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, ErrSourceType
+	}
+	file, err := root.OpenFile(relative, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	opened, err := file.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		_ = file.Close()
+		return nil, nil, ErrCollision
+	}
+	return file, opened, nil
 }

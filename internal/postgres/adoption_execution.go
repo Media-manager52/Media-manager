@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ type AdoptionExecutionItem struct {
 
 type AdoptionExecutionContext struct {
 	Batch          AdoptionBatch
+	SourceRoot     LibraryRoot
 	Items          []AdoptionExecutionItem
 	Operations     []AdoptionOperation
 	ConfirmedItems map[uuid.UUID]bool
@@ -36,10 +38,14 @@ type AdoptionOperation struct {
 	ItemID              uuid.UUID       `json:"item_id"`
 	Ordinal             int             `json:"ordinal"`
 	Kind                string          `json:"kind"`
+	SourceRootID        uuid.UUID       `json:"source_root_id"`
+	DestinationRootID   uuid.UUID       `json:"destination_root_id"`
+	TransferMode        string          `json:"transfer_mode"`
 	SourceRelative      string          `json:"source_relative"`
 	DestinationRelative string          `json:"destination_relative"`
 	SourceSize          int64           `json:"source_size"`
 	SourceModTimeNS     int64           `json:"source_modtime_ns"`
+	SourceSHA256        string          `json:"source_sha256"`
 	State               string          `json:"state"`
 	LastError           string          `json:"last_error,omitempty"`
 	AppliedAt           *time.Time      `json:"applied_at,omitempty"`
@@ -131,7 +137,11 @@ func (store *Store) AdoptionExecutionContext(ctx context.Context, id uuid.UUID) 
 	for _, root := range roots {
 		rootByID[root.ID] = root
 	}
-	result := AdoptionExecutionContext{Batch: batch, Items: []AdoptionExecutionItem{}, ConfirmedItems: map[uuid.UUID]bool{}}
+	sourceRoot, ok := rootByID[batch.DefaultRootID]
+	if !ok || !sourceRoot.Enabled {
+		return AdoptionExecutionContext{}, errors.New("adoption source root is no longer available")
+	}
+	result := AdoptionExecutionContext{Batch: batch, SourceRoot: sourceRoot, Items: []AdoptionExecutionItem{}, ConfirmedItems: map[uuid.UUID]bool{}}
 	for _, item := range batch.Items {
 		if item.ReviewState != "approved" || item.MediaID == nil || item.RootID == nil {
 			continue
@@ -208,15 +218,18 @@ func (store *Store) PrepareAdoptionOperations(ctx context.Context, batchID uuid.
 		operation.BatchID = batchID
 		operation.SourceRelative = strings.TrimSpace(operation.SourceRelative)
 		operation.DestinationRelative = strings.TrimSpace(operation.DestinationRelative)
-		if operation.ItemID == (uuid.UUID{}) || operation.Ordinal < 1 || seenOrdinal[operation.Ordinal] || !slices.Contains([]string{"primary", "recognized_companion", "unknown_preserved"}, operation.Kind) || !safeRelative(operation.SourceRelative) || !safeRelative(operation.DestinationRelative) || operation.SourceSize < 0 {
+		if operation.ItemID == (uuid.UUID{}) || operation.SourceRootID == (uuid.UUID{}) || operation.DestinationRootID == (uuid.UUID{}) || operation.Ordinal < 1 || seenOrdinal[operation.Ordinal] || !slices.Contains([]string{"primary", "recognized_companion", "unknown_preserved"}, operation.Kind) || !slices.Contains([]string{"preserve", "rename", "copy_remove"}, operation.TransferMode) || !safeRelative(operation.SourceRelative) || !safeRelative(operation.DestinationRelative) || operation.SourceSize < 0 || len(operation.SourceSHA256) != sha256.Size*2 {
 			return nil, errors.New("invalid adoption operation")
+		}
+		if _, err := hex.DecodeString(operation.SourceSHA256); err != nil || operation.TransferMode != "copy_remove" && operation.SourceRootID != operation.DestinationRootID {
+			return nil, errors.New("invalid adoption operation fingerprint or roots")
 		}
 		seenOrdinal[operation.Ordinal] = true
 		operation.State = "planned"
 		if operation.Kind == "unknown_preserved" {
 			operation.State = "preserved"
 		}
-		if _, err := transaction.Exec(ctx, `INSERT INTO adoption_operations(id,batch_id,item_id,ordinal,kind,source_relative,destination_relative,source_size,source_modtime_ns,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, operation.ID.String(), batchID.String(), operation.ItemID.String(), operation.Ordinal, operation.Kind, operation.SourceRelative, operation.DestinationRelative, operation.SourceSize, operation.SourceModTimeNS, operation.State); err != nil {
+		if _, err := transaction.Exec(ctx, `INSERT INTO adoption_operations(id,batch_id,item_id,ordinal,kind,source_root_id,destination_root_id,transfer_mode,source_relative,destination_relative,source_size,source_modtime_ns,source_sha256,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,decode($13,'hex'),$14)`, operation.ID.String(), batchID.String(), operation.ItemID.String(), operation.Ordinal, operation.Kind, operation.SourceRootID.String(), operation.DestinationRootID.String(), operation.TransferMode, operation.SourceRelative, operation.DestinationRelative, operation.SourceSize, operation.SourceModTimeNS, operation.SourceSHA256, operation.State); err != nil {
 			return nil, err
 		}
 	}
@@ -232,7 +245,7 @@ func sameAdoptionOperations(existing, planned []AdoptionOperation) bool {
 	}
 	for index := range existing {
 		left, right := existing[index], planned[index]
-		if left.ItemID != right.ItemID || left.Ordinal != right.Ordinal || left.Kind != right.Kind || left.SourceRelative != right.SourceRelative || left.DestinationRelative != right.DestinationRelative || left.SourceSize != right.SourceSize || left.SourceModTimeNS != right.SourceModTimeNS {
+		if left.ItemID != right.ItemID || left.Ordinal != right.Ordinal || left.Kind != right.Kind || left.SourceRootID != right.SourceRootID || left.DestinationRootID != right.DestinationRootID || left.TransferMode != right.TransferMode || left.SourceRelative != right.SourceRelative || left.DestinationRelative != right.DestinationRelative || left.SourceSize != right.SourceSize || left.SourceModTimeNS != right.SourceModTimeNS || left.SourceSHA256 != right.SourceSHA256 {
 			return false
 		}
 	}
@@ -248,7 +261,7 @@ type adoptionOperationQuerier interface {
 }
 
 func queryAdoptionOperations(ctx context.Context, query adoptionOperationQuerier, batchID uuid.UUID) ([]AdoptionOperation, error) {
-	rows, err := query.Query(ctx, `SELECT id::text,batch_id::text,item_id::text,ordinal,kind,source_relative,destination_relative,source_size,source_modtime_ns,state,COALESCE(last_error,''),applied_at,verified_at,rolled_back_at,media_info,COALESCE(encode(media_info_sha256,'hex'),''),media_info_recorded_at FROM adoption_operations WHERE batch_id=$1 ORDER BY ordinal`, batchID.String())
+	rows, err := query.Query(ctx, `SELECT id::text,batch_id::text,item_id::text,ordinal,kind,source_root_id::text,destination_root_id::text,transfer_mode,source_relative,destination_relative,source_size,source_modtime_ns,encode(source_sha256,'hex'),state,COALESCE(last_error,''),applied_at,verified_at,rolled_back_at,media_info,COALESCE(encode(media_info_sha256,'hex'),''),media_info_recorded_at FROM adoption_operations WHERE batch_id=$1 ORDER BY ordinal`, batchID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -256,14 +269,16 @@ func queryAdoptionOperations(ctx context.Context, query adoptionOperationQuerier
 	result := []AdoptionOperation{}
 	for rows.Next() {
 		var item AdoptionOperation
-		var idText, batchText, itemText string
+		var idText, batchText, itemText, sourceRootText, destinationRootText string
 		var mediaInfo []byte
-		if err := rows.Scan(&idText, &batchText, &itemText, &item.Ordinal, &item.Kind, &item.SourceRelative, &item.DestinationRelative, &item.SourceSize, &item.SourceModTimeNS, &item.State, &item.LastError, &item.AppliedAt, &item.VerifiedAt, &item.RolledBackAt, &mediaInfo, &item.MediaInfoSHA256, &item.MediaInfoRecordedAt); err != nil {
+		if err := rows.Scan(&idText, &batchText, &itemText, &item.Ordinal, &item.Kind, &sourceRootText, &destinationRootText, &item.TransferMode, &item.SourceRelative, &item.DestinationRelative, &item.SourceSize, &item.SourceModTimeNS, &item.SourceSHA256, &item.State, &item.LastError, &item.AppliedAt, &item.VerifiedAt, &item.RolledBackAt, &mediaInfo, &item.MediaInfoSHA256, &item.MediaInfoRecordedAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)
 		item.BatchID, _ = uuid.Parse(batchText)
 		item.ItemID, _ = uuid.Parse(itemText)
+		item.SourceRootID, _ = uuid.Parse(sourceRootText)
+		item.DestinationRootID, _ = uuid.Parse(destinationRootText)
 		if mediaInfo != nil {
 			item.MediaInfo = append(json.RawMessage(nil), mediaInfo...)
 		}

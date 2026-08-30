@@ -1,11 +1,13 @@
 package library
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateRelativeRejectsEscapes(t *testing.T) {
@@ -180,5 +182,81 @@ func TestMoveSymlinkIsIdempotentAndRestorable(t *testing.T) {
 	}
 	if err := MoveSymlink(temp, ".media-manager-recycle/entry/movie.mkv", "movie.mkv", "/source/movie.mkv"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTransferRegularFileVerifiesAndReconcilesUnknownOutcomes(t *testing.T) {
+	t.Parallel()
+	temp := t.TempDir()
+	sourceRoot, destinationRoot := filepath.Join(temp, "source"), filepath.Join(temp, "destination")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(destinationRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "movie.mkv"), []byte("synthetic cross-root media fixture"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	size, modTimeNS, digest, err := InspectRegularFile(context.Background(), sourceRoot, "movie.mkv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	temporary := "library/.movie.mkv.operation.partial"
+	if err := TransferRegularFile(context.Background(), sourceRoot, "movie.mkv", destinationRoot, "library/movie.mkv", temporary, size, modTimeNS, digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(sourceRoot, "movie.mkv")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source still exists after verified transfer: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destinationRoot, "library", "movie.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	if err := TransferRegularFile(context.Background(), sourceRoot, "movie.mkv", destinationRoot, "library/movie.mkv", temporary, size, modTimeNS, digest); err != nil {
+		t.Fatalf("retry after source removal: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(sourceRoot, "movie.mkv"), []byte("synthetic cross-root media fixture"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(sourceRoot, "movie.mkv"), time.Unix(0, modTimeNS), time.Unix(0, modTimeNS)); err != nil {
+		t.Fatal(err)
+	}
+	if err := TransferRegularFile(context.Background(), sourceRoot, "movie.mkv", destinationRoot, "library/movie.mkv", temporary, size, modTimeNS, digest); err != nil {
+		t.Fatalf("retry with both verified copies: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sourceRoot, "movie.mkv")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("verified duplicate source was not reconciled: %v", err)
+	}
+}
+
+func TestTransferRegularFileRejectsCollisionAndSymlink(t *testing.T) {
+	t.Parallel()
+	temp := t.TempDir()
+	sourceRoot, destinationRoot := filepath.Join(temp, "source"), filepath.Join(temp, "destination")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(destinationRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "real.mkv"), []byte("reviewed fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	size, modTimeNS, digest, err := InspectRegularFile(context.Background(), sourceRoot, "real.mkv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destinationRoot, "movie.mkv"), []byte("different fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := TransferRegularFile(context.Background(), sourceRoot, "real.mkv", destinationRoot, "movie.mkv", ".movie.operation.partial", size, modTimeNS, digest); !errors.Is(err, ErrCollision) {
+		t.Fatalf("destination collision error=%v", err)
+	}
+	if err := os.Symlink("real.mkv", filepath.Join(sourceRoot, "link.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := InspectRegularFile(context.Background(), sourceRoot, "link.mkv"); err == nil {
+		t.Fatal("final source symlink was followed")
 	}
 }

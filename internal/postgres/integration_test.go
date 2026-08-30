@@ -272,7 +272,7 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || len(executionContext.Items) != 1 || executionContext.Batch.ExecutionDeadline == nil {
 		t.Fatalf("adoption execution context=%+v err=%v", executionContext, err)
 	}
-	operations, err := store.PrepareAdoptionOperations(ctx, adoptionBatch.ID, []AdoptionOperation{{ItemID: adoptionItem.ID, Ordinal: 1, Kind: "primary", SourceRelative: "existing/Integration Movie.mkv", DestinationRelative: "Integration Movie (2026)/Integration Movie (2026).mkv", SourceSize: 1024, SourceModTimeNS: 1}})
+	operations, err := store.PrepareAdoptionOperations(ctx, adoptionBatch.ID, []AdoptionOperation{{ItemID: adoptionItem.ID, Ordinal: 1, Kind: "primary", SourceRootID: movieRoot, DestinationRootID: movieRoot, TransferMode: "rename", SourceRelative: "existing/Integration Movie.mkv", DestinationRelative: "Integration Movie (2026)/Integration Movie (2026).mkv", SourceSize: 1024, SourceModTimeNS: 1, SourceSHA256: strings.Repeat("a", 64)}})
 	if err != nil || len(operations) != 1 {
 		t.Fatalf("adoption operations=%+v err=%v", operations, err)
 	}

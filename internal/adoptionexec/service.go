@@ -50,13 +50,13 @@ func (service *Service) HandleExecute(ctx context.Context, event postgres.Outbox
 	if err != nil {
 		return err
 	}
-	rootPath, err := executionRoot(current)
+	rootPaths, err := executionRoots(current)
 	if err != nil {
 		return service.fail(current, nil, executionFailure{phase: "preflight"})
 	}
 	operations := current.Operations
 	if len(operations) == 0 {
-		planned, _, planErr := buildOperations(current)
+		planned, planErr := buildOperations(ctx, current, rootPaths)
 		if planErr != nil {
 			return service.fail(current, nil, executionFailure{phase: "preflight"})
 		}
@@ -65,9 +65,9 @@ func (service *Service) HandleExecute(ctx context.Context, event postgres.Outbox
 			return err
 		}
 	}
-	if err := applyOperations(ctx, service.Store, rootPath, operations); err != nil {
+	if err := applyOperations(ctx, service.Store, rootPaths, operations); err != nil {
 		latest, _ := service.Store.ListAdoptionOperations(ctx, current.Batch.ID)
-		rollbackErr := rollbackOperations(ctx, service.Store, rootPath, latest)
+		rollbackErr := rollbackOperations(ctx, service.Store, rootPaths, latest)
 		phase := "filesystem operation"
 		if rollbackErr != nil {
 			phase = "filesystem operation with incomplete rollback"
@@ -76,12 +76,12 @@ func (service *Service) HandleExecute(ctx context.Context, event postgres.Outbox
 	}
 	if service.MediaInfoProbe == nil {
 		latest, _ := service.Store.ListAdoptionOperations(ctx, current.Batch.ID)
-		_ = rollbackOperations(ctx, service.Store, rootPath, latest)
+		_ = rollbackOperations(ctx, service.Store, rootPaths, latest)
 		return service.fail(current, latest, executionFailure{phase: "media-info configuration"})
 	}
-	if err := captureMediaInfo(ctx, service.Store, service.MediaInfoProbe, rootPath, operations); err != nil {
+	if err := captureMediaInfo(ctx, service.Store, service.MediaInfoProbe, rootPaths, operations); err != nil {
 		latest, _ := service.Store.ListAdoptionOperations(ctx, current.Batch.ID)
-		rollbackErr := rollbackOperations(ctx, service.Store, rootPath, latest)
+		rollbackErr := rollbackOperations(ctx, service.Store, rootPaths, latest)
 		phase := "media-info inspection"
 		if rollbackErr != nil {
 			phase += " with incomplete rollback"
@@ -90,7 +90,7 @@ func (service *Service) HandleExecute(ctx context.Context, event postgres.Outbox
 	}
 	if service.PlexClientFor == nil {
 		latest, _ := service.Store.ListAdoptionOperations(ctx, current.Batch.ID)
-		_ = rollbackOperations(ctx, service.Store, rootPath, latest)
+		_ = rollbackOperations(ctx, service.Store, rootPaths, latest)
 		return service.fail(current, latest, executionFailure{phase: "Plex client configuration"})
 	}
 	refreshed := map[string]bool{}
@@ -102,7 +102,7 @@ func (service *Service) HandleExecute(ctx context.Context, event postgres.Outbox
 		client, err := service.PlexClientFor(item.Plex)
 		if err != nil || client.Refresh(ctx, item.Root.PlexLibraryID, item.Root.PlexVisibleRoot) != nil {
 			latest, _ := service.Store.ListAdoptionOperations(ctx, current.Batch.ID)
-			_ = rollbackOperations(ctx, service.Store, rootPath, latest)
+			_ = rollbackOperations(ctx, service.Store, rootPaths, latest)
 			return service.fail(current, latest, executionFailure{phase: "Plex refresh"})
 		}
 		refreshed[key] = true
@@ -165,10 +165,10 @@ func (service *Service) HandlePlexConfirm(ctx context.Context, event postgres.Ou
 }
 
 func (service *Service) rollbackExpired(ctx context.Context, current postgres.AdoptionExecutionContext) error {
-	rootPath, rootErr := executionRoot(current)
+	rootPaths, rootErr := executionRoots(current)
 	rollbackErr := rootErr
 	if rootErr == nil {
-		rollbackErr = rollbackOperations(ctx, service.Store, rootPath, current.Operations)
+		rollbackErr = rollbackOperations(ctx, service.Store, rootPaths, current.Operations)
 	}
 	for _, item := range current.Items {
 		if client, err := service.PlexClientFor(item.Plex); err == nil {
@@ -196,126 +196,159 @@ func (service *Service) fail(current postgres.AdoptionExecutionContext, _ []post
 	return nil
 }
 
-func buildOperations(current postgres.AdoptionExecutionContext) ([]postgres.AdoptionOperation, string, error) {
-	rootPath, err := executionRoot(current)
-	if err != nil {
-		return nil, "", err
+func buildOperations(ctx context.Context, current postgres.AdoptionExecutionContext, rootPaths map[uuid.UUID]string) ([]postgres.AdoptionOperation, error) {
+	sourceRootPath, ok := rootPaths[current.Batch.DefaultRootID]
+	if !ok {
+		return nil, errors.New("adoption source root is unavailable")
 	}
-	sourcePrefix, err := filepath.Rel(rootPath, filepath.Clean(current.Batch.SourceRoot))
+	sourcePrefix, err := filepath.Rel(sourceRootPath, filepath.Clean(current.Batch.SourceRoot))
 	if err != nil || sourcePrefix == ".." || strings.HasPrefix(sourcePrefix, ".."+string(filepath.Separator)) {
-		return nil, "", errors.New("adoption source is outside its destination root")
+		return nil, errors.New("adoption source is outside its configured root")
 	}
-	root, err := os.OpenRoot(rootPath)
-	if err != nil {
-		return nil, "", err
-	}
-	defer root.Close()
 	operations := []postgres.AdoptionOperation{}
 	destinations := map[string]bool{}
+	sources := map[string]bool{}
 	ordinal := 0
 	for _, entry := range current.Items {
-		if filepath.Clean(entry.Root.DestinationRoot) != rootPath || entry.Root.ID != current.Batch.DefaultRootID {
-			return nil, "", errors.New("cross-root adoption execution is not supported")
+		if _, ok := rootPaths[entry.Root.ID]; !ok {
+			return nil, errors.New("adoption destination root is unavailable")
 		}
 		original, err := library.ValidateRelative(filepath.Join(sourcePrefix, filepath.FromSlash(entry.Item.OriginalRelative)))
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		proposed, err := library.ValidateRelative(filepath.FromSlash(entry.Item.ProposedRelative))
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
+		destinationKey := entry.Root.ID.String() + "\x00" + proposed
+		sourceKey := current.Batch.DefaultRootID.String() + "\x00" + original
+		if destinations[destinationKey] || sources[sourceKey] {
+			return nil, errors.New("adoption source or destination is duplicated")
+		}
+		destinations[destinationKey] = true
+		sources[sourceKey] = true
 		ordinal++
-		operation, err := inspectedOperation(root, current.Batch.ID, entry.Item.ID, ordinal, "primary", original, proposed)
+		operation, err := inspectedOperation(ctx, sourceRootPath, current.Batch.ID, entry.Item.ID, ordinal, "primary", current.Batch.DefaultRootID, entry.Root.ID, original, proposed)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		if destinations[proposed] {
-			return nil, "", errors.New("adoption destination is duplicated")
-		}
-		destinations[proposed] = true
 		operations = append(operations, operation)
 		var recognized, unknown []string
 		if err := json.Unmarshal(entry.Item.RecognizedCompanions, &recognized); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		if err := json.Unmarshal(entry.Item.UnknownCompanions, &unknown); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		oldBase := strings.TrimSuffix(filepath.Base(original), filepath.Ext(original))
 		newBase := strings.TrimSuffix(filepath.Base(proposed), filepath.Ext(proposed))
 		for _, companion := range recognized {
 			source, err := library.ValidateRelative(filepath.Join(sourcePrefix, filepath.FromSlash(companion)))
 			if err != nil {
-				return nil, "", err
+				return nil, err
 			}
 			name := filepath.Base(source)
 			if !strings.HasPrefix(name, oldBase+".") {
-				return nil, "", errors.New("recognized companion no longer matches its primary file")
+				return nil, errors.New("recognized companion no longer matches its primary file")
 			}
 			destination, err := library.ValidateRelative(filepath.Join(filepath.Dir(proposed), newBase+strings.TrimPrefix(name, oldBase)))
-			if err != nil || destinations[destination] {
-				return nil, "", errors.New("recognized companion destination is invalid")
+			destinationKey := entry.Root.ID.String() + "\x00" + destination
+			sourceKey := current.Batch.DefaultRootID.String() + "\x00" + source
+			if err != nil || destinations[destinationKey] || sources[sourceKey] {
+				return nil, errors.New("recognized companion destination is invalid")
 			}
-			destinations[destination] = true
+			destinations[destinationKey] = true
+			sources[sourceKey] = true
 			ordinal++
-			operation, err := inspectedOperation(root, current.Batch.ID, entry.Item.ID, ordinal, "recognized_companion", source, destination)
+			operation, err := inspectedOperation(ctx, sourceRootPath, current.Batch.ID, entry.Item.ID, ordinal, "recognized_companion", current.Batch.DefaultRootID, entry.Root.ID, source, destination)
 			if err != nil {
-				return nil, "", err
+				return nil, err
 			}
 			operations = append(operations, operation)
 		}
 		for _, companion := range unknown {
 			source, err := library.ValidateRelative(filepath.Join(sourcePrefix, filepath.FromSlash(companion)))
 			if err != nil {
-				return nil, "", err
+				return nil, err
 			}
+			sourceKey := current.Batch.DefaultRootID.String() + "\x00" + source
+			if sources[sourceKey] {
+				return nil, errors.New("adoption source is duplicated")
+			}
+			sources[sourceKey] = true
 			ordinal++
-			operation, err := inspectedOperation(root, current.Batch.ID, entry.Item.ID, ordinal, "unknown_preserved", source, source)
+			operation, err := inspectedOperation(ctx, sourceRootPath, current.Batch.ID, entry.Item.ID, ordinal, "unknown_preserved", current.Batch.DefaultRootID, current.Batch.DefaultRootID, source, source)
 			if err != nil {
-				return nil, "", err
+				return nil, err
 			}
 			operations = append(operations, operation)
 		}
 	}
 	if len(operations) > 500 {
-		return nil, "", errors.New("adoption operation plan exceeds 500 paths")
+		return nil, errors.New("adoption operation plan exceeds 500 paths")
 	}
 	for _, operation := range operations {
-		if operation.Kind == "unknown_preserved" || operation.SourceRelative == operation.DestinationRelative {
+		if operation.TransferMode == "preserve" {
 			continue
 		}
-		if _, err := root.Lstat(operation.DestinationRelative); err == nil {
-			return nil, "", errors.New("adoption destination already exists")
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return nil, "", errors.New("adoption destination cannot be inspected safely")
+		destinationRoot, err := os.OpenRoot(rootPaths[operation.DestinationRootID])
+		if err != nil {
+			return nil, err
+		}
+		_, statErr := destinationRoot.Lstat(operation.DestinationRelative)
+		_ = destinationRoot.Close()
+		if statErr == nil {
+			return nil, errors.New("adoption destination already exists")
+		} else if !errors.Is(statErr, fs.ErrNotExist) {
+			return nil, errors.New("adoption destination cannot be inspected safely")
 		}
 	}
-	return operations, rootPath, nil
+	return operations, nil
 }
 
-func executionRoot(current postgres.AdoptionExecutionContext) (string, error) {
+func executionRoots(current postgres.AdoptionExecutionContext) (map[uuid.UUID]string, error) {
 	if len(current.Items) == 0 {
-		return "", errors.New("adoption execution has no items")
+		return nil, errors.New("adoption execution has no items")
 	}
-	rootPath := filepath.Clean(current.Items[0].Root.DestinationRoot)
-	if !filepath.IsAbs(rootPath) {
-		return "", errors.New("adoption root is not absolute")
+	if current.SourceRoot.ID != current.Batch.DefaultRootID {
+		return nil, errors.New("adoption source root changed")
+	}
+	result := map[uuid.UUID]string{}
+	add := func(root postgres.LibraryRoot) error {
+		rootPath := filepath.Clean(root.DestinationRoot)
+		if root.ID == (uuid.UUID{}) || !filepath.IsAbs(rootPath) || rootPath != root.DestinationRoot {
+			return errors.New("adoption root is not absolute and clean")
+		}
+		if existing, ok := result[root.ID]; ok && existing != rootPath {
+			return errors.New("adoption root changed during execution")
+		}
+		result[root.ID] = rootPath
+		return nil
+	}
+	if err := add(current.SourceRoot); err != nil {
+		return nil, err
 	}
 	for _, item := range current.Items {
-		if filepath.Clean(item.Root.DestinationRoot) != rootPath || item.Root.ID != current.Batch.DefaultRootID {
-			return "", errors.New("cross-root adoption execution is not supported")
+		if err := add(item.Root); err != nil {
+			return nil, err
 		}
 	}
-	return rootPath, nil
+	return result, nil
 }
 
-func inspectedOperation(root *os.Root, batchID, itemID uuid.UUID, ordinal int, kind, source, destination string) (postgres.AdoptionOperation, error) {
-	info, err := root.Lstat(source)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+func inspectedOperation(ctx context.Context, sourceRootPath string, batchID, itemID uuid.UUID, ordinal int, kind string, sourceRootID, destinationRootID uuid.UUID, source, destination string) (postgres.AdoptionOperation, error) {
+	size, modTimeNS, digest, err := library.InspectRegularFile(ctx, sourceRootPath, source)
+	if err != nil {
 		return postgres.AdoptionOperation{}, errors.New("adoption source is not a regular file")
 	}
-	return postgres.AdoptionOperation{BatchID: batchID, ItemID: itemID, Ordinal: ordinal, Kind: kind, SourceRelative: source, DestinationRelative: destination, SourceSize: info.Size(), SourceModTimeNS: info.ModTime().UnixNano(), State: "planned"}, nil
+	mode := "copy_remove"
+	if kind == "unknown_preserved" || sourceRootID == destinationRootID && source == destination {
+		mode = "preserve"
+	} else if sourceRootID == destinationRootID {
+		mode = "rename"
+	}
+	return postgres.AdoptionOperation{ID: uuid.NewV7(), BatchID: batchID, ItemID: itemID, Ordinal: ordinal, Kind: kind, SourceRootID: sourceRootID, DestinationRootID: destinationRootID, TransferMode: mode, SourceRelative: source, DestinationRelative: destination, SourceSize: size, SourceModTimeNS: modTimeNS, SourceSHA256: digest, State: "planned"}, nil
 }
 
 type operationStore interface {
@@ -326,26 +359,33 @@ type mediaInfoStore interface {
 	RecordAdoptionMediaInfo(context.Context, uuid.UUID, json.RawMessage, time.Time) error
 }
 
-func captureMediaInfo(ctx context.Context, store mediaInfoStore, probe MediaInfoProbe, rootPath string, operations []postgres.AdoptionOperation) error {
-	root, err := os.OpenRoot(rootPath)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
+func captureMediaInfo(ctx context.Context, store mediaInfoStore, probe MediaInfoProbe, rootPaths map[uuid.UUID]string, operations []postgres.AdoptionOperation) error {
 	for _, operation := range operations {
 		if operation.Kind != "primary" || len(operation.MediaInfo) != 0 {
 			continue
 		}
-		if err := matchesFingerprint(root, operation.DestinationRelative, operation); err != nil {
-			return err
+		rootPath, ok := rootPaths[operation.DestinationRootID]
+		if !ok {
+			return errors.New("adoption destination root is unavailable")
 		}
-		evidence, err := probe.Inspect(ctx, filepath.Join(rootPath, operation.DestinationRelative))
+		root, err := os.OpenRoot(rootPath)
 		if err != nil {
 			return err
 		}
 		if err := matchesFingerprint(root, operation.DestinationRelative, operation); err != nil {
+			_ = root.Close()
 			return err
 		}
+		evidence, err := probe.Inspect(ctx, filepath.Join(rootPath, operation.DestinationRelative))
+		if err != nil {
+			_ = root.Close()
+			return err
+		}
+		if err := matchesFingerprint(root, operation.DestinationRelative, operation); err != nil {
+			_ = root.Close()
+			return err
+		}
+		_ = root.Close()
 		body, err := json.Marshal(evidence)
 		if err != nil {
 			return err
@@ -357,18 +397,31 @@ func captureMediaInfo(ctx context.Context, store mediaInfoStore, probe MediaInfo
 	return nil
 }
 
-func applyOperations(ctx context.Context, store operationStore, rootPath string, operations []postgres.AdoptionOperation) error {
-	root, err := os.OpenRoot(rootPath)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
+func applyOperations(ctx context.Context, store operationStore, rootPaths map[uuid.UUID]string, operations []postgres.AdoptionOperation) error {
 	for index := range operations {
 		operation := &operations[index]
+		sourcePath, sourceOK := rootPaths[operation.SourceRootID]
+		destinationPath, destinationOK := rootPaths[operation.DestinationRootID]
+		if !sourceOK || !destinationOK {
+			return errors.New("adoption operation root is unavailable")
+		}
+		sourceRoot, err := os.OpenRoot(sourcePath)
+		if err != nil {
+			return err
+		}
+		destinationRoot, err := os.OpenRoot(destinationPath)
+		if err != nil {
+			_ = sourceRoot.Close()
+			return err
+		}
 		if operation.Kind == "unknown_preserved" || operation.State == "preserved" {
-			if err := matchesFingerprint(root, operation.SourceRelative, *operation); err != nil {
+			if err := matchesFingerprint(sourceRoot, operation.SourceRelative, *operation); err != nil {
+				_ = sourceRoot.Close()
+				_ = destinationRoot.Close()
 				return err
 			}
+			_ = sourceRoot.Close()
+			_ = destinationRoot.Close()
 			operation.State = "preserved"
 			if err := store.MarkAdoptionOperation(ctx, operation.ID, "preserved", "", time.Now().UTC()); err != nil {
 				return err
@@ -376,38 +429,64 @@ func applyOperations(ctx context.Context, store operationStore, rootPath string,
 			continue
 		}
 		if operation.State == "verified" {
-			if err := matchesFingerprint(root, operation.DestinationRelative, *operation); err != nil {
+			if err := matchesFingerprint(destinationRoot, operation.DestinationRelative, *operation); err != nil {
+				_ = sourceRoot.Close()
+				_ = destinationRoot.Close()
 				return err
 			}
+			_ = sourceRoot.Close()
+			_ = destinationRoot.Close()
 			continue
 		}
-		sourceErr := matchesFingerprint(root, operation.SourceRelative, *operation)
-		destinationErr := matchesFingerprint(root, operation.DestinationRelative, *operation)
-		if operation.SourceRelative == operation.DestinationRelative {
+		sourceErr := matchesFingerprint(sourceRoot, operation.SourceRelative, *operation)
+		destinationErr := matchesFingerprint(destinationRoot, operation.DestinationRelative, *operation)
+		if operation.TransferMode == "preserve" {
 			if sourceErr != nil {
+				_ = sourceRoot.Close()
+				_ = destinationRoot.Close()
 				return sourceErr
 			}
-		} else if sourceErr == nil && errors.Is(destinationErr, fs.ErrNotExist) {
+		} else if operation.TransferMode == "copy_remove" {
+			_ = sourceRoot.Close()
+			_ = destinationRoot.Close()
+			if err := library.TransferRegularFile(ctx, sourcePath, operation.SourceRelative, destinationPath, operation.DestinationRelative, transferTemporary(*operation), operation.SourceSize, operation.SourceModTimeNS, operation.SourceSHA256); err != nil {
+				return err
+			}
+		} else if operation.TransferMode == "rename" && sourceErr == nil && errors.Is(destinationErr, fs.ErrNotExist) {
 			if parent := filepath.Dir(operation.DestinationRelative); parent != "." {
-				if err := root.MkdirAll(parent, 0o755); err != nil {
+				if err := destinationRoot.MkdirAll(parent, 0o755); err != nil {
+					_ = sourceRoot.Close()
+					_ = destinationRoot.Close()
 					return err
 				}
 			}
-			if err := root.Rename(operation.SourceRelative, operation.DestinationRelative); err != nil {
+			if err := sourceRoot.Rename(operation.SourceRelative, operation.DestinationRelative); err != nil {
+				_ = sourceRoot.Close()
+				_ = destinationRoot.Close()
 				return err
 			}
-		} else if errors.Is(sourceErr, fs.ErrNotExist) && destinationErr == nil {
+		} else if operation.TransferMode == "rename" && errors.Is(sourceErr, fs.ErrNotExist) && destinationErr == nil {
 			// A previous worker moved the file before its journal state committed.
 		} else {
+			_ = sourceRoot.Close()
+			_ = destinationRoot.Close()
 			return errors.New("adoption source or destination changed after review")
 		}
+		_ = sourceRoot.Close()
+		_ = destinationRoot.Close()
 		operation.State = "applied"
 		if err := store.MarkAdoptionOperation(ctx, operation.ID, "applied", "", time.Now().UTC()); err != nil {
 			return err
 		}
-		if err := matchesFingerprint(root, operation.DestinationRelative, *operation); err != nil {
+		verificationRoot, err := os.OpenRoot(destinationPath)
+		if err != nil {
 			return err
 		}
+		if err := matchesFingerprint(verificationRoot, operation.DestinationRelative, *operation); err != nil {
+			_ = verificationRoot.Close()
+			return err
+		}
+		_ = verificationRoot.Close()
 		operation.State = "verified"
 		if err := store.MarkAdoptionOperation(ctx, operation.ID, "verified", "", time.Now().UTC()); err != nil {
 			return err
@@ -416,39 +495,74 @@ func applyOperations(ctx context.Context, store operationStore, rootPath string,
 	return nil
 }
 
-func rollbackOperations(ctx context.Context, store operationStore, rootPath string, operations []postgres.AdoptionOperation) error {
-	root, err := os.OpenRoot(rootPath)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
+func rollbackOperations(ctx context.Context, store operationStore, rootPaths map[uuid.UUID]string, operations []postgres.AdoptionOperation) error {
 	var failures []error
 	for index := len(operations) - 1; index >= 0; index-- {
 		operation := operations[index]
-		if operation.Kind == "unknown_preserved" || operation.SourceRelative == operation.DestinationRelative || !slices.Contains([]string{"planned", "applied", "verified"}, operation.State) {
+		if operation.TransferMode == "preserve" || !slices.Contains([]string{"planned", "applied", "verified"}, operation.State) {
 			continue
 		}
-		destinationErr := matchesFingerprint(root, operation.DestinationRelative, operation)
-		sourceFingerprintErr := matchesFingerprint(root, operation.SourceRelative, operation)
+		sourcePath, sourceOK := rootPaths[operation.SourceRootID]
+		destinationPath, destinationOK := rootPaths[operation.DestinationRootID]
+		if !sourceOK || !destinationOK {
+			failures = append(failures, errors.New("rollback root is unavailable"))
+			continue
+		}
+		if operation.TransferMode == "copy_remove" {
+			if err := library.TransferRegularFile(ctx, destinationPath, operation.DestinationRelative, sourcePath, operation.SourceRelative, rollbackTemporary(operation), operation.SourceSize, operation.SourceModTimeNS, operation.SourceSHA256); err != nil {
+				_ = store.MarkAdoptionOperation(ctx, operation.ID, "failed", "rollback transfer failed", time.Now().UTC())
+				failures = append(failures, err)
+				continue
+			}
+			if err := store.MarkAdoptionOperation(ctx, operation.ID, "rolled_back", "", time.Now().UTC()); err != nil {
+				failures = append(failures, err)
+			}
+			continue
+		}
+		sourceRoot, err := os.OpenRoot(sourcePath)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		destinationRoot, err := os.OpenRoot(destinationPath)
+		if err != nil {
+			_ = sourceRoot.Close()
+			failures = append(failures, err)
+			continue
+		}
+		destinationErr := matchesFingerprint(destinationRoot, operation.DestinationRelative, operation)
+		sourceFingerprintErr := matchesFingerprint(sourceRoot, operation.SourceRelative, operation)
 		if sourceFingerprintErr == nil && errors.Is(destinationErr, fs.ErrNotExist) {
+			_ = sourceRoot.Close()
+			_ = destinationRoot.Close()
 			if operation.State != "planned" {
 				_ = store.MarkAdoptionOperation(ctx, operation.ID, "rolled_back", "", time.Now().UTC())
 			}
 			continue
 		}
 		if destinationErr != nil || !errors.Is(sourceFingerprintErr, fs.ErrNotExist) {
+			_ = sourceRoot.Close()
+			_ = destinationRoot.Close()
 			_ = store.MarkAdoptionOperation(ctx, operation.ID, "failed", "rollback precondition failed", time.Now().UTC())
 			failures = append(failures, errors.New("rollback precondition failed"))
 			continue
 		}
-		if parent := filepath.Dir(operation.SourceRelative); parent != "." {
-			if err := root.MkdirAll(parent, 0o755); err != nil {
-				failures = append(failures, err)
-				continue
+		_ = sourceRoot.Close()
+		_ = destinationRoot.Close()
+		root, openErr := os.OpenRoot(sourcePath)
+		if openErr != nil {
+			err = openErr
+		} else {
+			if parent := filepath.Dir(operation.SourceRelative); parent != "." {
+				err = root.MkdirAll(parent, 0o755)
 			}
+			if err == nil {
+				err = root.Rename(operation.DestinationRelative, operation.SourceRelative)
+			}
+			_ = root.Close()
 		}
-		if err := root.Rename(operation.DestinationRelative, operation.SourceRelative); err != nil {
-			_ = store.MarkAdoptionOperation(ctx, operation.ID, "failed", "rollback rename failed", time.Now().UTC())
+		if err != nil {
+			_ = store.MarkAdoptionOperation(ctx, operation.ID, "failed", "rollback transfer failed", time.Now().UTC())
 			failures = append(failures, err)
 			continue
 		}
@@ -457,6 +571,14 @@ func rollbackOperations(ctx context.Context, store operationStore, rootPath stri
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func transferTemporary(operation postgres.AdoptionOperation) string {
+	return filepath.Join(filepath.Dir(operation.DestinationRelative), "."+filepath.Base(operation.DestinationRelative)+".media-manager-"+operation.ID.String()+".partial")
+}
+
+func rollbackTemporary(operation postgres.AdoptionOperation) string {
+	return filepath.Join(filepath.Dir(operation.SourceRelative), "."+filepath.Base(operation.SourceRelative)+".media-manager-"+operation.ID.String()+".rollback-partial")
 }
 
 func matchesFingerprint(root *os.Root, path string, operation postgres.AdoptionOperation) error {
