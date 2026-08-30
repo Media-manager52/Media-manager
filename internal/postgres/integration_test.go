@@ -14,10 +14,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
+	plexadapter "github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/adoption"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/importlists"
 	"github.com/media-manager/media-manager/internal/releases"
+	"github.com/media-manager/media-manager/internal/workflows"
 )
 
 func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
@@ -155,7 +157,7 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	assertWorkflowIntent(t, ctx, store, seasonWorkflows[0].ID, "season:01", 2, 1)
 
 	seasonTwo := ManualSeason{Number: 2, Monitored: true, SearchImmediately: false, PreferSeasonPack: true, Episodes: []ManualEpisode{{Number: 1}, {Number: 2}, {Number: 3}}}
-	seasonTwoWorkflow, err := store.CreateManualWorkflowForExisting(ctx, series, seriesRoot, seriesProfile, seriesClient, &seasonTwo, false, "test", time.Now().UTC())
+	seasonTwoWorkflow, err := store.CreateManualWorkflowForExisting(ctx, series, seriesRoot, seriesProfile, seriesClient, &seasonTwo, false, "", "test", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,6 +328,99 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	}
 	if movieGap != "upgrade" {
 		t.Fatalf("adopted movie wanted gap=%q, want upgrade", movieGap)
+	}
+	if _, err := store.TransitionWorkflow(ctx, movieWorkflows[0].ID, movieWorkflows[0].Revision, workflows.StateCancelled, "isolate adopted replacement test", "test", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateManualWorkflowForExisting(ctx, movie, movieRoot, movieProfile, movieClient, nil, false, "", "test", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+		t.Fatalf("adopted replacement without exact confirmation error=%v", err)
+	}
+	if _, err := store.CreateManualWorkflowForExisting(ctx, movie, movieRoot, movieProfile, movieClient, nil, false, AdoptedReplacementConfirmation+" ", "test", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+		t.Fatalf("adopted replacement with inexact confirmation error=%v", err)
+	}
+	replacementWorkflow, err := store.CreateManualWorkflowForExisting(ctx, movie, movieRoot, movieProfile, movieClient, nil, false, AdoptedReplacementConfirmation, "test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var authorizationCount, recycleCount int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM adopted_replacement_authorizations WHERE workflow_id=$1`, replacementWorkflow.ID.String()).Scan(&authorizationCount); err != nil || authorizationCount != 1 {
+		t.Fatalf("adopted replacement authorizations=%d err=%v", authorizationCount, err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM recycle_entries WHERE adopted_file_id=$1`, adoptionItem.ID.String()).Scan(&recycleCount); err != nil || recycleCount != 0 {
+		t.Fatalf("replacement workflow displaced a file before Plex confirmation: entries=%d err=%v", recycleCount, err)
+	}
+	displacementAt := time.Now().UTC()
+	replacementRunID, replacementObservationID, replacementCandidateID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	replacementJobID, replacementInventoryID, replacementAssetID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	replacementLinkID, replacementVersionID, replacementScanID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	replacementRelative := "Integration Movie (2026) {tmdb-123456}/Integration Movie (2026) {tmdb-123456} - [1080p].mkv"
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO search_runs(id,workflow_id,mode,query_fingerprint,state,policy_version,started_at,completed_at) VALUES($1,$2,'targeted',$3,'complete',1,$4,$4)`, replacementRunID.String(), replacementWorkflow.ID.String(), []byte{3}, displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_observations(id,indexer_instance_id,operation_key,native_guid,title,body_sha256,raw_fields,normalized_facts,parse_version,problems,observed_at) VALUES($1,$2,'replacement','replacement-guid','Integration.Movie.2026.REPACK.1080p-GROUP',$3,'{}','{}','test','[]',$4)`, replacementObservationID.String(), indexer.ID.String(), []byte{4}, displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at) VALUES($1,$2,$3,$4,$5,'replacement-guid','Integration.Movie.2026.REPACK.1080p-GROUP','native:replacement-guid',$6)`, replacementCandidateID.String(), replacementWorkflow.ID.String(), replacementRunID.String(), replacementObservationID.String(), indexer.ID.String(), displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,external_queue_id,submission_started_at,submitted_at,last_reconciled_at,revision) VALUES($1,$2,$3,$4,1,'mm-integration-replacement.nzb','import_complete',42,$5,$5,$5,1)`, replacementJobID.String(), replacementWorkflow.ID.String(), replacementCandidateID.String(), altMount.ID.String(), displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_output_inventories(id,job_id,generation,root_relative,inventory_digest,observed_at,frozen_at) VALUES($1,$2,1,'replacement',$3,$4,$4)`, replacementInventoryID.String(), replacementJobID.String(), []byte{5}, displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_output_assets(id,inventory_id,relative_path,size_bytes,media_kind,content_identity,media_info) VALUES($1,$2,'replacement.mkv',2048,'movie','tmdb:123456','{}')`, replacementAssetID.String(), replacementInventoryID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO library_links(id,root_id,destination_relative,created_at) VALUES($1,$2,$3,$4)`, replacementLinkID.String(), movieRoot.String(), replacementRelative, displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO library_link_versions(id,library_link_id,workflow_id,source_asset_id,altmount_job_id,generation,source_relative,plex_visible_target,state,verified_at) VALUES($1,$2,$3,$4,$5,1,'replacement/replacement.mkv','/mnt/altmount/replacement/replacement.mkv','verified',$6)`, replacementVersionID.String(), replacementLinkID.String(), replacementWorkflow.ID.String(), replacementAssetID.String(), replacementJobID.String(), displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='plex_scanning',revision=2,selected_release_id=$2,grab_attempt_id=$3,updated_at=$4 WHERE id=$1`, replacementWorkflow.ID.String(), replacementCandidateID.String(), replacementJobID.String(), displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO plex_scan_requests(id,workflow_id,plex_instance_id,plex_library_id,altmount_job_id,import_generation,state,revision,poll_attempts,requested_at,deadline_at) VALUES($1,$2,$3,'1',$4,1,'polling',1,0,$5,$6)`, replacementScanID.String(), replacementWorkflow.ID.String(), plex.ID.String(), replacementJobID.String(), displacementAt, displacementAt.Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	plexPath := "/libraries/movies/" + replacementRelative
+	scan := PlexScanContext{ID: replacementScanID, Revision: 1, Workflow: replacementWorkflow, Integration: plex, Versions: []PlexVersion{{VersionID: replacementVersionID, DestinationRelative: replacementRelative, PlexVisiblePath: plexPath}}}
+	if err := store.ConfirmPlexScan(ctx, scan, []plexadapter.Confirmation{{RatingKey: "456", Path: plexPath, ProviderGUID: "tmdb://123456"}}, displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	recycleEntries, err := store.ListRecycleEntries(ctx, 10)
+	if err != nil || len(recycleEntries) != 1 {
+		t.Fatalf("adopted recycle entries=%+v err=%v", recycleEntries, err)
+	}
+	recycleEntry := recycleEntries[0]
+	if recycleEntry.EntryKind != "real_file" || recycleEntry.Purpose != "upgrade_displacement" || recycleEntry.AdoptedFileID == nil || *recycleEntry.AdoptedFileID != adoptionItem.ID || recycleEntry.ExpectedSize == nil || *recycleEntry.ExpectedSize != 1024 || !recycleEntry.ConfirmationRequired || recycleEntry.State != "planned" || recycleEntry.PurgeAfter.Sub(displacementAt) < 30*24*time.Hour-time.Second {
+		t.Fatalf("adopted recycle evidence=%+v", recycleEntry)
+	}
+	files, err = store.ListManagedFiles(ctx, 100)
+	var adoptedPlanned, replacementCurrent bool
+	for _, file := range files {
+		adoptedPlanned = adoptedPlanned || file.ID == adoptionItem.ID && file.State == "recycle_planned" && file.DisplacedAt != nil
+		replacementCurrent = replacementCurrent || file.ID == replacementVersionID && file.State == "current" && file.PlexConfirmed
+	}
+	if err != nil || len(files) != 2 || !adoptedPlanned || !replacementCurrent {
+		t.Fatalf("planned adopted-file read model=%+v err=%v", files, err)
+	}
+	if err := store.MarkRecycleRetained(ctx, recycleEntry.ID, displacementAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestRealFilePurge(ctx, recycleEntry.ID, RealFilePurgeConfirmation, displacementAt.Add(29*24*time.Hour)); err == nil || !strings.Contains(err.Error(), "30-day") {
+		t.Fatalf("early retained-file purge error=%v", err)
+	}
+	if err := store.RequestRealFilePurge(ctx, recycleEntry.ID, "purge", displacementAt.Add(31*24*time.Hour)); err == nil || !strings.Contains(err.Error(), "exact") {
+		t.Fatalf("inexact retained-file purge confirmation error=%v", err)
+	}
+	if err := store.RequestRealFilePurge(ctx, recycleEntry.ID, RealFilePurgeConfirmation, displacementAt.Add(31*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	recycleEntry, err = store.LoadRecycleEntry(ctx, recycleEntry.ID)
+	if err != nil || recycleEntry.State != "purge_planned" {
+		t.Fatalf("owner-confirmed retained-file purge=%+v err=%v", recycleEntry, err)
 	}
 	destination, err := store.CreateNotificationDestination(ctx, NotificationDestination{Name: "Owner webhook", Endpoint: "https://notifications.invalid/hook", Enabled: true, Events: []string{"collection.created"}, SecretRef: "NOTIFICATION_TEST_SECRET"}, time.Now().UTC())
 	if err != nil {

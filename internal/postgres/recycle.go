@@ -12,21 +12,26 @@ import (
 )
 
 type RecycleEntry struct {
-	ID                     uuid.UUID `json:"id"`
-	CycleID                uuid.UUID `json:"cycle_id"`
-	MediaID                uuid.UUID `json:"media_id"`
-	MediaTitle             string    `json:"media_title"`
-	LinkVersionID          uuid.UUID `json:"library_link_version_id"`
-	RootID                 uuid.UUID `json:"root_id"`
-	DestinationRoot        string    `json:"-"`
-	OriginalRelative       string    `json:"original_relative"`
-	RecycleRelative        string    `json:"recycle_relative"`
-	ExpectedTarget         string    `json:"-"`
-	AltMountSourceRetained bool      `json:"altmount_source_retained"`
-	PurgeAfter             time.Time `json:"purge_after"`
-	State                  string    `json:"state"`
-	ConfirmationRequired   bool      `json:"confirmation_required"`
-	CreatedAt              time.Time `json:"created_at"`
+	ID                     uuid.UUID  `json:"id"`
+	CycleID                uuid.UUID  `json:"cycle_id"`
+	MediaID                uuid.UUID  `json:"media_id"`
+	MediaTitle             string     `json:"media_title"`
+	LinkVersionID          *uuid.UUID `json:"library_link_version_id,omitempty"`
+	AdoptedFileID          *uuid.UUID `json:"adopted_file_id,omitempty"`
+	RootID                 uuid.UUID  `json:"root_id"`
+	EntryKind              string     `json:"entry_kind"`
+	Purpose                string     `json:"purpose"`
+	DestinationRoot        string     `json:"-"`
+	OriginalRelative       string     `json:"original_relative"`
+	RecycleRelative        string     `json:"recycle_relative"`
+	ExpectedTarget         string     `json:"-"`
+	ExpectedSize           *int64     `json:"expected_size,omitempty"`
+	ExpectedModTimeNS      *int64     `json:"-"`
+	AltMountSourceRetained bool       `json:"altmount_source_retained"`
+	PurgeAfter             time.Time  `json:"purge_after"`
+	State                  string     `json:"state"`
+	ConfirmationRequired   bool       `json:"confirmation_required"`
+	CreatedAt              time.Time  `json:"created_at"`
 }
 
 func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now time.Time) ([]RecycleEntry, error) {
@@ -60,12 +65,12 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 	if active > 0 {
 		return nil, errors.New("media has an active workflow; cancel or finish it before deleting")
 	}
-	var adoptedCurrent bool
-	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND state='current')`, mediaID.String()).Scan(&adoptedCurrent); err != nil {
+	var adoptedProtected bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND state IN ('current','recycle_planned','retained'))`, mediaID.String()).Scan(&adoptedProtected); err != nil {
 		return nil, err
 	}
-	if adoptedCurrent {
-		return nil, errors.New("adopted real files require a separately confirmed recycle workflow")
+	if adoptedProtected {
+		return nil, errors.New("adopted real files and their recycle retention must be resolved before deleting the media item")
 	}
 	rows, err := transaction.Query(ctx, `SELECT version.id::text,link.id::text,root.id::text,root.destination_root,link.destination_relative,version.plex_visible_target
 		FROM library_link_versions version JOIN library_links link ON link.id=version.library_link_id JOIN library_roots root ON root.id=link.root_id JOIN workflows workflow ON workflow.id=version.workflow_id
@@ -122,7 +127,7 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'recycle_entry',$2,1,'recycle.move_requested',$3,$4,$4)`, uuid.NewV7().String(), entryID.String(), string(payload), now.UTC()); err != nil {
 			return nil, err
 		}
-		entries = append(entries, RecycleEntry{ID: entryID, CycleID: cycleID, MediaID: mediaID, LinkVersionID: versionID, RootID: rootID, DestinationRoot: link.destinationRoot, OriginalRelative: link.relative, RecycleRelative: recycleRelative, ExpectedTarget: link.target, AltMountSourceRetained: true, PurgeAfter: purgeAfter, State: "planned", CreatedAt: now.UTC()})
+		entries = append(entries, RecycleEntry{ID: entryID, CycleID: cycleID, MediaID: mediaID, LinkVersionID: &versionID, RootID: rootID, EntryKind: "link", Purpose: "media_delete", DestinationRoot: link.destinationRoot, OriginalRelative: link.relative, RecycleRelative: recycleRelative, ExpectedTarget: link.target, AltMountSourceRetained: true, PurgeAfter: purgeAfter, State: "planned", CreatedAt: now.UTC()})
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE media_items SET deleted_at=$2,revision=revision+1,updated_at=$2 WHERE id=$1`, mediaID.String(), now.UTC()); err != nil {
 		return nil, err
@@ -134,7 +139,7 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 	return entries, transaction.Commit(ctx)
 }
 
-const recycleEntrySelect = `SELECT entry.id::text,entry.cycle_id::text,entry.media_id::text,media.title,entry.library_link_version_id::text,entry.root_id::text,root.destination_root,entry.original_path,COALESCE(entry.recycled_path,''),COALESCE(entry.expected_target,''),entry.altmount_source_retained,entry.purge_after,entry.state,entry.confirmation_required,entry.created_at FROM recycle_entries entry JOIN media_items media ON media.id=entry.media_id JOIN library_roots root ON root.id=entry.root_id`
+const recycleEntrySelect = `SELECT entry.id::text,entry.cycle_id::text,entry.media_id::text,media.title,entry.library_link_version_id::text,entry.adopted_file_id::text,entry.root_id::text,entry.entry_kind,entry.purpose,root.destination_root,entry.original_path,COALESCE(entry.recycled_path,''),COALESCE(entry.expected_target,''),entry.expected_size,entry.expected_modtime_ns,entry.altmount_source_retained,entry.purge_after,entry.state,entry.confirmation_required,entry.created_at FROM recycle_entries entry JOIN media_items media ON media.id=entry.media_id JOIN library_roots root ON root.id=entry.root_id`
 
 func (store *Store) LoadRecycleEntry(ctx context.Context, entryID uuid.UUID) (RecycleEntry, error) {
 	rows, err := store.Pool.Query(ctx, recycleEntrySelect+` WHERE entry.id=$1`, entryID.String())
@@ -167,15 +172,23 @@ func scanRecycleEntries(rows pgx.Rows) ([]RecycleEntry, error) {
 	result := []RecycleEntry{}
 	for rows.Next() {
 		var entry RecycleEntry
-		var idText, cycleText, mediaText, versionText, rootText string
-		if err := rows.Scan(&idText, &cycleText, &mediaText, &entry.MediaTitle, &versionText, &rootText, &entry.DestinationRoot, &entry.OriginalRelative, &entry.RecycleRelative, &entry.ExpectedTarget, &entry.AltMountSourceRetained, &entry.PurgeAfter, &entry.State, &entry.ConfirmationRequired, &entry.CreatedAt); err != nil {
+		var idText, cycleText, mediaText, rootText string
+		var versionText, adoptedText *string
+		if err := rows.Scan(&idText, &cycleText, &mediaText, &entry.MediaTitle, &versionText, &adoptedText, &rootText, &entry.EntryKind, &entry.Purpose, &entry.DestinationRoot, &entry.OriginalRelative, &entry.RecycleRelative, &entry.ExpectedTarget, &entry.ExpectedSize, &entry.ExpectedModTimeNS, &entry.AltMountSourceRetained, &entry.PurgeAfter, &entry.State, &entry.ConfirmationRequired, &entry.CreatedAt); err != nil {
 			return nil, err
 		}
 		entry.ID, _ = uuid.Parse(idText)
 		entry.CycleID, _ = uuid.Parse(cycleText)
 		entry.MediaID, _ = uuid.Parse(mediaText)
-		entry.LinkVersionID, _ = uuid.Parse(versionText)
 		entry.RootID, _ = uuid.Parse(rootText)
+		if versionText != nil {
+			parsed, _ := uuid.Parse(*versionText)
+			entry.LinkVersionID = &parsed
+		}
+		if adoptedText != nil {
+			parsed, _ := uuid.Parse(*adoptedText)
+			entry.AdoptedFileID = &parsed
+		}
 		result = append(result, entry)
 	}
 	return result, rows.Err()
@@ -187,19 +200,33 @@ func (store *Store) MarkRecycleRetained(ctx context.Context, entryID uuid.UUID, 
 		return err
 	}
 	defer transaction.Rollback(ctx)
-	command, err := transaction.Exec(ctx, `UPDATE recycle_entries SET state='retained' WHERE id=$1 AND state='planned'`, entryID.String())
-	if err != nil {
+	var state, entryKind string
+	var adoptedText *string
+	if err := transaction.QueryRow(ctx, `SELECT state,entry_kind,adopted_file_id::text FROM recycle_entries WHERE id=$1 FOR UPDATE`, entryID.String()).Scan(&state, &entryKind, &adoptedText); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
 		return err
 	}
-	if command.RowsAffected() == 0 {
-		var state string
-		if err := transaction.QueryRow(ctx, `SELECT state FROM recycle_entries WHERE id=$1`, entryID.String()).Scan(&state); err != nil {
+	if state == "retained" {
+		return transaction.Commit(ctx)
+	}
+	if state != "planned" {
+		return ErrConcurrentModification
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE recycle_entries SET state='retained' WHERE id=$1`, entryID.String()); err != nil {
+		return err
+	}
+	if entryKind == "real_file" {
+		if adoptedText == nil {
+			return errors.New("real-file recycle entry has no adopted file")
+		}
+		command, err := transaction.Exec(ctx, `UPDATE adopted_files SET state='retained' WHERE id=$1 AND state='recycle_planned'`, *adoptedText)
+		if err != nil {
 			return err
 		}
-		if state != "retained" {
+		if command.RowsAffected() != 1 {
 			return ErrConcurrentModification
 		}
-		return transaction.Commit(ctx)
 	}
 	payload, _ := json.Marshal(map[string]string{"recycle_entry_id": entryID.String()})
 	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'recycle_entry',$2,4,'plex.recycle_refresh_requested',$3,$4,$4) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), entryID.String(), string(payload), now.UTC()); err != nil {
@@ -214,11 +241,14 @@ func (store *Store) RequestRecycleRestore(ctx context.Context, entryID uuid.UUID
 		return err
 	}
 	defer transaction.Rollback(ctx)
-	var state, mediaText, cycleText string
-	if err := transaction.QueryRow(ctx, `SELECT state,media_id::text,cycle_id::text FROM recycle_entries WHERE id=$1`, entryID.String()).Scan(&state, &mediaText, &cycleText); errors.Is(err, pgx.ErrNoRows) {
+	var state, mediaText, cycleText, entryKind, purpose string
+	if err := transaction.QueryRow(ctx, `SELECT state,media_id::text,cycle_id::text,entry_kind,purpose FROM recycle_entries WHERE id=$1`, entryID.String()).Scan(&state, &mediaText, &cycleText, &entryKind, &purpose); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
+	}
+	if entryKind != "link" || purpose != "media_delete" {
+		return errors.New("adopted upgrade rollback requires a separately verified workflow")
 	}
 	if _, err := transaction.Exec(ctx, `SELECT 1 FROM media_items WHERE id=$1 FOR UPDATE`, mediaText); err != nil {
 		return err
@@ -287,6 +317,9 @@ func (store *Store) MarkRecycleRestored(ctx context.Context, entry RecycleEntry,
 			return ErrConcurrentModification
 		}
 	} else {
+		if entry.LinkVersionID == nil {
+			return errors.New("link recycle entry has no library version")
+		}
 		if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='current',displaced_at=NULL WHERE id=$1`, entry.LinkVersionID.String()); err != nil {
 			return err
 		}
@@ -376,14 +409,54 @@ func (store *Store) PlanDueRecyclePurges(ctx context.Context, now time.Time, lim
 	return len(ids), transaction.Commit(ctx)
 }
 
+const RealFilePurgeConfirmation = "PURGE RETAINED ADOPTED FILE"
+
+func (store *Store) RequestRealFilePurge(ctx context.Context, entryID uuid.UUID, confirmation string, now time.Time) error {
+	if confirmation != RealFilePurgeConfirmation {
+		return errors.New("exact retained real-file purge confirmation is required")
+	}
+	transaction, err := store.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback(ctx)
+	var state, entryKind, purpose string
+	var purgeAfter time.Time
+	var confirmationRequired bool
+	if err := transaction.QueryRow(ctx, `SELECT state,entry_kind,purpose,purge_after,confirmation_required FROM recycle_entries WHERE id=$1 FOR UPDATE`, entryID.String()).Scan(&state, &entryKind, &purpose, &purgeAfter, &confirmationRequired); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if state != "retained" || entryKind != "real_file" || purpose != "upgrade_displacement" || !confirmationRequired {
+		return errors.New("recycle entry is not an owner-confirmed real-file purge candidate")
+	}
+	if now.UTC().Before(purgeAfter) {
+		return errors.New("the 30-day retained-file period has not elapsed")
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE recycle_entries SET state='purge_planned',confirmed_by='owner',confirmed_at=$2 WHERE id=$1`, entryID.String(), now.UTC()); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]string{"recycle_entry_id": entryID.String()})
+	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'recycle_entry',$2,3,'recycle.purge_requested',$3,$4,$4) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), entryID.String(), payload, now.UTC()); err != nil {
+		return err
+	}
+	detail, _ := json.Marshal(map[string]any{"retention_elapsed": true, "real_file": true, "confirmation": "exact"})
+	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','recycle.real_file_purge_confirmed','recycle_entry',$2,$3,$4)`, uuid.NewV7().String(), entryID.String(), detail, now.UTC()); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
+}
+
 func (store *Store) MarkRecyclePurged(ctx context.Context, entryID uuid.UUID, now time.Time) error {
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer transaction.Rollback(ctx)
-	var mediaText, cycleText string
-	if err := transaction.QueryRow(ctx, `SELECT media_id::text,cycle_id::text FROM recycle_entries WHERE id=$1`, entryID.String()).Scan(&mediaText, &cycleText); errors.Is(err, pgx.ErrNoRows) {
+	var mediaText, cycleText, entryKind, purpose string
+	var adoptedText *string
+	if err := transaction.QueryRow(ctx, `SELECT media_id::text,cycle_id::text,entry_kind,purpose,adopted_file_id::text FROM recycle_entries WHERE id=$1`, entryID.String()).Scan(&mediaText, &cycleText, &entryKind, &purpose, &adoptedText); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -391,7 +464,7 @@ func (store *Store) MarkRecyclePurged(ctx context.Context, entryID uuid.UUID, no
 	if _, err := transaction.Exec(ctx, `SELECT 1 FROM media_items WHERE id=$1 FOR UPDATE`, mediaText); err != nil {
 		return err
 	}
-	command, err := transaction.Exec(ctx, `UPDATE recycle_entries SET state='purged',confirmed_at=$2,confirmed_by='automatic-link-retention' WHERE id=$1 AND state='purge_planned'`, entryID.String(), now.UTC())
+	command, err := transaction.Exec(ctx, `UPDATE recycle_entries SET state='purged',confirmed_at=COALESCE(confirmed_at,$2),confirmed_by=COALESCE(confirmed_by,'automatic-link-retention') WHERE id=$1 AND state='purge_planned'`, entryID.String(), now.UTC())
 	if err != nil {
 		return err
 	}
@@ -404,6 +477,18 @@ func (store *Store) MarkRecyclePurged(ctx context.Context, entryID uuid.UUID, no
 			return ErrConcurrentModification
 		}
 	}
+	if entryKind == "real_file" {
+		if purpose != "upgrade_displacement" || adoptedText == nil {
+			return errors.New("invalid real-file purge provenance")
+		}
+		adoptedCommand, err := transaction.Exec(ctx, `UPDATE adopted_files SET state='purged',purged_at=COALESCE(purged_at,$2) WHERE id=$1 AND state IN ('retained','purged')`, *adoptedText, now.UTC())
+		if err != nil {
+			return err
+		}
+		if adoptedCommand.RowsAffected() != 1 {
+			return ErrConcurrentModification
+		}
+	}
 	var remaining, restored int
 	if err := transaction.QueryRow(ctx, `SELECT count(*) FILTER (WHERE state NOT IN ('purged','restored')),count(*) FILTER (WHERE state='restored') FROM recycle_entries WHERE media_id=$1 AND cycle_id=$2`, mediaText, cycleText).Scan(&remaining, &restored); err != nil {
 		return err
@@ -412,16 +497,22 @@ func (store *Store) MarkRecyclePurged(ctx context.Context, entryID uuid.UUID, no
 	if err := transaction.QueryRow(ctx, `SELECT deleted_at FROM media_items WHERE id=$1`, mediaText).Scan(&deletedAt); err != nil {
 		return err
 	}
-	if remaining == 0 && deletedAt != nil && restored > 0 {
+	if purpose == "media_delete" && remaining == 0 && deletedAt != nil && restored > 0 {
 		if _, err := transaction.Exec(ctx, `UPDATE media_items SET deleted_at=NULL,revision=revision+1,updated_at=$2 WHERE id=$1`, mediaText, now.UTC()); err != nil {
 			return err
 		}
 	}
-	if remaining == 0 && deletedAt != nil && restored == 0 {
+	if purpose == "media_delete" && remaining == 0 && deletedAt != nil && restored == 0 {
 		if _, err := transaction.Exec(ctx, `UPDATE external_identities SET state='unverified',source=source || ':recycle_purged' WHERE media_id=$1 AND state='verified'`, mediaText); err != nil {
 			return err
 		}
 		if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'system','media.identity_released_after_recycle','media',$2,'{"source_files_retained":true}',$3)`, uuid.NewV7().String(), mediaText, now.UTC()); err != nil {
+			return err
+		}
+	}
+	if entryKind == "real_file" && command.RowsAffected() == 1 {
+		detail, _ := json.Marshal(map[string]any{"retention_elapsed": true, "owner_confirmed": true, "fingerprint_matched": true})
+		if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'worker','recycle.real_file_purged','recycle_entry',$2,$3,$4)`, uuid.NewV7().String(), entryID.String(), detail, now.UTC()); err != nil {
 			return err
 		}
 	}

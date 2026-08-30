@@ -109,10 +109,11 @@ test("does not present the Indexer Lab preview as a real run", async () => {
 });
 
 test("maps persisted operational read models into the live route switch", async () => {
-  const [shell, client, screens] = await Promise.all([
+  const [shell, client, screens, primaryScreens] = await Promise.all([
     readFile(path.join(root, "components/media-manager/app-shell.tsx"), "utf8"),
     readFile(path.join(root, "lib/media-manager-api.ts"), "utf8"),
     readFile(path.join(root, "components/media-manager/live-operational-screens.tsx"), "utf8"),
+    readFile(path.join(root, "components/media-manager/live-screens.tsx"), "utf8"),
   ]);
 
   for (const route of [
@@ -156,6 +157,7 @@ test("maps persisted operational read models into the live route switch", async 
     "/api/v1/blocklist",
     "/api/v1/adoption",
     "/execute",
+    "/confirm-purge",
     "/api/v1/collections",
     "/api/v1/calendar",
     "/api/v1/settings/notifications",
@@ -167,6 +169,9 @@ test("maps persisted operational read models into the live route switch", async 
   }
   assert.match(screens, /no invented percentages/i);
   assert.match(screens, /does not manufacture connection-test success/i);
+  assert.match(primaryScreens, /REPLACE ADOPTED FILE AFTER PLEX VERIFICATION/);
+  assert.match(primaryScreens, /PURGE RETAINED ADOPTED FILE/);
+  assert.match(primaryScreens, /never auto-deleted/i);
 });
 
 test("excludes development fixture records from the live artifact", async () => {

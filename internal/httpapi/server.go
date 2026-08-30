@@ -115,6 +115,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/backups/{id}/download", server.requireOwner(server.downloadBackup))
 	server.mux.HandleFunc("GET /api/v1/recycle", server.requireOwner(server.listRecycle))
 	server.mux.HandleFunc("POST /api/v1/recycle/{id}/restore", server.requireOwner(server.restoreRecycle))
+	server.mux.HandleFunc("POST /api/v1/recycle/{id}/confirm-purge", server.requireOwner(server.confirmRealFilePurge))
 	server.mux.HandleFunc("POST /api/v1/imports/prowlarr", server.requireOwner(server.createProwlarrImport))
 	server.mux.HandleFunc("GET /api/v1/imports/prowlarr/{id}", server.requireOwner(server.getProwlarrImport))
 	server.mux.HandleFunc("POST /api/v1/imports/prowlarr/{id}/approve", server.requireOwner(server.approveProwlarrImport))
@@ -1103,11 +1104,12 @@ func (server *Server) createMediaWorkflow(writer http.ResponseWriter, request *h
 		return
 	}
 	var input struct {
-		RootID            string `json:"root_id"`
-		QualityProfileID  string `json:"quality_profile_id"`
-		DownloadClientID  string `json:"download_client_id"`
-		SearchImmediately *bool  `json:"search_immediately"`
-		Season            *struct {
+		RootID                         string `json:"root_id"`
+		QualityProfileID               string `json:"quality_profile_id"`
+		DownloadClientID               string `json:"download_client_id"`
+		AdoptedReplacementConfirmation string `json:"adopted_replacement_confirmation"`
+		SearchImmediately              *bool  `json:"search_immediately"`
+		Season                         *struct {
 			Number            uint16                   `json:"number"`
 			Episodes          []postgres.ManualEpisode `json:"episodes"`
 			Monitored         *bool                    `json:"monitored"`
@@ -1149,7 +1151,7 @@ func (server *Server) createMediaWorkflow(writer http.ResponseWriter, request *h
 		}
 		season = &postgres.ManualSeason{Number: input.Season.Number, Episodes: input.Season.Episodes, Monitored: monitored, SearchImmediately: search, PreferSeasonPack: prefer}
 	}
-	workflow, err := server.store.CreateManualWorkflowForExisting(request.Context(), item, resolvedRoot, resolvedProfile, resolvedClient, season, search, "owner", time.Now().UTC())
+	workflow, err := server.store.CreateManualWorkflowForExisting(request.Context(), item, resolvedRoot, resolvedProfile, resolvedClient, season, search, input.AdoptedReplacementConfirmation, "owner", time.Now().UTC())
 	if err != nil {
 		writeError(writer, http.StatusConflict, "workflow_create_failed", err.Error())
 		return
@@ -1379,6 +1381,29 @@ func (server *Server) restoreRecycle(writer http.ResponseWriter, request *http.R
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "restore_queued", "id": id.String()}})
+}
+
+func (server *Server) confirmRealFilePurge(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "recycle entry ID is invalid")
+		return
+	}
+	var input struct {
+		Confirmation string `json:"confirmation"`
+	}
+	if err := decodeJSON(request, &input, 8<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	if err := server.store.RequestRealFilePurge(request.Context(), id, input.Confirmation, time.Now().UTC()); errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "recycle entry was not found")
+		return
+	} else if err != nil {
+		writeError(writer, http.StatusConflict, "purge_not_confirmed", err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "real_file_purge_queued", "id": id.String()}})
 }
 
 func (server *Server) listIntegrations(writer http.ResponseWriter, request *http.Request) {

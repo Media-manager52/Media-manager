@@ -191,7 +191,7 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 			UNION ALL
 			SELECT adopted.id::text,media.id::text,media.kind,media.title,media.year,root.name,
 				adopted.destination_relative,adopted.original_relative,adopted.plex_observed_path,
-				adopted.state,1,true,adopted.verified_at,NULL::timestamptz,NULL::timestamptz,
+				adopted.state,1,true,adopted.verified_at,adopted.displaced_at,adopted.purged_at,
 				adopted.variant,'adoption'::text,profile.name,adopted.quality_evidence_state,
 				adopted.quality_evidence,adopted.source_size,to_timestamp(adopted.source_modtime_ns / 1000000000.0),
 				adopted.original_source_root,adopted.adoption_batch_id::text,adopted.provider_guid,adopted.verified_at

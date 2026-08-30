@@ -718,6 +718,9 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 			return err
 		}
 	}
+	if _, err := store.planAdoptedUpgradeDisplacements(ctx, transaction, scan.Workflow.ID, now); err != nil {
+		return err
+	}
 	command, err := transaction.Exec(ctx, `UPDATE plex_scan_requests SET state='confirmed',revision=revision+1,completed_at=$2,last_polled_at=$2 WHERE id=$1 AND state='polling' AND revision=$3`, scan.ID.String(), now.UTC(), scanRevision)
 	if err != nil {
 		return err

@@ -168,7 +168,11 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 	return created, nil
 }
 
-func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item catalog.MediaItem, rootID, profileID, clientID uuid.UUID, season *ManualSeason, search bool, actor string, now time.Time) (workflows.Workflow, error) {
+const AdoptedReplacementConfirmation = "REPLACE ADOPTED FILE AFTER PLEX VERIFICATION"
+
+var ErrAdoptedReplacementConfirmationRequired = errors.New("exact adopted-file replacement confirmation is required")
+
+func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item catalog.MediaItem, rootID, profileID, clientID uuid.UUID, season *ManualSeason, search bool, adoptedReplacementConfirmation, actor string, now time.Time) (workflows.Workflow, error) {
 	if item.Kind == catalog.KindMovie && season != nil || item.Kind == catalog.KindSeries && season == nil {
 		return workflows.Workflow{}, errors.New("workflow scope does not match the media kind")
 	}
@@ -203,7 +207,7 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	if deletedAt != nil || kind != item.Kind {
 		return workflows.Workflow{}, errors.New("media is not active")
 	}
-	var upgradesEnabled, hasCurrent bool
+	var upgradesEnabled, hasCurrentLink bool
 	if err := transaction.QueryRow(ctx, `SELECT upgrades_enabled FROM quality_profiles WHERE id=$1 AND media_kind=$2 AND enabled`, profileID.String(), item.Kind).Scan(&upgradesEnabled); errors.Is(err, pgx.ErrNoRows) {
 		return workflows.Workflow{}, ErrDefaultsMissing
 	} else if err != nil {
@@ -212,17 +216,49 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id
 		WHERE workflow.media_id=$1 AND workflow.variant=$2 AND version.state='current'
-		UNION ALL
-		SELECT 1 FROM adopted_files adopted WHERE adopted.media_id=$1 AND adopted.variant=$2 AND adopted.state='current'
-	)`, item.ID.String(), variant).Scan(&hasCurrent); err != nil {
+	)`, item.ID.String(), variant).Scan(&hasCurrentLink); err != nil {
 		return workflows.Workflow{}, err
 	}
+	type adoptedCurrent struct {
+		id                  uuid.UUID
+		destinationRelative string
+		size, modtimeNS     int64
+	}
+	rows, err := transaction.Query(ctx, `SELECT id::text,destination_relative,source_size,source_modtime_ns FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state='current' ORDER BY id FOR UPDATE`, item.ID.String(), variant)
+	if err != nil {
+		return workflows.Workflow{}, err
+	}
+	var adoptedFiles []adoptedCurrent
+	for rows.Next() {
+		var current adoptedCurrent
+		var idText string
+		if err := rows.Scan(&idText, &current.destinationRelative, &current.size, &current.modtimeNS); err != nil {
+			rows.Close()
+			return workflows.Workflow{}, err
+		}
+		current.id, _ = uuid.Parse(idText)
+		adoptedFiles = append(adoptedFiles, current)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return workflows.Workflow{}, err
+	}
+	rows.Close()
+	hasCurrent := hasCurrentLink || len(adoptedFiles) > 0
 	if hasCurrent && !upgradesEnabled {
 		return workflows.Workflow{}, errors.New("upgrades are disabled for the selected quality profile")
+	}
+	if len(adoptedFiles) > 0 && adoptedReplacementConfirmation != AdoptedReplacementConfirmation {
+		return workflows.Workflow{}, ErrAdoptedReplacementConfirmationRequired
 	}
 	workflow := workflows.NewWithClient(item.ID, rootID, profileID, clientID, now)
 	if err := insertManualWorkflow(ctx, transaction, workflow, variant, search); err != nil {
 		return workflows.Workflow{}, err
+	}
+	for _, adopted := range adoptedFiles {
+		if _, err := transaction.Exec(ctx, `INSERT INTO adopted_replacement_authorizations(workflow_id,adopted_file_id,destination_relative,source_size,source_modtime_ns,authorized_by,authorized_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, workflow.ID.String(), adopted.id.String(), adopted.destinationRelative, adopted.size, adopted.modtimeNS, actor, now.UTC()); err != nil {
+			return workflows.Workflow{}, err
+		}
 	}
 	if season != nil {
 		if _, err := transaction.Exec(ctx, `INSERT INTO season_monitoring(media_id,season_number,monitored,prefer_season_pack,search_immediately,state,updated_at) VALUES($1,$2,$3,$4,$5,'wanted',$6) ON CONFLICT(media_id,season_number) DO UPDATE SET monitored=EXCLUDED.monitored,prefer_season_pack=EXCLUDED.prefer_season_pack,search_immediately=EXCLUDED.search_immediately,state='wanted',updated_at=EXCLUDED.updated_at`, item.ID.String(), int16(season.Number), season.Monitored, season.PreferSeasonPack, season.SearchImmediately, now.UTC()); err != nil {
@@ -242,7 +278,7 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 			}
 		}
 	}
-	detail, _ := json.Marshal(map[string]any{"workflow_id": workflow.ID, "variant": variant, "search_immediately": search})
+	detail, _ := json.Marshal(map[string]any{"workflow_id": workflow.ID, "variant": variant, "search_immediately": search, "adopted_replacement_authorizations": len(adoptedFiles)})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,$2,'workflow.created','media',$3,$4,$5)`, uuid.NewV7().String(), actor, item.ID.String(), string(detail), now.UTC()); err != nil {
 		return workflows.Workflow{}, err
 	}

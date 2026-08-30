@@ -295,3 +295,90 @@ func MoveSymlink(destinationRoot, fromRelative, toRelative, expectedTarget strin
 	}
 	return nil
 }
+
+// MoveRegularFile moves only a regular file whose size and modification time
+// still match the durable review fingerprint. It never follows the file itself
+// if it has been replaced by a symlink.
+func MoveRegularFile(destinationRoot, fromRelative, toRelative string, expectedSize, expectedModTimeNS int64) error {
+	if !filepath.IsAbs(destinationRoot) || filepath.Clean(destinationRoot) != destinationRoot || expectedSize < 0 {
+		return ErrUnsafePath
+	}
+	from, err := ValidateRelative(fromRelative)
+	if err != nil {
+		return err
+	}
+	to, err := ValidateRelative(toRelative)
+	if err != nil || from == to {
+		return ErrUnsafePath
+	}
+	root, err := os.OpenRoot(destinationRoot)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	fromErr := matchesRegularFingerprint(root, from, expectedSize, expectedModTimeNS)
+	if errors.Is(fromErr, fs.ErrNotExist) {
+		if err := matchesRegularFingerprint(root, to, expectedSize, expectedModTimeNS); err == nil {
+			return nil
+		}
+		return ErrCollision
+	}
+	if fromErr != nil {
+		return ErrCollision
+	}
+	if _, err := root.Lstat(to); err == nil {
+		return ErrCollision
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if parent := filepath.Dir(to); parent != "." {
+		if err := root.MkdirAll(parent, 0o755); err != nil {
+			return err
+		}
+	}
+	if err := root.Rename(from, to); err != nil {
+		return err
+	}
+	if err := matchesRegularFingerprint(root, to, expectedSize, expectedModTimeNS); err != nil {
+		return ErrCollision
+	}
+	return nil
+}
+
+// RemoveRegularFile removes only the exact retained real-file fingerprint. A
+// missing file is treated as an idempotent completion after an unknown worker
+// outcome.
+func RemoveRegularFile(destinationRoot, relative string, expectedSize, expectedModTimeNS int64) error {
+	if !filepath.IsAbs(destinationRoot) || filepath.Clean(destinationRoot) != destinationRoot || expectedSize < 0 {
+		return ErrUnsafePath
+	}
+	validated, err := ValidateRelative(relative)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(destinationRoot)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if err := matchesRegularFingerprint(root, validated, expectedSize, expectedModTimeNS); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return ErrCollision
+	}
+	if err := root.Remove(validated); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func matchesRegularFingerprint(root *os.Root, relative string, expectedSize, expectedModTimeNS int64) error {
+	info, err := root.Lstat(relative)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != expectedSize || info.ModTime().UnixNano() != expectedModTimeNS {
+		return ErrCollision
+	}
+	return nil
+}

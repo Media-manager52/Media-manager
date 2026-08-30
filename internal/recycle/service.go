@@ -18,10 +18,25 @@ func (service *Service) HandleMove(ctx context.Context, event postgres.OutboxEve
 	if entry.State != "planned" {
 		return nil
 	}
-	if err := library.MoveSymlink(entry.DestinationRoot, entry.OriginalRelative, entry.RecycleRelative, entry.ExpectedTarget); err != nil {
+	switch entry.EntryKind {
+	case "link":
+		if err := library.MoveSymlink(entry.DestinationRoot, entry.OriginalRelative, entry.RecycleRelative, entry.ExpectedTarget); err != nil {
+			return err
+		}
+	case "real_file":
+		if entry.ExpectedSize == nil || entry.ExpectedModTimeNS == nil {
+			return postgres.ErrConcurrentModification
+		}
+		if err := library.MoveRegularFile(entry.DestinationRoot, entry.OriginalRelative, entry.RecycleRelative, *entry.ExpectedSize, *entry.ExpectedModTimeNS); err != nil {
+			return err
+		}
+	default:
+		return postgres.ErrConcurrentModification
+	}
+	if err := service.Store.MarkRecycleRetained(ctx, entry.ID, time.Now().UTC()); err != nil {
 		return err
 	}
-	return service.Store.MarkRecycleRetained(ctx, entry.ID, time.Now().UTC())
+	return nil
 }
 
 func (service *Service) HandleRestore(ctx context.Context, event postgres.OutboxEvent) error {
@@ -31,6 +46,9 @@ func (service *Service) HandleRestore(ctx context.Context, event postgres.Outbox
 	}
 	if entry.State != "restore_planned" {
 		return nil
+	}
+	if entry.EntryKind != "link" {
+		return postgres.ErrConcurrentModification
 	}
 	if err := library.MoveSymlink(entry.DestinationRoot, entry.RecycleRelative, entry.OriginalRelative, entry.ExpectedTarget); err != nil {
 		return err
@@ -46,8 +64,20 @@ func (service *Service) HandlePurge(ctx context.Context, event postgres.OutboxEv
 	if entry.State != "purge_planned" {
 		return nil
 	}
-	if err := library.RemoveSymlink(entry.DestinationRoot, entry.RecycleRelative, entry.ExpectedTarget); err != nil {
-		return err
+	switch entry.EntryKind {
+	case "link":
+		if err := library.RemoveSymlink(entry.DestinationRoot, entry.RecycleRelative, entry.ExpectedTarget); err != nil {
+			return err
+		}
+	case "real_file":
+		if entry.ExpectedSize == nil || entry.ExpectedModTimeNS == nil {
+			return postgres.ErrConcurrentModification
+		}
+		if err := library.RemoveRegularFile(entry.DestinationRoot, entry.RecycleRelative, *entry.ExpectedSize, *entry.ExpectedModTimeNS); err != nil {
+			return err
+		}
+	default:
+		return postgres.ErrConcurrentModification
 	}
 	return service.Store.MarkRecyclePurged(ctx, entry.ID, time.Now().UTC())
 }

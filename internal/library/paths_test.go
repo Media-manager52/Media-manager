@@ -128,6 +128,36 @@ func TestRemoveSymlinkRequiresExactRecordedTarget(t *testing.T) {
 	}
 }
 
+func TestMoveAndRemoveRegularFileRequireExactFingerprint(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "movie.mkv"), []byte("synthetic fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(root, "movie.mkv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := MoveRegularFile(root, "movie.mkv", ".media-manager-recycle/id/movie.mkv", info.Size()+1, info.ModTime().UnixNano()); !errors.Is(err, ErrCollision) {
+		t.Fatalf("mismatched size move error=%v", err)
+	}
+	if err := MoveRegularFile(root, "movie.mkv", ".media-manager-recycle/id/movie.mkv", info.Size(), info.ModTime().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	if err := MoveRegularFile(root, "movie.mkv", ".media-manager-recycle/id/movie.mkv", info.Size(), info.ModTime().UnixNano()); err != nil {
+		t.Fatalf("idempotent move: %v", err)
+	}
+	if err := RemoveRegularFile(root, ".media-manager-recycle/id/movie.mkv", info.Size(), info.ModTime().UnixNano()+1); !errors.Is(err, ErrCollision) {
+		t.Fatalf("mismatched modtime remove error=%v", err)
+	}
+	if err := RemoveRegularFile(root, ".media-manager-recycle/id/movie.mkv", info.Size(), info.ModTime().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveRegularFile(root, ".media-manager-recycle/id/movie.mkv", info.Size(), info.ModTime().UnixNano()); err != nil {
+		t.Fatalf("idempotent remove: %v", err)
+	}
+}
+
 func TestMoveSymlinkIsIdempotentAndRestorable(t *testing.T) {
 	temp := t.TempDir()
 	if err := os.Symlink("/source/movie.mkv", filepath.Join(temp, "movie.mkv")); err != nil {
