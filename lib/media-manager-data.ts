@@ -248,6 +248,8 @@ export function isKnownRoute(path: string) {
   const seriesMatch = normalized.match(/^\/media\/series\/([^/]+)$/)
   if (seriesMatch) return mediaRecords.some((item) => item.kind === "Series" && item.id === seriesMatch[1]) || process.env.NEXT_PUBLIC_MEDIA_MANAGER_MODE === "live" && /^[0-9a-f-]{36}$/i.test(seriesMatch[1])
   if (/^\/files\/(file_blade_2049|file_dune_part_two|file_foundation_s03e01|file_unknown_companion)$/.test(normalized)) return true
+  if (process.env.NEXT_PUBLIC_MEDIA_MANAGER_MODE === "live" && /^\/files\/[0-9a-f-]{36}$/i.test(normalized)) return true
   if (normalized === "/sources/indexers/treasure-maps") return true
+  if (process.env.NEXT_PUBLIC_MEDIA_MANAGER_MODE === "live" && /^\/sources\/indexers\/[0-9a-f-]{36}$/i.test(normalized)) return true
   return false
 }

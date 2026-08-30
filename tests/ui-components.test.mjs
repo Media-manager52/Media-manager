@@ -35,6 +35,20 @@ async function readCssTree(directory) {
   return contents.join("\n");
 }
 
+async function readTextTree(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const contents = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) return readTextTree(entryPath);
+      return /\.(?:css|html|js|json|txt)$/.test(entry.name)
+        ? readFile(entryPath, "utf8")
+        : "";
+    }),
+  );
+  return contents.join("\n");
+}
+
 test("emits the catalog's animation and scrolling utilities", async () => {
   const css = await readCssTree(path.join(root, "dist"));
 
@@ -92,4 +106,51 @@ test("does not present the Indexer Lab preview as a real run", async () => {
 
   assert.match(source, /no indexer requests were sent/i);
   assert.doesNotMatch(source, /commissioning fixture completed/i);
+});
+
+test("maps persisted operational read models into the live route switch", async () => {
+  const [shell, client, screens] = await Promise.all([
+    readFile(path.join(root, "components/media-manager/app-shell.tsx"), "utf8"),
+    readFile(path.join(root, "lib/media-manager-api.ts"), "utf8"),
+    readFile(path.join(root, "components/media-manager/live-operational-screens.tsx"), "utf8"),
+  ]);
+
+  for (const route of [
+    "/files",
+    "/activity/history",
+    "/intelligence/releases",
+    "/intelligence/groups",
+    "/intelligence/evidence",
+    "/sources/indexers",
+    "/sources/download-clients",
+    "/system/health",
+    "/system/logs",
+  ]) {
+    assert.match(shell, new RegExp(`path === ["']${route.replaceAll("/", "\\/")}["']`));
+  }
+  for (const endpoint of [
+    "/api/v1/dashboard",
+    "/api/v1/activity",
+    "/api/v1/files",
+    "/api/v1/intelligence/releases",
+    "/api/v1/sources",
+    "/api/v1/system/health",
+  ]) {
+    assert.match(client, new RegExp(endpoint.replaceAll("/", "\\/")));
+  }
+  assert.match(screens, /no invented percentages/i);
+  assert.match(screens, /does not manufacture connection-test success/i);
+});
+
+test("excludes development fixture records from the live artifact", async () => {
+  const artifact = await readTextTree(path.join(root, "dist"));
+
+  for (const fixture of [
+    "Dune Collection",
+    "Blade Runner 2049",
+    "Treasure Maps",
+    "Foundation.S03.PACK",
+  ]) {
+    assert.doesNotMatch(artifact, new RegExp(fixture.replaceAll(".", "\\.")));
+  }
 });

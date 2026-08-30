@@ -1,5 +1,5 @@
 import { MediaManagerApp } from "@/components/media-manager/app-shell"
-import { isKnownRoute } from "@/lib/media-manager-data"
+import { isKnownRoute } from "@/lib/media-manager-routes"
 import { notFound } from "next/navigation"
 
 export default async function RoutedPage({ params }: { params: Promise<{ route: string[] }> }) {

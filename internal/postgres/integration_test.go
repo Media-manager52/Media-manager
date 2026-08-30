@@ -133,6 +133,37 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertWorkflowIntent(t, ctx, store, seasonTwoWorkflow.ID, "season:02", 3, 0)
+
+	dashboard, err := store.Dashboard(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.Counts.Movies != 1 || dashboard.Counts.Series != 1 || dashboard.Counts.ActiveWorkflows != 3 {
+		t.Fatalf("dashboard counts=%+v, want one movie, one series, and three active workflows", dashboard.Counts)
+	}
+	if len(dashboard.RecentWorkflow) != 3 || len(dashboard.RecentActivity) == 0 {
+		t.Fatalf("dashboard read model omitted persisted workflow/activity: workflows=%d activity=%d", len(dashboard.RecentWorkflow), len(dashboard.RecentActivity))
+	}
+	activity, err := store.ListActivity(ctx, 100)
+	if err != nil || len(activity) == 0 {
+		t.Fatalf("activity read model: items=%d err=%v", len(activity), err)
+	}
+	files, err := store.ListManagedFiles(ctx, 100)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("managed-file read model before publication: items=%d err=%v", len(files), err)
+	}
+	candidates, err := store.ListReleaseCandidates(ctx, 100)
+	if err != nil || len(candidates) != 0 {
+		t.Fatalf("release read model before search worker: items=%d err=%v", len(candidates), err)
+	}
+	sources, err := store.ListSourceStatuses(ctx)
+	if err != nil || len(sources) != 3 {
+		t.Fatalf("source read model: items=%d err=%v", len(sources), err)
+	}
+	health, err := store.SystemHealth(ctx, time.Now().UTC())
+	if err != nil || health.DatabaseState != "ready" || health.SchemaVersion != CurrentSchemaVersion || len(health.Components) != 3 {
+		t.Fatalf("system health=%+v err=%v", health, err)
+	}
 }
 
 func assertWorkflowIntent(t *testing.T, ctx context.Context, store *Store, workflowID uuid.UUID, wantVariant string, wantEpisodes, wantSearchEvents int) {

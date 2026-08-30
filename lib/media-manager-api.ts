@@ -7,12 +7,23 @@ export const liveMode = process.env.NEXT_PUBLIC_MEDIA_MANAGER_MODE === "live"
 export type APIIdentity = { namespace: string; value: string; state?: "verified" | "candidate" | "rejected"; source?: string }
 export type APIMedia = { id: string; kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[] }
 export type APIWorkflow = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number; attention_code?: string; attention_detail?: string; terminal_at?: string; created_at: string; updated_at: string }
-export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string }
+export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string; created_at: string; updated_at: string }
 export type APILibraryRoot = { id: string; media_kind: "movie" | "series"; name: string; destination_root: string; plex_visible_root: string; source_visible_root: string; plex_instance_id?: string; plex_library_id?: string; is_default: boolean; enabled: boolean }
 export type APIQualityProfile = { id: string; media_kind: "movie" | "series"; name: string; policy_version: number; policy: Record<string, unknown>; upgrades_enabled: boolean; is_default: boolean; enabled: boolean }
 export type APIRecycleEntry = { id: string; media_id: string; media_title: string; library_link_version_id: string; root_id: string; original_relative: string; recycle_relative: string; altmount_source_retained: boolean; purge_after: string; state: string; confirmation_required: boolean; created_at: string }
 export type APIProwlarrCandidate = { id: string; import_id: string; name: string; implementation: string; base_url: string; categories: number[]; sanitized_config: Record<string, unknown>; secret_ref?: string; review_state: string; attention_detail?: string; created_instance_id?: string; api_key?: string }
 export type APIProwlarrImport = { id: string; state: string; parser_version: string; created_at: string; completed_at?: string; candidates: APIProwlarrCandidate[] }
+export type APIActivity = { id: string; kind: "audit" | "workflow_transition"; actor: string; action: string; aggregate_type: string; aggregate_id?: string; detail: Record<string, unknown>; occurred_at: string }
+export type APIDashboard = {
+  counts: { movies: number; series: number; active_workflows: number; needs_attention: number; current_files: number; recycle_entries: number; pending_events: number }
+  recent_workflows: APIWorkflow[]
+  recent_activity: APIActivity[]
+  generated_at: string
+}
+export type APIManagedFile = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; root_name: string; destination_relative: string; source_relative: string; plex_visible_target: string; state: string; generation: number; plex_confirmed: boolean; verified_at?: string; displaced_at?: string; removed_at?: string }
+export type APIReleaseCandidate = { id: string; workflow_id: string; media_id: string; media_kind: "movie" | "series"; media_title: string; media_year?: number; title: string; indexer_id: string; indexer_name: string; size_bytes?: number; published_at?: string; verdict?: string; score?: number; reasons: unknown[]; normalized_facts: Record<string, unknown>; problems: unknown[]; selected: boolean; observed_at: string }
+export type APISourceStatus = APIIntegration & { configuration_state: "configured" | "disabled" | "awaiting_commission"; minimum_interval_ms?: number; next_allowed_at?: string; cooldown_until?: string; consecutive_failure: number; last_outcome?: string; budget_updated_at?: string }
+export type APISystemHealth = { database_state: string; database_latency_ms: number; schema_version: number; expected_schema: number; outbox: { pending: number; due: number; retrying: number; oldest_due_at?: string }; components: APISourceStatus[]; checked_at: string }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -56,6 +67,13 @@ export const loadIntegrations = async (signal?: AbortSignal) => await requestJSO
 export const loadLibraryRoots = async (signal?: AbortSignal) => await requestJSON<APILibraryRoot[] | null>("/api/v1/settings/library-roots", { signal }) ?? []
 export const loadQualityProfiles = async (signal?: AbortSignal) => await requestJSON<APIQualityProfile[] | null>("/api/v1/settings/quality-profiles", { signal }) ?? []
 export const loadRecycle = async (signal?: AbortSignal) => await requestJSON<APIRecycleEntry[] | null>("/api/v1/recycle", { signal }) ?? []
+export const loadDashboard = (signal?: AbortSignal) => requestJSON<APIDashboard>("/api/v1/dashboard", { signal })
+export const loadActivity = async (signal?: AbortSignal) => await requestJSON<APIActivity[] | null>("/api/v1/activity?limit=300", { signal }) ?? []
+export const loadManagedFiles = async (signal?: AbortSignal) => await requestJSON<APIManagedFile[] | null>("/api/v1/files?limit=300", { signal }) ?? []
+export const loadManagedFile = (id: string, signal?: AbortSignal) => requestJSON<APIManagedFile>(`/api/v1/files/${encodeURIComponent(id)}`, { signal })
+export const loadReleaseCandidates = async (signal?: AbortSignal) => await requestJSON<APIReleaseCandidate[] | null>("/api/v1/intelligence/releases?limit=300", { signal }) ?? []
+export const loadSources = async (signal?: AbortSignal) => await requestJSON<APISourceStatus[] | null>("/api/v1/sources", { signal }) ?? []
+export const loadSystemHealth = (signal?: AbortSignal) => requestJSON<APISystemHealth>("/api/v1/system/health", { signal })
 
 export type CreateMediaInput = {
   kind: "movie" | "series"
@@ -72,7 +90,7 @@ export type CreateMediaInput = {
 export const createMedia = (input: CreateMediaInput) => requestJSON<{ media: APIMedia; workflows: APIWorkflow[] }>("/api/v1/media", { method: "POST", body: JSON.stringify(input) })
 export const recycleMedia = (id: string) => requestJSON<APIRecycleEntry[]>(`/api/v1/media/${encodeURIComponent(id)}`, { method: "DELETE" })
 export const restoreRecycle = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/restore`, { method: "POST" })
-export const createIntegration = (input: Omit<APIIntegration, "id">) => requestJSON<APIIntegration>("/api/v1/settings/integrations", { method: "POST", body: JSON.stringify(input) })
+export const createIntegration = (input: Omit<APIIntegration, "id" | "created_at" | "updated_at">) => requestJSON<APIIntegration>("/api/v1/settings/integrations", { method: "POST", body: JSON.stringify(input) })
 export const commissionIntegration = (id: string) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/commission`, { method: "POST" })
 export const createLibraryRoot = (input: Omit<APILibraryRoot, "id">) => requestJSON<APILibraryRoot>("/api/v1/settings/library-roots", { method: "POST", body: JSON.stringify(input) })
 export const createQualityProfile = (input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>("/api/v1/settings/quality-profiles", { method: "POST", body: JSON.stringify(input) })

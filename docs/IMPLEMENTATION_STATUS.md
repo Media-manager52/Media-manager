@@ -15,36 +15,37 @@ fixture's claims.
   while the live build truthfully withholds it.
 - **Missing** — no usable implementation exists yet.
 
-The live build is selected with `NEXT_PUBLIC_MEDIA_MANAGER_MODE=live`. In that
-mode, unmapped routes render `LiveUnavailableScreen`; they do not fall through to
-the fixture screens.
+The application entry is live-only. Approved development concept files remain in
+source as visual references, but they are not imported into the Docker UI graph.
+Unmapped routes render `LiveUnavailableScreen` and cannot fall through to fixture
+screens.
 
 ## UI route audit
 
 | Route | Status | Current live behavior | Required work |
 | --- | --- | --- | --- |
-| `/` | Partial | Loads real media, active workflows, and recycle entries. | Restore the approved overview composition using real metrics, attention, health, and recent activity. |
+| `/` | Partial | Loads real catalog, managed-file, workflow, recycle, outbox, and recent durable-activity aggregates in the approved overview composition. | Add wanted/upgrade and component-health summaries as those read models are completed. |
 | `/media` | Partial | Lists real catalog records and verified external identities. | Add persisted monitoring, publication, profile/root, and current-quality summaries. |
 | `/media/movies/:id` | Partial | Loads the real item and its workflows; can request a new workflow or recycle it. | Show current files, publication state, policy, candidates, and safe upgrade context. |
 | `/media/series/:id` | Partial | Loads the real item and its workflows; can create an exact-season workflow. | Load persisted seasons/episodes instead of asking the owner for a comma-separated episode list. |
-| `/files` | Mock-only | Live build reports unavailable. | Add read-only managed-link/source inventory API and the approved file manager. |
-| `/files/:id` | Mock-only | Live build reports unavailable. | Add real provenance, containment, publication, Plex, and recycle detail. |
+| `/files` | Partial | Lists real link generations, destinations, AltMount source provenance, publication state, and Plex confirmation. | Add track/media-info summaries, companion relationships, and bounded filters. |
+| `/files/:id` | Partial | Shows real path relationships, immutable generation, Plex evidence, and displacement/removal timestamps. | Add inventory/media-info evidence and recycle-cycle linkage. |
 | `/collections` | Mock-only | Live build reports unavailable. | Add persisted manual/smart collections and preview-before-write behavior. |
 | `/calendar` | Mock-only | Live build reports unavailable. | Add metadata availability/air-date persistence and read API. |
 | `/wanted` | Mock-only | Live build reports unavailable. | Derive missing and upgrade gaps from monitoring, current publication, and policy. |
 | `/import` | Mock-only | Live build reports unavailable. | Implement read-only discovery, adoption plan persistence, review, and separately approved execution. |
 | `/activity/queue` | Partial | Lists real workflow summaries and queues safe search/cancel transitions. | Add job/attempt detail, phase evidence, per-operation progress, and attention recovery. |
 | `/activity/recycle` | Partial | Lists persisted recycle cycles and queues whole-media restore. | Add cycle detail and explicit confirmation UI for real-file purge cases. |
-| `/activity/history` | Mock-only | Live build reports unavailable. | Expose workflow transitions and audit events as a durable timeline. |
+| `/activity/history` | Partial | Merges real workflow transitions and audit events into a bounded durable timeline. | Add correlation, filtering, pagination, and complete audit coverage. |
 | `/activity/blocklist` | Mock-only | Live build reports unavailable. | Add exact-release/pack-scope block persistence and APIs. |
 | `/discover` | Partial | Creates real movie or season workflows from owner-supplied verified IDs and supports root/profile/client override. | Add real metadata search and identity verification before submission. |
-| `/intelligence/releases` | Mock-only | Live build reports unavailable. | Expose persisted search runs, observations, decisions, selections, and evidence. |
-| `/intelligence/groups` | Mock-only | Live build reports unavailable. | Add evidence-derived group aggregation without permanent trust labels. |
-| `/intelligence/evidence` | Mock-only | Live build reports unavailable. | Add read APIs for normalized facts, raw-source provenance, confidence, and contradictions. |
-| `/sources/indexers` | Mock-only | Live build reports unavailable. | List real Newznab integrations, capability snapshots, persisted budgets, and scoped outcomes. |
-| `/sources/indexers/:id` | Mock-only | Live build reports unavailable. | Add real configuration/capability/budget detail and safe commissioning history. |
+| `/intelligence/releases` | Partial | Lists real persisted candidates, observations, policy verdicts/scores, selections, size, and indexer provenance. | Add per-search comparison, complete explanations, and pagination. |
+| `/intelligence/groups` | Partial | Aggregates observed group facts from persisted release evidence and explicitly avoids trust labels. | Add time windows, contradiction detail, and server-side aggregation. |
+| `/intelligence/evidence` | Partial | Expands real normalized facts with their candidate and policy outcome. | Add raw-field provenance, confidence/source attribution, contradictions, and pagination. |
+| `/sources/indexers` | Partial | Lists real Newznab configuration and persisted pacing/outcome state without making a network request. | Add capability snapshots, scoped operation history, coverage, and edit/disable controls. |
+| `/sources/indexers/:id` | Partial | Shows real endpoint, secret reference name, commission state, minimum interval, cooldown, failures, and latest outcome. | Add capability detail and commissioning history. |
 | `/sources/indexer-lab` | Partial | The live route is a real Prowlarr ZIP review/import flow; approved instances remain disabled pending commissioning. | Separate backup import from the approved paced commissioning diagnostics and remove the route-name mismatch. |
-| `/sources/download-clients` | Mock-only | Live build reports unavailable. | Expose the real AltMount integration and capability/path state. |
+| `/sources/download-clients` | Partial | Exposes real AltMount configuration state and endpoint without probing or claiming synthetic health. | Add capability/path observations, queue summaries, and edit/disable controls. |
 | `/sources/import-lists` | Mock-only | Live build reports unavailable. | Implement list sources and monitoring-only synchronization, or remove only after an explicit product decision. |
 | `/settings/profiles` | Partial | Lists and creates real quality profiles with one required and one preferred rule. | Implement the full approved rule editor, validation, versioning, cutoff, language/audio/subtitle goals, edit, and disable. |
 | `/settings/metadata` | Mock-only | Live build reports unavailable. | Implement provider configuration, lookup status, artwork choices, locks, and refresh state. |
@@ -56,8 +57,8 @@ the fixture screens.
 | `/system/backups` | Mock-only | Live build reports unavailable. | Implement Media Manager database/config backup and restore verification. Project tar backup is not this feature. |
 | `/system/security` | Mock-only | Live build reports unavailable. | Expose owner-only boundary, secret-reference health, mount modes, and outbound policy checks. |
 | `/system/api` | Mock-only | Live build reports unavailable. | Document the owner API and add scoped machine keys only if required by an approved integration. |
-| `/system/health` | Partial | Calls real API liveness/readiness through the owner gateway. | Add component- and operation-level health for PostgreSQL, Plex, AltMount, Seerr, and each Newznab instance. |
-| `/system/logs` | Mock-only | Live build reports unavailable. | Expose bounded redacted application diagnostics and persisted write audit events. |
+| `/system/health` | Partial | Reports real PostgreSQL/schema latency, outbox state, integration configuration, and latest persisted indexer outcomes without synthetic connection success. | Add bounded live operation probes/history for Plex, AltMount, and Seerr. |
+| `/system/logs` | Partial | Shows bounded persisted audit writes and workflow transitions; it does not mislabel container stdout as durable audit. | Add redacted diagnostic-log ingestion, correlation, filters, and pagination. |
 
 ## Backend capability audit
 
@@ -70,7 +71,7 @@ the fixture screens.
 | Seerr reconciliation | Real | Webhook deduplication, five-minute polling, provenance, configuration retry, and revocation reconciliation are persisted. Management/status UI is missing. |
 | Newznab commissioning | Partial | A disabled instance is paced at at least three seconds, fetches CAPS, requires generic search, and performs one random negative query before enablement. The approved multi-phase lab and detailed evidence are not implemented. |
 | Newznab runtime pacing | Real | Per-indexer single-flight lanes, a global bound, persisted next-allowed/cooldown state, `Retry-After`, and bounded backoff wrap supported indexer requests. |
-| Release search/evidence/policy | Real backend, missing UI | Search runs, raw observations, normalized evidence, decisions, and selection are persisted; no owner read API exposes them. |
+| Release search/evidence/policy | Partial UI | Search runs, raw observations, normalized evidence, decisions, and selection are persisted and now have bounded read screens. Raw provenance, comparison detail, and pagination remain incomplete. |
 | AltMount retrieval and reconciliation | Real | Submission intent, unknown-outcome recovery, queue observation, SSE/poll reconciliation, output inventory, and read-only source paths are implemented. |
 | Complete TV season packs as one job | Real | One season workflow creates an immutable expectation; one AltMount job is evaluated for exact episode coverage and published only from verified content groups. |
 | Plex-safe symlink publication | Real | Paths are containment-checked, names require verified Plex-supported identity, symlinks are batch-published, and Plex confirms every expected path/identity. |
@@ -80,13 +81,14 @@ the fixture screens.
 | Existing-library adoption review | Missing backend | Tables exist and the development concept shows the intended review, but there are no store services, API handlers, scanner, plan review, or executor. |
 | Prowlarr backup-only import | Real, with a review gap | ZIP/SQLite parsing is bounded and review creates disabled Newznab instances. The owner must manually place extracted keys into the secret environment before approval; import history/listing is absent. There is no Prowlarr runtime connection. |
 | Integration/profile/root lifecycle | Partial | Create and list are real. Update, disable/delete, default reassignment, and most safe tests are missing. |
-| Audit/history | Partial | Core writes append `audit_events` and workflow transitions, but no bounded read API/UI exists and not every operation emits an audit event. |
-| Component health | Partial | Process and database/schema probes are real. Dependency- and operation-level health is missing. |
+| Audit/history | Partial | Core writes append `audit_events` and workflow transitions and now have a bounded owner read API/UI; not every operation emits an audit event and pagination/filtering are missing. |
+| Component health | Partial | Process, PostgreSQL/schema, outbox, integration configuration, and persisted indexer-operation state are real. Bounded Plex/AltMount/Seerr operation status is still missing. |
 | Backups, notifications, import lists, collections, blocklist, machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
 
 ## Current owner API
 
-Real handlers exist for liveness/readiness; media list/create/detail/recycle;
+Real handlers exist for liveness/readiness; dashboard; activity; managed files;
+release intelligence; source/pacing state; system health; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.
@@ -105,6 +107,8 @@ for smoke testing without explicit approval.
   available; unrelated Cosmos configuration must remain untouched.
 - Baseline verification passed: ESLint, TypeScript, UI build/tests, Go tests with
   race detection, and `docker compose config --quiet`.
+- The live UI artifact is dependency-separated from the development concept
+  fixtures; an automated artifact scan verifies that fixture records are absent.
 
 ## Implementation order from this audit
 

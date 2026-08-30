@@ -61,6 +61,7 @@ func (server *Server) Handler() http.Handler { return server.security(server.mux
 func (server *Server) routes() {
 	server.mux.HandleFunc("GET /health/live", server.live)
 	server.mux.HandleFunc("GET /health/ready", server.ready)
+	server.mux.HandleFunc("GET /api/v1/dashboard", server.requireOwner(server.dashboard))
 	server.mux.HandleFunc("GET /api/v1/media", server.requireOwner(server.listMedia))
 	server.mux.HandleFunc("POST /api/v1/media", server.requireOwner(server.createMedia))
 	server.mux.HandleFunc("GET /api/v1/media/{id}", server.requireOwner(server.getMedia))
@@ -70,6 +71,12 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/workflows/{id}", server.requireOwner(server.getWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/search", server.requireOwner(server.searchWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/cancel", server.requireOwner(server.cancelWorkflow))
+	server.mux.HandleFunc("GET /api/v1/activity", server.requireOwner(server.listActivity))
+	server.mux.HandleFunc("GET /api/v1/files", server.requireOwner(server.listManagedFiles))
+	server.mux.HandleFunc("GET /api/v1/files/{id}", server.requireOwner(server.getManagedFile))
+	server.mux.HandleFunc("GET /api/v1/intelligence/releases", server.requireOwner(server.listReleaseCandidates))
+	server.mux.HandleFunc("GET /api/v1/sources", server.requireOwner(server.listSources))
+	server.mux.HandleFunc("GET /api/v1/system/health", server.requireOwner(server.systemHealth))
 	server.mux.HandleFunc("GET /api/v1/recycle", server.requireOwner(server.listRecycle))
 	server.mux.HandleFunc("POST /api/v1/recycle/{id}/restore", server.requireOwner(server.restoreRecycle))
 	server.mux.HandleFunc("POST /api/v1/imports/prowlarr", server.requireOwner(server.createProwlarrImport))
@@ -83,6 +90,83 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
 	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+}
+
+func (server *Server) dashboard(writer http.ResponseWriter, request *http.Request) {
+	snapshot, err := server.store.Dashboard(request.Context(), time.Now().UTC())
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load dashboard")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: snapshot})
+}
+
+func (server *Server) listActivity(writer http.ResponseWriter, request *http.Request) {
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := server.store.ListActivity(request.Context(), limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load activity")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) listManagedFiles(writer http.ResponseWriter, request *http.Request) {
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := server.store.ListManagedFiles(request.Context(), limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load managed files")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) getManagedFile(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "managed file ID is invalid")
+		return
+	}
+	item, err := server.store.ManagedFile(request.Context(), id)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "managed file was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load managed file")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: item})
+}
+
+func (server *Server) listReleaseCandidates(writer http.ResponseWriter, request *http.Request) {
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := server.store.ListReleaseCandidates(request.Context(), limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load release intelligence")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) listSources(writer http.ResponseWriter, request *http.Request) {
+	items, err := server.store.ListSourceStatuses(request.Context())
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load sources")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) systemHealth(writer http.ResponseWriter, request *http.Request) {
+	ctx, cancel := context.WithTimeout(request.Context(), 3*time.Second)
+	defer cancel()
+	snapshot, err := server.store.SystemHealth(ctx, time.Now().UTC())
+	if err != nil {
+		writeError(writer, http.StatusServiceUnavailable, "health_unavailable", "component health could not be loaded")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: snapshot})
 }
 
 func (server *Server) createProwlarrImport(writer http.ResponseWriter, request *http.Request) {
