@@ -68,6 +68,9 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 	if workflow.GrabAttemptID == nil || *workflow.GrabAttemptID != jobID {
 		return PublicationContext{}, ErrConcurrentModification
 	}
+	if workflow.SelectedRelease == nil {
+		return PublicationContext{}, errors.New("publication has no selected release identity")
+	}
 	var currentJob bool
 	if err := store.Pool.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM altmount_jobs job
@@ -101,24 +104,22 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 	if err != nil {
 		return PublicationContext{}, err
 	}
-	if workflow.SelectedRelease != nil {
-		text := workflow.SelectedRelease.String()
-		if len(text) > 8 {
-			text = text[:8]
-		}
-		result.ReleaseToken = "MM-" + text
-		var factsBody []byte
-		if factErr := store.Pool.QueryRow(ctx, `SELECT observation.normalized_facts FROM release_candidates candidate JOIN release_observations observation ON observation.id=candidate.observation_id WHERE candidate.id=$1`, workflow.SelectedRelease.String()).Scan(&factsBody); factErr == nil {
-			var facts []releases.Fact
-			if json.Unmarshal(factsBody, &facts) == nil {
-				for _, fact := range facts {
-					if fact.State == releases.FactConflicting || fact.State == releases.FactUnknown {
-						continue
-					}
-					switch strings.ToLower(strings.TrimSpace(fact.Name)) {
-					case "resolution", "source", "video_codec", "dynamic_range", "audio_codec":
-						result.Technical = append(result.Technical, fact.Values...)
-					}
+	text := workflow.SelectedRelease.String()
+	if len(text) > 8 {
+		text = text[:8]
+	}
+	result.ReleaseToken = "MM-" + text
+	var factsBody []byte
+	if factErr := store.Pool.QueryRow(ctx, `SELECT observation.normalized_facts FROM release_candidates candidate JOIN release_observations observation ON observation.id=candidate.observation_id WHERE candidate.id=$1`, workflow.SelectedRelease.String()).Scan(&factsBody); factErr == nil {
+		var facts []releases.Fact
+		if json.Unmarshal(factsBody, &facts) == nil {
+			for _, fact := range facts {
+				if fact.State == releases.FactConflicting || fact.State == releases.FactUnknown {
+					continue
+				}
+				switch strings.ToLower(strings.TrimSpace(fact.Name)) {
+				case "resolution", "source", "video_codec", "dynamic_range", "audio_codec":
+					result.Technical = append(result.Technical, fact.Values...)
 				}
 			}
 		}

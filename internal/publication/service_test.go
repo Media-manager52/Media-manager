@@ -3,6 +3,7 @@ package publication
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"uuid"
 
@@ -32,5 +33,34 @@ func TestBuildSeasonPackPlansEveryVerifiedGroup(t *testing.T) {
 	}
 	if plans[0].DestinationRelative != filepath.Join("Show (2026) {tvdb-123}", "Season 01", "Show (2026) - S01E01-E02.mkv") {
 		t.Fatalf("wrong destination %q", plans[0].DestinationRelative)
+	}
+}
+
+func TestBuildMoviePlansUseDistinctReleaseIdentity(t *testing.T) {
+	year := uint16(2026)
+	base := postgres.PublicationContext{
+		Media:                 catalog.MediaItem{Kind: catalog.KindMovie, Title: "Movie", Year: &year, Identities: []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "42", State: catalog.IdentityVerified}}},
+		Root:                  postgres.LibraryRoot{DestinationRoot: "/library/movies", SourceVisibleRoot: "/altmount", PlexVisibleRoot: "/movies"},
+		AltMount:              postgres.Integration{Config: json.RawMessage(`{"local_read_only_root":"/source"}`)},
+		InventoryRootRelative: "queue/17",
+		Assets:                []postgres.PublicationAsset{{ID: uuid.NewV7(), RelativePath: "Movie.1080p.mkv"}},
+	}
+	first := base
+	first.ReleaseToken = "MM-01234567"
+	second := base
+	second.ReleaseToken = "MM-89abcdef"
+	firstPlans, _, err := buildPlans(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPlans, _, err := buildPlans(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstPlans[0].DestinationRelative == secondPlans[0].DestinationRelative {
+		t.Fatalf("different selected releases collided at %q", firstPlans[0].DestinationRelative)
+	}
+	if !strings.Contains(firstPlans[0].DestinationRelative, "MM-01234567") || !strings.Contains(secondPlans[0].DestinationRelative, "MM-89abcdef") {
+		t.Fatalf("release identities missing from destinations: %q %q", firstPlans[0].DestinationRelative, secondPlans[0].DestinationRelative)
 	}
 }
