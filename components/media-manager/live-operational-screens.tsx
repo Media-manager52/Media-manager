@@ -36,10 +36,15 @@ import {
   loadReleaseCandidates,
   loadSources,
   loadSystemHealth,
+  loadSystemInfo,
+  loadTasks,
+  loadWanted,
   type APIActivity,
   type APIReleaseCandidate,
   type APISourceStatus,
   type APISystemHealth,
+  type APISystemInfo,
+  type APITasks,
 } from "@/lib/media-manager-api"
 import { InlineNotice, KeyValue, MetricCard, Panel, StatusChip } from "./ui"
 
@@ -121,6 +126,9 @@ const filesLoader = (signal: AbortSignal) => loadManagedFiles(signal)
 const releasesLoader = (signal: AbortSignal) => loadReleaseCandidates(signal)
 const sourcesLoader = (signal: AbortSignal) => loadSources(signal)
 const healthLoader = (signal: AbortSignal) => loadSystemHealth(signal)
+const wantedLoader = (signal: AbortSignal) => loadWanted(signal)
+const tasksLoader = (signal: AbortSignal) => loadTasks(signal)
+const systemInfoLoader = (signal: AbortSignal) => loadSystemInfo(signal)
 
 export function LiveOperationalDashboardScreen() {
   const { data, error, refresh } = useLiveData(dashboardLoader)
@@ -161,6 +169,19 @@ export function LiveLibraryScreen() {
     <Panel className="!p-3"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="relative min-w-0 flex-1 lg:max-w-md"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#758091]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, year, TMDB, TVDB, IMDb…" className="mm-input pl-9" /></div><div className="flex flex-wrap items-center gap-2">{(["All", "Movie", "Series"] as const).map((value) => <Button key={value} size="sm" variant={kind === value ? "default" : "outline"} onClick={() => setKind(value)}>{value}</Button>)}<Button variant="outline" size="icon" aria-label="Grid view" onClick={() => setView("grid")}><Grid2X2 /></Button><Button variant="outline" size="icon" aria-label="List view" onClick={() => setView("list")}><List /></Button><RefreshButton onClick={refresh} /></div></div></Panel>
     <div className="flex items-center justify-between px-1 text-[10px] text-[#7f8a9a]"><span>{filtered.length} of {records.length} live records</span><span>Sorted by title</span></div>
     {!data && !error ? <LoadingPanel label="Loading the live catalog…" /> : filtered.length === 0 ? <Panel><div className="py-12 text-center"><div className="text-sm font-bold text-white">{records.length === 0 ? "Your catalog is empty" : "No media matched"}</div><div className="mt-2 text-[10px] text-[#7f8a9a]">{records.length === 0 ? "Add a movie or an exact TV season pack to begin." : "Change the search or media type filter."}</div>{records.length === 0 ? <Button asChild className="mt-4" size="sm"><Link href="/discover"><Plus /> Add media</Link></Button> : null}</div></Panel> : view === "grid" ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">{filtered.map((item) => <Link key={item.id} href={item.kind === "Movie" ? `/media/movies/${item.id}` : `/media/series/${item.id}`} className="group overflow-hidden rounded-[15px] border border-white/[0.07] bg-[#0e1217] transition hover:-translate-y-0.5 hover:border-[#445064]"><div className="grid aspect-[2/3] place-items-center bg-gradient-to-b from-[#171d26] to-[#0b0f14]"><Library className="size-10 text-[#536076]" /></div><div className="p-3"><div className="truncate text-[11px] font-extrabold text-[#edf1f6]">{item.title}</div><div className="mt-1 text-[9.5px] text-[#7f8997]">{item.year || "Year unknown"} · {item.kind}</div><div className="mt-2 truncate text-[9px] text-[#8e98a6]">{item.externalIds.join(" · ") || "No verified external identity"}</div></div></Link>)}</div> : <Panel className="!p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Title</TableHead><TableHead>Type</TableHead><TableHead>Verified identities</TableHead><TableHead>Catalog state</TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.id}><TableCell><Link className="font-semibold text-[#e9edf3] hover:text-[#aebdff]" href={item.kind === "Movie" ? `/media/movies/${item.id}` : `/media/series/${item.id}`}>{item.title} <span className="text-[#788392]">({item.year || "—"})</span></Link></TableCell><TableCell>{item.kind}</TableCell><TableCell className="font-mono text-[9px]">{item.externalIds.join(" · ") || "—"}</TableCell><TableCell><StatusChip>Cataloged</StatusChip></TableCell></TableRow>)}</TableBody></Table></div></Panel>}
+  </div>
+}
+
+export function LiveWantedScreen() {
+  const { data, error, refresh } = useLiveData(wantedLoader)
+  const items = data ?? []
+  const missing = items.filter((item) => item.gap === "missing").length
+  const upgrades = items.filter((item) => item.gap === "upgrade").length
+  const attention = items.filter((item) => ["needs_attention", "held", "blocked", "quarantined", "transport_unknown"].includes(item.current_state)).length
+  return <div className="space-y-4">
+    {error ? <ErrorNotice error={error} /> : null}
+    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Missing" value={String(missing)} note="Active scope has no current publication" tone={missing ? "info" : "good"} icon={Search} /><MetricCard label="Upgrades" value={String(upgrades)} note="Current publication remains until replacement verification" tone={upgrades ? "info" : "good"} icon={Gauge} /><MetricCard label="Needs attention" value={String(attention)} note="Persisted workflow state, not a global failure" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
+    {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Panel className="!p-0" title="Wanted and upgrades" subtitle="Derived from active workflows, current publications, and persisted quality policy." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Scope</TableHead><TableHead>Gap</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.workflow_id}><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link></TableCell><TableCell className="font-mono text-[9px]">{item.variant}</TableCell><TableCell><StatusChip tone={item.gap === "upgrade" ? "info" : "warn"}>{pretty(item.gap)}</StatusChip></TableCell><TableCell><StatusChip tone={workflowTone(item.current_state)}>{pretty(item.current_state)}</StatusChip>{item.attention_detail ? <div className="mt-1 max-w-sm text-[9px] text-[#d6b36d]">{item.attention_detail}</div> : null}</TableCell><TableCell>{item.target_profile}<div className="mt-1 text-[9px] text-[#748090]">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell>{timeAgo(item.updated_at)}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No active missing or upgrade workflows.</div> : null}<div className="border-t border-white/[0.06] p-3 text-[9.5px] text-[#748090]">An existing current file is never replaced here. Replacement occurs only after the new generation is verified and Plex confirms its exact path and identity.</div></Panel>}
   </div>
 }
 
@@ -290,6 +311,31 @@ export function LiveComponentHealthScreen() {
   const { data, error, refresh } = useLiveData(healthLoader)
   if (!data && !error) return <LoadingPanel label="Loading component health…" />
   return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <HealthContent data={data} refresh={refresh} /> : null}</div>
+}
+
+export function LiveTasksScreen() {
+  const { data, error, refresh } = useLiveData(tasksLoader)
+  if (!data && !error) return <LoadingPanel label="Loading persisted worker state…" />
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <TasksContent data={data} refresh={refresh} /> : null}</div>
+}
+
+function TasksContent({ data, refresh }: { data: APITasks; refresh: () => void }) {
+  const pending = data.event_types.reduce((total, item) => total + item.pending, 0)
+  const due = data.event_types.reduce((total, item) => total + item.due, 0)
+  const retrying = data.event_types.reduce((total, item) => total + item.retrying, 0)
+  return <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Pending" value={String(pending)} note="Durable outbox events" tone="info" icon={ListChecks} /><MetricCard label="Due now" value={String(due)} note="Available for a worker lease" tone={due ? "warn" : "good"} icon={Activity} /><MetricCard label="Retried" value={String(retrying)} note="Pending events with prior attempts" tone={retrying ? "warn" : "good"} icon={RefreshCw} /></div><div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]"><Panel className="!p-0" title="Durable event work" subtitle="Persisted event-type aggregates; opening this page never triggers a task." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Event type</TableHead><TableHead>Pending</TableHead><TableHead>Due</TableHead><TableHead>Retrying</TableHead><TableHead>Completed</TableHead><TableHead>Highest attempts</TableHead><TableHead>Latest event</TableHead></TableRow></TableHeader><TableBody>{data.event_types.map((item) => <TableRow key={item.event_type}><TableCell className="font-mono text-[9px]">{item.event_type}</TableCell><TableCell>{item.pending}</TableCell><TableCell>{item.due}</TableCell><TableCell>{item.retrying}</TableCell><TableCell>{item.completed}</TableCell><TableCell>{item.highest_attempts}</TableCell><TableCell>{timeAgo(item.latest_at)}</TableCell></TableRow>)}</TableBody></Table></div>{data.event_types.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No durable worker events have been created.</div> : null}</Panel><Panel title="Recurring work" subtitle="Configured server schedules; automatic does not claim a successful external operation.">{data.recurring.map((item) => <div key={item.name} className="mb-2 rounded-xl border border-white/[0.06] bg-[#0c1015] p-3"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-semibold text-[#dfe5ec]">{item.name}</span><StatusChip tone={item.automatic ? "info" : "neutral"}>{item.automatic ? "Automatic" : "Disabled"}</StatusChip></div><div className="mt-1 text-[9px] text-[#748090]">{item.schedule}</div></div>)}</Panel></div></>
+}
+
+export function LiveSystemInfoScreen({ mode }: { mode: "media-management" | "security" | "api" }) {
+  const { data, error, refresh } = useLiveData(systemInfoLoader)
+  if (!data && !error) return <LoadingPanel label="Loading server-enforced policy…" />
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <SystemInfoContent data={data} mode={mode} refresh={refresh} /> : null}</div>
+}
+
+function SystemInfoContent({ data, mode, refresh }: { data: APISystemInfo; mode: "media-management" | "security" | "api"; refresh: () => void }) {
+  if (mode === "media-management") return <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Source policy" value={pretty(data.altmount_source_policy)} note="AltMount content is never renamed or deleted" tone="good" icon={HardDrive} /><MetricCard label="Publication" value={pretty(data.publication_type)} note="Plex-safe managed link generations" tone="info" icon={FileCheck2} /><MetricCard label="Recycle retention" value={`${data.recycle_retention_days} days`} note="Managed links stay recoverable" icon={RefreshCw} /></div><Panel title="Enforced lifecycle policy" subtitle="These values report the running server contract; unsupported settings are not presented as editable."><KeyValue label="Upgrade replacement gate" value={pretty(data.upgrade_replacement_gate)} /><KeyValue label="AltMount source" value={pretty(data.altmount_source_policy)} /><KeyValue label="Publication type" value={pretty(data.publication_type)} /><KeyValue label="Recycle retention" value={`${data.recycle_retention_days} days`} /><InlineNotice tone="info" title="Safe replacement">An old current link is displaced only after the replacement is verified and Plex confirms exact path and provider identity.</InlineNotice></Panel></>
+  if (mode === "security") return <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Administration" value={data.owner_only ? "Owner only" : "Not owner-only"} note="No multi-user administration" tone={data.owner_only ? "good" : "warn"} icon={ShieldCheck} /><MetricCard label="Browser boundary" value={pretty(data.browser_auth)} note={`Public edge: ${data.public_edge_owner}`} tone="info" icon={Globe2} /><MetricCard label="Webhook" value={data.seerr_webhook_enabled ? "Enabled" : "Disabled"} note="Seerr uses its separate authenticated route" icon={SearchCheck} /></div><Panel title="Running access boundaries" subtitle="Secret values are never returned by this endpoint." action={<RefreshButton onClick={refresh} />}><KeyValue label="Owner API authentication" value={pretty(data.api_auth)} /><KeyValue label="Browser authentication" value={pretty(data.browser_auth)} /><KeyValue label="Public edge owner" value={data.public_edge_owner} /><KeyValue label="Machine API keys" value={data.machine_api_keys ? "Enabled" : "Not implemented"} /><InlineNotice tone="info" title="Secret handling">Integration records expose environment variable names only. Credential values remain outside browser responses and durable audit detail.</InlineNotice></Panel></>
+  return <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]"><Panel title="Owner API contract" subtitle="The live API is versioned and protected by the owner boundary." action={<RefreshButton onClick={refresh} />}><KeyValue label="Version" value={data.version || "Unversioned development build"} /><KeyValue label="Prefix" value={<span className="font-mono">{data.api_prefix}</span>} /><KeyValue label="Authentication" value={pretty(data.api_auth)} /><KeyValue label="Machine API keys" value={data.machine_api_keys ? "Enabled" : "Not implemented"} /></Panel><Panel title="Supported access" subtitle="Browser requests use the gateway-injected owner bearer. External scoped keys are not claimed."><pre className="overflow-x-auto rounded-xl border border-white/[0.06] bg-[#090c10] p-4 text-[9.5px] leading-5 text-[#aeb6c1]">{`GET ${data.api_prefix}/dashboard\nGET ${data.api_prefix}/media\nGET ${data.api_prefix}/workflows\nGET ${data.api_prefix}/wanted\nGET ${data.api_prefix}/files\nGET ${data.api_prefix}/activity\nGET ${data.api_prefix}/system/health\nGET ${data.api_prefix}/system/tasks`}</pre><InlineNotice tone="warn" title="No machine-key lifecycle">Scoped machine keys, issuance, rotation, and revocation are not implemented. Do not reuse the internal owner bearer outside the gateway.</InlineNotice></Panel></div>
 }
 
 function HealthContent({ data, refresh }: { data: APISystemHealth; refresh: () => void }) {

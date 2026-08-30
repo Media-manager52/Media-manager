@@ -24,6 +24,12 @@ export type APIManagedFile = { id: string; media_id: string; media_kind: "movie"
 export type APIReleaseCandidate = { id: string; workflow_id: string; media_id: string; media_kind: "movie" | "series"; media_title: string; media_year?: number; title: string; indexer_id: string; indexer_name: string; size_bytes?: number; published_at?: string; verdict?: string; score?: number; reasons: unknown[]; normalized_facts: Record<string, unknown>; problems: unknown[]; selected: boolean; observed_at: string }
 export type APISourceStatus = APIIntegration & { configuration_state: "configured" | "disabled" | "awaiting_commission"; minimum_interval_ms?: number; next_allowed_at?: string; cooldown_until?: string; consecutive_failure: number; last_outcome?: string; budget_updated_at?: string }
 export type APISystemHealth = { database_state: string; database_latency_ms: number; schema_version: number; expected_schema: number; outbox: { pending: number; due: number; retrying: number; oldest_due_at?: string }; components: APISourceStatus[]; checked_at: string }
+export type APIMediaSeason = { number: number; monitored: boolean; prefer_season_pack: boolean; search_immediately: boolean; state: string; expected_episodes: number; workflow_id?: string; workflow_state?: string; updated_at: string }
+export type APIMediaDetail = { media: APIMedia; workflows: APIWorkflow[]; seasons: APIMediaSeason[]; files: APIManagedFile[] }
+export type APIWantedItem = { workflow_id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; gap: "missing" | "upgrade"; current_state: string; target_profile: string; upgrades_enabled: boolean; attention_detail?: string; updated_at: string }
+export type APITaskStatus = { event_type: string; pending: number; due: number; retrying: number; completed: number; highest_attempts: number; oldest_due_at?: string; latest_at: string }
+export type APITasks = { event_types: APITaskStatus[]; recurring: Array<{ name: string; schedule: string; automatic: boolean }> }
+export type APISystemInfo = { version: string; owner_only: boolean; browser_auth: string; api_auth: string; seerr_webhook_enabled: boolean; altmount_source_policy: string; publication_type: string; upgrade_replacement_gate: string; recycle_retention_days: number; public_edge_owner: string; machine_api_keys: boolean; api_prefix: string; checked_at: string }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -74,6 +80,10 @@ export const loadManagedFile = (id: string, signal?: AbortSignal) => requestJSON
 export const loadReleaseCandidates = async (signal?: AbortSignal) => await requestJSON<APIReleaseCandidate[] | null>("/api/v1/intelligence/releases?limit=300", { signal }) ?? []
 export const loadSources = async (signal?: AbortSignal) => await requestJSON<APISourceStatus[] | null>("/api/v1/sources", { signal }) ?? []
 export const loadSystemHealth = (signal?: AbortSignal) => requestJSON<APISystemHealth>("/api/v1/system/health", { signal })
+export const loadMediaDetail = (id: string, signal?: AbortSignal) => requestJSON<APIMediaDetail>(`/api/v1/media/${encodeURIComponent(id)}/detail`, { signal })
+export const loadWanted = async (signal?: AbortSignal) => await requestJSON<APIWantedItem[] | null>("/api/v1/wanted?limit=300", { signal }) ?? []
+export const loadTasks = (signal?: AbortSignal) => requestJSON<APITasks>("/api/v1/system/tasks", { signal })
+export const loadSystemInfo = (signal?: AbortSignal) => requestJSON<APISystemInfo>("/api/v1/system/info", { signal })
 
 export type CreateMediaInput = {
   kind: "movie" | "series"

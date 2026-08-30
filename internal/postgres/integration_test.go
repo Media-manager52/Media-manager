@@ -152,6 +152,30 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || len(files) != 0 {
 		t.Fatalf("managed-file read model before publication: items=%d err=%v", len(files), err)
 	}
+	movieDetail, err := store.MediaDetail(ctx, movie.ID)
+	if err != nil || len(movieDetail.Workflows) != 1 || len(movieDetail.Seasons) != 0 || len(movieDetail.Files) != 0 {
+		t.Fatalf("movie detail read model: detail=%+v err=%v", movieDetail, err)
+	}
+	seriesDetail, err := store.MediaDetail(ctx, series.ID)
+	if err != nil || len(seriesDetail.Workflows) != 2 || len(seriesDetail.Seasons) != 2 || len(seriesDetail.Files) != 0 {
+		t.Fatalf("series detail read model: workflows=%d seasons=%d files=%d err=%v", len(seriesDetail.Workflows), len(seriesDetail.Seasons), len(seriesDetail.Files), err)
+	}
+	if seriesDetail.Seasons[0].Number != 1 || seriesDetail.Seasons[0].ExpectedEpisodes != 2 || seriesDetail.Seasons[1].Number != 2 || seriesDetail.Seasons[1].ExpectedEpisodes != 3 {
+		t.Fatalf("series season snapshots=%+v", seriesDetail.Seasons)
+	}
+	wanted, err := store.ListWanted(ctx, 100)
+	if err != nil || len(wanted) != 3 {
+		t.Fatalf("wanted read model: items=%d err=%v", len(wanted), err)
+	}
+	for _, item := range wanted {
+		if item.Gap != "missing" {
+			t.Fatalf("wanted item before publication has gap=%q, want missing", item.Gap)
+		}
+	}
+	tasks, err := store.ListTaskStatuses(ctx)
+	if err != nil || len(tasks) != 1 || tasks[0].EventType != "workflow.search_requested" || tasks[0].Pending != 2 || tasks[0].Due != 2 {
+		t.Fatalf("task read model=%+v err=%v", tasks, err)
+	}
 	candidates, err := store.ListReleaseCandidates(ctx, 100)
 	if err != nil || len(candidates) != 0 {
 		t.Fatalf("release read model before search worker: items=%d err=%v", len(candidates), err)

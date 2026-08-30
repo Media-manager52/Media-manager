@@ -26,7 +26,7 @@ import {
   loadIntegrations,
   loadLibraryRoots,
   loadMedia,
-  loadMediaItem,
+  loadMediaDetail,
   loadQualityProfiles,
   loadRecycle,
   loadWorkflows,
@@ -36,7 +36,7 @@ import {
   uploadProwlarrBackup,
   type APIIntegration,
   type APILibraryRoot,
-  type APIMedia,
+  type APIMediaDetail,
   type APIQualityProfile,
   type APIRecycleEntry,
   type APIProwlarrImport,
@@ -200,13 +200,13 @@ function ConfigSelect({ label, value, onChange, items }: { label: string; value:
 
 export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
   const router = useRouter()
-  const [media, setMedia] = React.useState<APIMedia | null>(null)
-  const [workflows, setWorkflows] = React.useState<APIWorkflow[]>([])
+  const [detail, setDetail] = React.useState<APIMediaDetail | null>(null)
   const [error, setError] = React.useState("")
   const [seasonSpec, setSeasonSpec] = React.useState("1:10")
   const [busy, setBusy] = React.useState(false)
-  const refresh = React.useCallback(async () => { try { const [item, all] = await Promise.all([loadMediaItem(mediaId), loadWorkflows(false)]); setMedia(item); setWorkflows(all.filter((workflow) => workflow.media_id === mediaId)); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load media") } }, [mediaId])
+  const refresh = React.useCallback(async () => { try { setDetail(await loadMediaDetail(mediaId)); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load media") } }, [mediaId])
   React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(initial) }, [refresh])
+  const media = detail?.media ?? null
   async function addWorkflow() {
     if (!media) return
     setBusy(true)
@@ -228,7 +228,9 @@ export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
   if (!media) return <Panel><div className="flex items-center gap-2 text-[11px] text-[#8390a1]"><LoaderCircle className="size-4 animate-spin" /> Loading media…</div></Panel>
   return <div className="space-y-4">
     <Panel><div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"><div><div className="flex gap-2"><StatusChip tone="info">{media.kind === "movie" ? "Movie" : "Series"}</StatusChip>{(media.identities ?? []).map((identity) => <StatusChip key={`${identity.namespace}-${identity.value}`}>{identity.namespace.toUpperCase()} {identity.value}</StatusChip>)}</div><h2 className="mt-4 text-3xl font-[850] tracking-[-0.04em] text-white">{media.title}</h2><div className="mt-2 text-[11px] text-[#8692a2]">{media.year ?? "Year unavailable"}</div></div><div className="flex flex-wrap gap-2">{media.kind === "series" ? <Input className="mm-input w-36" value={seasonSpec} onChange={(event) => setSeasonSpec(event.target.value)} aria-label="Season and episode count" /> : null}<Button disabled={busy} onClick={() => void addWorkflow()}><Plus /> {media.kind === "movie" ? "Search upgrade" : "Add season"}</Button><AlertDialog><AlertDialogTrigger asChild><Button variant="outline" disabled={busy}><Trash2 /> Recycle</Button></AlertDialogTrigger><AlertDialogContent className="border-[#303947] bg-[#10141a] text-white"><AlertDialogHeader><AlertDialogTitle>Recycle {media.title}?</AlertDialogTitle><AlertDialogDescription>Managed links move into 30-day retention. AltMount source files stay untouched. Active workflows must be cancelled or completed first.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Keep media</AlertDialogCancel><AlertDialogAction onClick={() => void remove()}>Recycle links</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div></div></Panel>
-    <WorkflowTable workflows={workflows} empty="No workflows for this media." />
+    {media.kind === "series" ? <Panel className="!p-0" title="Season monitoring" subtitle="Persisted exact episode expectations; complete season packs remain one workflow and one AltMount job."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Season</TableHead><TableHead>Monitoring</TableHead><TableHead>Pack preference</TableHead><TableHead>Expected episodes</TableHead><TableHead>Latest workflow</TableHead></TableRow></TableHeader><TableBody>{(detail?.seasons ?? []).map((season) => <TableRow key={season.number}><TableCell className="font-semibold">Season {season.number}</TableCell><TableCell><StatusChip tone={season.monitored ? "good" : "neutral"}>{season.monitored ? "Monitored" : "Not monitored"}</StatusChip></TableCell><TableCell>{season.prefer_season_pack ? "Complete pack" : "No pack preference"}</TableCell><TableCell>{season.expected_episodes || "Not snapshotted"}</TableCell><TableCell><StatusChip tone={workflowTone(season.workflow_state ?? "")}>{season.workflow_state ? prettyState(season.workflow_state) : prettyState(season.state)}</StatusChip></TableCell></TableRow>)}</TableBody></Table></div>{detail?.seasons.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No seasons are monitored.</div> : null}</Panel> : null}
+    <WorkflowTable workflows={detail?.workflows ?? []} empty="No workflows for this media." />
+    <Panel className="!p-0" title="Published files" subtitle="Plex-safe link generations with immutable read-only AltMount provenance."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Destination</TableHead><TableHead>Source</TableHead><TableHead>Generation</TableHead><TableHead>State</TableHead><TableHead>Plex</TableHead></TableRow></TableHeader><TableBody>{(detail?.files ?? []).map((file) => <TableRow key={file.id}><TableCell><Link href={`/files/${file.id}`} className="font-mono text-[9px] text-[#dfe5ec] hover:text-[#aebdff]">{file.destination_relative}</Link></TableCell><TableCell className="max-w-md break-all font-mono text-[9px]">{file.source_relative}</TableCell><TableCell>{file.generation}</TableCell><TableCell><StatusChip>{prettyState(file.state)}</StatusChip></TableCell><TableCell>{file.plex_confirmed ? "Confirmed" : "Not confirmed"}</TableCell></TableRow>)}</TableBody></Table></div>{detail?.files.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No managed files have been published for this item.</div> : null}</Panel>
   </div>
 }
 

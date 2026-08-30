@@ -16,10 +16,13 @@ import {
   HardDrive,
   HeartPulse,
   Library,
+  ListChecks,
   MonitorCog,
   Plus,
   Search,
   ServerCog,
+  Settings2,
+  ShieldCheck,
   Sparkles,
   TerminalSquare,
   Users,
@@ -79,6 +82,9 @@ import {
   LiveOperationalDashboardScreen,
   LiveReleaseIntelligenceScreen,
   LiveSourcesScreen,
+  LiveSystemInfoScreen,
+  LiveTasksScreen,
+  LiveWantedScreen,
 } from "./live-operational-screens"
 import { PageHeader } from "./ui"
 
@@ -89,6 +95,7 @@ const liveNavigation: NavGroup[] = [
   { label: "Home", items: [{ label: "Overview", href: "/", icon: MonitorCog }] },
   { label: "Library", items: [
     { label: "Media", href: "/media", icon: Library },
+    { label: "Wanted & Upgrades", href: "/wanted", icon: ListChecks },
     { label: "File Manager", href: "/files", icon: Files },
     { label: "Add media", href: "/discover", icon: Plus },
     { label: "Recycle", href: "/activity/recycle", icon: ArchiveRestore },
@@ -111,8 +118,12 @@ const liveNavigation: NavGroup[] = [
     { label: "Connections", href: "/settings/connections", icon: Webhook },
     { label: "Storage", href: "/settings/storage", icon: HardDrive },
     { label: "Profiles", href: "/settings/profiles", icon: Gauge },
+    { label: "Media Management", href: "/settings/media-management", icon: Settings2 },
   ] },
   { label: "System", items: [
+    { label: "Tasks", href: "/system/tasks", icon: ListChecks },
+    { label: "Security", href: "/system/security", icon: ShieldCheck },
+    { label: "API", href: "/system/api", icon: TerminalSquare },
     { label: "Health", href: "/system/health", icon: HeartPulse },
     { label: "Logs & Audit", href: "/system/logs", icon: TerminalSquare },
   ] },
@@ -222,6 +233,7 @@ function RouteContent({ path }: { path: string }) {
   const normalized = normalizeRoute(path)
   if (path === "/") return <LiveOperationalDashboardScreen />
   if (path === "/media") return <LiveLibraryScreen />
+  if (path === "/wanted") return <LiveWantedScreen />
   if (normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId") return <LiveMediaDetailScreen mediaId={path.split("/").at(-1) ?? ""} />
   if (path === "/files") return <LiveFilesScreen />
   if (normalized === "/files/$fileId") return <LiveFileDetailScreen fileId={path.split("/").at(-1) ?? ""} />
@@ -239,6 +251,10 @@ function RouteContent({ path }: { path: string }) {
   if (path === "/sources/indexer-lab") return <LiveProwlarrImportScreen />
   if (path === "/settings/storage") return <LiveRootsScreen />
   if (path === "/settings/profiles") return <LiveProfilesScreen />
+  if (path === "/settings/media-management") return <LiveSystemInfoScreen mode="media-management" />
+  if (path === "/system/tasks") return <LiveTasksScreen />
+  if (path === "/system/security") return <LiveSystemInfoScreen mode="security" />
+  if (path === "/system/api") return <LiveSystemInfoScreen mode="api" />
   if (path === "/system/health") return <LiveComponentHealthScreen />
   if (path === "/system/logs") return <LiveActivityHistoryScreen logs />
   return <LiveUnavailableScreen />

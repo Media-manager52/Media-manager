@@ -26,13 +26,13 @@ screens.
 | --- | --- | --- | --- |
 | `/` | Partial | Loads real catalog, managed-file, workflow, recycle, outbox, and recent durable-activity aggregates in the approved overview composition. | Add wanted/upgrade and component-health summaries as those read models are completed. |
 | `/media` | Partial | Lists real catalog records and verified external identities. | Add persisted monitoring, publication, profile/root, and current-quality summaries. |
-| `/media/movies/:id` | Partial | Loads the real item and its workflows; can request a new workflow or recycle it. | Show current files, publication state, policy, candidates, and safe upgrade context. |
-| `/media/series/:id` | Partial | Loads the real item and its workflows; can create an exact-season workflow. | Load persisted seasons/episodes instead of asking the owner for a comma-separated episode list. |
+| `/media/movies/:id` | Partial | Loads the real item, complete bounded workflow history, managed file generations, Plex confirmation, and AltMount provenance; can request a new workflow or recycle it. | Add current policy/candidate comparison and richer safe-upgrade evidence. |
+| `/media/series/:id` | Partial | Loads persisted monitoring and exact expected-episode counts per season, complete bounded workflow history, and managed file generations; can create another exact-season workflow. | Add episode-level coverage/evidence and metadata-backed season creation. |
 | `/files` | Partial | Lists real link generations, destinations, AltMount source provenance, publication state, and Plex confirmation. | Add track/media-info summaries, companion relationships, and bounded filters. |
 | `/files/:id` | Partial | Shows real path relationships, immutable generation, Plex evidence, and displacement/removal timestamps. | Add inventory/media-info evidence and recycle-cycle linkage. |
 | `/collections` | Mock-only | Live build reports unavailable. | Add persisted manual/smart collections and preview-before-write behavior. |
 | `/calendar` | Mock-only | Live build reports unavailable. | Add metadata availability/air-date persistence and read API. |
-| `/wanted` | Mock-only | Live build reports unavailable. | Derive missing and upgrade gaps from monitoring, current publication, and policy. |
+| `/wanted` | Partial | Derives missing versus upgrade gaps from active workflows, current publication by item/scope, and the persisted target profile. | Add independent quality/language/audio/subtitle goal deltas and pagination. |
 | `/import` | Mock-only | Live build reports unavailable. | Implement read-only discovery, adoption plan persistence, review, and separately approved execution. |
 | `/activity/queue` | Partial | Lists real workflow summaries and queues safe search/cancel transitions. | Add job/attempt detail, phase evidence, per-operation progress, and attention recovery. |
 | `/activity/recycle` | Partial | Lists persisted recycle cycles and queues whole-media restore. | Add cycle detail and explicit confirmation UI for real-file purge cases. |
@@ -49,14 +49,14 @@ screens.
 | `/sources/import-lists` | Mock-only | Live build reports unavailable. | Implement list sources and monitoring-only synchronization, or remove only after an explicit product decision. |
 | `/settings/profiles` | Partial | Lists and creates real quality profiles with one required and one preferred rule. | Implement the full approved rule editor, validation, versioning, cutoff, language/audio/subtitle goals, edit, and disable. |
 | `/settings/metadata` | Mock-only | Live build reports unavailable. | Implement provider configuration, lookup status, artwork choices, locks, and refresh state. |
-| `/settings/media-management` | Mock-only | Live build reports unavailable. | Expose the real publication/recycle/upgrade invariants and configurable supported policies. |
+| `/settings/media-management` | Partial | Reports the running read-only AltMount, Plex-safe symlink, Plex-confirmed upgrade gate, and 30-day recycle contracts without pretending unsupported policies are editable. | Add configuration only for narrowly supported lifecycle policies and naming/companion behavior. |
 | `/settings/storage` | Partial | Lists and creates real Plex-backed movie/TV roots with defaults and path mappings. | Add preflight validation, edit/disable, naming preview from real values, and mount/capacity checks. |
 | `/settings/connections` | Partial | Lists and creates real Plex, Seerr, AltMount, and staged Newznab records; Newznab commissioning is real and paced. | Add safe connection tests and edit/disable/default management; surface operation-level state without fake “ready” labels. |
 | `/settings/notifications` | Mock-only | Live build reports unavailable. | Add persisted destinations, event selection, redaction, and delivery history. |
-| `/system/tasks` | Mock-only | Live build reports unavailable. | Expose scheduled worker/outbox state and safe supported manual triggers. |
+| `/system/tasks` | Partial | Shows real per-event-type pending, due, retry, completed, attempt, and latest-event aggregates plus configured recurring schedules; opening it triggers nothing. | Persist recurring-run outcomes/durations and add only bounded, explicitly supported manual triggers. |
 | `/system/backups` | Mock-only | Live build reports unavailable. | Implement Media Manager database/config backup and restore verification. Project tar backup is not this feature. |
-| `/system/security` | Mock-only | Live build reports unavailable. | Expose owner-only boundary, secret-reference health, mount modes, and outbound policy checks. |
-| `/system/api` | Mock-only | Live build reports unavailable. | Document the owner API and add scoped machine keys only if required by an approved integration. |
+| `/system/security` | Partial | Reports the running owner-only, gateway/browser, internal bearer, Seerr webhook, and no-machine-key boundaries without exposing secret values. | Add secret-reference presence checks, mount-mode verification, outbound-policy reporting, and security-event detail. |
+| `/system/api` | Partial | Documents the versioned owner read surface and authentication boundary and explicitly reports that scoped machine keys do not exist. | Add complete generated API exploration; implement scoped key issuance/rotation only when an approved integration requires it. |
 | `/system/health` | Partial | Reports real PostgreSQL/schema latency, outbox state, integration configuration, and latest persisted indexer outcomes without synthetic connection success. | Add bounded live operation probes/history for Plex, AltMount, and Seerr. |
 | `/system/logs` | Partial | Shows bounded persisted audit writes and workflow transitions; it does not mislabel container stdout as durable audit. | Add redacted diagnostic-log ingestion, correlation, filters, and pagination. |
 
@@ -88,7 +88,7 @@ screens.
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence; source/pacing state; system health; media list/create/detail/recycle;
+release intelligence; source/pacing state; system health/tasks/info; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.

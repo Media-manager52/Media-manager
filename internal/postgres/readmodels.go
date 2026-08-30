@@ -120,11 +120,11 @@ type ManagedFile struct {
 }
 
 func (store *Store) ListManagedFiles(ctx context.Context, limit int) ([]ManagedFile, error) {
-	return store.managedFiles(ctx, nil, limit)
+	return store.managedFiles(ctx, nil, nil, limit)
 }
 
 func (store *Store) ManagedFile(ctx context.Context, id uuid.UUID) (ManagedFile, error) {
-	items, err := store.managedFiles(ctx, &id, 1)
+	items, err := store.managedFiles(ctx, &id, nil, 1)
 	if err != nil {
 		return ManagedFile{}, err
 	}
@@ -134,13 +134,17 @@ func (store *Store) ManagedFile(ctx context.Context, id uuid.UUID) (ManagedFile,
 	return items[0], nil
 }
 
-func (store *Store) managedFiles(ctx context.Context, id *uuid.UUID, limit int) ([]ManagedFile, error) {
+func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, limit int) ([]ManagedFile, error) {
 	if limit < 1 || limit > 500 {
 		limit = 200
 	}
 	var idValue any
 	if id != nil {
 		idValue = id.String()
+	}
+	var mediaIDValue any
+	if mediaID != nil {
+		mediaIDValue = mediaID.String()
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT version.id::text,media.id::text,media.kind,media.title,media.year,root.name,link.destination_relative,
 		version.source_relative,version.plex_visible_target,version.state,version.generation,
@@ -152,10 +156,10 @@ func (store *Store) managedFiles(ctx context.Context, id *uuid.UUID, limit int) 
 		JOIN workflows workflow ON workflow.id=version.workflow_id
 		JOIN media_items media ON media.id=workflow.media_id
 		LEFT JOIN library_link_removals removal ON removal.version_id=version.id
-		WHERE ($1::uuid IS NULL OR version.id=$1::uuid)
+		WHERE ($1::uuid IS NULL OR version.id=$1::uuid) AND ($2::uuid IS NULL OR media.id=$2::uuid)
 		ORDER BY CASE version.state WHEN 'current' THEN 0 WHEN 'verified' THEN 1 WHEN 'publishing' THEN 2 ELSE 3 END,
 			COALESCE(version.verified_at,workflow.updated_at) DESC,version.id
-		LIMIT $2`, idValue, limit)
+		LIMIT $3`, idValue, mediaIDValue, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +177,173 @@ func (store *Store) managedFiles(ctx context.Context, id *uuid.UUID, limit int) 
 		if year != nil {
 			converted := uint16(*year)
 			item.Year = &converted
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+type MediaSeason struct {
+	Number            uint16     `json:"number"`
+	Monitored         bool       `json:"monitored"`
+	PreferSeasonPack  bool       `json:"prefer_season_pack"`
+	SearchImmediately bool       `json:"search_immediately"`
+	State             string     `json:"state"`
+	ExpectedEpisodes  int        `json:"expected_episodes"`
+	WorkflowID        *uuid.UUID `json:"workflow_id,omitempty"`
+	WorkflowState     string     `json:"workflow_state,omitempty"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+type MediaDetail struct {
+	Media     catalog.MediaItem `json:"media"`
+	Workflows []WorkflowSummary `json:"workflows"`
+	Seasons   []MediaSeason     `json:"seasons"`
+	Files     []ManagedFile     `json:"files"`
+}
+
+func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDetail, error) {
+	item, err := store.GetMedia(ctx, mediaID)
+	if err != nil {
+		return MediaDetail{}, err
+	}
+	result := MediaDetail{Media: item, Workflows: []WorkflowSummary{}, Seasons: []MediaSeason{}, Files: []ManagedFile{}}
+	result.Workflows, err = store.workflowSummaries(ctx, 500, false, &mediaID)
+	if err != nil {
+		return MediaDetail{}, err
+	}
+	result.Files, err = store.managedFiles(ctx, nil, &mediaID, 500)
+	if err != nil {
+		return MediaDetail{}, err
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT monitoring.season_number,monitoring.monitored,monitoring.prefer_season_pack,monitoring.search_immediately,monitoring.state,
+		COALESCE(expectation.expected_episodes,0),workflow.id::text,COALESCE(workflow.state,''),monitoring.updated_at
+		FROM season_monitoring monitoring
+		LEFT JOIN LATERAL (
+			SELECT item.id,item.state FROM workflows item
+			WHERE item.media_id=monitoring.media_id AND item.variant='season:' || lpad(monitoring.season_number::text,2,'0')
+			ORDER BY item.updated_at DESC,item.id DESC LIMIT 1
+		) workflow ON true
+		LEFT JOIN LATERAL (
+			SELECT count(*)::int AS expected_episodes FROM pack_expected_episodes episode
+			JOIN pack_expectation_sets set_row ON set_row.id=episode.expectation_id
+			WHERE set_row.workflow_id=workflow.id
+		) expectation ON true
+		WHERE monitoring.media_id=$1 ORDER BY monitoring.season_number`, mediaID.String())
+	if err != nil {
+		return MediaDetail{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var season MediaSeason
+		var number int16
+		var workflowText *string
+		if err := rows.Scan(&number, &season.Monitored, &season.PreferSeasonPack, &season.SearchImmediately, &season.State, &season.ExpectedEpisodes, &workflowText, &season.WorkflowState, &season.UpdatedAt); err != nil {
+			return MediaDetail{}, err
+		}
+		season.Number = uint16(number)
+		if workflowText != nil {
+			parsed, parseErr := uuid.Parse(*workflowText)
+			if parseErr != nil {
+				return MediaDetail{}, parseErr
+			}
+			season.WorkflowID = &parsed
+		}
+		result.Seasons = append(result.Seasons, season)
+	}
+	if err := rows.Err(); err != nil {
+		return MediaDetail{}, err
+	}
+	return result, nil
+}
+
+type WantedItem struct {
+	WorkflowID      uuid.UUID         `json:"workflow_id"`
+	MediaID         uuid.UUID         `json:"media_id"`
+	MediaKind       catalog.MediaKind `json:"media_kind"`
+	Title           string            `json:"title"`
+	Year            *uint16           `json:"year,omitempty"`
+	Variant         string            `json:"variant"`
+	Gap             string            `json:"gap"`
+	CurrentState    string            `json:"current_state"`
+	TargetProfile   string            `json:"target_profile"`
+	UpgradesEnabled bool              `json:"upgrades_enabled"`
+	AttentionDetail string            `json:"attention_detail,omitempty"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+}
+
+func (store *Store) ListWanted(ctx context.Context, limit int) ([]WantedItem, error) {
+	if limit < 1 || limit > 500 {
+		limit = 300
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,media.id::text,media.kind,media.title,media.year,workflow.variant,
+		CASE WHEN current_link.present THEN 'upgrade' ELSE 'missing' END,workflow.state,profile.name,profile.upgrades_enabled,
+		COALESCE(workflow.attention_detail,''),workflow.updated_at
+		FROM workflows workflow
+		JOIN media_items media ON media.id=workflow.media_id
+		JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
+		LEFT JOIN LATERAL (
+			SELECT true AS present FROM library_link_versions version
+			JOIN workflows published_workflow ON published_workflow.id=version.workflow_id
+			WHERE published_workflow.media_id=workflow.media_id AND published_workflow.variant=workflow.variant AND version.state='current'
+			LIMIT 1
+		) current_link ON true
+		WHERE workflow.terminal_at IS NULL AND media.deleted_at IS NULL
+		ORDER BY CASE workflow.state WHEN 'needs_attention' THEN 0 WHEN 'held' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END,workflow.updated_at DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []WantedItem{}
+	for rows.Next() {
+		var item WantedItem
+		var workflowText, mediaText string
+		var year *int16
+		if err := rows.Scan(&workflowText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Gap, &item.CurrentState, &item.TargetProfile, &item.UpgradesEnabled, &item.AttentionDetail, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		item.WorkflowID, _ = uuid.Parse(workflowText)
+		item.MediaID, _ = uuid.Parse(mediaText)
+		if year != nil {
+			converted := uint16(*year)
+			item.Year = &converted
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+type TaskStatus struct {
+	EventType       string     `json:"event_type"`
+	Pending         int64      `json:"pending"`
+	Due             int64      `json:"due"`
+	Retrying        int64      `json:"retrying"`
+	Completed       int64      `json:"completed"`
+	HighestAttempts int        `json:"highest_attempts"`
+	OldestDueAt     *time.Time `json:"oldest_due_at,omitempty"`
+	LatestAt        time.Time  `json:"latest_at"`
+}
+
+func (store *Store) ListTaskStatuses(ctx context.Context) ([]TaskStatus, error) {
+	rows, err := store.Pool.Query(ctx, `SELECT event_type,
+		count(*) FILTER (WHERE completed_at IS NULL),
+		count(*) FILTER (WHERE completed_at IS NULL AND available_at<=now()),
+		count(*) FILTER (WHERE completed_at IS NULL AND attempts>0),
+		count(*) FILTER (WHERE completed_at IS NOT NULL),
+		COALESCE(max(attempts),0),
+		min(available_at) FILTER (WHERE completed_at IS NULL AND available_at<=now()),
+		max(occurred_at)
+		FROM outbox_events GROUP BY event_type ORDER BY event_type`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []TaskStatus{}
+	for rows.Next() {
+		var item TaskStatus
+		if err := rows.Scan(&item.EventType, &item.Pending, &item.Due, &item.Retrying, &item.Completed, &item.HighestAttempts, &item.OldestDueAt, &item.LatestAt); err != nil {
+			return nil, err
 		}
 		result = append(result, item)
 	}

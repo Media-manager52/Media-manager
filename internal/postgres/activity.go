@@ -50,13 +50,22 @@ func (store *Store) GetMedia(ctx context.Context, id uuid.UUID) (catalog.MediaIt
 }
 
 func (store *Store) ListWorkflowSummaries(ctx context.Context, limit int, activeOnly bool) ([]WorkflowSummary, error) {
+	return store.workflowSummaries(ctx, limit, activeOnly, nil)
+}
+
+func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly bool, mediaID *uuid.UUID) ([]WorkflowSummary, error) {
 	if limit < 1 || limit > 500 {
 		limit = 100
+	}
+	var mediaIDValue any
+	if mediaID != nil {
+		mediaIDValue = mediaID.String()
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(workflow.attention_detail,''),workflow.terminal_at,workflow.created_at,workflow.updated_at
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
 		WHERE media.deleted_at IS NULL AND (NOT $2 OR workflow.terminal_at IS NULL)
-		ORDER BY workflow.updated_at DESC,workflow.id LIMIT $1`, limit, activeOnly)
+			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid)
+		ORDER BY workflow.updated_at DESC,workflow.id LIMIT $1`, limit, activeOnly, mediaIDValue)
 	if err != nil {
 		return nil, err
 	}

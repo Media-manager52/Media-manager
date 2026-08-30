@@ -65,6 +65,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/media", server.requireOwner(server.listMedia))
 	server.mux.HandleFunc("POST /api/v1/media", server.requireOwner(server.createMedia))
 	server.mux.HandleFunc("GET /api/v1/media/{id}", server.requireOwner(server.getMedia))
+	server.mux.HandleFunc("GET /api/v1/media/{id}/detail", server.requireOwner(server.getMediaDetail))
 	server.mux.HandleFunc("DELETE /api/v1/media/{id}", server.requireOwner(server.recycleMedia))
 	server.mux.HandleFunc("POST /api/v1/media/{id}/workflows", server.requireOwner(server.createMediaWorkflow))
 	server.mux.HandleFunc("GET /api/v1/workflows", server.requireOwner(server.listWorkflows))
@@ -75,8 +76,11 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/files", server.requireOwner(server.listManagedFiles))
 	server.mux.HandleFunc("GET /api/v1/files/{id}", server.requireOwner(server.getManagedFile))
 	server.mux.HandleFunc("GET /api/v1/intelligence/releases", server.requireOwner(server.listReleaseCandidates))
+	server.mux.HandleFunc("GET /api/v1/wanted", server.requireOwner(server.listWanted))
 	server.mux.HandleFunc("GET /api/v1/sources", server.requireOwner(server.listSources))
 	server.mux.HandleFunc("GET /api/v1/system/health", server.requireOwner(server.systemHealth))
+	server.mux.HandleFunc("GET /api/v1/system/tasks", server.requireOwner(server.listTasks))
+	server.mux.HandleFunc("GET /api/v1/system/info", server.requireOwner(server.systemInfo))
 	server.mux.HandleFunc("GET /api/v1/recycle", server.requireOwner(server.listRecycle))
 	server.mux.HandleFunc("POST /api/v1/recycle/{id}/restore", server.requireOwner(server.restoreRecycle))
 	server.mux.HandleFunc("POST /api/v1/imports/prowlarr", server.requireOwner(server.createProwlarrImport))
@@ -90,6 +94,67 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
 	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+}
+
+func (server *Server) getMediaDetail(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "media ID is invalid")
+		return
+	}
+	detail, err := server.store.MediaDetail(request.Context(), id)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "media was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load media detail")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: detail})
+}
+
+func (server *Server) listWanted(writer http.ResponseWriter, request *http.Request) {
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := server.store.ListWanted(request.Context(), limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load wanted media")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) listTasks(writer http.ResponseWriter, request *http.Request) {
+	items, err := server.store.ListTaskStatuses(request.Context())
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load worker tasks")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{
+		"event_types": items,
+		"recurring": []map[string]any{
+			{"name": "Recycle eligibility", "schedule": "hourly", "automatic": true},
+			{"name": "Seerr reconciliation", "schedule": "every 5 minutes", "automatic": server.config.SeerrEnabled},
+		},
+	}})
+}
+
+func (server *Server) systemInfo(writer http.ResponseWriter, request *http.Request) {
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{
+		"version":                  server.config.Version,
+		"owner_only":               true,
+		"browser_auth":             "gateway_basic_auth",
+		"api_auth":                 "server_injected_owner_bearer",
+		"seerr_webhook_enabled":    server.config.SeerrEnabled,
+		"altmount_source_policy":   "read_only",
+		"publication_type":         "plex_safe_symlink",
+		"upgrade_replacement_gate": "plex_path_and_identity_confirmation",
+		"recycle_retention_days":   30,
+		"public_edge_owner":        "Cosmos Cloud",
+		"machine_api_keys":         false,
+		"api_prefix":               "/api/v1",
+		"checked_at":               time.Now().UTC(),
+	}})
 }
 
 func (server *Server) dashboard(writer http.ResponseWriter, request *http.Request) {
