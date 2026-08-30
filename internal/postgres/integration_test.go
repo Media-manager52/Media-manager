@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
+	"github.com/media-manager/media-manager/internal/adoption"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/releases"
 )
@@ -206,6 +207,25 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	}
 	if err := store.DeleteReleaseBlock(ctx, block.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
+	}
+	adoptionConfiguration, err := store.AdoptionConfiguration(ctx, movieRoot, movieProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adoptionBatch, err := store.CreateAdoptionBatch(ctx, "/libraries/movies/existing", adoptionConfiguration, false, false, []adoption.Entry{{Relative: "Integration Movie.mkv", RecognizedCompanions: []string{"Integration Movie.en.srt"}, UnknownCompanions: []string{}}}, time.Now().UTC())
+	if err != nil || len(adoptionBatch.Items) != 1 || adoptionBatch.AttentionItems != 1 {
+		t.Fatalf("adoption discovery batch=%+v err=%v", adoptionBatch, err)
+	}
+	adoptionItem := adoptionBatch.Items[0]
+	if err := store.ReviewAdoptionItem(ctx, adoptionBatch.ID, adoptionItem.ID, AdoptionReview{State: "approved", MediaID: &movie.ID, RootID: &movieRoot, QualityProfileID: &movieProfile, ProposedRelative: "Integration Movie (2026)/Integration Movie (2026).mkv"}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApproveAdoptionBatch(ctx, adoptionBatch.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	approvedAdoption, err := store.AdoptionBatch(ctx, adoptionBatch.ID)
+	if err != nil || approvedAdoption.State != "approved" || approvedAdoption.ApprovedItems != 1 || approvedAdoption.Items[0].ExecutionState != "pending" {
+		t.Fatalf("approved adoption plan=%+v err=%v", approvedAdoption, err)
 	}
 	sources, err := store.ListSourceStatuses(ctx)
 	if err != nil || len(sources) != 3 {

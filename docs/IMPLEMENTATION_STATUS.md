@@ -33,7 +33,7 @@ screens.
 | `/collections` | Mock-only | Live build reports unavailable. | Add persisted manual/smart collections and preview-before-write behavior. |
 | `/calendar` | Mock-only | Live build reports unavailable. | Add metadata availability/air-date persistence and read API. |
 | `/wanted` | Partial | Derives missing versus upgrade gaps from active workflows, current publication by item/scope, and the persisted target profile. | Add independent quality/language/audio/subtitle goal deltas and pagination. |
-| `/import` | Mock-only | Live build reports unavailable. | Implement read-only discovery, adoption plan persistence, review, and separately approved execution. |
+| `/import` | Partial | Performs a bounded read-only directory-entry scan under a configured library root without following symlinks, persists every video/companion review item, requires an explicit catalog/root/profile/path decision or rejection, and can approve a fully reviewed plan without executing it. | Implement journaled execution, verification, rollback, Plex reconciliation, and separately gated live-action confirmation. |
 | `/activity/queue` | Partial | Lists real workflow summaries and queues safe search/cancel transitions. | Add job/attempt detail, phase evidence, per-operation progress, and attention recovery. |
 | `/activity/recycle` | Partial | Lists persisted recycle cycles and queues whole-media restore. | Add cycle detail and explicit confirmation UI for real-file purge cases. |
 | `/activity/history` | Partial | Merges real workflow transitions and audit events into a bounded durable timeline. | Add correlation, filtering, pagination, and complete audit coverage. |
@@ -79,7 +79,7 @@ screens.
 | Safe upgrades | Real invariant, partial product | Existing current links are displaced and removed only inside the transaction triggered after Plex confirms the replacement. Current-quality comparison, cutoff presentation, and owner-facing upgrade evidence remain incomplete. |
 | Multiple roots/defaults/per-item override | Real backend, partial UI | Movie/series defaults and explicit request overrides are enforced. UI can create/list but cannot validate, edit, or disable roots. |
 | Recycle retention | Real | Managed links enter a 30-day persisted cycle; AltMount source is retained. Restore and due-purge workers exist, with confirmation required for real files. |
-| Existing-library adoption review | Missing backend | Tables exist and the development concept shows the intended review, but there are no store services, API handlers, scanner, plan review, or executor. |
+| Existing-library adoption review | Partial | Read-only bounded discovery, companion classification, per-item review, compatible catalog/root/profile validation, path containment, batch approval, and audit are real. Plan approval queues no work; journaled execution, verification, rollback, and Plex reconciliation remain missing and must stay separately gated. |
 | Prowlarr backup-only import | Real, with a review gap | ZIP/SQLite parsing is bounded and review creates disabled Newznab instances. The owner must manually place extracted keys into the secret environment before approval; import history/listing is absent. There is no Prowlarr runtime connection. |
 | Integration/profile/root lifecycle | Partial | Create and list are real. Update, disable/delete, default reassignment, and most safe tests are missing. |
 | Audit/history | Partial | Core writes append `audit_events` and workflow transitions and now have a bounded owner read API/UI; not every operation emits an audit event and pagination/filtering are missing. |
@@ -89,7 +89,7 @@ screens.
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence and narrow blocklist; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
+release intelligence and narrow blocklist; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.

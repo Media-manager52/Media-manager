@@ -35,6 +35,8 @@ export type APIDiscoverySearchPage = { page: number; totalPages: number; totalRe
 export type APIDiscoverySeason = { number: number; episodes: Array<{ number: number; provider_id: string; title: string; air_date: string }> }
 export type APIDiscoveryDetail = { kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; tmdb_id: number; season?: APIDiscoverySeason }
 export type APIReleaseBlock = { id: string; scope: "native_release" | "pack_release"; indexer_instance_id?: string; indexer_name?: string; media_id?: string; media_title?: string; variant?: string; native_key?: string; release_title: string; reason: string; expires_at?: string; created_at: string; created_by: string }
+export type APIAdoptionItem = { id: string; batch_id: string; original_relative: string; proposed_relative?: string; media_id?: string; root_id?: string; quality_profile_id?: string; monitoring_enabled?: boolean; search_immediately?: boolean; recognized_companions: string[]; unknown_companions: string[]; review_state: "pending" | "approved" | "rejected" | "needs_attention"; execution_state: string }
+export type APIAdoptionBatch = { id: string; source_root: string; media_kind: "movie" | "series"; default_root_id: string; default_quality_profile_id: string; monitoring_enabled: boolean; search_immediately: boolean; state: string; created_at: string; approved_at?: string; completed_at?: string; pending_items: number; approved_items: number; rejected_items: number; attention_items: number; items?: APIAdoptionItem[] }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -57,7 +59,7 @@ async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function loadMedia(signal?: AbortSignal): Promise<MediaRecord[]> {
-	const items = await requestJSON<APIMedia[] | null>("/api/v1/media?limit=200", { signal }) ?? []
+	const items = await loadCatalogMedia(signal)
 	return items.map((item) => ({
     id: item.id,
     kind: item.kind === "movie" ? "Movie" : "Series",
@@ -72,6 +74,7 @@ export async function loadMedia(signal?: AbortSignal): Promise<MediaRecord[]> {
   }))
 }
 
+export const loadCatalogMedia = async (signal?: AbortSignal) => await requestJSON<APIMedia[] | null>("/api/v1/media?limit=500", { signal }) ?? []
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []
 export const loadIntegrations = async (signal?: AbortSignal) => await requestJSON<APIIntegration[] | null>("/api/v1/settings/integrations", { signal }) ?? []
@@ -92,6 +95,8 @@ export const loadSystemInfo = (signal?: AbortSignal) => requestJSON<APISystemInf
 export const searchMetadata = (query: string, page = 1, signal?: AbortSignal) => requestJSON<APIDiscoverySearchPage>(`/api/v1/discovery/search?query=${encodeURIComponent(query)}&page=${page}`, { signal })
 export const loadDiscoveryMetadata = (kind: "movie" | "tv", tmdbID: number, season?: number, signal?: AbortSignal) => requestJSON<APIDiscoveryDetail>(`/api/v1/discovery/${kind}/${tmdbID}${season === undefined ? "" : `?season=${season}`}`, { signal })
 export const loadReleaseBlocks = async (signal?: AbortSignal) => await requestJSON<APIReleaseBlock[] | null>("/api/v1/blocklist?limit=300", { signal }) ?? []
+export const loadAdoptionBatches = async (signal?: AbortSignal) => await requestJSON<APIAdoptionBatch[] | null>("/api/v1/adoption?limit=100", { signal }) ?? []
+export const loadAdoptionBatch = (id: string, signal?: AbortSignal) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(id)}`, { signal })
 
 export type CreateMediaInput = {
   kind: "movie" | "series"
@@ -117,5 +122,8 @@ export const searchWorkflow = (id: string) => requestJSON<{ status: string; id: 
 export const cancelWorkflow = (id: string) => requestJSON<Record<string, unknown>>(`/api/v1/workflows/${encodeURIComponent(id)}/cancel`, { method: "POST" })
 export const createReleaseBlock = (input: { candidate_id: string; scope: "native_release" | "pack_release"; reason: string; retention_days?: 30 | 90 }) => requestJSON<APIReleaseBlock>("/api/v1/blocklist", { method: "POST", body: JSON.stringify(input) })
 export const deleteReleaseBlock = (id: string) => requestJSON<void>(`/api/v1/blocklist/${encodeURIComponent(id)}`, { method: "DELETE" })
+export const createAdoptionBatch = (input: { source_root: string; root_id: string; quality_profile_id: string; monitoring_enabled: boolean; search_immediately: boolean }) => requestJSON<APIAdoptionBatch>("/api/v1/adoption", { method: "POST", body: JSON.stringify(input) })
+export const reviewAdoptionItem = (batchID: string, itemID: string, input: { review_state: "approved" | "rejected"; media_id?: string; root_id?: string; quality_profile_id?: string; proposed_relative?: string; monitoring_enabled?: boolean; search_immediately?: boolean }) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(batchID)}/items/${encodeURIComponent(itemID)}`, { method: "PATCH", body: JSON.stringify(input) })
+export const approveAdoptionBatch = (id: string) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(id)}/approve`, { method: "POST" })
 export const uploadProwlarrBackup = (file: File) => requestJSON<APIProwlarrImport>("/api/v1/imports/prowlarr", { method: "POST", headers: { "Content-Type": "application/zip" }, body: file })
 export const approveProwlarrImport = (id: string, candidates: Array<{ id: string; secret_ref: string }>) => requestJSON<APIProwlarrImport>(`/api/v1/imports/prowlarr/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ candidates }) })

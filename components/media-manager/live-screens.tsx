@@ -16,14 +16,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea"
 import {
   approveProwlarrImport,
+  approveAdoptionBatch,
   cancelWorkflow,
 	commissionIntegration,
   createExistingWorkflow,
+  createAdoptionBatch,
   createIntegration,
   createLibraryRoot,
   createMedia,
   createQualityProfile,
   loadIntegrations,
+  loadAdoptionBatch,
+  loadAdoptionBatches,
+  loadCatalogMedia,
   loadLibraryRoots,
   loadMedia,
   loadMediaDetail,
@@ -33,13 +38,17 @@ import {
   loadWorkflows,
   recycleMedia,
   restoreRecycle,
+  reviewAdoptionItem,
   searchMetadata,
   searchWorkflow,
   uploadProwlarrBackup,
   type APIIntegration,
+  type APIAdoptionBatch,
+  type APIAdoptionItem,
   type APIDiscoveryDetail,
   type APIDiscoverySearchResult,
   type APILibraryRoot,
+  type APIMedia,
   type APIMediaDetail,
   type APIQualityProfile,
   type APIRecycleEntry,
@@ -294,6 +303,62 @@ export function LiveRecycleScreen() {
   }, [entries])
   async function restore(entry: APIRecycleEntry) { setBusy(entry.media_id); try { await restoreRecycle(entry.id); toast.success("Complete media restore queued"); await refresh() } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not restore media") } finally { setBusy("") } }
   return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{groups.length === 0 ? <EmptyPanel title="Recycle bin is empty" copy="Managed links retained after deletion will appear here for 30 days." /> : groups.map(([mediaId, mediaEntries]) => { const restorable = mediaEntries.find((entry) => entry.state === "retained"); const purgeAt = mediaEntries.reduce((latest, entry) => entry.purge_after > latest ? entry.purge_after : latest, ""); return <Panel key={mediaId} title={mediaEntries[0].media_title} subtitle={`${mediaEntries.length} managed link${mediaEntries.length === 1 ? "" : "s"} · AltMount source retained`} action={restorable ? <Button size="sm" disabled={busy === mediaId} onClick={() => void restore(restorable)}><ArchiveRestore /> Restore all</Button> : undefined}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Original path</TableHead><TableHead>State</TableHead><TableHead>Retention</TableHead></TableRow></TableHeader><TableBody>{mediaEntries.map((entry) => <TableRow key={entry.id}><TableCell className="max-w-xl break-all font-mono text-[9px]">{entry.original_relative}</TableCell><TableCell><StatusChip tone={entry.state === "restored" ? "good" : entry.state === "purged" ? "neutral" : "warn"}>{prettyState(entry.state)}</StatusChip></TableCell><TableCell>{new Date(entry.purge_after).toLocaleDateString()}</TableCell></TableRow>)}</TableBody></Table></div><div className="mt-3 text-[9.5px] text-[#778392]">Final link purge: {purgeAt ? new Date(purgeAt).toLocaleString() : "—"}. Real source files are never auto-deleted.</div></Panel> })}</div>
+}
+
+export function LiveAdoptionScreen() {
+  const [batches, setBatches] = React.useState<APIAdoptionBatch[]>([])
+  const [detail, setDetail] = React.useState<APIAdoptionBatch | null>(null)
+  const [roots, setRoots] = React.useState<APILibraryRoot[]>([])
+  const [profiles, setProfiles] = React.useState<APIQualityProfile[]>([])
+  const [media, setMedia] = React.useState<APIMedia[]>([])
+  const [rootID, setRootID] = React.useState("")
+  const [profileID, setProfileID] = React.useState("")
+  const [sourceRoot, setSourceRoot] = React.useState("")
+  const [monitoring, setMonitoring] = React.useState(false)
+  const [searchNow, setSearchNow] = React.useState(false)
+  const [busy, setBusy] = React.useState("")
+  const [error, setError] = React.useState("")
+  const refresh = React.useCallback(async () => {
+    try {
+      const [nextBatches, nextRoots, nextProfiles, nextMedia] = await Promise.all([loadAdoptionBatches(), loadLibraryRoots(), loadQualityProfiles(), loadCatalogMedia()])
+      setBatches(nextBatches); setRoots(nextRoots.filter((item) => item.enabled)); setProfiles(nextProfiles.filter((item) => item.enabled)); setMedia(nextMedia); setError("")
+      if (!rootID && nextRoots.length) { const root = nextRoots.find((item) => item.enabled); if (root) { setRootID(root.id); setSourceRoot(root.destination_root); const profile = nextProfiles.find((item) => item.enabled && item.media_kind === root.media_kind); if (profile) setProfileID(profile.id) } }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load adoption review") }
+  }, [rootID])
+  React.useEffect(() => { const timer = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(timer) }, [refresh])
+  async function openBatch(id: string) { setBusy(id); try { setDetail(await loadAdoptionBatch(id)); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load adoption batch") } finally { setBusy("") } }
+  function changeRoot(value: string) { setRootID(value); const root = roots.find((item) => item.id === value); if (root) { setSourceRoot(root.destination_root); const profile = profiles.find((item) => item.media_kind === root.media_kind); setProfileID(profile?.id ?? "") } }
+  async function scan(event: React.FormEvent) {
+    event.preventDefault(); setBusy("scan"); setError("")
+    try { const batch = await createAdoptionBatch({ source_root: sourceRoot, root_id: rootID, quality_profile_id: profileID, monitoring_enabled: monitoring, search_immediately: searchNow }); setDetail(batch); toast.success(`Read-only discovery persisted ${batch.items?.length ?? 0} review item(s)`); await refresh() }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not scan library") }
+    finally { setBusy("") }
+  }
+  async function reloadBatch(batchID: string) { setDetail(await loadAdoptionBatch(batchID)); setBatches(await loadAdoptionBatches()) }
+  async function approvePlan() {
+    if (!detail) return
+    setBusy("approve")
+    try { const next = await approveAdoptionBatch(detail.id); setDetail(next); toast.success("Review plan approved; no file operation was queued"); await refresh() }
+    catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not approve plan") }
+    finally { setBusy("") }
+  }
+  const selectedRoot = roots.find((item) => item.id === rootID)
+  const compatibleProfiles = profiles.filter((item) => item.media_kind === selectedRoot?.media_kind)
+  return <div className="space-y-4">
+    {error ? <ErrorNotice error={error} /> : null}
+    <div className="grid gap-4 xl:grid-cols-[1fr_390px]"><Panel className="!p-0" title="Adoption review batches" subtitle="Discovery and plan approval never rename, move, publish, monitor, or search."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Source</TableHead><TableHead>Kind</TableHead><TableHead>Review</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{batches.map((batch) => <TableRow key={batch.id}><TableCell className="max-w-lg break-all font-mono text-[9px]">{batch.source_root}</TableCell><TableCell>{batch.media_kind}</TableCell><TableCell>{batch.approved_items} approved · {batch.rejected_items} rejected · {batch.attention_items + batch.pending_items} unresolved</TableCell><TableCell><StatusChip tone={batch.state === "approved" ? "good" : "warn"}>{prettyState(batch.state)}</StatusChip></TableCell><TableCell><Button size="sm" variant="outline" disabled={busy === batch.id} onClick={() => void openBatch(batch.id)}>Review</Button></TableCell></TableRow>)}</TableBody></Table></div>{batches.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No discovery plans exist.</div> : null}</Panel><Panel title="Start read-only discovery" subtitle="The source must be the selected configured library root or a subdirectory."><form className="grid gap-3" onSubmit={scan}><Field label="Library root"><Select value={rootID} onValueChange={changeRoot}><SelectTrigger className="mm-input w-full"><SelectValue placeholder="Select root" /></SelectTrigger><SelectContent>{roots.map((root) => <SelectItem key={root.id} value={root.id}>{root.name} · {root.media_kind}</SelectItem>)}</SelectContent></Select></Field><Field label="Source directory"><Input className="mm-input font-mono" value={sourceRoot} onChange={(event) => setSourceRoot(event.target.value)} required /></Field><Field label="Quality profile"><Select value={profileID} onValueChange={setProfileID}><SelectTrigger className="mm-input w-full"><SelectValue placeholder="Select profile" /></SelectTrigger><SelectContent>{compatibleProfiles.map((profile) => <SelectItem key={profile.id} value={profile.id}>{profile.name}</SelectItem>)}</SelectContent></Select></Field><ToggleRow label="Monitoring after future execution" checked={monitoring} onChange={(value) => { setMonitoring(value); if (!value) setSearchNow(false) }} /><ToggleRow label="Search after future execution" checked={searchNow} onChange={(value) => { setSearchNow(value); if (value) setMonitoring(true) }} /><Button type="submit" disabled={!rootID || !profileID || busy === "scan"}><Search /> Read-only scan and review</Button></form><InlineNotice tone="info" title="Bounded discovery">The scanner reads directory entries only, never follows symlinks, and stops above 50,000 files.</InlineNotice></Panel></div>
+    {detail ? <Panel title={`Review plan · ${detail.media_kind}`} subtitle={`${detail.source_root} · approval records intent only; execution is not implemented.`} action={detail.state === "review" ? <Button disabled={busy === "approve" || detail.approved_items === 0 || detail.attention_items + detail.pending_items > 0} onClick={() => void approvePlan()}>Approve reviewed plan · no execution</Button> : undefined}><div className="space-y-3">{(detail.items ?? []).map((item) => <AdoptionItemReview key={item.id} batch={detail} item={item} media={media.filter((entry) => entry.kind === detail.media_kind)} roots={roots.filter((entry) => entry.media_kind === detail.media_kind)} profiles={profiles.filter((entry) => entry.media_kind === detail.media_kind)} disabled={detail.state !== "review"} onSaved={() => reloadBatch(detail.id)} />)}{detail.items?.length === 0 ? <div className="py-8 text-center text-[11px] text-[#7f8a9a]">The read-only scan found no supported video files.</div> : null}</div></Panel> : null}
+  </div>
+}
+
+function AdoptionItemReview({ batch, item, media, roots, profiles, disabled, onSaved }: { batch: APIAdoptionBatch; item: APIAdoptionItem; media: APIMedia[]; roots: APILibraryRoot[]; profiles: APIQualityProfile[]; disabled: boolean; onSaved: () => Promise<void> }) {
+  const [mediaID, setMediaID] = React.useState(item.media_id ?? "")
+  const [rootID, setRootID] = React.useState(item.root_id ?? batch.default_root_id)
+  const [profileID, setProfileID] = React.useState(item.quality_profile_id ?? batch.default_quality_profile_id)
+  const [proposed, setProposed] = React.useState(item.proposed_relative ?? item.original_relative)
+  const [busy, setBusy] = React.useState(false)
+  async function save(state: "approved" | "rejected") { setBusy(true); try { await reviewAdoptionItem(batch.id, item.id, state === "rejected" ? { review_state: state } : { review_state: state, media_id: mediaID, root_id: rootID, quality_profile_id: profileID, proposed_relative: proposed, monitoring_enabled: batch.monitoring_enabled, search_immediately: batch.search_immediately }); toast.success(`Adoption item ${state}`); await onSaved() } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not save review") } finally { setBusy(false) } }
+  return <div className="rounded-xl border border-white/[0.07] bg-[#0c1015] p-3"><div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="break-all font-mono text-[9.5px] text-[#dce2e9]">{item.original_relative}</div><div className="mt-1 text-[9px] text-[#748090]">{item.recognized_companions.length} recognized companion(s) · {item.unknown_companions.length} unknown companion(s)</div></div><StatusChip tone={item.review_state === "approved" ? "good" : item.review_state === "rejected" ? "neutral" : "warn"}>{prettyState(item.review_state)}</StatusChip></div>{!disabled ? <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_1fr_1fr_1.5fr_auto]"><select className="mm-input h-10 rounded-md px-2 text-[9px]" value={mediaID} onChange={(event) => setMediaID(event.target.value)}><option value="">Match catalog item</option>{media.map((entry) => <option key={entry.id} value={entry.id}>{entry.title} {entry.year ? `(${entry.year})` : ""}</option>)}</select><select className="mm-input h-10 rounded-md px-2 text-[9px]" value={rootID} onChange={(event) => setRootID(event.target.value)}>{roots.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select><select className="mm-input h-10 rounded-md px-2 text-[9px]" value={profileID} onChange={(event) => setProfileID(event.target.value)}>{profiles.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select><Input className="mm-input font-mono text-[9px]" value={proposed} onChange={(event) => setProposed(event.target.value)} aria-label="Proposed relative path" /><div className="flex gap-1"><Button size="sm" disabled={busy || !mediaID || !proposed} onClick={() => void save("approved")}>Approve</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void save("rejected")}>Reject</Button></div></div> : null}</div>
 }
 
 export function LiveConnectionsScreen() {

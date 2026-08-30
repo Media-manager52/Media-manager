@@ -8,12 +8,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
+	"github.com/media-manager/media-manager/internal/adoption"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/prowlarrbackup"
@@ -63,6 +65,11 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /health/live", server.live)
 	server.mux.HandleFunc("GET /health/ready", server.ready)
 	server.mux.HandleFunc("GET /api/v1/dashboard", server.requireOwner(server.dashboard))
+	server.mux.HandleFunc("GET /api/v1/adoption", server.requireOwner(server.listAdoptionBatches))
+	server.mux.HandleFunc("POST /api/v1/adoption", server.requireOwner(server.createAdoptionBatch))
+	server.mux.HandleFunc("GET /api/v1/adoption/{id}", server.requireOwner(server.getAdoptionBatch))
+	server.mux.HandleFunc("PATCH /api/v1/adoption/{id}/items/{itemID}", server.requireOwner(server.reviewAdoptionItem))
+	server.mux.HandleFunc("POST /api/v1/adoption/{id}/approve", server.requireOwner(server.approveAdoptionBatch))
 	server.mux.HandleFunc("GET /api/v1/discovery/search", server.requireOwner(server.discoverySearch))
 	server.mux.HandleFunc("GET /api/v1/discovery/{kind}/{id}", server.requireOwner(server.discoveryMetadata))
 	server.mux.HandleFunc("GET /api/v1/media", server.requireOwner(server.listMedia))
@@ -100,6 +107,144 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
 	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+}
+
+func (server *Server) listAdoptionBatches(writer http.ResponseWriter, request *http.Request) {
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := server.store.ListAdoptionBatches(request.Context(), limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load adoption batches")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) createAdoptionBatch(writer http.ResponseWriter, request *http.Request) {
+	var input struct {
+		SourceRoot        string `json:"source_root"`
+		RootID            string `json:"root_id"`
+		QualityProfileID  string `json:"quality_profile_id"`
+		MonitoringEnabled bool   `json:"monitoring_enabled"`
+		SearchImmediately bool   `json:"search_immediately"`
+	}
+	if err := decodeJSON(request, &input, 32<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	rootID, rootErr := uuid.Parse(input.RootID)
+	profileID, profileErr := uuid.Parse(input.QualityProfileID)
+	if rootErr != nil || profileErr != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_configuration", "root and quality profile IDs are required")
+		return
+	}
+	configuration, err := server.store.AdoptionConfiguration(request.Context(), rootID, profileID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_configuration", "enabled compatible root and profile were not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not validate adoption configuration")
+		return
+	}
+	sourceRoot := filepath.Clean(strings.TrimSpace(input.SourceRoot))
+	relative, relErr := filepath.Rel(configuration.Root.DestinationRoot, sourceRoot)
+	if relErr != nil || !filepath.IsAbs(sourceRoot) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		writeError(writer, http.StatusUnprocessableEntity, "unsafe_source_root", "source root must be the selected library root or one of its subdirectories")
+		return
+	}
+	entries, err := adoption.Scan(request.Context(), sourceRoot, 50000)
+	if errors.Is(err, adoption.ErrScanLimit) {
+		writeError(writer, http.StatusUnprocessableEntity, "scan_limit", "read-only discovery exceeded 50,000 files")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "scan_failed", "source root could not be scanned safely")
+		return
+	}
+	batch, err := server.store.CreateAdoptionBatch(request.Context(), sourceRoot, configuration, input.MonitoringEnabled, input.SearchImmediately, entries, time.Now().UTC())
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "adoption_plan_failed", err.Error())
+		return
+	}
+	writer.Header().Set("Location", "/api/v1/adoption/"+batch.ID.String())
+	writeJSON(writer, http.StatusCreated, dataEnvelope{Data: batch})
+}
+
+func (server *Server) getAdoptionBatch(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "adoption batch ID is invalid")
+		return
+	}
+	item, err := server.store.AdoptionBatch(request.Context(), id)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "adoption batch was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load adoption batch")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: item})
+}
+
+func (server *Server) reviewAdoptionItem(writer http.ResponseWriter, request *http.Request) {
+	batchID, batchErr := uuid.Parse(request.PathValue("id"))
+	itemID, itemErr := uuid.Parse(request.PathValue("itemID"))
+	if batchErr != nil || itemErr != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "adoption batch or item ID is invalid")
+		return
+	}
+	var input struct {
+		ReviewState       string `json:"review_state"`
+		MediaID           string `json:"media_id"`
+		RootID            string `json:"root_id"`
+		QualityProfileID  string `json:"quality_profile_id"`
+		ProposedRelative  string `json:"proposed_relative"`
+		MonitoringEnabled bool   `json:"monitoring_enabled"`
+		SearchImmediately bool   `json:"search_immediately"`
+	}
+	if err := decodeJSON(request, &input, 32<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	mediaID, mediaErr := optionalUUID(input.MediaID)
+	rootID, rootErr := optionalUUID(input.RootID)
+	profileID, profileErr := optionalUUID(input.QualityProfileID)
+	if mediaErr != nil || rootErr != nil || profileErr != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_configuration", "review IDs are invalid")
+		return
+	}
+	err := server.store.ReviewAdoptionItem(request.Context(), batchID, itemID, postgres.AdoptionReview{State: input.ReviewState, MediaID: mediaID, RootID: rootID, QualityProfileID: profileID, ProposedRelative: input.ProposedRelative, MonitoringEnabled: input.MonitoringEnabled, SearchImmediately: input.SearchImmediately}, time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "adoption batch or item was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "review_failed", err.Error())
+		return
+	}
+	item, _ := server.store.AdoptionBatch(request.Context(), batchID)
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: item})
+}
+
+func (server *Server) approveAdoptionBatch(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "adoption batch ID is invalid")
+		return
+	}
+	err = server.store.ApproveAdoptionBatch(request.Context(), id, time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "adoption batch was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusConflict, "approval_failed", err.Error())
+		return
+	}
+	item, _ := server.store.AdoptionBatch(request.Context(), id)
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: item})
 }
 
 func (server *Server) listReleaseBlocks(writer http.ResponseWriter, request *http.Request) {
