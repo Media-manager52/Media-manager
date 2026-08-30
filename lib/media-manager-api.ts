@@ -6,7 +6,7 @@ export const liveMode = process.env.NEXT_PUBLIC_MEDIA_MANAGER_MODE === "live"
 
 export type APIIdentity = { namespace: string; value: string; state?: "verified" | "candidate" | "rejected"; source?: string }
 export type APIMedia = { id: string; kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[] }
-export type APIWorkflow = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number; attention_code?: string; attention_detail?: string; terminal_at?: string; created_at: string; updated_at: string }
+export type APIWorkflow = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number; attention_code?: string; attention_detail?: string; adopted_replacement_confirmation_required: boolean; terminal_at?: string; created_at: string; updated_at: string }
 export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string; created_at: string; updated_at: string }
 export type APILibraryRoot = { id: string; media_kind: "movie" | "series"; name: string; destination_root: string; plex_visible_root: string; source_visible_root: string; plex_instance_id?: string; plex_library_id?: string; is_default: boolean; enabled: boolean }
 export type APIQualityProfile = { id: string; media_kind: "movie" | "series"; name: string; policy_version: number; policy: Record<string, unknown>; upgrades_enabled: boolean; is_default: boolean; enabled: boolean }
@@ -136,7 +136,7 @@ export const commissionIntegration = (id: string) => requestJSON<APIIntegration>
 export const createLibraryRoot = (input: Omit<APILibraryRoot, "id">) => requestJSON<APILibraryRoot>("/api/v1/settings/library-roots", { method: "POST", body: JSON.stringify(input) })
 export const createQualityProfile = (input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>("/api/v1/settings/quality-profiles", { method: "POST", body: JSON.stringify(input) })
 export const createExistingWorkflow = (mediaId: string, input: Record<string, unknown>) => requestJSON<Record<string, unknown>>(`/api/v1/media/${encodeURIComponent(mediaId)}/workflows`, { method: "POST", body: JSON.stringify(input) })
-export const searchWorkflow = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/search`, { method: "POST" })
+export const searchWorkflow = (id: string, adoptedReplacementConfirmation = "") => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/search`, { method: "POST", body: JSON.stringify({ adopted_replacement_confirmation: adoptedReplacementConfirmation }) })
 export const cancelWorkflow = (id: string) => requestJSON<Record<string, unknown>>(`/api/v1/workflows/${encodeURIComponent(id)}/cancel`, { method: "POST" })
 export const createReleaseBlock = (input: { candidate_id: string; scope: "native_release" | "pack_release"; reason: string; retention_days?: 30 | 90 }) => requestJSON<APIReleaseBlock>("/api/v1/blocklist", { method: "POST", body: JSON.stringify(input) })
 export const deleteReleaseBlock = (id: string) => requestJSON<void>(`/api/v1/blocklist/${encodeURIComponent(id)}`, { method: "DELETE" })

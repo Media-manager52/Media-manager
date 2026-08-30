@@ -333,7 +333,37 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if movieGap != "upgrade" {
 		t.Fatalf("adopted movie wanted gap=%q, want upgrade", movieGap)
 	}
-	if _, err := store.TransitionWorkflow(ctx, movieWorkflows[0].ID, movieWorkflows[0].Revision, workflows.StateCancelled, "isolate adopted replacement test", "test", time.Now().UTC()); err != nil {
+	workflowSummaries, err := store.ListWorkflowSummaries(ctx, 100, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var adoptedConfirmationRequired bool
+	for _, summary := range workflowSummaries {
+		if summary.ID == movieWorkflows[0].ID {
+			adoptedConfirmationRequired = summary.AdoptedReplacementConfirmationRequired
+		}
+	}
+	if !adoptedConfirmationRequired {
+		t.Fatal("active workflow did not expose its adopted replacement confirmation gate")
+	}
+	if err := store.RequestWorkflowSearch(ctx, movieWorkflows[0].ID, "", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+		t.Fatalf("delayed search without adopted replacement confirmation error=%v", err)
+	}
+	if err := store.RequestWorkflowSearch(ctx, movieWorkflows[0].ID, AdoptedReplacementConfirmation+" ", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+		t.Fatalf("delayed search with inexact adopted replacement confirmation error=%v", err)
+	}
+	if err := store.RequestWorkflowSearch(ctx, movieWorkflows[0].ID, AdoptedReplacementConfirmation, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var delayedAuthorizationCount int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM adopted_replacement_authorizations WHERE workflow_id=$1`, movieWorkflows[0].ID.String()).Scan(&delayedAuthorizationCount); err != nil || delayedAuthorizationCount != 1 {
+		t.Fatalf("delayed search adopted authorizations=%d err=%v", delayedAuthorizationCount, err)
+	}
+	delayedWorkflow, err := store.GetWorkflow(ctx, movieWorkflows[0].ID)
+	if err != nil || delayedWorkflow.State != workflows.StateSearching {
+		t.Fatalf("delayed adopted search workflow=%+v err=%v", delayedWorkflow, err)
+	}
+	if _, err := store.TransitionWorkflow(ctx, delayedWorkflow.ID, delayedWorkflow.Revision, workflows.StateCancelled, "isolate adopted replacement test", "test", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	seerrDeliveryID := uuid.NewV7()

@@ -12,19 +12,20 @@ import (
 )
 
 type WorkflowSummary struct {
-	ID              uuid.UUID         `json:"id"`
-	MediaID         uuid.UUID         `json:"media_id"`
-	MediaKind       catalog.MediaKind `json:"media_kind"`
-	Title           string            `json:"title"`
-	Year            *uint16           `json:"year,omitempty"`
-	Variant         string            `json:"variant"`
-	State           workflows.State   `json:"state"`
-	Revision        uint64            `json:"revision"`
-	AttentionCode   string            `json:"attention_code,omitempty"`
-	AttentionDetail string            `json:"attention_detail,omitempty"`
-	TerminalAt      *time.Time        `json:"terminal_at,omitempty"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
+	ID                                     uuid.UUID         `json:"id"`
+	MediaID                                uuid.UUID         `json:"media_id"`
+	MediaKind                              catalog.MediaKind `json:"media_kind"`
+	Title                                  string            `json:"title"`
+	Year                                   *uint16           `json:"year,omitempty"`
+	Variant                                string            `json:"variant"`
+	State                                  workflows.State   `json:"state"`
+	Revision                               uint64            `json:"revision"`
+	AttentionCode                          string            `json:"attention_code,omitempty"`
+	AttentionDetail                        string            `json:"attention_detail,omitempty"`
+	AdoptedReplacementConfirmationRequired bool              `json:"adopted_replacement_confirmation_required"`
+	TerminalAt                             *time.Time        `json:"terminal_at,omitempty"`
+	CreatedAt                              time.Time         `json:"created_at"`
+	UpdatedAt                              time.Time         `json:"updated_at"`
 }
 
 func (store *Store) GetMedia(ctx context.Context, id uuid.UUID) (catalog.MediaItem, error) {
@@ -61,7 +62,9 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 	if mediaID != nil {
 		mediaIDValue = mediaID.String()
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(workflow.attention_detail,''),workflow.terminal_at,workflow.created_at,workflow.updated_at
+	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(workflow.attention_detail,''),
+		EXISTS(SELECT 1 FROM adopted_files adopted WHERE adopted.media_id=workflow.media_id AND adopted.variant=workflow.variant AND adopted.state='current' AND NOT EXISTS(SELECT 1 FROM adopted_replacement_authorizations replacement_auth WHERE replacement_auth.workflow_id=workflow.id AND replacement_auth.adopted_file_id=adopted.id AND replacement_auth.destination_relative=adopted.destination_relative AND replacement_auth.source_size=adopted.source_size AND replacement_auth.source_modtime_ns=adopted.source_modtime_ns)),
+		workflow.terminal_at,workflow.created_at,workflow.updated_at
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
 		WHERE media.deleted_at IS NULL AND (NOT $2 OR workflow.terminal_at IS NULL)
 			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid)
@@ -76,7 +79,7 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		var idText, mediaText string
 		var year *int16
 		var revision int64
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

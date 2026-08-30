@@ -96,7 +96,7 @@ func (store *Store) RequestAdoptedRestore(ctx context.Context, entryID uuid.UUID
 	if err := transaction.QueryRow(ctx, `SELECT count(*) FILTER (WHERE state='current'),count(*) FROM library_link_versions WHERE workflow_id=$1`, replacementWorkflowText).Scan(&currentLinks, &totalLinks); err != nil {
 		return err
 	}
-	if currentLinks != len(siblings) || totalLinks != len(siblings) {
+	if currentLinks == 0 || currentLinks != totalLinks || mediaKind == catalog.KindMovie && currentLinks != 1 {
 		return errors.New("the complete Plex-confirmed replacement publication is no longer current")
 	}
 	deadline := now.UTC().Add(15 * time.Minute)
@@ -371,9 +371,6 @@ func (store *Store) CompleteAdoptedRestore(ctx context.Context, entryID uuid.UUI
 	linkRows.Close()
 	if len(links) == 0 {
 		return errors.New("replacement publication is no longer current")
-	}
-	if len(links) != len(siblings) {
-		return errors.New("replacement publication no longer matches the complete adopted restore cycle")
 	}
 	for _, link := range links {
 		if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='displaced',displaced_at=$2 WHERE id=$1`, link.versionID, now.UTC()); err != nil {

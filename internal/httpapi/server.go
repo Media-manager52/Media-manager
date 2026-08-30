@@ -1167,7 +1167,16 @@ func (server *Server) searchWorkflow(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
 		return
 	}
-	if err := server.store.RequestWorkflowSearch(request.Context(), id, time.Now().UTC()); errors.Is(err, postgres.ErrNotFound) {
+	var input struct {
+		AdoptedReplacementConfirmation string `json:"adopted_replacement_confirmation"`
+	}
+	if request.ContentLength != 0 {
+		if err := decodeJSON(request, &input, 8<<10); err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+			return
+		}
+	}
+	if err := server.store.RequestWorkflowSearch(request.Context(), id, input.AdoptedReplacementConfirmation, time.Now().UTC()); errors.Is(err, postgres.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
 		return
 	} else if err != nil {

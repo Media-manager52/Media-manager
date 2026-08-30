@@ -292,7 +292,7 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	return workflow, transaction.Commit(ctx)
 }
 
-func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.UUID, now time.Time) error {
+func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.UUID, adoptedReplacementConfirmation string, now time.Time) error {
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -300,8 +300,8 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	defer transaction.Rollback(ctx)
 	var state workflows.State
 	var revision int64
-	var attentionCode string
-	if err := transaction.QueryRow(ctx, `SELECT state,revision,COALESCE(attention_code,'') FROM workflows WHERE id=$1 FOR UPDATE`, workflowID.String()).Scan(&state, &revision, &attentionCode); errors.Is(err, pgx.ErrNoRows) {
+	var attentionCode, mediaText, variant string
+	if err := transaction.QueryRow(ctx, `SELECT state,revision,COALESCE(attention_code,''),media_id::text,variant FROM workflows WHERE id=$1 FOR UPDATE`, workflowID.String()).Scan(&state, &revision, &attentionCode, &mediaText, &variant); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -330,6 +330,51 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		}
 		if publicationStarted {
 			return errors.New("workflow publication already started; recover or verify the existing links instead of searching again")
+		}
+	}
+	type adoptedCurrent struct {
+		id                  string
+		destinationRelative string
+		size, modtimeNS     int64
+		authorized          bool
+	}
+	rows, err := transaction.Query(ctx, `SELECT adopted.id::text,adopted.destination_relative,adopted.source_size,adopted.source_modtime_ns,
+		EXISTS(SELECT 1 FROM adopted_replacement_authorizations replacement_auth WHERE replacement_auth.workflow_id=$1 AND replacement_auth.adopted_file_id=adopted.id AND replacement_auth.destination_relative=adopted.destination_relative AND replacement_auth.source_size=adopted.source_size AND replacement_auth.source_modtime_ns=adopted.source_modtime_ns)
+		FROM adopted_files adopted WHERE adopted.media_id=$2 AND adopted.variant=$3 AND adopted.state='current' ORDER BY adopted.id FOR UPDATE`, workflowID.String(), mediaText, variant)
+	if err != nil {
+		return err
+	}
+	var adoptedFiles []adoptedCurrent
+	missingAuthorization := false
+	for rows.Next() {
+		var item adoptedCurrent
+		if err := rows.Scan(&item.id, &item.destinationRelative, &item.size, &item.modtimeNS, &item.authorized); err != nil {
+			rows.Close()
+			return err
+		}
+		missingAuthorization = missingAuthorization || !item.authorized
+		adoptedFiles = append(adoptedFiles, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if missingAuthorization {
+		if adoptedReplacementConfirmation != AdoptedReplacementConfirmation {
+			return ErrAdoptedReplacementConfirmationRequired
+		}
+		for _, adopted := range adoptedFiles {
+			if adopted.authorized {
+				continue
+			}
+			if _, err := transaction.Exec(ctx, `INSERT INTO adopted_replacement_authorizations(workflow_id,adopted_file_id,destination_relative,source_size,source_modtime_ns,authorized_by,authorized_at) VALUES($1,$2,$3,$4,$5,'owner',$6)`, workflowID.String(), adopted.id, adopted.destinationRelative, adopted.size, adopted.modtimeNS, now.UTC()); err != nil {
+				return err
+			}
+		}
+		detail, _ := json.Marshal(map[string]any{"adopted_files": len(adoptedFiles), "variant": variant, "search_queued": true})
+		if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','workflow.adopted_replacement_authorized','workflow',$2,$3,$4)`, uuid.NewV7().String(), workflowID.String(), detail, now.UTC()); err != nil {
+			return err
 		}
 	}
 	newRevision := revision + 1
