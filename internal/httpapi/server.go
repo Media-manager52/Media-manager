@@ -70,6 +70,10 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/adoption/{id}", server.requireOwner(server.getAdoptionBatch))
 	server.mux.HandleFunc("PATCH /api/v1/adoption/{id}/items/{itemID}", server.requireOwner(server.reviewAdoptionItem))
 	server.mux.HandleFunc("POST /api/v1/adoption/{id}/approve", server.requireOwner(server.approveAdoptionBatch))
+	server.mux.HandleFunc("GET /api/v1/collections", server.requireOwner(server.listCollections))
+	server.mux.HandleFunc("POST /api/v1/collections", server.requireOwner(server.createCollection))
+	server.mux.HandleFunc("POST /api/v1/collections/preview", server.requireOwner(server.previewCollection))
+	server.mux.HandleFunc("DELETE /api/v1/collections/{id}", server.requireOwner(server.deleteCollection))
 	server.mux.HandleFunc("GET /api/v1/discovery/search", server.requireOwner(server.discoverySearch))
 	server.mux.HandleFunc("GET /api/v1/discovery/{kind}/{id}", server.requireOwner(server.discoveryMetadata))
 	server.mux.HandleFunc("GET /api/v1/media", server.requireOwner(server.listMedia))
@@ -107,6 +111,93 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
 	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+}
+
+func collectionMediaIDs(values []string) ([]uuid.UUID, error) {
+	result := make([]uuid.UUID, 0, len(values))
+	for _, value := range values {
+		id, err := uuid.Parse(value)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, id)
+	}
+	return result, nil
+}
+
+func (server *Server) listCollections(writer http.ResponseWriter, request *http.Request) {
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := server.store.ListCollections(request.Context(), limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load collections")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) previewCollection(writer http.ResponseWriter, request *http.Request) {
+	var input struct {
+		MediaIDs []string `json:"media_ids"`
+	}
+	if err := decodeJSON(request, &input, 256<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	ids, err := collectionMediaIDs(input.MediaIDs)
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_media", "collection media IDs are invalid")
+		return
+	}
+	items, err := server.store.PreviewCollection(request.Context(), ids)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_media", "collection media was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_collection", err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items})
+}
+
+func (server *Server) createCollection(writer http.ResponseWriter, request *http.Request) {
+	var input struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		MediaIDs    []string `json:"media_ids"`
+	}
+	if err := decodeJSON(request, &input, 256<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	ids, err := collectionMediaIDs(input.MediaIDs)
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_media", "collection media IDs are invalid")
+		return
+	}
+	item, err := server.store.CreateCollection(request.Context(), input.Name, input.Description, ids, time.Now().UTC())
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "collection_create_failed", err.Error())
+		return
+	}
+	writer.Header().Set("Location", "/api/v1/collections/"+item.ID.String())
+	writeJSON(writer, http.StatusCreated, dataEnvelope{Data: item})
+}
+
+func (server *Server) deleteCollection(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "collection ID is invalid")
+		return
+	}
+	if err := server.store.DeleteCollection(request.Context(), id, time.Now().UTC()); errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "collection was not found")
+		return
+	} else if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not delete collection")
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func (server *Server) listAdoptionBatches(writer http.ResponseWriter, request *http.Request) {

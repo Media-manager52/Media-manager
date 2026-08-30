@@ -227,6 +227,17 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || approvedAdoption.State != "approved" || approvedAdoption.ApprovedItems != 1 || approvedAdoption.Items[0].ExecutionState != "pending" {
 		t.Fatalf("approved adoption plan=%+v err=%v", approvedAdoption, err)
 	}
+	collection, err := store.CreateCollection(ctx, "Integration favorites", "Reviewed manual grouping", []uuid.UUID{movie.ID, series.ID}, time.Now().UTC())
+	if err != nil || len(collection.Members) != 2 {
+		t.Fatalf("create collection=%+v err=%v", collection, err)
+	}
+	collections, err := store.ListCollections(ctx, 10)
+	if err != nil || len(collections) != 1 || len(collections[0].Members) != 2 {
+		t.Fatalf("list collections=%+v err=%v", collections, err)
+	}
+	if err := store.DeleteCollection(ctx, collection.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	sources, err := store.ListSourceStatuses(ctx)
 	if err != nil || len(sources) != 3 {
 		t.Fatalf("source read model: items=%d err=%v", len(sources), err)

@@ -117,6 +117,7 @@ test("maps persisted operational read models into the live route switch", async 
 
   for (const route of [
     "/files",
+    "/collections",
     "/import",
     "/wanted",
     "/activity/history",
@@ -150,6 +151,7 @@ test("maps persisted operational read models into the live route switch", async 
     "/api/v1/discovery/search",
     "/api/v1/blocklist",
     "/api/v1/adoption",
+    "/api/v1/collections",
   ]) {
     assert.match(client, new RegExp(endpoint.replaceAll("/", "\\/")));
   }

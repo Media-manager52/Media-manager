@@ -30,7 +30,7 @@ screens.
 | `/media/series/:id` | Partial | Loads persisted monitoring and exact expected-episode counts per season, complete bounded workflow history, and managed file generations; can create another exact-season workflow. | Add episode-level coverage/evidence and metadata-backed season creation. |
 | `/files` | Partial | Lists real link generations, destinations, AltMount source provenance, publication state, and Plex confirmation. | Add track/media-info summaries, companion relationships, and bounded filters. |
 | `/files/:id` | Partial | Shows real path relationships, immutable generation, Plex evidence, and displacement/removal timestamps. | Add inventory/media-info evidence and recycle-cycle linkage. |
-| `/collections` | Mock-only | Live build reports unavailable. | Add persisted manual/smart collections and preview-before-write behavior. |
+| `/collections` | Partial | Persists audited manual groupings of real catalog items and requires a server-side exact-member preview before creation; deleting a collection never changes media or files. | Add approved evidence-backed smart rules, rule previews, and membership refresh history. |
 | `/calendar` | Mock-only | Live build reports unavailable. | Add metadata availability/air-date persistence and read API. |
 | `/wanted` | Partial | Derives missing versus upgrade gaps from active workflows, current publication by item/scope, and the persisted target profile. | Add independent quality/language/audio/subtitle goal deltas and pagination. |
 | `/import` | Partial | Performs a bounded read-only directory-entry scan under a configured library root without following symlinks, persists every video/companion review item, requires an explicit catalog/root/profile/path decision or rejection, and can approve a fully reviewed plan without executing it. | Implement journaled execution, verification, rollback, Plex reconciliation, and separately gated live-action confirmation. |
@@ -84,12 +84,12 @@ screens.
 | Integration/profile/root lifecycle | Partial | Create and list are real. Update, disable/delete, default reassignment, and most safe tests are missing. |
 | Audit/history | Partial | Core writes append `audit_events` and workflow transitions and now have a bounded owner read API/UI; not every operation emits an audit event and pagination/filtering are missing. |
 | Component health | Partial | Process, PostgreSQL/schema, outbox, integration configuration, and persisted indexer-operation state are real. Bounded Plex/AltMount/Seerr operation status is still missing. |
-| Backups, notifications, import lists, collections, machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
+| Backups, notifications, import lists, machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
 
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence and narrow blocklist; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
+release intelligence and narrow blocklist; manual collections; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.

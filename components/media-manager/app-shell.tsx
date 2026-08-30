@@ -64,6 +64,7 @@ import { normalizeRoute, routeTitles } from "@/lib/media-manager-routes"
 import {
   LiveConnectionsScreen,
   LiveAdoptionScreen,
+  LiveCollectionsScreen,
   LiveDiscoverScreen,
   LiveMediaDetailScreen,
   LiveProwlarrImportScreen,
@@ -98,6 +99,7 @@ const liveNavigation: NavGroup[] = [
   { label: "Home", items: [{ label: "Overview", href: "/", icon: MonitorCog }] },
   { label: "Library", items: [
     { label: "Media", href: "/media", icon: Library },
+    { label: "Collections", href: "/collections", icon: BookOpenCheck },
     { label: "Wanted & Upgrades", href: "/wanted", icon: ListChecks },
     { label: "File Manager", href: "/files", icon: Files },
     { label: "Adoption Review", href: "/import", icon: DatabaseBackup },
@@ -239,6 +241,7 @@ function RouteContent({ path }: { path: string }) {
   const normalized = normalizeRoute(path)
   if (path === "/") return <LiveOperationalDashboardScreen />
   if (path === "/media") return <LiveLibraryScreen />
+  if (path === "/collections") return <LiveCollectionsScreen />
   if (path === "/wanted") return <LiveWantedScreen />
   if (normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId") return <LiveMediaDetailScreen mediaId={path.split("/").at(-1) ?? ""} />
   if (path === "/files") return <LiveFilesScreen />

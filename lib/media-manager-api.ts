@@ -37,6 +37,7 @@ export type APIDiscoveryDetail = { kind: "movie" | "series"; title: string; year
 export type APIReleaseBlock = { id: string; scope: "native_release" | "pack_release"; indexer_instance_id?: string; indexer_name?: string; media_id?: string; media_title?: string; variant?: string; native_key?: string; release_title: string; reason: string; expires_at?: string; created_at: string; created_by: string }
 export type APIAdoptionItem = { id: string; batch_id: string; original_relative: string; proposed_relative?: string; media_id?: string; root_id?: string; quality_profile_id?: string; monitoring_enabled?: boolean; search_immediately?: boolean; recognized_companions: string[]; unknown_companions: string[]; review_state: "pending" | "approved" | "rejected" | "needs_attention"; execution_state: string }
 export type APIAdoptionBatch = { id: string; source_root: string; media_kind: "movie" | "series"; default_root_id: string; default_quality_profile_id: string; monitoring_enabled: boolean; search_immediately: boolean; state: string; created_at: string; approved_at?: string; completed_at?: string; pending_items: number; approved_items: number; rejected_items: number; attention_items: number; items?: APIAdoptionItem[] }
+export type APICollection = { id: string; name: string; description: string; created_at: string; updated_at: string; members: APIMedia[] }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -97,6 +98,7 @@ export const loadDiscoveryMetadata = (kind: "movie" | "tv", tmdbID: number, seas
 export const loadReleaseBlocks = async (signal?: AbortSignal) => await requestJSON<APIReleaseBlock[] | null>("/api/v1/blocklist?limit=300", { signal }) ?? []
 export const loadAdoptionBatches = async (signal?: AbortSignal) => await requestJSON<APIAdoptionBatch[] | null>("/api/v1/adoption?limit=100", { signal }) ?? []
 export const loadAdoptionBatch = (id: string, signal?: AbortSignal) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(id)}`, { signal })
+export const loadCollections = async (signal?: AbortSignal) => await requestJSON<APICollection[] | null>("/api/v1/collections?limit=100", { signal }) ?? []
 
 export type CreateMediaInput = {
   kind: "movie" | "series"
@@ -125,5 +127,8 @@ export const deleteReleaseBlock = (id: string) => requestJSON<void>(`/api/v1/blo
 export const createAdoptionBatch = (input: { source_root: string; root_id: string; quality_profile_id: string; monitoring_enabled: boolean; search_immediately: boolean }) => requestJSON<APIAdoptionBatch>("/api/v1/adoption", { method: "POST", body: JSON.stringify(input) })
 export const reviewAdoptionItem = (batchID: string, itemID: string, input: { review_state: "approved" | "rejected"; media_id?: string; root_id?: string; quality_profile_id?: string; proposed_relative?: string; monitoring_enabled?: boolean; search_immediately?: boolean }) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(batchID)}/items/${encodeURIComponent(itemID)}`, { method: "PATCH", body: JSON.stringify(input) })
 export const approveAdoptionBatch = (id: string) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(id)}/approve`, { method: "POST" })
+export const previewCollection = (media_ids: string[]) => requestJSON<APIMedia[]>("/api/v1/collections/preview", { method: "POST", body: JSON.stringify({ media_ids }) })
+export const createCollection = (input: { name: string; description: string; media_ids: string[] }) => requestJSON<APICollection>("/api/v1/collections", { method: "POST", body: JSON.stringify(input) })
+export const deleteCollection = (id: string) => requestJSON<void>(`/api/v1/collections/${encodeURIComponent(id)}`, { method: "DELETE" })
 export const uploadProwlarrBackup = (file: File) => requestJSON<APIProwlarrImport>("/api/v1/imports/prowlarr", { method: "POST", headers: { "Content-Type": "application/zip" }, body: file })
 export const approveProwlarrImport = (id: string, candidates: Array<{ id: string; secret_ref: string }>) => requestJSON<APIProwlarrImport>(`/api/v1/imports/prowlarr/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ candidates }) })

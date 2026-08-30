@@ -21,6 +21,7 @@ import {
 	commissionIntegration,
   createExistingWorkflow,
   createAdoptionBatch,
+  createCollection,
   createIntegration,
   createLibraryRoot,
   createMedia,
@@ -29,6 +30,7 @@ import {
   loadAdoptionBatch,
   loadAdoptionBatches,
   loadCatalogMedia,
+  loadCollections,
   loadLibraryRoots,
   loadMedia,
   loadMediaDetail,
@@ -37,14 +39,17 @@ import {
   loadRecycle,
   loadWorkflows,
   recycleMedia,
+  deleteCollection,
   restoreRecycle,
   reviewAdoptionItem,
+  previewCollection,
   searchMetadata,
   searchWorkflow,
   uploadProwlarrBackup,
   type APIIntegration,
   type APIAdoptionBatch,
   type APIAdoptionItem,
+  type APICollection,
   type APIDiscoveryDetail,
   type APIDiscoverySearchResult,
   type APILibraryRoot,
@@ -359,6 +364,24 @@ function AdoptionItemReview({ batch, item, media, roots, profiles, disabled, onS
   const [busy, setBusy] = React.useState(false)
   async function save(state: "approved" | "rejected") { setBusy(true); try { await reviewAdoptionItem(batch.id, item.id, state === "rejected" ? { review_state: state } : { review_state: state, media_id: mediaID, root_id: rootID, quality_profile_id: profileID, proposed_relative: proposed, monitoring_enabled: batch.monitoring_enabled, search_immediately: batch.search_immediately }); toast.success(`Adoption item ${state}`); await onSaved() } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not save review") } finally { setBusy(false) } }
   return <div className="rounded-xl border border-white/[0.07] bg-[#0c1015] p-3"><div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="break-all font-mono text-[9.5px] text-[#dce2e9]">{item.original_relative}</div><div className="mt-1 text-[9px] text-[#748090]">{item.recognized_companions.length} recognized companion(s) · {item.unknown_companions.length} unknown companion(s)</div></div><StatusChip tone={item.review_state === "approved" ? "good" : item.review_state === "rejected" ? "neutral" : "warn"}>{prettyState(item.review_state)}</StatusChip></div>{!disabled ? <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_1fr_1fr_1.5fr_auto]"><select className="mm-input h-10 rounded-md px-2 text-[9px]" value={mediaID} onChange={(event) => setMediaID(event.target.value)}><option value="">Match catalog item</option>{media.map((entry) => <option key={entry.id} value={entry.id}>{entry.title} {entry.year ? `(${entry.year})` : ""}</option>)}</select><select className="mm-input h-10 rounded-md px-2 text-[9px]" value={rootID} onChange={(event) => setRootID(event.target.value)}>{roots.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select><select className="mm-input h-10 rounded-md px-2 text-[9px]" value={profileID} onChange={(event) => setProfileID(event.target.value)}>{profiles.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select><Input className="mm-input font-mono text-[9px]" value={proposed} onChange={(event) => setProposed(event.target.value)} aria-label="Proposed relative path" /><div className="flex gap-1"><Button size="sm" disabled={busy || !mediaID || !proposed} onClick={() => void save("approved")}>Approve</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void save("rejected")}>Reject</Button></div></div> : null}</div>
+}
+
+export function LiveCollectionsScreen() {
+  const [collections, setCollections] = React.useState<APICollection[]>([])
+  const [media, setMedia] = React.useState<APIMedia[]>([])
+  const [selected, setSelected] = React.useState<string[]>([])
+  const [preview, setPreview] = React.useState<APIMedia[] | null>(null)
+  const [name, setName] = React.useState("")
+  const [description, setDescription] = React.useState("")
+  const [busy, setBusy] = React.useState("")
+  const [error, setError] = React.useState("")
+  const refresh = React.useCallback(async () => { try { const [nextCollections, nextMedia] = await Promise.all([loadCollections(), loadCatalogMedia()]); setCollections(nextCollections); setMedia(nextMedia); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load collections") } }, [])
+  React.useEffect(() => { const timer = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(timer) }, [refresh])
+  function toggle(id: string, checked: boolean) { setSelected((current) => checked ? [...current, id] : current.filter((item) => item !== id)); setPreview(null) }
+  async function runPreview() { setBusy("preview"); try { setPreview(await previewCollection(selected)); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not preview collection") } finally { setBusy("") } }
+  async function save(event: React.FormEvent) { event.preventDefault(); if (!preview) return; setBusy("save"); try { await createCollection({ name: name.trim(), description: description.trim(), media_ids: preview.map((item) => item.id) }); toast.success("Manual collection persisted"); setName(""); setDescription(""); setSelected([]); setPreview(null); await refresh() } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not create collection") } finally { setBusy("") } }
+  async function remove(id: string) { if (!window.confirm("Delete this grouping? Media records and files are not changed.")) return; setBusy(id); try { await deleteCollection(id); toast.success("Collection deleted"); await refresh() } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not delete collection") } finally { setBusy("") } }
+  return <div className="grid gap-4 xl:grid-cols-[1fr_390px]">{error ? <div className="xl:col-span-2"><ErrorNotice error={error} /></div> : null}<Panel title="Manual collections" subtitle="Persisted groupings only; no unsupported smart-rule matches are claimed.">{collections.length === 0 ? <div className="py-10 text-center text-[11px] text-[#7f8a9a]">No collections exist.</div> : <div className="grid gap-3 md:grid-cols-2">{collections.map((collection) => <div key={collection.id} className="rounded-xl border border-white/[0.07] bg-[#0c1015] p-3"><div className="flex items-start justify-between gap-3"><div><div className="text-[11px] font-bold text-[#e5eaf0]">{collection.name}</div><div className="mt-1 text-[9px] text-[#748090]">{collection.members.length} member(s)</div></div><Button size="sm" variant="ghost" disabled={busy === collection.id} onClick={() => void remove(collection.id)}><Trash2 /> Delete</Button></div>{collection.description ? <div className="mt-2 text-[9.5px] text-[#8a95a3]">{collection.description}</div> : null}<div className="mt-3 flex flex-wrap gap-1">{collection.members.map((item) => <StatusChip key={item.id}>{item.title}{item.year ? ` (${item.year})` : ""}</StatusChip>)}</div></div>)}</div>}</Panel><Panel title="Create with preview" subtitle="Select persisted catalog records, preview the exact server result, then save."><form className="grid gap-3" onSubmit={save}><Field label="Name"><Input className="mm-input" maxLength={200} value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Description"><Textarea className="mm-input min-h-20" maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></Field><div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-white/[0.07] bg-[#0b0f14] p-2">{media.map((item) => <label key={item.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[9.5px] text-[#aeb7c3] hover:bg-white/[0.04]"><Checkbox checked={selected.includes(item.id)} onCheckedChange={(value) => toggle(item.id, value === true)} />{item.title} {item.year ? `(${item.year})` : ""}<span className="ml-auto text-[#687586]">{item.kind}</span></label>)}{media.length === 0 ? <div className="p-4 text-center text-[9.5px] text-[#748090]">Add catalog media before creating a collection.</div> : null}</div><Button type="button" variant="outline" disabled={selected.length === 0 || busy === "preview"} onClick={() => void runPreview()}><Search /> Preview {selected.length} member(s)</Button>{preview ? <InlineNotice tone="info" title="Server preview">{preview.map((item) => item.title).join(" · ")}</InlineNotice> : null}<Button type="submit" disabled={!preview || !name.trim() || busy === "save"}><Plus /> Save reviewed collection</Button></form></Panel></div>
 }
 
 export function LiveConnectionsScreen() {
