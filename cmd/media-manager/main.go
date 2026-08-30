@@ -19,6 +19,7 @@ import (
 	"github.com/media-manager/media-manager/internal/httpapi"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/intake"
+	"github.com/media-manager/media-manager/internal/notifications"
 	"github.com/media-manager/media-manager/internal/platform"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/publication"
@@ -147,6 +148,8 @@ func run() error {
 	handlers["recycle.restore_requested"] = recycleService.HandleRestore
 	handlers["recycle.purge_requested"] = recycleService.HandlePurge
 	handlers["workflow.transitioned"] = func(context.Context, postgres.OutboxEvent) error { return nil }
+	notificationService := &notifications.Service{Store: store, ResolveSecret: resolveSecret}
+	handlers["notification.deliver_requested"] = notificationService.Handle
 	if seerrEnabled {
 		service := &intake.SeerrService{Client: seerrClient, Store: store, InstanceID: seerrInstance}
 		handlers["seerr.reconcile"] = service.Handle

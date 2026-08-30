@@ -39,6 +39,8 @@ export type APIAdoptionItem = { id: string; batch_id: string; original_relative:
 export type APIAdoptionBatch = { id: string; source_root: string; media_kind: "movie" | "series"; default_root_id: string; default_quality_profile_id: string; monitoring_enabled: boolean; search_immediately: boolean; state: string; created_at: string; approved_at?: string; completed_at?: string; pending_items: number; approved_items: number; rejected_items: number; attention_items: number; items?: APIAdoptionItem[] }
 export type APICollection = { id: string; name: string; description: string; created_at: string; updated_at: string; members: APIMedia[] }
 export type APICalendarEntry = { media_id: string; media_kind: "movie" | "series"; media_title: string; workflow_id: string; variant: string; season: number; episode: number; episode_title?: string; air_date: string; monitored: boolean; workflow_state: string }
+export type APINotificationDestination = { id: string; name: string; endpoint: string; allow_http: boolean; enabled: boolean; events: string[]; secret_ref?: string; created_at: string; updated_at: string }
+export type APINotificationDelivery = { id: string; destination_id: string; destination: string; audit_event_id: string; payload: { event_id: string; action: string; aggregate_type: string; aggregate_id?: string; occurred_at: string }; state: string; attempts: number; response_status?: number; last_error?: string; created_at: string; delivered_at?: string }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -101,6 +103,8 @@ export const loadAdoptionBatches = async (signal?: AbortSignal) => await request
 export const loadAdoptionBatch = (id: string, signal?: AbortSignal) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(id)}`, { signal })
 export const loadCollections = async (signal?: AbortSignal) => await requestJSON<APICollection[] | null>("/api/v1/collections?limit=100", { signal }) ?? []
 export const loadCalendar = async (signal?: AbortSignal) => await requestJSON<APICalendarEntry[] | null>("/api/v1/calendar?limit=500", { signal }) ?? []
+export const loadNotificationDestinations = async (signal?: AbortSignal) => await requestJSON<APINotificationDestination[] | null>("/api/v1/settings/notifications", { signal }) ?? []
+export const loadNotificationDeliveries = async (signal?: AbortSignal) => await requestJSON<APINotificationDelivery[] | null>("/api/v1/notifications/deliveries?limit=300", { signal }) ?? []
 
 export type CreateMediaInput = {
   kind: "movie" | "series"
@@ -132,5 +136,7 @@ export const approveAdoptionBatch = (id: string) => requestJSON<APIAdoptionBatch
 export const previewCollection = (media_ids: string[]) => requestJSON<APIMedia[]>("/api/v1/collections/preview", { method: "POST", body: JSON.stringify({ media_ids }) })
 export const createCollection = (input: { name: string; description: string; media_ids: string[] }) => requestJSON<APICollection>("/api/v1/collections", { method: "POST", body: JSON.stringify(input) })
 export const deleteCollection = (id: string) => requestJSON<void>(`/api/v1/collections/${encodeURIComponent(id)}`, { method: "DELETE" })
+export const createNotificationDestination = (input: { name: string; endpoint: string; allow_http: boolean; enabled: boolean; events: string[]; secret_ref?: string }) => requestJSON<APINotificationDestination>("/api/v1/settings/notifications", { method: "POST", body: JSON.stringify(input) })
+export const setNotificationDestinationEnabled = (id: string, enabled: boolean) => requestJSON<{ id: string; enabled: boolean }>(`/api/v1/settings/notifications/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ enabled }) })
 export const uploadProwlarrBackup = (file: File) => requestJSON<APIProwlarrImport>("/api/v1/imports/prowlarr", { method: "POST", headers: { "Content-Type": "application/zip" }, body: file })
 export const approveProwlarrImport = (id: string, candidates: Array<{ id: string; secret_ref: string }>) => requestJSON<APIProwlarrImport>(`/api/v1/imports/prowlarr/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ candidates }) })

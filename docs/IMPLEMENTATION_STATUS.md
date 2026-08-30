@@ -52,7 +52,7 @@ screens.
 | `/settings/media-management` | Partial | Reports the running read-only AltMount, Plex-safe symlink, Plex-confirmed upgrade gate, and 30-day recycle contracts without pretending unsupported policies are editable. | Add configuration only for narrowly supported lifecycle policies and naming/companion behavior. |
 | `/settings/storage` | Partial | Lists and creates real Plex-backed movie/TV roots with defaults and path mappings. | Add preflight validation, edit/disable, naming preview from real values, and mount/capacity checks. |
 | `/settings/connections` | Partial | Lists and creates real Plex, Seerr, AltMount, and staged Newznab records; Newznab commissioning is real and paced. | Add safe connection tests and edit/disable/default management; surface operation-level state without fake “ready” labels. |
-| `/settings/notifications` | Mock-only | Live build reports unavailable. | Add persisted destinations, event selection, redaction, and delivery history. |
+| `/settings/notifications` | Real | Persists owner webhook destinations with exact event selection, HTTPS-by-default validation, environment-referenced bearer credentials, enable/disable controls, redacted endpoint display, and durable delivery history. Event payloads omit audit detail and secrets; worker retries remain visible. | — |
 | `/system/tasks` | Partial | Shows real per-event-type pending, due, retry, completed, attempt, and latest-event aggregates plus configured recurring schedules; opening it triggers nothing. | Persist recurring-run outcomes/durations and add only bounded, explicitly supported manual triggers. |
 | `/system/backups` | Mock-only | Live build reports unavailable. | Implement Media Manager database/config backup and restore verification. Project tar backup is not this feature. |
 | `/system/security` | Partial | Reports the running owner-only, gateway/browser, internal bearer, Seerr webhook, and no-machine-key boundaries without exposing secret values. | Add secret-reference presence checks, mount-mode verification, outbound-policy reporting, and security-event detail. |
@@ -84,12 +84,13 @@ screens.
 | Integration/profile/root lifecycle | Partial | Create and list are real. Update, disable/delete, default reassignment, and most safe tests are missing. |
 | Audit/history | Partial | Core writes append `audit_events` and workflow transitions and now have a bounded owner read API/UI; not every operation emits an audit event and pagination/filtering are missing. |
 | Component health | Partial | Process, PostgreSQL/schema, outbox, integration configuration, and persisted indexer-operation state are real. Bounded Plex/AltMount/Seerr operation status is still missing. |
-| Backups, notifications, import lists, machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
+| Owner notifications | Real | Exact audit-event subscriptions queue durable webhook deliveries; endpoint paths, audit detail, and secret values are excluded from owner responses and delivery payloads. Delivery attempts, bounded errors, response status, and retry state are persisted. |
+| Backups, import lists, machine API keys | Missing | Only development concepts/schema-adjacent copy exist; no usable backend lifecycle is present. |
 
 ## Current owner API
 
 Real handlers exist for liveness/readiness; dashboard; activity; managed files;
-release intelligence and narrow blocklist; dated episode calendar; manual collections; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
+release intelligence and narrow blocklist; dated episode calendar; manual collections; owner notifications and delivery history; read-only adoption discovery/review; source/pacing state; system health/tasks/info; owner-triggered Seerr metadata search/detail; wanted gaps; media list/create/detail/recycle;
 workflow list/detail/create/search/cancel; recycle list/restore; Prowlarr backup
 create/detail/approve; integration list/create/Newznab commission; library-root
 list/create; quality-profile list/create; and authenticated Seerr webhook intake.

@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   createReleaseBlock,
+  createNotificationDestination,
   deleteReleaseBlock,
   loadActivity,
   loadCalendar,
@@ -37,6 +38,8 @@ import {
   loadMedia,
   loadManagedFile,
   loadManagedFiles,
+  loadNotificationDeliveries,
+  loadNotificationDestinations,
   loadReleaseCandidates,
   loadReleaseBlocks,
   loadSources,
@@ -44,6 +47,7 @@ import {
   loadSystemInfo,
   loadTasks,
   loadWanted,
+  setNotificationDestinationEnabled,
   type APIActivity,
   type APIReleaseCandidate,
   type APISourceStatus,
@@ -136,6 +140,8 @@ const healthLoader = (signal: AbortSignal) => loadSystemHealth(signal)
 const wantedLoader = (signal: AbortSignal) => loadWanted(signal)
 const tasksLoader = (signal: AbortSignal) => loadTasks(signal)
 const systemInfoLoader = (signal: AbortSignal) => loadSystemInfo(signal)
+const notificationDestinationsLoader = (signal: AbortSignal) => loadNotificationDestinations(signal)
+const notificationDeliveriesLoader = (signal: AbortSignal) => loadNotificationDeliveries(signal)
 
 export function LiveOperationalDashboardScreen() {
   const { data, error, refresh } = useLiveData(dashboardLoader)
@@ -389,6 +395,28 @@ export function LiveMetadataSettingsScreen() {
   const { data, error, refresh } = useLiveData(systemInfoLoader)
   if (!data && !error) return <LoadingPanel label="Loading metadata-provider state…" />
   return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Discovery provider" value="Seerr" note={data.seerr_webhook_enabled ? "Configured for live owner lookups" : "Not configured in the running service"} tone={data.seerr_webhook_enabled ? "info" : "neutral"} icon={SearchCheck} /><MetricCard label="Verified identities" value="TMDB · TVDB · IMDb" note="Returned only after a detail lookup" icon={ShieldCheck} /><MetricCard label="TV snapshots" value="Per season" note="Exact episodes are fetched before workflow creation" icon={ListChecks} /></div><Panel title="Metadata and artwork" subtitle="Provider status is reported without synthetic connectivity claims." action={<RefreshButton onClick={refresh} />}><KeyValue label="Discovery source" value="Seerr metadata proxy" /><KeyValue label="Runtime configuration" value={data.seerr_webhook_enabled ? "Configured" : "Unavailable"} /><KeyValue label="Identity provenance" value="seerr_metadata" /><KeyValue label="Artwork persistence" value="Not implemented" /><InlineNotice tone="info" title="Lookup behavior">Search and detail calls occur only after an owner action. Media Manager stores verified identity and exact requested-season snapshots when the item is added; search result previews are not silently cataloged.</InlineNotice></Panel></> : null}</div>
+}
+
+export function LiveNotificationsScreen() {
+  const destinationsState = useLiveData(notificationDestinationsLoader)
+  const deliveriesState = useLiveData(notificationDeliveriesLoader)
+  const [name, setName] = React.useState("")
+  const [endpoint, setEndpoint] = React.useState("")
+  const [secretRef, setSecretRef] = React.useState("")
+  const [events, setEvents] = React.useState("workflow.created, workflow.recycled, collection.created")
+  const [allowHTTP, setAllowHTTP] = React.useState(false)
+  const [busy, setBusy] = React.useState("")
+  async function create(event: React.FormEvent) {
+    event.preventDefault(); setBusy("create")
+    try { await createNotificationDestination({ name: name.trim(), endpoint: endpoint.trim(), allow_http: allowHTTP, enabled: true, events: events.split(",").map((item) => item.trim()).filter(Boolean), ...(secretRef.trim() ? { secret_ref: secretRef.trim() } : {}) }); toast.success("Notification destination persisted"); setName(""); setEndpoint(""); setSecretRef(""); destinationsState.refresh() }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not create destination") }
+    finally { setBusy("") }
+  }
+  async function toggle(id: string, enabled: boolean) { setBusy(id); try { await setNotificationDestinationEnabled(id, enabled); toast.success(enabled ? "Destination enabled" : "Destination disabled"); destinationsState.refresh() } catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not update destination") } finally { setBusy("") } }
+  const destinations = destinationsState.data ?? []
+  const deliveries = deliveriesState.data ?? []
+  const error = destinationsState.error || deliveriesState.error
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}<div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Destinations" value={String(destinations.length)} note={`${destinations.filter((item) => item.enabled).length} enabled`} icon={Globe2} /><MetricCard label="Delivered" value={String(deliveries.filter((item) => item.state === "delivered").length)} note="Bounded durable history" tone="good" icon={CheckCircle2} /><MetricCard label="Failed" value={String(deliveries.filter((item) => item.state === "failed").length)} note="Worker retries remain visible" tone={deliveries.some((item) => item.state === "failed") ? "warn" : "good"} icon={AlertTriangle} /></div><div className="grid gap-4 xl:grid-cols-[1.3fr_380px]"><Panel className="!p-0" title="Notification destinations" subtitle="Payloads contain event identity and object references, never audit detail or secret values." action={<RefreshButton onClick={() => { destinationsState.refresh(); deliveriesState.refresh() }} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Endpoint</TableHead><TableHead>Events</TableHead><TableHead>Secret reference</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{destinations.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell className="max-w-sm break-all font-mono text-[9px]">{item.endpoint}</TableCell><TableCell className="max-w-sm text-[9px]">{item.events.join(" · ")}</TableCell><TableCell className="font-mono text-[9px]">{item.secret_ref || "—"}</TableCell><TableCell><StatusChip tone={item.enabled ? "good" : "neutral"}>{item.enabled ? "Enabled" : "Disabled"}</StatusChip></TableCell><TableCell><Button size="sm" variant="outline" disabled={busy === item.id} onClick={() => void toggle(item.id, !item.enabled)}>{item.enabled ? "Disable" : "Enable"}</Button></TableCell></TableRow>)}</TableBody></Table></div>{destinations.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No notification destinations configured.</div> : null}</Panel><Panel title="Add owner webhook" subtitle="Saving does not send a test message. HTTPS is required unless local HTTP is explicitly allowed."><form className="grid gap-3" onSubmit={create}><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Name<Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Webhook endpoint<Input className="mm-input" type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://notify.example/hook" required /></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Events<Input className="mm-input" value={events} onChange={(event) => setEvents(event.target.value)} required /></label><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Bearer secret environment name<Input className="mm-input font-mono" value={secretRef} onChange={(event) => setSecretRef(event.target.value)} placeholder="Optional" /></label><label className="flex items-center gap-2 text-[9.5px] text-[#8d98a6]"><input type="checkbox" checked={allowHTTP} onChange={(event) => setAllowHTTP(event.target.checked)} />Allow plain HTTP for an explicitly local destination</label><Button type="submit" disabled={busy === "create"}>Save destination</Button></form></Panel></div><Panel className="!p-0" title="Delivery history" subtitle="Durable attempts and bounded, redacted event payloads."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Created</TableHead><TableHead>Destination</TableHead><TableHead>Event</TableHead><TableHead>Object</TableHead><TableHead>State</TableHead><TableHead>Attempts</TableHead></TableRow></TableHeader><TableBody>{deliveries.map((item) => <TableRow key={item.id}><TableCell>{new Date(item.created_at).toLocaleString()}</TableCell><TableCell>{item.destination}</TableCell><TableCell className="font-mono text-[9px]">{item.payload.action}</TableCell><TableCell>{item.payload.aggregate_type}</TableCell><TableCell><StatusChip tone={item.state === "delivered" ? "good" : item.state === "failed" ? "warn" : "info"}>{pretty(item.state)}{item.response_status ? ` · ${item.response_status}` : ""}</StatusChip>{item.last_error ? <div className="mt-1 text-[9px] text-[#c6a867]">{item.last_error}</div> : null}</TableCell><TableCell>{item.attempts}</TableCell></TableRow>)}</TableBody></Table></div>{deliveries.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No delivery attempts have been queued.</div> : null}</Panel></div>
 }
 
 function SystemInfoContent({ data, mode, refresh }: { data: APISystemInfo; mode: "media-management" | "security" | "api"; refresh: () => void }) {

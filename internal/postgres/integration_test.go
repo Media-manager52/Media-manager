@@ -232,6 +232,18 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || approvedAdoption.State != "approved" || approvedAdoption.ApprovedItems != 1 || approvedAdoption.Items[0].ExecutionState != "pending" {
 		t.Fatalf("approved adoption plan=%+v err=%v", approvedAdoption, err)
 	}
+	destination, err := store.CreateNotificationDestination(ctx, NotificationDestination{Name: "Owner webhook", Endpoint: "https://notifications.invalid/hook", Enabled: true, Events: []string{"collection.created"}, SecretRef: "NOTIFICATION_TEST_SECRET"}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	destinations, err := store.ListNotificationDestinations(ctx)
+	if err != nil || len(destinations) != 1 || destinations[0].Endpoint != "https://notifications.invalid/…" {
+		t.Fatalf("redacted notification destinations=%+v err=%v", destinations, err)
+	}
+	var notificationAudit string
+	if err := store.Pool.QueryRow(ctx, `SELECT detail::text FROM audit_events WHERE action='notification.destination_created' AND aggregate_id=$1`, destination.ID.String()).Scan(&notificationAudit); err != nil || strings.Contains(notificationAudit, "/hook") {
+		t.Fatalf("notification audit endpoint was not redacted: %q err=%v", notificationAudit, err)
+	}
 	collection, err := store.CreateCollection(ctx, "Integration favorites", "Reviewed manual grouping", []uuid.UUID{movie.ID, series.ID}, time.Now().UTC())
 	if err != nil || len(collection.Members) != 2 {
 		t.Fatalf("create collection=%+v err=%v", collection, err)
@@ -241,6 +253,16 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 		t.Fatalf("list collections=%+v err=%v", collections, err)
 	}
 	if err := store.DeleteCollection(ctx, collection.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	deliveries, err := store.ListNotificationDeliveries(ctx, 10)
+	if err != nil || len(deliveries) != 1 || strings.Contains(string(deliveries[0].Payload), "detail") || strings.Contains(string(deliveries[0].Payload), "secret") {
+		t.Fatalf("redacted notification deliveries=%+v err=%v", deliveries, err)
+	}
+	if err := store.MarkNotificationDelivery(ctx, deliveries[0].ID, true, 204, "", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetNotificationDestinationEnabled(ctx, destination.ID, false, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	sources, err := store.ListSourceStatuses(ctx)
