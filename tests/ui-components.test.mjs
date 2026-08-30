@@ -172,6 +172,8 @@ test("maps persisted operational read models into the live route switch", async 
   assert.match(screens, /does not manufacture connection-test success/i);
   assert.match(primaryScreens, /REPLACE ADOPTED FILE AFTER PLEX VERIFICATION/);
   assert.match(client, /adopted_replacement_confirmation_required/);
+  assert.match(client, /replacement_search_authorized/);
+  assert.match(primaryScreens, /Reviewed monitoring was applied/);
   assert.match(primaryScreens, /PURGE RETAINED ADOPTED FILE/);
   assert.match(primaryScreens, /RESTORE RETAINED ADOPTED FILE AFTER PLEX VERIFICATION/);
   assert.match(primaryScreens, /never auto-deleted/i);

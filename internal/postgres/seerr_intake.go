@@ -47,11 +47,12 @@ type IntakeResult struct {
 }
 
 var (
-	ErrDefaultsMissing        = errors.New("default root or quality profile is missing")
-	ErrIdentityNeedsAttention = errors.New("external identities resolve to different media")
-	ErrMediaRecycled          = errors.New("matching media is in the recycle bin")
-	ErrSeerrSnapshotDrift     = errors.New("Seerr episode snapshot changed while its workflow was active")
-	ErrSeerrSnapshotConflict  = errors.New("Seerr snapshot changed without a newer update cursor")
+	ErrDefaultsMissing            = errors.New("default root or quality profile is missing")
+	ErrIdentityNeedsAttention     = errors.New("external identities resolve to different media")
+	ErrMediaRecycled              = errors.New("matching media is in the recycle bin")
+	ErrSeerrSnapshotDrift         = errors.New("Seerr episode snapshot changed while its workflow was active")
+	ErrSeerrSnapshotConflict      = errors.New("Seerr snapshot changed without a newer update cursor")
+	ErrAdoptionMonitoringReserved = errors.New("reviewed adoption monitoring owns this scope until Plex verification finishes")
 )
 
 func (store *Store) UpsertSeerrSnapshot(ctx context.Context, intake SeerrIntake) (bool, error) {
@@ -205,6 +206,13 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		}
 	}
 	for _, variant := range variants {
+		var adoptionMonitoringReserved bool
+		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adoption_items adoption_item JOIN adoption_batches batch ON batch.id=adoption_item.batch_id WHERE adoption_item.media_id=$1 AND adoption_item.variant=$2 AND adoption_item.review_state='approved' AND COALESCE(adoption_item.monitoring_enabled,false) AND batch.state='executing')`, result.MediaID.String(), variant.Name).Scan(&adoptionMonitoringReserved); err != nil {
+			return IntakeResult{}, err
+		}
+		if adoptionMonitoringReserved {
+			return IntakeResult{}, ErrAdoptionMonitoringReserved
+		}
 		var adoptedProtected bool
 		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state IN ('current','recycle_planned','retained','restore_confirming','restore_attention'))`, result.MediaID.String(), variant.Name).Scan(&adoptedProtected); err != nil {
 			return IntakeResult{}, err

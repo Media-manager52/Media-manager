@@ -247,12 +247,12 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adoptionBatch, err := store.CreateAdoptionBatch(ctx, "/libraries/movies/existing", adoptionConfiguration, false, false, []adoption.Entry{{Relative: "Integration Movie.mkv", RecognizedCompanions: []string{"Integration Movie.en.srt"}, UnknownCompanions: []string{}}}, time.Now().UTC())
+	adoptionBatch, err := store.CreateAdoptionBatch(ctx, "/libraries/movies/existing", adoptionConfiguration, true, false, []adoption.Entry{{Relative: "Integration Movie.mkv", RecognizedCompanions: []string{"Integration Movie.en.srt"}, UnknownCompanions: []string{}}}, time.Now().UTC())
 	if err != nil || len(adoptionBatch.Items) != 1 || adoptionBatch.AttentionItems != 1 {
 		t.Fatalf("adoption discovery batch=%+v err=%v", adoptionBatch, err)
 	}
 	adoptionItem := adoptionBatch.Items[0]
-	if err := store.ReviewAdoptionItem(ctx, adoptionBatch.ID, adoptionItem.ID, AdoptionReview{State: "approved", MediaID: &movie.ID, RootID: &movieRoot, QualityProfileID: &movieProfile, ProposedRelative: "Integration Movie (2026)/Integration Movie (2026).mkv"}, time.Now().UTC()); err != nil {
+	if err := store.ReviewAdoptionItem(ctx, adoptionBatch.ID, adoptionItem.ID, AdoptionReview{State: "approved", MediaID: &movie.ID, RootID: &movieRoot, QualityProfileID: &movieProfile, ProposedRelative: "Integration Movie (2026)/Integration Movie (2026).mkv", MonitoringEnabled: true}, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ApproveAdoptionBatch(ctx, adoptionBatch.ID, time.Now().UTC()); err != nil {
@@ -262,7 +262,10 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || approvedAdoption.State != "approved" || approvedAdoption.ApprovedItems != 1 || approvedAdoption.Items[0].ExecutionState != "pending" {
 		t.Fatalf("approved adoption plan=%+v err=%v", approvedAdoption, err)
 	}
-	if err := store.QueueAdoptionExecution(ctx, adoptionBatch.ID, time.Now().UTC()); err != nil {
+	if _, err := store.TransitionWorkflow(ctx, movieWorkflows[0].ID, movieWorkflows[0].Revision, workflows.StateCancelled, "adoption monitoring creates a fresh post-verification workflow", "test", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueueAdoptionExecution(ctx, adoptionBatch.ID, "", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	executionContext, err := store.AdoptionExecutionContext(ctx, adoptionBatch.ID)
@@ -308,6 +311,11 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || completedAdoption.State != "complete" || completedAdoption.Items[0].ExecutionState != "complete" {
 		t.Fatalf("completed adoption=%+v err=%v", completedAdoption, err)
 	}
+	var adoptionMonitoringWorkflowText string
+	if err := store.Pool.QueryRow(ctx, `SELECT workflow_id::text FROM adoption_monitoring_applications WHERE batch_id=$1 AND NOT search_immediately AND NOT replacement_authorized`, adoptionBatch.ID.String()).Scan(&adoptionMonitoringWorkflowText); err != nil {
+		t.Fatalf("adoption monitoring application err=%v", err)
+	}
+	adoptionMonitoringWorkflowID, _ := uuid.Parse(adoptionMonitoringWorkflowText)
 	files, err = store.ListManagedFiles(ctx, 100)
 	if err != nil || len(files) != 1 || files[0].ID != adoptionItem.ID || files[0].Origin != "adoption" || files[0].Variant != "default" || files[0].State != "current" || !files[0].PlexConfirmed || files[0].QualityEvidenceState != "media_info" || !strings.Contains(string(files[0].QualityEvidence), `"resolution": "1080p"`) || files[0].SourceSizeBytes == nil || *files[0].SourceSizeBytes != 1024 || files[0].AdoptionBatchID == nil || *files[0].AdoptionBatchID != adoptionBatch.ID {
 		t.Fatalf("adopted current-file read model=%+v err=%v", files, err)
@@ -339,27 +347,27 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	}
 	var adoptedConfirmationRequired bool
 	for _, summary := range workflowSummaries {
-		if summary.ID == movieWorkflows[0].ID {
+		if summary.ID == adoptionMonitoringWorkflowID {
 			adoptedConfirmationRequired = summary.AdoptedReplacementConfirmationRequired
 		}
 	}
 	if !adoptedConfirmationRequired {
 		t.Fatal("active workflow did not expose its adopted replacement confirmation gate")
 	}
-	if err := store.RequestWorkflowSearch(ctx, movieWorkflows[0].ID, "", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+	if err := store.RequestWorkflowSearch(ctx, adoptionMonitoringWorkflowID, "", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
 		t.Fatalf("delayed search without adopted replacement confirmation error=%v", err)
 	}
-	if err := store.RequestWorkflowSearch(ctx, movieWorkflows[0].ID, AdoptedReplacementConfirmation+" ", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+	if err := store.RequestWorkflowSearch(ctx, adoptionMonitoringWorkflowID, AdoptedReplacementConfirmation+" ", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
 		t.Fatalf("delayed search with inexact adopted replacement confirmation error=%v", err)
 	}
-	if err := store.RequestWorkflowSearch(ctx, movieWorkflows[0].ID, AdoptedReplacementConfirmation, time.Now().UTC()); err != nil {
+	if err := store.RequestWorkflowSearch(ctx, adoptionMonitoringWorkflowID, AdoptedReplacementConfirmation, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	var delayedAuthorizationCount int
-	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM adopted_replacement_authorizations WHERE workflow_id=$1`, movieWorkflows[0].ID.String()).Scan(&delayedAuthorizationCount); err != nil || delayedAuthorizationCount != 1 {
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM adopted_replacement_authorizations WHERE workflow_id=$1`, adoptionMonitoringWorkflowID.String()).Scan(&delayedAuthorizationCount); err != nil || delayedAuthorizationCount != 1 {
 		t.Fatalf("delayed search adopted authorizations=%d err=%v", delayedAuthorizationCount, err)
 	}
-	delayedWorkflow, err := store.GetWorkflow(ctx, movieWorkflows[0].ID)
+	delayedWorkflow, err := store.GetWorkflow(ctx, adoptionMonitoringWorkflowID)
 	if err != nil || delayedWorkflow.State != workflows.StateSearching {
 		t.Fatalf("delayed adopted search workflow=%+v err=%v", delayedWorkflow, err)
 	}
@@ -597,6 +605,85 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	backups, err := store.ListBackups(ctx, 10)
 	if err != nil || len(backups) != 1 || backups[0].State != "verified" || backups[0].Attempts != 2 || backups[0].SchemaVersion == nil || *backups[0].SchemaVersion != CurrentSchemaVersion {
 		t.Fatalf("backup records=%+v err=%v", backups, err)
+	}
+	if _, err := store.TransitionWorkflow(ctx, seasonTwoWorkflow.ID, seasonTwoWorkflow.Revision, workflows.StateCancelled, "isolate reviewed adoption search test", "test", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	cloneTransaction, err := store.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clonedWorkflow := workflows.NewWithClient(series.ID, seriesRoot, seriesProfile, seriesClient, time.Now().UTC())
+	if err := insertManualWorkflow(ctx, cloneTransaction, clonedWorkflow, "season:02", false); err != nil {
+		_ = cloneTransaction.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := cloneLatestAdoptionExpectation(ctx, cloneTransaction, adoptionMonitoringScope{MediaID: series.ID, MediaKind: catalog.KindSeries, Variant: "season:02", RootID: seriesRoot, QualityProfileID: seriesProfile}, clonedWorkflow.ID, time.Now().UTC()); err != nil {
+		_ = cloneTransaction.Rollback(ctx)
+		t.Fatal(err)
+	}
+	var clonedEpisodes int
+	if err := cloneTransaction.QueryRow(ctx, `SELECT count(*) FROM pack_expected_episodes episode JOIN pack_expectation_sets expectation ON expectation.id=episode.expectation_id WHERE expectation.workflow_id=$1`, clonedWorkflow.ID.String()).Scan(&clonedEpisodes); err != nil || clonedEpisodes != 3 {
+		_ = cloneTransaction.Rollback(ctx)
+		t.Fatalf("cloned adoption season expectations=%d err=%v", clonedEpisodes, err)
+	}
+	if err := cloneTransaction.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	seriesAdoptionConfiguration, err := store.AdoptionConfiguration(ctx, seriesRoot, seriesProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	immediateAdoption, err := store.CreateAdoptionBatch(ctx, "/libraries/tv/existing", seriesAdoptionConfiguration, true, true, []adoption.Entry{{Relative: "Integration Series S02E01.mkv"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReviewAdoptionItem(ctx, immediateAdoption.ID, immediateAdoption.Items[0].ID, AdoptionReview{State: "approved", MediaID: &series.ID, RootID: &seriesRoot, QualityProfileID: &seriesProfile, ProposedRelative: "Integration Series/Season 02/Integration Series - S02E01.mkv", Variant: "season:02", MonitoringEnabled: true, SearchImmediately: true}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApproveAdoptionBatch(ctx, immediateAdoption.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueueAdoptionExecution(ctx, immediateAdoption.ID, "", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+		t.Fatalf("immediate adopted search without exact confirmation error=%v", err)
+	}
+	if err := store.QueueAdoptionExecution(ctx, immediateAdoption.ID, AdoptedReplacementConfirmation+" ", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+		t.Fatalf("immediate adopted search with inexact confirmation error=%v", err)
+	}
+	if err := store.QueueAdoptionExecution(ctx, immediateAdoption.ID, AdoptedReplacementConfirmation, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	immediateAdoption, err = store.AdoptionBatch(ctx, immediateAdoption.ID)
+	if err != nil || immediateAdoption.State != "executing" || !immediateAdoption.ReplacementSearchAuthorized {
+		t.Fatalf("authorized immediate adoption search=%+v err=%v", immediateAdoption, err)
+	}
+	if _, err := store.CreateManualWorkflowForExisting(ctx, series, seriesRoot, seriesProfile, seriesClient, &seasonTwo, false, "", "test", time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "adoption monitoring owns") {
+		t.Fatalf("concurrent workflow bypassed executing adoption monitoring: %v", err)
+	}
+	immediateTransaction, err := store.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	immediateItem := immediateAdoption.Items[0]
+	if _, err := immediateTransaction.Exec(ctx, `INSERT INTO adopted_files(id,adoption_batch_id,adoption_item_id,media_id,root_id,quality_profile_id,variant,original_source_root,original_relative,destination_relative,source_size,source_modtime_ns,plex_observed_path,plex_item_key,provider_guid,quality_evidence_state,quality_evidence,state,verified_at) VALUES($1,$2,$1,$3,$4,$5,'season:02','/libraries/tv/existing','Integration Series S02E01.mkv','Integration Series/Season 02/Integration Series - S02E01.mkv',2048,2,'/libraries/tv/Integration Series/Season 02/Integration Series - S02E01.mkv','series-2','tvdb://987654','media_info','{}','current',$6)`, immediateItem.ID.String(), immediateAdoption.ID.String(), series.ID.String(), seriesRoot.String(), seriesProfile.String(), time.Now().UTC()); err != nil {
+		_ = immediateTransaction.Rollback(ctx)
+		t.Fatal(err)
+	}
+	monitoringChanges, immediateSearches, err := store.applyAdoptionMonitoring(ctx, immediateTransaction, immediateAdoption.ID, time.Now().UTC())
+	if err != nil || monitoringChanges != 1 || immediateSearches != 1 {
+		_ = immediateTransaction.Rollback(ctx)
+		t.Fatalf("apply immediate adoption monitoring changes=%d searches=%d err=%v", monitoringChanges, immediateSearches, err)
+	}
+	var immediateAuthorizations, immediateSearchEvents, immediateExpectedEpisodes int
+	if err := immediateTransaction.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM adopted_replacement_authorizations replacement_auth JOIN adoption_monitoring_applications application ON application.workflow_id=replacement_auth.workflow_id WHERE application.batch_id=$1),
+		(SELECT count(*) FROM outbox_events event JOIN adoption_monitoring_applications application ON application.workflow_id=event.aggregate_id WHERE application.batch_id=$1 AND event.event_type='workflow.search_requested'),
+		(SELECT count(*) FROM pack_expected_episodes episode JOIN pack_expectation_sets expectation ON expectation.id=episode.expectation_id JOIN adoption_monitoring_applications application ON application.workflow_id=expectation.workflow_id WHERE application.batch_id=$1)`, immediateAdoption.ID.String()).Scan(&immediateAuthorizations, &immediateSearchEvents, &immediateExpectedEpisodes); err != nil || immediateAuthorizations != 1 || immediateSearchEvents != 1 || immediateExpectedEpisodes != 3 {
+		_ = immediateTransaction.Rollback(ctx)
+		t.Fatalf("immediate adoption evidence authorizations=%d search_events=%d expected_episodes=%d err=%v", immediateAuthorizations, immediateSearchEvents, immediateExpectedEpisodes, err)
+	}
+	if err := immediateTransaction.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 	sources, err := store.ListSourceStatuses(ctx)
 	if err != nil || len(sources) != 4 {

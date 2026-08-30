@@ -15,23 +15,24 @@ import (
 )
 
 type AdoptionBatch struct {
-	ID                      uuid.UUID         `json:"id"`
-	SourceRoot              string            `json:"source_root"`
-	MediaKind               catalog.MediaKind `json:"media_kind"`
-	DefaultRootID           uuid.UUID         `json:"default_root_id"`
-	DefaultQualityProfileID uuid.UUID         `json:"default_quality_profile_id"`
-	MonitoringEnabled       bool              `json:"monitoring_enabled"`
-	SearchImmediately       bool              `json:"search_immediately"`
-	State                   string            `json:"state"`
-	CreatedAt               time.Time         `json:"created_at"`
-	ApprovedAt              *time.Time        `json:"approved_at,omitempty"`
-	CompletedAt             *time.Time        `json:"completed_at,omitempty"`
-	ExecutionDeadline       *time.Time        `json:"execution_deadline,omitempty"`
-	PendingItems            int64             `json:"pending_items"`
-	ApprovedItems           int64             `json:"approved_items"`
-	RejectedItems           int64             `json:"rejected_items"`
-	AttentionItems          int64             `json:"attention_items"`
-	Items                   []AdoptionItem    `json:"items,omitempty"`
+	ID                          uuid.UUID         `json:"id"`
+	SourceRoot                  string            `json:"source_root"`
+	MediaKind                   catalog.MediaKind `json:"media_kind"`
+	DefaultRootID               uuid.UUID         `json:"default_root_id"`
+	DefaultQualityProfileID     uuid.UUID         `json:"default_quality_profile_id"`
+	MonitoringEnabled           bool              `json:"monitoring_enabled"`
+	SearchImmediately           bool              `json:"search_immediately"`
+	ReplacementSearchAuthorized bool              `json:"replacement_search_authorized"`
+	State                       string            `json:"state"`
+	CreatedAt                   time.Time         `json:"created_at"`
+	ApprovedAt                  *time.Time        `json:"approved_at,omitempty"`
+	CompletedAt                 *time.Time        `json:"completed_at,omitempty"`
+	ExecutionDeadline           *time.Time        `json:"execution_deadline,omitempty"`
+	PendingItems                int64             `json:"pending_items"`
+	ApprovedItems               int64             `json:"approved_items"`
+	RejectedItems               int64             `json:"rejected_items"`
+	AttentionItems              int64             `json:"attention_items"`
+	Items                       []AdoptionItem    `json:"items,omitempty"`
 }
 
 type AdoptionItem struct {
@@ -112,7 +113,7 @@ func (store *Store) CreateAdoptionBatch(ctx context.Context, sourceRoot string, 
 	return result, transaction.Commit(ctx)
 }
 
-const adoptionBatchSelect = `SELECT batch.id::text,batch.source_root,batch.media_kind,batch.default_root_id::text,batch.default_quality_profile_id::text,batch.monitoring_enabled,batch.search_immediately,batch.state,batch.created_at,batch.approved_at,batch.completed_at,batch.execution_deadline,
+const adoptionBatchSelect = `SELECT batch.id::text,batch.source_root,batch.media_kind,batch.default_root_id::text,batch.default_quality_profile_id::text,batch.monitoring_enabled,batch.search_immediately,batch.replacement_search_authorized_at IS NOT NULL,batch.state,batch.created_at,batch.approved_at,batch.completed_at,batch.execution_deadline,
 	count(item.id) FILTER (WHERE item.review_state='pending'),count(item.id) FILTER (WHERE item.review_state='approved'),count(item.id) FILTER (WHERE item.review_state='rejected'),count(item.id) FILTER (WHERE item.review_state='needs_attention')
 	FROM adoption_batches batch LEFT JOIN adoption_items item ON item.batch_id=batch.id`
 
@@ -139,7 +140,7 @@ func (store *Store) ListAdoptionBatches(ctx context.Context, limit int) ([]Adopt
 func scanAdoptionBatch(row pgx.Row) (AdoptionBatch, error) {
 	var item AdoptionBatch
 	var idText, rootText, profileText string
-	err := row.Scan(&idText, &item.SourceRoot, &item.MediaKind, &rootText, &profileText, &item.MonitoringEnabled, &item.SearchImmediately, &item.State, &item.CreatedAt, &item.ApprovedAt, &item.CompletedAt, &item.ExecutionDeadline, &item.PendingItems, &item.ApprovedItems, &item.RejectedItems, &item.AttentionItems)
+	err := row.Scan(&idText, &item.SourceRoot, &item.MediaKind, &rootText, &profileText, &item.MonitoringEnabled, &item.SearchImmediately, &item.ReplacementSearchAuthorized, &item.State, &item.CreatedAt, &item.ApprovedAt, &item.CompletedAt, &item.ExecutionDeadline, &item.PendingItems, &item.ApprovedItems, &item.RejectedItems, &item.AttentionItems)
 	item.ID, _ = uuid.Parse(idText)
 	item.DefaultRootID, _ = uuid.Parse(rootText)
 	item.DefaultQualityProfileID, _ = uuid.Parse(profileText)
@@ -260,7 +261,7 @@ func (store *Store) ReviewAdoptionItem(ctx context.Context, batchID, itemID uuid
 	if err != nil {
 		return err
 	}
-	detail, _ := json.Marshal(map[string]any{"review_state": review.State, "proposed_relative": review.ProposedRelative, "variant": review.Variant})
+	detail, _ := json.Marshal(map[string]any{"review_state": review.State, "proposed_relative": review.ProposedRelative, "variant": review.Variant, "monitoring_enabled": review.MonitoringEnabled, "search_immediately": review.SearchImmediately})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','adoption.item_reviewed','adoption_item',$2,$3,$4)`, uuid.NewV7().String(), itemID.String(), detail, now.UTC()); err != nil {
 		return err
 	}

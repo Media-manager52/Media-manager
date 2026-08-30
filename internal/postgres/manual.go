@@ -207,6 +207,13 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	if deletedAt != nil || kind != item.Kind {
 		return workflows.Workflow{}, errors.New("media is not active")
 	}
+	var adoptionMonitoringReserved bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adoption_items adoption_item JOIN adoption_batches batch ON batch.id=adoption_item.batch_id WHERE adoption_item.media_id=$1 AND adoption_item.variant=$2 AND adoption_item.review_state='approved' AND COALESCE(adoption_item.monitoring_enabled,false) AND batch.state='executing')`, item.ID.String(), variant).Scan(&adoptionMonitoringReserved); err != nil {
+		return workflows.Workflow{}, err
+	}
+	if adoptionMonitoringReserved {
+		return workflows.Workflow{}, errors.New("reviewed adoption monitoring owns this scope until Plex verification finishes")
+	}
 	var adoptedLifecycleActive bool
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state IN ('recycle_planned','retained','restore_confirming','restore_attention'))`, item.ID.String(), variant).Scan(&adoptedLifecycleActive); err != nil {
 		return workflows.Workflow{}, err

@@ -167,6 +167,8 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "Seerr changed the exact episode snapshot; review the active season workflow")
 	} else if errors.Is(err, postgres.ErrAdoptedReplacementConfirmationRequired) {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "adopted current files require the owner-confirmed replacement workflow in Media Manager")
+	} else if errors.Is(err, postgres.ErrAdoptionMonitoringReserved) {
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "reviewed adoption monitoring is waiting for Plex verification")
 	} else if err != nil {
 		return err
 	}

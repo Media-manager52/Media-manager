@@ -633,23 +633,24 @@ func (server *Server) executeAdoptionBatch(writer http.ResponseWriter, request *
 		return
 	}
 	var input struct {
-		Confirmation string `json:"confirmation"`
+		Confirmation                   string `json:"confirmation"`
+		AdoptedReplacementConfirmation string `json:"adopted_replacement_confirmation"`
 	}
 	if err := decodeJSON(request, &input, 8<<10); err != nil || input.Confirmation != "EXECUTE REVIEWED ADOPTION" {
 		writeError(writer, http.StatusBadRequest, "confirmation_required", "exact adoption execution confirmation is required")
 		return
 	}
-	err = server.store.QueueAdoptionExecution(request.Context(), id, time.Now().UTC())
+	err = server.store.QueueAdoptionExecution(request.Context(), id, input.AdoptedReplacementConfirmation, time.Now().UTC())
 	if errors.Is(err, postgres.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, "not_found", "adoption batch was not found")
 		return
 	}
-	if errors.Is(err, postgres.ErrAdoptionMonitoringUnsupported) {
-		writeError(writer, http.StatusConflict, "monitoring_not_supported", "this execution slice requires monitoring and immediate search to be off")
+	if errors.Is(err, postgres.ErrAdoptedReplacementConfirmationRequired) {
+		writeError(writer, http.StatusConflict, "replacement_confirmation_required", err.Error())
 		return
 	}
 	if err != nil {
-		writeError(writer, http.StatusConflict, "execution_failed", "adoption plan is not executable in its current state")
+		writeError(writer, http.StatusConflict, "execution_failed", err.Error())
 		return
 	}
 	item, _ := server.store.AdoptionBatch(request.Context(), id)

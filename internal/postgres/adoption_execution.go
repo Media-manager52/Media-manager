@@ -16,8 +16,6 @@ import (
 	"github.com/media-manager/media-manager/internal/catalog"
 )
 
-var ErrAdoptionMonitoringUnsupported = errors.New("adoption execution with monitoring or search is not implemented")
-
 type AdoptionExecutionItem struct {
 	Item  AdoptionItem
 	Root  LibraryRoot
@@ -60,7 +58,7 @@ type AdoptionPlexConfirmation struct {
 	ConfirmedAt  time.Time
 }
 
-func (store *Store) QueueAdoptionExecution(ctx context.Context, id uuid.UUID, now time.Time) error {
+func (store *Store) QueueAdoptionExecution(ctx context.Context, id uuid.UUID, adoptedReplacementConfirmation string, now time.Time) error {
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -75,18 +73,32 @@ func (store *Store) QueueAdoptionExecution(ctx context.Context, id uuid.UUID, no
 	if state != "approved" {
 		return errors.New("adoption plan is not approved for execution")
 	}
-	var approved, unsupported int
-	if err := transaction.QueryRow(ctx, `SELECT count(*) FILTER (WHERE review_state='approved'),count(*) FILTER (WHERE review_state='approved' AND (COALESCE(monitoring_enabled,false) OR COALESCE(search_immediately,false))) FROM adoption_items WHERE batch_id=$1`, id.String()).Scan(&approved, &unsupported); err != nil {
+	var approved, monitoringScopes, immediateSearches int
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FILTER (WHERE review_state='approved'),count(*) FILTER (WHERE review_state='approved' AND COALESCE(monitoring_enabled,false)),count(*) FILTER (WHERE review_state='approved' AND COALESCE(search_immediately,false)) FROM adoption_items WHERE batch_id=$1`, id.String()).Scan(&approved, &monitoringScopes, &immediateSearches); err != nil {
 		return err
 	}
 	if approved < 1 || approved > 25 {
 		return fmt.Errorf("adoption execution requires 1 to 25 approved items")
 	}
-	if unsupported > 0 {
-		return ErrAdoptionMonitoringUnsupported
+	replacementAuthorized := immediateSearches == 0
+	if immediateSearches > 0 {
+		replacementAuthorized = adoptedReplacementConfirmation == AdoptedReplacementConfirmation
+		if !replacementAuthorized {
+			return ErrAdoptedReplacementConfirmationRequired
+		}
+	}
+	var defaultRootText string
+	if err := transaction.QueryRow(ctx, `SELECT default_root_id::text FROM adoption_batches WHERE id=$1`, id.String()).Scan(&defaultRootText); err != nil {
+		return err
+	}
+	defaultRootID, _ := uuid.Parse(defaultRootText)
+	if monitoringScopes > 0 {
+		if err := store.validateAdoptionMonitoring(ctx, transaction, id, defaultRootID, replacementAuthorized); err != nil {
+			return err
+		}
 	}
 	deadline := now.UTC().Add(15 * time.Minute)
-	if _, err := transaction.Exec(ctx, `UPDATE adoption_batches SET state='executing',execution_deadline=$2 WHERE id=$1`, id.String(), deadline); err != nil {
+	if _, err := transaction.Exec(ctx, `UPDATE adoption_batches SET state='executing',execution_deadline=$2,replacement_search_authorized_at=CASE WHEN $3 THEN $4::timestamptz ELSE NULL END,replacement_search_authorized_by=CASE WHEN $3 THEN 'owner' ELSE NULL END WHERE id=$1`, id.String(), deadline, immediateSearches > 0, now.UTC()); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE adoption_items SET execution_state=CASE WHEN review_state='approved' THEN 'queued' ELSE 'skipped' END WHERE batch_id=$1`, id.String()); err != nil {
@@ -96,7 +108,7 @@ func (store *Store) QueueAdoptionExecution(ctx context.Context, id uuid.UUID, no
 	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'adoption_batch',$2,1,'adoption.execute_requested',$3,$4,$4)`, uuid.NewV7().String(), id.String(), payload, now.UTC()); err != nil {
 		return err
 	}
-	detail, _ := json.Marshal(map[string]any{"approved_items": approved, "confirmation": "explicit", "monitoring_changes": 0, "searches": 0})
+	detail, _ := json.Marshal(map[string]any{"approved_items": approved, "confirmation": "explicit", "monitoring_items": monitoringScopes, "immediate_search_items": immediateSearches, "replacement_search_authorized": immediateSearches > 0})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','adoption.execution_queued','adoption_batch',$2,$3,$4)`, uuid.NewV7().String(), id.String(), detail, now.UTC()); err != nil {
 		return err
 	}
@@ -403,13 +415,17 @@ func (store *Store) CompleteAdoptionExecution(ctx context.Context, batchID uuid.
 	if represented != approved {
 		return errors.New("not every adopted item has durable current-file provenance")
 	}
+	monitoringChanges, searches, err := store.applyAdoptionMonitoring(ctx, transaction, batchID, now)
+	if err != nil {
+		return err
+	}
 	if _, err := transaction.Exec(ctx, `UPDATE adoption_items SET execution_state='complete' WHERE batch_id=$1 AND review_state='approved'`, batchID.String()); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE adoption_batches SET state='complete',completed_at=$2 WHERE id=$1`, batchID.String(), now.UTC()); err != nil {
 		return err
 	}
-	detail, _ := json.Marshal(map[string]any{"items": approved, "plex_confirmed": confirmed, "current_files_recorded": represented, "quality_evidence": "media_info", "monitoring_changes": 0, "rollback_required": false})
+	detail, _ := json.Marshal(map[string]any{"items": approved, "plex_confirmed": confirmed, "current_files_recorded": represented, "quality_evidence": "media_info", "monitoring_changes": monitoringChanges, "searches_queued": searches, "rollback_required": false})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'system','adoption.execution_completed','adoption_batch',$2,$3,$4)`, uuid.NewV7().String(), batchID.String(), detail, now.UTC()); err != nil {
 		return err
 	}
