@@ -15,6 +15,7 @@ import (
 
 	"github.com/media-manager/media-manager/internal/acquisition"
 	seerradapter "github.com/media-manager/media-manager/internal/adapters/seerr"
+	"github.com/media-manager/media-manager/internal/backups"
 	"github.com/media-manager/media-manager/internal/commissioning"
 	"github.com/media-manager/media-manager/internal/httpapi"
 	"github.com/media-manager/media-manager/internal/indexers"
@@ -122,8 +123,13 @@ func run() error {
 	}
 	scheduler := indexers.NewScheduler(4, store)
 	resolveSecret := func(reference string) (string, error) { return requiredSecret(reference) }
+	backupDirectory := strings.TrimSpace(os.Getenv("BACKUP_DIRECTORY"))
+	if backupDirectory == "" {
+		backupDirectory = "/var/lib/media-manager/backups"
+	}
+	backupConfigured := optionalSecret(backups.KeyReference) != ""
 	commissionService := &commissioning.NewznabService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
-	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, MetadataProvider: seerrClient, CommissionNewznab: commissionService.Commission}, store)
+	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, MetadataProvider: seerrClient, CommissionNewznab: commissionService.Commission, BackupConfigured: backupConfigured, BackupDirectory: backupDirectory}, store)
 	if err != nil {
 		return err
 	}
@@ -150,6 +156,8 @@ func run() error {
 	handlers["workflow.transitioned"] = func(context.Context, postgres.OutboxEvent) error { return nil }
 	notificationService := &notifications.Service{Store: store, ResolveSecret: resolveSecret}
 	handlers["notification.deliver_requested"] = notificationService.Handle
+	backupService := &backups.Service{Store: store, Directory: backupDirectory, ResolveSecret: resolveSecret}
+	handlers["backup.create_requested"] = backupService.Handle
 	if seerrEnabled {
 		service := &intake.SeerrService{Client: seerrClient, Store: store, InstanceID: seerrInstance}
 		handlers["seerr.reconcile"] = service.Handle

@@ -289,6 +289,29 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err := store.SetNotificationDestinationEnabled(ctx, destination.ID, false, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
+	backup, err := store.CreateBackup(ctx, time.Now().UTC())
+	if err != nil || backup.State != "queued" {
+		t.Fatalf("create backup record=%+v err=%v", backup, err)
+	}
+	if _, err := store.CreateBackup(ctx, time.Now().UTC()); !errors.Is(err, ErrBackupInProgress) {
+		t.Fatalf("concurrent backup error=%v", err)
+	}
+	if err := store.StartBackup(ctx, backup.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FailBackup(ctx, backup.ID, "restore verification failed", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartBackup(ctx, backup.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteBackup(ctx, backup.ID, backup.ID.String()+".mmbackup", 4096, strings.Repeat("b", 64), CurrentSchemaVersion, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	backups, err := store.ListBackups(ctx, 10)
+	if err != nil || len(backups) != 1 || backups[0].State != "verified" || backups[0].Attempts != 2 || backups[0].SchemaVersion == nil || *backups[0].SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("backup records=%+v err=%v", backups, err)
+	}
 	sources, err := store.ListSourceStatuses(ctx)
 	if err != nil || len(sources) != 3 {
 		t.Fatalf("source read model: items=%d err=%v", len(sources), err)

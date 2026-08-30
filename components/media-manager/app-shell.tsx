@@ -77,6 +77,7 @@ import {
 import {
   LiveActivityHistoryScreen,
   LiveBlocklistScreen,
+  LiveBackupsScreen,
   LiveCalendarScreen,
   LiveComponentHealthScreen,
   LiveFileDetailScreen,
@@ -136,6 +137,7 @@ const liveNavigation: NavGroup[] = [
   ] },
   { label: "System", items: [
     { label: "Tasks", href: "/system/tasks", icon: ListChecks },
+    { label: "Backups", href: "/system/backups", icon: DatabaseBackup },
     { label: "Security", href: "/system/security", icon: ShieldCheck },
     { label: "API", href: "/system/api", icon: TerminalSquare },
     { label: "Health", href: "/system/health", icon: HeartPulse },
@@ -274,6 +276,7 @@ function RouteContent({ path }: { path: string }) {
   if (path === "/settings/media-management") return <LiveSystemInfoScreen mode="media-management" />
   if (path === "/settings/notifications") return <LiveNotificationsScreen />
   if (path === "/system/tasks") return <LiveTasksScreen />
+  if (path === "/system/backups") return <LiveBackupsScreen />
   if (path === "/system/security") return <LiveSystemInfoScreen mode="security" />
   if (path === "/system/api") return <LiveSystemInfoScreen mode="api" />
   if (path === "/system/health") return <LiveComponentHealthScreen />

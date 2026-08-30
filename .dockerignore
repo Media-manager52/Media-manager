@@ -11,4 +11,5 @@ coverage
 upload
 work
 outputs
+data/backups
 npm-debug.log*

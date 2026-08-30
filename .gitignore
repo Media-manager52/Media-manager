@@ -42,4 +42,6 @@ next-env.d.ts
 /.wrangler/
 /.sites-runtime/
 /outputs/
+/data/backups/*
+!/data/backups/.gitkeep
 /work/

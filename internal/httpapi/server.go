@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/adoption"
+	"github.com/media-manager/media-manager/internal/backups"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/importlists"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -32,6 +34,8 @@ type Config struct {
 	Version            string
 	MetadataProvider   *seerr.Client
 	CommissionNewznab  func(context.Context, uuid.UUID) (postgres.Integration, error)
+	BackupConfigured   bool
+	BackupDirectory    string
 }
 
 type Server struct {
@@ -105,6 +109,9 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/system/health", server.requireOwner(server.systemHealth))
 	server.mux.HandleFunc("GET /api/v1/system/tasks", server.requireOwner(server.listTasks))
 	server.mux.HandleFunc("GET /api/v1/system/info", server.requireOwner(server.systemInfo))
+	server.mux.HandleFunc("GET /api/v1/backups", server.requireOwner(server.listBackups))
+	server.mux.HandleFunc("POST /api/v1/backups", server.requireOwner(server.createBackup))
+	server.mux.HandleFunc("GET /api/v1/backups/{id}/download", server.requireOwner(server.downloadBackup))
 	server.mux.HandleFunc("GET /api/v1/recycle", server.requireOwner(server.listRecycle))
 	server.mux.HandleFunc("POST /api/v1/recycle/{id}/restore", server.requireOwner(server.restoreRecycle))
 	server.mux.HandleFunc("POST /api/v1/imports/prowlarr", server.requireOwner(server.createProwlarrImport))
@@ -122,6 +129,82 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("PATCH /api/v1/settings/notifications/{id}", server.requireOwner(server.setNotificationDestinationState))
 	server.mux.HandleFunc("GET /api/v1/notifications/deliveries", server.requireOwner(server.listNotificationDeliveries))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+}
+
+func (server *Server) listBackups(writer http.ResponseWriter, request *http.Request) {
+	items, err := server.store.ListBackups(request.Context(), 100)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load backups")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{
+		"configured":           server.config.BackupConfigured,
+		"format":               "PostgreSQL custom format encrypted with chunked AES-256-GCM",
+		"restore_verification": "isolated temporary database and exact schema version",
+		"automatic_deletion":   false,
+		"production_restore":   false,
+		"records":              items,
+	}})
+}
+
+func (server *Server) createBackup(writer http.ResponseWriter, request *http.Request) {
+	if !server.config.BackupConfigured {
+		writeError(writer, http.StatusConflict, "backup_not_configured", "BACKUP_ENCRYPTION_KEY is not configured")
+		return
+	}
+	item, err := server.store.CreateBackup(request.Context(), time.Now().UTC())
+	if errors.Is(err, postgres.ErrBackupInProgress) {
+		writeError(writer, http.StatusConflict, "backup_in_progress", "a backup is already queued or running")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "backup_failed", "could not queue backup")
+		return
+	}
+	writer.Header().Set("Location", "/api/v1/backups")
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: item})
+}
+
+func (server *Server) downloadBackup(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "backup ID is invalid")
+		return
+	}
+	record, err := server.store.Backup(request.Context(), id)
+	if errors.Is(err, postgres.ErrNotFound) || err == nil && record.State != "verified" {
+		writeError(writer, http.StatusNotFound, "not_found", "verified backup was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load backup")
+		return
+	}
+	if filepath.Base(record.Filename) != record.Filename || !strings.HasSuffix(record.Filename, ".mmbackup") {
+		writeError(writer, http.StatusInternalServerError, "invalid_backup", "backup storage reference is invalid")
+		return
+	}
+	path := filepath.Join(server.config.BackupDirectory, record.Filename)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		writeError(writer, http.StatusNotFound, "not_found", "backup file is unavailable")
+		return
+	}
+	checksum, size, err := backups.FileDigest(path)
+	if err != nil || checksum != record.SHA256 || record.SizeBytes == nil || size != *record.SizeBytes {
+		writeError(writer, http.StatusConflict, "backup_integrity_failed", "backup checksum or size no longer matches its verified record")
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		writeError(writer, http.StatusNotFound, "not_found", "backup file is unavailable")
+		return
+	}
+	defer file.Close()
+	writer.Header().Set("Content-Type", "application/octet-stream")
+	writer.Header().Set("Content-Disposition", `attachment; filename="`+record.Filename+`"`)
+	writer.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(writer, request, record.Filename, info.ModTime(), file)
 }
 
 func (server *Server) listImportLists(writer http.ResponseWriter, request *http.Request) {

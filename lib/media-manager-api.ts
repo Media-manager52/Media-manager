@@ -44,6 +44,8 @@ export type APINotificationDelivery = { id: string; destination_id: string; dest
 export type APIImportListItem = { id: string; snapshot_id: string; ordinal: number; media_kind: "movie" | "series" | "unknown"; provider: string; provider_id: string; title: string; year?: number; state: "pending_review" | "already_cataloged" | "unsupported"; attention?: string; existing_media_id?: string }
 export type APIImportListSnapshot = { id: string; import_list_id: string; source_digest: string; item_count: number; pending_count: number; existing_count: number; unsupported_count: number; created_at: string; items?: APIImportListItem[] }
 export type APIImportList = { id: string; name: string; provider: "imdb_export"; enabled: boolean; movie_root_id?: string; movie_root_name?: string; movie_quality_profile_id?: string; movie_quality_profile?: string; created_at: string; updated_at: string; latest_snapshot?: APIImportListSnapshot }
+export type APIBackupRecord = { id: string; state: "queued" | "running" | "verified" | "failed"; format: string; filename?: string; size_bytes?: number; sha256?: string; schema_version?: number; attempts: number; last_error?: string; created_at: string; started_at?: string; completed_at?: string }
+export type APIBackupOverview = { configured: boolean; format: string; restore_verification: string; automatic_deletion: boolean; production_restore: boolean; records: APIBackupRecord[] }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -110,6 +112,7 @@ export const loadNotificationDestinations = async (signal?: AbortSignal) => awai
 export const loadNotificationDeliveries = async (signal?: AbortSignal) => await requestJSON<APINotificationDelivery[] | null>("/api/v1/notifications/deliveries?limit=300", { signal }) ?? []
 export const loadImportLists = async (signal?: AbortSignal) => await requestJSON<APIImportList[] | null>("/api/v1/import-lists", { signal }) ?? []
 export const loadImportList = (id: string, signal?: AbortSignal) => requestJSON<APIImportList>(`/api/v1/import-lists/${encodeURIComponent(id)}`, { signal })
+export const loadBackups = (signal?: AbortSignal) => requestJSON<APIBackupOverview>("/api/v1/backups", { signal })
 
 export type CreateMediaInput = {
   kind: "movie" | "series"
@@ -145,5 +148,6 @@ export const createNotificationDestination = (input: { name: string; endpoint: s
 export const setNotificationDestinationEnabled = (id: string, enabled: boolean) => requestJSON<{ id: string; enabled: boolean }>(`/api/v1/settings/notifications/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ enabled }) })
 export const createImportList = (input: { name: string; provider: "imdb_export"; enabled: boolean; movie_root_id?: string; movie_quality_profile_id?: string }) => requestJSON<APIImportList>("/api/v1/import-lists", { method: "POST", body: JSON.stringify(input) })
 export const uploadImportListSnapshot = (id: string, file: File) => requestJSON<APIImportListSnapshot>(`/api/v1/import-lists/${encodeURIComponent(id)}/snapshots`, { method: "POST", headers: { "Content-Type": "text/csv" }, body: file })
+export const createBackup = () => requestJSON<APIBackupRecord>("/api/v1/backups", { method: "POST" })
 export const uploadProwlarrBackup = (file: File) => requestJSON<APIProwlarrImport>("/api/v1/imports/prowlarr", { method: "POST", headers: { "Content-Type": "application/zip" }, body: file })
 export const approveProwlarrImport = (id: string, candidates: Array<{ id: string; secret_ref: string }>) => requestJSON<APIProwlarrImport>(`/api/v1/imports/prowlarr/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ candidates }) })

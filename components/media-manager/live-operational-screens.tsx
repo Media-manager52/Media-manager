@@ -8,6 +8,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Database,
+  DatabaseBackup,
+  Download,
   FileCheck2,
   Files,
   Gauge,
@@ -32,6 +34,7 @@ import {
   createReleaseBlock,
   createNotificationDestination,
   createImportList,
+  createBackup,
   deleteReleaseBlock,
   loadActivity,
   loadCalendar,
@@ -43,6 +46,7 @@ import {
   loadNotificationDestinations,
   loadImportList,
   loadImportLists,
+  loadBackups,
   loadReleaseCandidates,
   loadReleaseBlocks,
   loadSources,
@@ -148,6 +152,7 @@ const systemInfoLoader = (signal: AbortSignal) => loadSystemInfo(signal)
 const notificationDestinationsLoader = (signal: AbortSignal) => loadNotificationDestinations(signal)
 const notificationDeliveriesLoader = (signal: AbortSignal) => loadNotificationDeliveries(signal)
 const importListsLoader = (signal: AbortSignal) => loadImportLists(signal)
+const backupsLoader = (signal: AbortSignal) => loadBackups(signal)
 
 export function LiveOperationalDashboardScreen() {
   const { data, error, refresh } = useLiveData(dashboardLoader)
@@ -452,6 +457,23 @@ export function LiveImportListsScreen() {
   const items = snapshot?.items ?? []
   const error = listsState.error || selectedState.error
   return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}<InlineNotice tone="info" title="Review only">IMDb exports are parsed into persisted review rows. Uploading a snapshot creates no media, workflows, searches, release evidence, or downloads. TV rows remain unsupported until an exact season can be chosen.</InlineNotice><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Lists" value={String(lists.length)} note="Owner-supplied IMDb exports" icon={ListChecks} /><MetricCard label="Pending review" value={String(snapshot?.pending_count ?? 0)} note="No monitoring change has been applied" tone={snapshot?.pending_count ? "warn" : "neutral"} icon={SearchCheck} /><MetricCard label="Already cataloged" value={String(snapshot?.existing_count ?? 0)} note={`${snapshot?.unsupported_count ?? 0} unsupported rows`} tone="info" icon={CheckCircle2} /></div><div className="grid gap-4 xl:grid-cols-[1.3fr_380px]"><Panel className="!p-0" title="Import lists" subtitle="Persisted source configuration and latest bounded snapshot counts." action={<RefreshButton onClick={listsState.refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Source</TableHead><TableHead>Movie profile</TableHead><TableHead>Latest snapshot</TableHead><TableHead>Items</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{lists.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell>IMDb CSV export</TableCell><TableCell>{item.movie_quality_profile || "Type default"}</TableCell><TableCell>{item.latest_snapshot ? timeAgo(item.latest_snapshot.created_at) : "Never"}</TableCell><TableCell>{item.latest_snapshot?.item_count ?? 0}</TableCell><TableCell><Button size="sm" variant={effectiveSelectedID === item.id ? "default" : "outline"} onClick={() => setSelectedID(item.id)}>Review</Button></TableCell></TableRow>)}</TableBody></Table></div>{lists.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No import lists configured.</div> : null}</Panel><div className="space-y-4"><Panel title="Add IMDb export list" subtitle="This creates configuration only; it does not fetch or import anything."><form className="grid gap-3" onSubmit={create}><label className="grid gap-1.5 text-[10px] font-semibold text-[#929dab]">Name<Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="IMDb owner watchlist" required /></label><KeyValue label="Provider" value="IMDb CSV export" /><KeyValue label="Monitoring defaults" value="Movie type defaults; search off" /><Button type="submit" disabled={busy === "create"}>Save list</Button></form></Panel><Panel title="Review a new snapshot" subtitle={selected ? `Selected: ${selected.name}` : "Select or create a list first."}><form className="grid gap-3" onSubmit={upload}><Input className="mm-input" type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} disabled={!selected} /><Button type="submit" disabled={!selected || !file || busy === "upload"}>Parse snapshot for review</Button></form></Panel></div></div><Panel className="!p-0" title={selected ? `${selected.name} · latest review` : "Latest review"} subtitle={snapshot ? `${snapshot.item_count} rows persisted ${new Date(snapshot.created_at).toLocaleString()}. Digest ${snapshot.source_digest.slice(0, 12)}…` : "No snapshot has been uploaded."}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>#</TableHead><TableHead>Title</TableHead><TableHead>Identity</TableHead><TableHead>Kind</TableHead><TableHead>Review state</TableHead><TableHead>Attention</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell>{item.ordinal}</TableCell><TableCell className="font-semibold">{item.title}{item.year ? ` (${item.year})` : ""}</TableCell><TableCell className="font-mono text-[9px]">IMDb {item.provider_id}</TableCell><TableCell>{pretty(item.media_kind)}</TableCell><TableCell><StatusChip tone={item.state === "already_cataloged" ? "good" : item.state === "pending_review" ? "warn" : "neutral"}>{pretty(item.state)}</StatusChip></TableCell><TableCell className="max-w-md text-[9px]">{item.attention || (item.state === "pending_review" ? "Awaiting an implemented monitoring review action." : "—")}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No persisted review rows.</div> : null}</Panel></div>
+}
+
+export function LiveBackupsScreen() {
+  const { data, error, refresh } = useLiveData(backupsLoader)
+  const [busy, setBusy] = React.useState(false)
+  async function create() {
+    setBusy(true)
+    try { await createBackup(); toast.success("Encrypted backup queued"); refresh() }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not queue backup") }
+    finally { setBusy(false) }
+  }
+  if (!data && !error) return <LoadingPanel label="Loading durable backup records…" />
+  const records = data?.records ?? []
+  const verified = records.filter((item) => item.state === "verified")
+  const active = records.some((item) => item.state === "queued" || item.state === "running")
+  const latest = records[0]
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Verified backups" value={String(verified.length)} note="Durable records with restore verification" tone={verified.length ? "good" : "neutral"} icon={DatabaseBackup} /><MetricCard label="Latest state" value={latest ? pretty(latest.state) : "No records"} note={latest ? timeAgo(latest.created_at) : "No backup has been requested"} tone={latest?.state === "verified" ? "good" : latest?.state === "failed" ? "warn" : latest ? "info" : "neutral"} icon={Database} /><MetricCard label="Encryption key" value={data.configured ? "Configured" : "Unavailable"} note="External BACKUP_ENCRYPTION_KEY; value never returned" tone={data.configured ? "good" : "warn"} icon={ShieldCheck} /></div><InlineNotice tone={data.configured ? "info" : "warn"} title={data.configured ? "Verified encrypted backups" : "Backup creation is disabled"}>{data.configured ? "Each PostgreSQL custom dump is encrypted with chunked AES-256-GCM, checksummed, restored into an isolated temporary database, and accepted only at the exact running schema version." : "Configure a base64-encoded 32-byte BACKUP_ENCRYPTION_KEY outside the repository, then recreate only the API service. Existing .env files and integration secret values are never included in backups."}</InlineNotice><Panel className="!p-0" title="Media Manager backups" subtitle="Database, configuration references, and audit state are included. Secret values, media, AltMount content, and .env files are excluded." action={<div className="flex gap-2"><RefreshButton onClick={refresh} /><Button size="sm" disabled={!data.configured || busy || active} onClick={() => void create()}><DatabaseBackup />Create and verify</Button></div>}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Requested</TableHead><TableHead>State</TableHead><TableHead>Size</TableHead><TableHead>Schema</TableHead><TableHead>Attempts</TableHead><TableHead>Integrity</TableHead><TableHead>Download</TableHead></TableRow></TableHeader><TableBody>{records.map((item) => <TableRow key={item.id}><TableCell>{new Date(item.created_at).toLocaleString()}</TableCell><TableCell><StatusChip tone={item.state === "verified" ? "good" : item.state === "failed" ? "warn" : "info"}>{pretty(item.state)}</StatusChip>{item.last_error ? <div className="mt-1 text-[9px] text-[#c6a867]">{item.last_error}</div> : null}</TableCell><TableCell>{formatBytes(item.size_bytes)}</TableCell><TableCell>{item.schema_version ?? "—"}</TableCell><TableCell>{item.attempts}</TableCell><TableCell className="font-mono text-[9px]">{item.sha256 ? `${item.sha256.slice(0, 16)}…` : "—"}</TableCell><TableCell>{item.state === "verified" ? <Button asChild size="sm" variant="outline"><a href={`/api/v1/backups/${encodeURIComponent(item.id)}/download`}><Download />Encrypted file</a></Button> : "—"}</TableCell></TableRow>)}</TableBody></Table></div>{records.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No backup has been requested. No success state is inferred from the project tar archive.</div> : null}</Panel><div className="grid gap-4 xl:grid-cols-2"><Panel title="Restore verification" subtitle="A verified record is more than a successful dump command."><KeyValue label="Format" value={data.format} /><KeyValue label="Verification" value={data.restore_verification} /><KeyValue label="Production restore" value={data.production_restore ? "Available" : "Not implemented"} /></Panel><Panel title="Retention and safety" subtitle="No backup is deleted automatically without an approved retention policy."><KeyValue label="Automatic deletion" value={data.automatic_deletion ? "Enabled" : "Disabled"} /><KeyValue label="Media contents" value="Excluded" /><KeyValue label="Secret values and .env" value="Excluded" /></Panel></div></> : null}</div>
 }
 
 function SystemInfoContent({ data, mode, refresh }: { data: APISystemInfo; mode: "media-management" | "security" | "api"; refresh: () => void }) {

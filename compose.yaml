@@ -52,6 +52,7 @@ services:
       - ${ALTMOUNT_HOST_PATH:?set ALTMOUNT_HOST_PATH}:/mnt/altmount:ro
       - ${MOVIES_HOST_PATH:?set MOVIES_HOST_PATH}:/libraries/movies:rw
       - ${TV_HOST_PATH:?set TV_HOST_PATH}:/libraries/tv:rw
+      - ./data/backups:/var/lib/media-manager/backups:rw
     networks: [frontend, backend, integrations]
 
   ui:
