@@ -16,6 +16,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/library"
+	"github.com/media-manager/media-manager/internal/mediainfo"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
@@ -27,9 +28,14 @@ type PlexClient interface {
 
 type PlexClientFactory func(postgres.Integration) (PlexClient, error)
 
+type MediaInfoProbe interface {
+	Inspect(context.Context, string) (mediainfo.Evidence, error)
+}
+
 type Service struct {
-	Store         *postgres.Store
-	PlexClientFor PlexClientFactory
+	Store          *postgres.Store
+	PlexClientFor  PlexClientFactory
+	MediaInfoProbe MediaInfoProbe
 }
 
 type executionFailure struct{ phase string }
@@ -65,6 +71,20 @@ func (service *Service) HandleExecute(ctx context.Context, event postgres.Outbox
 		phase := "filesystem operation"
 		if rollbackErr != nil {
 			phase = "filesystem operation with incomplete rollback"
+		}
+		return service.fail(current, latest, executionFailure{phase: phase})
+	}
+	if service.MediaInfoProbe == nil {
+		latest, _ := service.Store.ListAdoptionOperations(ctx, current.Batch.ID)
+		_ = rollbackOperations(ctx, service.Store, rootPath, latest)
+		return service.fail(current, latest, executionFailure{phase: "media-info configuration"})
+	}
+	if err := captureMediaInfo(ctx, service.Store, service.MediaInfoProbe, rootPath, operations); err != nil {
+		latest, _ := service.Store.ListAdoptionOperations(ctx, current.Batch.ID)
+		rollbackErr := rollbackOperations(ctx, service.Store, rootPath, latest)
+		phase := "media-info inspection"
+		if rollbackErr != nil {
+			phase += " with incomplete rollback"
 		}
 		return service.fail(current, latest, executionFailure{phase: phase})
 	}
@@ -302,6 +322,41 @@ type operationStore interface {
 	MarkAdoptionOperation(context.Context, uuid.UUID, string, string, time.Time) error
 }
 
+type mediaInfoStore interface {
+	RecordAdoptionMediaInfo(context.Context, uuid.UUID, json.RawMessage, time.Time) error
+}
+
+func captureMediaInfo(ctx context.Context, store mediaInfoStore, probe MediaInfoProbe, rootPath string, operations []postgres.AdoptionOperation) error {
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	for _, operation := range operations {
+		if operation.Kind != "primary" || len(operation.MediaInfo) != 0 {
+			continue
+		}
+		if err := matchesFingerprint(root, operation.DestinationRelative, operation); err != nil {
+			return err
+		}
+		evidence, err := probe.Inspect(ctx, filepath.Join(rootPath, operation.DestinationRelative))
+		if err != nil {
+			return err
+		}
+		if err := matchesFingerprint(root, operation.DestinationRelative, operation); err != nil {
+			return err
+		}
+		body, err := json.Marshal(evidence)
+		if err != nil {
+			return err
+		}
+		if err := store.RecordAdoptionMediaInfo(ctx, operation.ID, body, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func applyOperations(ctx context.Context, store operationStore, rootPath string, operations []postgres.AdoptionOperation) error {
 	root, err := os.OpenRoot(rootPath)
 	if err != nil {
@@ -321,6 +376,9 @@ func applyOperations(ctx context.Context, store operationStore, rootPath string,
 			continue
 		}
 		if operation.State == "verified" {
+			if err := matchesFingerprint(root, operation.DestinationRelative, *operation); err != nil {
+				return err
+			}
 			continue
 		}
 		sourceErr := matchesFingerprint(root, operation.SourceRelative, *operation)

@@ -270,6 +270,20 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err := store.MarkAdoptionOperation(ctx, operations[0].ID, "verified", "", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
+	mediaInfoEvidence := json.RawMessage(`{"schema_version":1,"container_names":["matroska"],"video_tracks":[{"index":0,"codec":"hevc","width":1920,"height":1080}],"audio_tracks":[],"subtitle_tracks":[],"facts":{"resolution":"1080p","video_codec":"hevc"}}`)
+	if err := store.RecordAdoptionMediaInfo(ctx, operations[0].ID, mediaInfoEvidence, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordAdoptionMediaInfo(ctx, operations[0].ID, mediaInfoEvidence, time.Now().UTC()); err != nil {
+		t.Fatalf("idempotent adoption media-info record: %v", err)
+	}
+	if err := store.RecordAdoptionMediaInfo(ctx, operations[0].ID, json.RawMessage(`{"schema_version":2}`), time.Now().UTC()); !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("conflicting adoption media-info error=%v", err)
+	}
+	operations, err = store.ListAdoptionOperations(ctx, adoptionBatch.ID)
+	if err != nil || len(operations) != 1 || len(operations[0].MediaInfo) == 0 || len(operations[0].MediaInfoSHA256) != 64 || operations[0].MediaInfoRecordedAt == nil {
+		t.Fatalf("persisted adoption media-info=%+v err=%v", operations, err)
+	}
 	if err := store.QueueAdoptionPlexConfirmation(ctx, adoptionBatch.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +303,7 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 		t.Fatalf("completed adoption=%+v err=%v", completedAdoption, err)
 	}
 	files, err = store.ListManagedFiles(ctx, 100)
-	if err != nil || len(files) != 1 || files[0].ID != adoptionItem.ID || files[0].Origin != "adoption" || files[0].Variant != "default" || files[0].State != "current" || !files[0].PlexConfirmed || files[0].QualityEvidenceState != "unassessed" || files[0].SourceSizeBytes == nil || *files[0].SourceSizeBytes != 1024 || files[0].AdoptionBatchID == nil || *files[0].AdoptionBatchID != adoptionBatch.ID {
+	if err != nil || len(files) != 1 || files[0].ID != adoptionItem.ID || files[0].Origin != "adoption" || files[0].Variant != "default" || files[0].State != "current" || !files[0].PlexConfirmed || files[0].QualityEvidenceState != "media_info" || !strings.Contains(string(files[0].QualityEvidence), `"resolution": "1080p"`) || files[0].SourceSizeBytes == nil || *files[0].SourceSizeBytes != 1024 || files[0].AdoptionBatchID == nil || *files[0].AdoptionBatchID != adoptionBatch.ID {
 		t.Fatalf("adopted current-file read model=%+v err=%v", files, err)
 	}
 	movieDetail, err = store.MediaDetail(ctx, movie.ID)

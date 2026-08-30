@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/mediainfo"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
@@ -18,6 +20,23 @@ type memoryOperationStore struct{ states map[uuid.UUID]string }
 func (store *memoryOperationStore) MarkAdoptionOperation(_ context.Context, id uuid.UUID, state, _ string, _ time.Time) error {
 	store.states[id] = state
 	return nil
+}
+
+type memoryMediaInfoStore struct{ evidence map[uuid.UUID]json.RawMessage }
+
+func (store *memoryMediaInfoStore) RecordAdoptionMediaInfo(_ context.Context, id uuid.UUID, evidence json.RawMessage, _ time.Time) error {
+	store.evidence[id] = append(json.RawMessage(nil), evidence...)
+	return nil
+}
+
+type staticMediaInfoProbe struct {
+	evidence mediainfo.Evidence
+	paths    []string
+}
+
+func (probe *staticMediaInfoProbe) Inspect(_ context.Context, path string) (mediainfo.Evidence, error) {
+	probe.paths = append(probe.paths, path)
+	return probe.evidence, nil
 }
 
 func TestBuildApplyAndRollbackAdoptionOperations(t *testing.T) {
@@ -91,5 +110,45 @@ func TestBuildOperationsRejectsDestinationCollision(t *testing.T) {
 	current := postgres.AdoptionExecutionContext{Batch: postgres.AdoptionBatch{ID: uuid.NewV7(), SourceRoot: rootPath, DefaultRootID: rootID}, Items: []postgres.AdoptionExecutionItem{{Item: postgres.AdoptionItem{ID: uuid.NewV7(), OriginalRelative: "Old.mkv", ProposedRelative: "New.mkv", RecognizedCompanions: json.RawMessage(`[]`), UnknownCompanions: json.RawMessage(`[]`)}, Root: postgres.LibraryRoot{ID: rootID, DestinationRoot: rootPath}}}}
 	if _, _, err := buildOperations(current); err == nil {
 		t.Fatal("destination collision was accepted")
+	}
+}
+
+func TestCaptureMediaInfoPersistsVerifiedPrimaryEvidenceOnce(t *testing.T) {
+	rootPath := t.TempDir()
+	path := filepath.Join(rootPath, "Current.mkv")
+	if err := os.WriteFile(path, []byte("synthetic video fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := postgres.AdoptionOperation{ID: uuid.NewV7(), Kind: "primary", DestinationRelative: "Current.mkv", SourceSize: info.Size(), SourceModTimeNS: info.ModTime().UnixNano(), State: "verified"}
+	probe := &staticMediaInfoProbe{evidence: mediainfo.Evidence{SchemaVersion: 1, ContainerNames: []string{"matroska"}, VideoTracks: []mediainfo.Track{{Index: 0, Codec: "hevc", Width: 3840, Height: 2160}}, AudioTracks: []mediainfo.Track{}, SubtitleTracks: []mediainfo.Track{}, Facts: map[string]any{"resolution": "2160p"}}}
+	store := &memoryMediaInfoStore{evidence: map[uuid.UUID]json.RawMessage{}}
+	if err := captureMediaInfo(context.Background(), store, probe, rootPath, []postgres.AdoptionOperation{operation}); err != nil {
+		t.Fatal(err)
+	}
+	if len(probe.paths) != 1 || probe.paths[0] != path || !strings.Contains(string(store.evidence[operation.ID]), `"resolution":"2160p"`) {
+		t.Fatalf("paths=%v evidence=%s", probe.paths, store.evidence[operation.ID])
+	}
+	operation.MediaInfo = store.evidence[operation.ID]
+	if err := captureMediaInfo(context.Background(), store, probe, rootPath, []postgres.AdoptionOperation{operation}); err != nil {
+		t.Fatal(err)
+	}
+	if len(probe.paths) != 1 {
+		t.Fatalf("persisted media info was probed again: %v", probe.paths)
+	}
+}
+
+func TestVerifiedOperationRechecksFingerprint(t *testing.T) {
+	rootPath := t.TempDir()
+	path := filepath.Join(rootPath, "Current.mkv")
+	if err := os.WriteFile(path, []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	operation := postgres.AdoptionOperation{ID: uuid.NewV7(), Kind: "primary", DestinationRelative: "Current.mkv", SourceRelative: "Current.mkv", SourceSize: 999, SourceModTimeNS: 1, State: "verified"}
+	if err := applyOperations(context.Background(), &memoryOperationStore{states: map[uuid.UUID]string{}}, rootPath, []postgres.AdoptionOperation{operation}); err == nil {
+		t.Fatal("changed verified file fingerprint was accepted")
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/media-manager/media-manager/internal/httpapi"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/intake"
+	"github.com/media-manager/media-manager/internal/mediainfo"
 	"github.com/media-manager/media-manager/internal/notifications"
 	"github.com/media-manager/media-manager/internal/platform"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -150,7 +151,7 @@ func run() error {
 	handlers["plex.scan_requested"] = plexService.HandleScan
 	handlers["plex.confirm_requested"] = plexService.HandleConfirm
 	handlers["plex.recycle_refresh_requested"] = plexService.HandleRecycleRefresh
-	adoptionService := &adoptionexec.Service{Store: store, PlexClientFor: func(integration postgres.Integration) (adoptionexec.PlexClient, error) {
+	adoptionService := &adoptionexec.Service{Store: store, MediaInfoProbe: mediainfo.NewProbe(), PlexClientFor: func(integration postgres.Integration) (adoptionexec.PlexClient, error) {
 		return plexService.ClientFor(integration)
 	}}
 	handlers["adoption.execute_requested"] = adoptionService.HandleExecute

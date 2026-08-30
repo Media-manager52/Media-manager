@@ -12,7 +12,7 @@ ARG COMMIT=unknown
 RUN --mount=type=cache,target=/root/.cache/go-build go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" -o /out/media-manager ./cmd/media-manager
 
 FROM alpine:3.23 AS api
-RUN apk add --no-cache ca-certificates postgresql18-client tzdata
+RUN apk add --no-cache ca-certificates ffmpeg postgresql18-client tzdata
 COPY --from=api-build /out/media-manager /usr/local/bin/media-manager
 USER 65532:65532
 EXPOSE 8080

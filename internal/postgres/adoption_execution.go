@@ -1,7 +1,9 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,20 +33,23 @@ type AdoptionExecutionContext struct {
 }
 
 type AdoptionOperation struct {
-	ID                  uuid.UUID  `json:"id"`
-	BatchID             uuid.UUID  `json:"batch_id"`
-	ItemID              uuid.UUID  `json:"item_id"`
-	Ordinal             int        `json:"ordinal"`
-	Kind                string     `json:"kind"`
-	SourceRelative      string     `json:"source_relative"`
-	DestinationRelative string     `json:"destination_relative"`
-	SourceSize          int64      `json:"source_size"`
-	SourceModTimeNS     int64      `json:"source_modtime_ns"`
-	State               string     `json:"state"`
-	LastError           string     `json:"last_error,omitempty"`
-	AppliedAt           *time.Time `json:"applied_at,omitempty"`
-	VerifiedAt          *time.Time `json:"verified_at,omitempty"`
-	RolledBackAt        *time.Time `json:"rolled_back_at,omitempty"`
+	ID                  uuid.UUID       `json:"id"`
+	BatchID             uuid.UUID       `json:"batch_id"`
+	ItemID              uuid.UUID       `json:"item_id"`
+	Ordinal             int             `json:"ordinal"`
+	Kind                string          `json:"kind"`
+	SourceRelative      string          `json:"source_relative"`
+	DestinationRelative string          `json:"destination_relative"`
+	SourceSize          int64           `json:"source_size"`
+	SourceModTimeNS     int64           `json:"source_modtime_ns"`
+	State               string          `json:"state"`
+	LastError           string          `json:"last_error,omitempty"`
+	AppliedAt           *time.Time      `json:"applied_at,omitempty"`
+	VerifiedAt          *time.Time      `json:"verified_at,omitempty"`
+	RolledBackAt        *time.Time      `json:"rolled_back_at,omitempty"`
+	MediaInfo           json.RawMessage `json:"media_info,omitempty"`
+	MediaInfoSHA256     string          `json:"media_info_sha256,omitempty"`
+	MediaInfoRecordedAt *time.Time      `json:"media_info_recorded_at,omitempty"`
 }
 
 type AdoptionPlexConfirmation struct {
@@ -231,7 +236,7 @@ type adoptionOperationQuerier interface {
 }
 
 func queryAdoptionOperations(ctx context.Context, query adoptionOperationQuerier, batchID uuid.UUID) ([]AdoptionOperation, error) {
-	rows, err := query.Query(ctx, `SELECT id::text,batch_id::text,item_id::text,ordinal,kind,source_relative,destination_relative,source_size,source_modtime_ns,state,COALESCE(last_error,''),applied_at,verified_at,rolled_back_at FROM adoption_operations WHERE batch_id=$1 ORDER BY ordinal`, batchID.String())
+	rows, err := query.Query(ctx, `SELECT id::text,batch_id::text,item_id::text,ordinal,kind,source_relative,destination_relative,source_size,source_modtime_ns,state,COALESCE(last_error,''),applied_at,verified_at,rolled_back_at,media_info,COALESCE(encode(media_info_sha256,'hex'),''),media_info_recorded_at FROM adoption_operations WHERE batch_id=$1 ORDER BY ordinal`, batchID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -240,15 +245,59 @@ func queryAdoptionOperations(ctx context.Context, query adoptionOperationQuerier
 	for rows.Next() {
 		var item AdoptionOperation
 		var idText, batchText, itemText string
-		if err := rows.Scan(&idText, &batchText, &itemText, &item.Ordinal, &item.Kind, &item.SourceRelative, &item.DestinationRelative, &item.SourceSize, &item.SourceModTimeNS, &item.State, &item.LastError, &item.AppliedAt, &item.VerifiedAt, &item.RolledBackAt); err != nil {
+		var mediaInfo []byte
+		if err := rows.Scan(&idText, &batchText, &itemText, &item.Ordinal, &item.Kind, &item.SourceRelative, &item.DestinationRelative, &item.SourceSize, &item.SourceModTimeNS, &item.State, &item.LastError, &item.AppliedAt, &item.VerifiedAt, &item.RolledBackAt, &mediaInfo, &item.MediaInfoSHA256, &item.MediaInfoRecordedAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)
 		item.BatchID, _ = uuid.Parse(batchText)
 		item.ItemID, _ = uuid.Parse(itemText)
+		if mediaInfo != nil {
+			item.MediaInfo = append(json.RawMessage(nil), mediaInfo...)
+		}
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+func (store *Store) RecordAdoptionMediaInfo(ctx context.Context, operationID uuid.UUID, evidence json.RawMessage, now time.Time) error {
+	if operationID == (uuid.UUID{}) || len(evidence) < 2 || len(evidence) > 1<<20 || !json.Valid(evidence) {
+		return errors.New("invalid adoption media-info evidence")
+	}
+	var object map[string]any
+	if err := json.Unmarshal(evidence, &object); err != nil || object == nil {
+		return errors.New("invalid adoption media-info evidence")
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, evidence); err != nil {
+		return errors.New("invalid adoption media-info evidence")
+	}
+	digest := sha256.Sum256(compact.Bytes())
+	transaction, err := store.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback(ctx)
+	var kind, state string
+	var existing []byte
+	if err := transaction.QueryRow(ctx, `SELECT kind,state,media_info_sha256 FROM adoption_operations WHERE id=$1 FOR UPDATE`, operationID.String()).Scan(&kind, &state, &existing); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if kind != "primary" || state != "verified" {
+		return errors.New("adoption primary file is not verified")
+	}
+	if existing != nil {
+		if !bytes.Equal(existing, digest[:]) {
+			return ErrConcurrentModification
+		}
+		return transaction.Commit(ctx)
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE adoption_operations SET media_info=$2,media_info_sha256=$3,media_info_recorded_at=$4 WHERE id=$1`, operationID.String(), compact.Bytes(), digest[:], now.UTC()); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
 }
 
 func (store *Store) MarkAdoptionOperation(ctx context.Context, id uuid.UUID, state, detail string, now time.Time) error {
@@ -273,11 +322,15 @@ func (store *Store) QueueAdoptionPlexConfirmation(ctx context.Context, batchID u
 	}
 	defer transaction.Rollback(ctx)
 	var incomplete int
-	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM adoption_operations WHERE batch_id=$1 AND NOT (kind='unknown_preserved' AND state='preserved' OR kind<>'unknown_preserved' AND state='verified')`, batchID.String()).Scan(&incomplete); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM adoption_operations WHERE batch_id=$1 AND NOT (
+		kind='unknown_preserved' AND state='preserved' OR
+		kind='recognized_companion' AND state='verified' OR
+		kind='primary' AND state='verified' AND media_info IS NOT NULL
+	)`, batchID.String()).Scan(&incomplete); err != nil {
 		return err
 	}
 	if incomplete != 0 {
-		return errors.New("adoption filesystem operations are not verified")
+		return errors.New("adoption filesystem operations or media-info evidence are not verified")
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE adoption_items SET execution_state='filesystem_verified' WHERE batch_id=$1 AND review_state='approved'`, batchID.String()); err != nil {
 		return err
@@ -326,12 +379,12 @@ func (store *Store) CompleteAdoptionExecution(ctx context.Context, batchID uuid.
 		plex_observed_path,plex_item_key,provider_guid,quality_evidence_state,quality_evidence,state,verified_at)
 		SELECT item.id,item.batch_id,item.id,item.media_id,item.root_id,item.quality_profile_id,item.variant,
 			batch.source_root,item.original_relative,item.proposed_relative,operation.source_size,operation.source_modtime_ns,
-			confirmation.observed_path,confirmation.rating_key,confirmation.provider_guid,'unassessed','{}'::jsonb,'current',confirmation.confirmed_at
+			confirmation.observed_path,confirmation.rating_key,confirmation.provider_guid,'media_info',operation.media_info,'current',confirmation.confirmed_at
 		FROM adoption_items item
 		JOIN adoption_batches batch ON batch.id=item.batch_id
 		JOIN LATERAL (
-			SELECT source_size,source_modtime_ns FROM adoption_operations
-			WHERE item_id=item.id AND kind='primary' AND state='verified'
+			SELECT source_size,source_modtime_ns,media_info FROM adoption_operations
+			WHERE item_id=item.id AND kind='primary' AND state='verified' AND media_info IS NOT NULL
 			ORDER BY ordinal LIMIT 1
 		) operation ON true
 		JOIN LATERAL (
@@ -356,7 +409,7 @@ func (store *Store) CompleteAdoptionExecution(ctx context.Context, batchID uuid.
 	if _, err := transaction.Exec(ctx, `UPDATE adoption_batches SET state='complete',completed_at=$2 WHERE id=$1`, batchID.String(), now.UTC()); err != nil {
 		return err
 	}
-	detail, _ := json.Marshal(map[string]any{"items": approved, "plex_confirmed": confirmed, "current_files_recorded": represented, "quality_evidence": "unassessed", "monitoring_changes": 0, "rollback_required": false})
+	detail, _ := json.Marshal(map[string]any{"items": approved, "plex_confirmed": confirmed, "current_files_recorded": represented, "quality_evidence": "media_info", "monitoring_changes": 0, "rollback_required": false})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'system','adoption.execution_completed','adoption_batch',$2,$3,$4)`, uuid.NewV7().String(), batchID.String(), detail, now.UTC()); err != nil {
 		return err
 	}
