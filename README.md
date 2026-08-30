@@ -117,6 +117,7 @@ TVDB is preferred for series naming when verified; TMDB is the fallback. Movies 
 - Plex confirmation requires a verified provider GUID and every exact expected path.
 - An upgrade receives a distinct release-version filename. The old symlink is removed only after Plex confirms the replacement; the AltMount source is retained.
 - Replacing an adopted real file requires an exact owner confirmation before search. The old file is moved only after Plex confirms the new publication, retained for 30 days, and never physically purged without a second exact owner confirmation after retention.
+- Rolling an adopted upgrade back restores the entire retained cycle with exact fingerprints. Replacement links remain current until Plex re-confirms every restored path, then are safely displaced and removed.
 
 ## Verification
 

@@ -182,6 +182,10 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 	} else {
 		result.MediaID = *resolved
 	}
+	var mediaLock int
+	if err := transaction.QueryRow(ctx, `SELECT 1 FROM media_items WHERE id=$1 FOR UPDATE`, result.MediaID.String()).Scan(&mediaLock); err != nil {
+		return IntakeResult{}, err
+	}
 
 	variants := []struct {
 		Name   string
@@ -201,6 +205,13 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		}
 	}
 	for _, variant := range variants {
+		var adoptedProtected bool
+		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state IN ('current','recycle_planned','retained','restore_confirming','restore_attention'))`, result.MediaID.String(), variant.Name).Scan(&adoptedProtected); err != nil {
+			return IntakeResult{}, err
+		}
+		if adoptedProtected {
+			return IntakeResult{}, ErrAdoptedReplacementConfirmationRequired
+		}
 		var existingText string
 		var existingState string
 		var existingRevision int64

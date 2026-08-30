@@ -58,8 +58,8 @@ func (store *Store) planAdoptedUpgradeDisplacements(ctx context.Context, transac
 		}
 		entryID := uuid.NewV7()
 		recycleRelative := filepath.ToSlash(filepath.Join(".media-manager-recycle", entryID.String(), filepath.FromSlash(file.destinationRelative)))
-		if _, err := transaction.Exec(ctx, `INSERT INTO recycle_entries(id,cycle_id,library_link_version_id,adopted_file_id,media_id,root_id,entry_kind,purpose,original_path,recycled_path,expected_target,expected_size,expected_modtime_ns,altmount_source_retained,purge_after,state,confirmation_required,created_at)
-			VALUES($1,$2,NULL,$3,$4,$5,'real_file','upgrade_displacement',$6,$7,NULL,$8,$9,false,$10,'planned',true,$11)`, entryID.String(), cycleID.String(), file.id.String(), file.mediaID.String(), file.rootID.String(), file.destinationRelative, recycleRelative, file.size, file.modtimeNS, purgeAfter, now.UTC()); err != nil {
+		if _, err := transaction.Exec(ctx, `INSERT INTO recycle_entries(id,cycle_id,library_link_version_id,adopted_file_id,replacement_workflow_id,media_id,root_id,entry_kind,purpose,original_path,recycled_path,expected_target,expected_size,expected_modtime_ns,altmount_source_retained,purge_after,state,confirmation_required,created_at)
+			VALUES($1,$2,NULL,$3,$4,$5,$6,'real_file','upgrade_displacement',$7,$8,NULL,$9,$10,false,$11,'planned',true,$12)`, entryID.String(), cycleID.String(), file.id.String(), workflowID.String(), file.mediaID.String(), file.rootID.String(), file.destinationRelative, recycleRelative, file.size, file.modtimeNS, purgeAfter, now.UTC()); err != nil {
 			return 0, err
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE adopted_files SET state='recycle_planned',displaced_at=$2 WHERE id=$1 AND state='current'`, file.id.String(), now.UTC()); err != nil {

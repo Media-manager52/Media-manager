@@ -71,6 +71,10 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seerr, err := store.CreateIntegration(ctx, Integration{Kind: "seerr", Name: "Seerr", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://seerr:5055","allow_http":true}`), SecretRef: "SEERR_SECRET"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Commissioned test indexer", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api","minimum_interval_ms":3000}`), SecretRef: "NEWZNAB_TEST_API_KEY"})
 	if err != nil {
 		t.Fatal(err)
@@ -332,6 +336,18 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if _, err := store.TransitionWorkflow(ctx, movieWorkflows[0].ID, movieWorkflows[0].Revision, workflows.StateCancelled, "isolate adopted replacement test", "test", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
+	seerrDeliveryID := uuid.NewV7()
+	seerrUpdatedAt := time.Now().UTC()
+	seerrIntake := SeerrIntake{InstanceID: seerr.ID.String(), RequestID: "adopted-movie-request", UpdatedAt: seerrUpdatedAt, RequestState: "approved", Kind: catalog.KindMovie, Title: movie.Title, Year: movie.Year, Identities: movie.Identities, PayloadHash: []byte{8}, DeliveryID: seerrDeliveryID}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO seerr_deliveries(id,seerr_instance_id,source,event_id,request_id,payload_sha256,payload,received_at) VALUES($1,$2,'poll','adopted-movie-event',$3,$4,'{}',$5)`, seerrDeliveryID.String(), seerr.ID.String(), seerrIntake.RequestID, seerrIntake.PayloadHash, seerrUpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := store.UpsertSeerrSnapshot(ctx, seerrIntake); err != nil || !changed {
+		t.Fatalf("adopted Seerr snapshot changed=%v err=%v", changed, err)
+	}
+	if _, err := store.EnsureMediaFromSeerr(ctx, seerrIntake, seerrUpdatedAt); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
+		t.Fatalf("Seerr bypassed adopted replacement confirmation: %v", err)
+	}
 	if _, err := store.CreateManualWorkflowForExisting(ctx, movie, movieRoot, movieProfile, movieClient, nil, false, "", "test", time.Now().UTC()); !errors.Is(err, ErrAdoptedReplacementConfirmationRequired) {
 		t.Fatalf("adopted replacement without exact confirmation error=%v", err)
 	}
@@ -409,6 +425,9 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err := store.MarkRecycleRetained(ctx, recycleEntry.ID, displacementAt.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.CreateManualWorkflowForExisting(ctx, movie, movieRoot, movieProfile, movieClient, nil, false, AdoptedReplacementConfirmation, "test", displacementAt.Add(time.Minute)); err == nil || !strings.Contains(err.Error(), "lifecycle") {
+		t.Fatalf("overlapping adopted lifecycle workflow error=%v", err)
+	}
 	if err := store.RequestRealFilePurge(ctx, recycleEntry.ID, RealFilePurgeConfirmation, displacementAt.Add(29*24*time.Hour)); err == nil || !strings.Contains(err.Error(), "30-day") {
 		t.Fatalf("early retained-file purge error=%v", err)
 	}
@@ -421,6 +440,77 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	recycleEntry, err = store.LoadRecycleEntry(ctx, recycleEntry.ID)
 	if err != nil || recycleEntry.State != "purge_planned" {
 		t.Fatalf("owner-confirmed retained-file purge=%+v err=%v", recycleEntry, err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE recycle_entries SET state='retained',confirmed_by=NULL,confirmed_at=NULL WHERE id=$1`, recycleEntry.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestAdoptedRestore(ctx, recycleEntry.ID, AdoptedRestoreConfirmationPhrase+" ", displacementAt.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "exact") {
+		t.Fatalf("inexact adopted restore confirmation error=%v", err)
+	}
+	if err := store.RequestAdoptedRestore(ctx, recycleEntry.ID, AdoptedRestoreConfirmationPhrase, displacementAt.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	restoreContext, err := store.LoadAdoptedRestoreContext(ctx, recycleEntry.ID)
+	if err != nil || len(restoreContext.Entries) != 1 || restoreContext.Leader.State != "restore_planned" || restoreContext.Leader.RestoreDeadlineAt == nil {
+		t.Fatalf("planned adopted restore=%+v err=%v", restoreContext, err)
+	}
+	if err := store.MarkAdoptedRestoreAwaitingPlex(ctx, recycleEntry.ID, displacementAt.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	restoreContext, err = store.LoadAdoptedRestoreContext(ctx, recycleEntry.ID)
+	if err != nil || restoreContext.Leader.State != "awaiting_confirmation" || restoreContext.Leader.RestoreRevision != 1 {
+		t.Fatalf("adopted restore awaiting Plex=%+v err=%v", restoreContext.Leader, err)
+	}
+	if err := store.MarkAdoptedRestoreRefreshed(ctx, recycleEntry.ID, 1, displacementAt.Add(4*time.Minute), displacementAt.Add(4*time.Minute+5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	restoreContext, err = store.LoadAdoptedRestoreContext(ctx, recycleEntry.ID)
+	if err != nil || restoreContext.Leader.RestoreRevision != 2 || restoreContext.Leader.RestoreAttempts != 0 || restoreContext.Leader.RestoreRefreshAt == nil {
+		t.Fatalf("adopted restore refresh state=%+v err=%v", restoreContext.Leader, err)
+	}
+	if err := store.RescheduleAdoptedRestoreConfirmation(ctx, recycleEntry.ID, 2, displacementAt.Add(5*time.Minute), displacementAt.Add(5*time.Minute+5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	restoredPath := "/libraries/movies/Integration Movie (2026)/Integration Movie (2026).mkv"
+	if err := store.CompleteAdoptedRestore(ctx, recycleEntry.ID, []AdoptedRestoreConfirmation{{RecycleEntryID: recycleEntry.ID, ObservedPath: restoredPath, RatingKey: "789", ProviderGUID: "tmdb://123456", ConfirmedAt: displacementAt.Add(6 * time.Minute)}}, displacementAt.Add(6*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	recycleEntry, err = store.LoadRecycleEntry(ctx, recycleEntry.ID)
+	if err != nil || recycleEntry.State != "restored" {
+		t.Fatalf("completed adopted restore=%+v err=%v", recycleEntry, err)
+	}
+	files, err = store.ListManagedFiles(ctx, 100)
+	var adoptedRestored, replacementDisplaced bool
+	for _, file := range files {
+		adoptedRestored = adoptedRestored || file.ID == adoptionItem.ID && file.State == "current" && file.DisplacedAt == nil
+		replacementDisplaced = replacementDisplaced || file.ID == replacementVersionID && file.State == "displaced" && file.DisplacedAt != nil
+	}
+	if err != nil || !adoptedRestored || !replacementDisplaced {
+		t.Fatalf("restored adopted-file read model=%+v err=%v", files, err)
+	}
+	var restoreConfirmations, displacedRemovalEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM adopted_restore_confirmations WHERE recycle_entry_id=$1`, recycleEntry.ID.String()).Scan(&restoreConfirmations); err != nil || restoreConfirmations != 1 {
+		t.Fatalf("adopted restore confirmations=%d err=%v", restoreConfirmations, err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='library.displaced_remove_requested'`, replacementVersionID.String()).Scan(&displacedRemovalEvents); err != nil || displacedRemovalEvents != 1 {
+		t.Fatalf("restored replacement removal events=%d err=%v", displacedRemovalEvents, err)
+	}
+	displacedLink, err := store.LoadDisplacedLink(ctx, replacementVersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordDisplacedLinkRemoved(ctx, displacedLink, displacementAt.Add(7*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var displacedRefreshEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='plex.displaced_refresh_requested'`, replacementVersionID.String()).Scan(&displacedRefreshEvents); err != nil || displacedRefreshEvents != 1 {
+		t.Fatalf("restored replacement Plex refresh events=%d err=%v", displacedRefreshEvents, err)
+	}
+	if err := store.RecordDisplacedLinkRemoved(ctx, displacedLink, displacementAt.Add(8*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='plex.displaced_refresh_requested'`, replacementVersionID.String()).Scan(&displacedRefreshEvents); err != nil || displacedRefreshEvents != 1 {
+		t.Fatalf("duplicate replacement Plex refresh events=%d err=%v", displacedRefreshEvents, err)
 	}
 	destination, err := store.CreateNotificationDestination(ctx, NotificationDestination{Name: "Owner webhook", Endpoint: "https://notifications.invalid/hook", Enabled: true, Events: []string{"collection.created"}, SecretRef: "NOTIFICATION_TEST_SECRET"}, time.Now().UTC())
 	if err != nil {
@@ -479,11 +569,11 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 		t.Fatalf("backup records=%+v err=%v", backups, err)
 	}
 	sources, err := store.ListSourceStatuses(ctx)
-	if err != nil || len(sources) != 3 {
+	if err != nil || len(sources) != 4 {
 		t.Fatalf("source read model: items=%d err=%v", len(sources), err)
 	}
 	health, err := store.SystemHealth(ctx, time.Now().UTC())
-	if err != nil || health.DatabaseState != "ready" || health.SchemaVersion != CurrentSchemaVersion || len(health.Components) != 3 {
+	if err != nil || health.DatabaseState != "ready" || health.SchemaVersion != CurrentSchemaVersion || len(health.Components) != 4 {
 		t.Fatalf("system health=%+v err=%v", health, err)
 	}
 }

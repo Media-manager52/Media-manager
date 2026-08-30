@@ -2,6 +2,7 @@ package recycle
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/media-manager/media-manager/internal/library"
@@ -47,13 +48,26 @@ func (service *Service) HandleRestore(ctx context.Context, event postgres.Outbox
 	if entry.State != "restore_planned" {
 		return nil
 	}
-	if entry.EntryKind != "link" {
+	switch entry.EntryKind {
+	case "link":
+		if err := library.MoveSymlink(entry.DestinationRoot, entry.RecycleRelative, entry.OriginalRelative, entry.ExpectedTarget); err != nil {
+			return err
+		}
+		return service.Store.MarkRecycleRestored(ctx, entry, time.Now().UTC())
+	case "real_file":
+		if entry.Purpose != "upgrade_displacement" || entry.ExpectedSize == nil || entry.ExpectedModTimeNS == nil {
+			return postgres.ErrConcurrentModification
+		}
+		if err := library.MoveRegularFile(entry.DestinationRoot, entry.RecycleRelative, entry.OriginalRelative, *entry.ExpectedSize, *entry.ExpectedModTimeNS); err != nil {
+			if errors.Is(err, library.ErrCollision) || errors.Is(err, library.ErrUnsafePath) {
+				return service.Store.FailAdoptedRestore(ctx, entry.ID, "retained path no longer matches the reviewed restore plan", time.Now().UTC())
+			}
+			return err
+		}
+		return service.Store.MarkAdoptedRestoreAwaitingPlex(ctx, entry.ID, time.Now().UTC())
+	default:
 		return postgres.ErrConcurrentModification
 	}
-	if err := library.MoveSymlink(entry.DestinationRoot, entry.RecycleRelative, entry.OriginalRelative, entry.ExpectedTarget); err != nil {
-		return err
-	}
-	return service.Store.MarkRecycleRestored(ctx, entry, time.Now().UTC())
 }
 
 func (service *Service) HandlePurge(ctx context.Context, event postgres.OutboxEvent) error {

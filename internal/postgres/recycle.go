@@ -18,6 +18,7 @@ type RecycleEntry struct {
 	MediaTitle             string     `json:"media_title"`
 	LinkVersionID          *uuid.UUID `json:"library_link_version_id,omitempty"`
 	AdoptedFileID          *uuid.UUID `json:"adopted_file_id,omitempty"`
+	ReplacementWorkflowID  *uuid.UUID `json:"-"`
 	RootID                 uuid.UUID  `json:"root_id"`
 	EntryKind              string     `json:"entry_kind"`
 	Purpose                string     `json:"purpose"`
@@ -31,6 +32,11 @@ type RecycleEntry struct {
 	PurgeAfter             time.Time  `json:"purge_after"`
 	State                  string     `json:"state"`
 	ConfirmationRequired   bool       `json:"confirmation_required"`
+	RestoreRevision        uint64     `json:"-"`
+	RestoreAttempts        int        `json:"restore_attempts"`
+	RestoreRequestedAt     *time.Time `json:"restore_requested_at,omitempty"`
+	RestoreDeadlineAt      *time.Time `json:"restore_deadline_at,omitempty"`
+	RestoreRefreshAt       *time.Time `json:"restore_refresh_at,omitempty"`
 	CreatedAt              time.Time  `json:"created_at"`
 }
 
@@ -66,7 +72,7 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 		return nil, errors.New("media has an active workflow; cancel or finish it before deleting")
 	}
 	var adoptedProtected bool
-	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND state IN ('current','recycle_planned','retained'))`, mediaID.String()).Scan(&adoptedProtected); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND state IN ('current','recycle_planned','retained','restore_confirming','restore_attention'))`, mediaID.String()).Scan(&adoptedProtected); err != nil {
 		return nil, err
 	}
 	if adoptedProtected {
@@ -139,7 +145,7 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 	return entries, transaction.Commit(ctx)
 }
 
-const recycleEntrySelect = `SELECT entry.id::text,entry.cycle_id::text,entry.media_id::text,media.title,entry.library_link_version_id::text,entry.adopted_file_id::text,entry.root_id::text,entry.entry_kind,entry.purpose,root.destination_root,entry.original_path,COALESCE(entry.recycled_path,''),COALESCE(entry.expected_target,''),entry.expected_size,entry.expected_modtime_ns,entry.altmount_source_retained,entry.purge_after,entry.state,entry.confirmation_required,entry.created_at FROM recycle_entries entry JOIN media_items media ON media.id=entry.media_id JOIN library_roots root ON root.id=entry.root_id`
+const recycleEntrySelect = `SELECT entry.id::text,entry.cycle_id::text,entry.media_id::text,media.title,entry.library_link_version_id::text,entry.adopted_file_id::text,entry.replacement_workflow_id::text,entry.root_id::text,entry.entry_kind,entry.purpose,root.destination_root,entry.original_path,COALESCE(entry.recycled_path,''),COALESCE(entry.expected_target,''),entry.expected_size,entry.expected_modtime_ns,entry.altmount_source_retained,entry.purge_after,entry.state,entry.confirmation_required,entry.restore_revision,entry.restore_attempts,entry.restore_requested_at,entry.restore_deadline_at,entry.restore_refresh_at,entry.created_at FROM recycle_entries entry JOIN media_items media ON media.id=entry.media_id JOIN library_roots root ON root.id=entry.root_id`
 
 func (store *Store) LoadRecycleEntry(ctx context.Context, entryID uuid.UUID) (RecycleEntry, error) {
 	rows, err := store.Pool.Query(ctx, recycleEntrySelect+` WHERE entry.id=$1`, entryID.String())
@@ -173,14 +179,16 @@ func scanRecycleEntries(rows pgx.Rows) ([]RecycleEntry, error) {
 	for rows.Next() {
 		var entry RecycleEntry
 		var idText, cycleText, mediaText, rootText string
-		var versionText, adoptedText *string
-		if err := rows.Scan(&idText, &cycleText, &mediaText, &entry.MediaTitle, &versionText, &adoptedText, &rootText, &entry.EntryKind, &entry.Purpose, &entry.DestinationRoot, &entry.OriginalRelative, &entry.RecycleRelative, &entry.ExpectedTarget, &entry.ExpectedSize, &entry.ExpectedModTimeNS, &entry.AltMountSourceRetained, &entry.PurgeAfter, &entry.State, &entry.ConfirmationRequired, &entry.CreatedAt); err != nil {
+		var versionText, adoptedText, replacementWorkflowText *string
+		var restoreRevision int64
+		if err := rows.Scan(&idText, &cycleText, &mediaText, &entry.MediaTitle, &versionText, &adoptedText, &replacementWorkflowText, &rootText, &entry.EntryKind, &entry.Purpose, &entry.DestinationRoot, &entry.OriginalRelative, &entry.RecycleRelative, &entry.ExpectedTarget, &entry.ExpectedSize, &entry.ExpectedModTimeNS, &entry.AltMountSourceRetained, &entry.PurgeAfter, &entry.State, &entry.ConfirmationRequired, &restoreRevision, &entry.RestoreAttempts, &entry.RestoreRequestedAt, &entry.RestoreDeadlineAt, &entry.RestoreRefreshAt, &entry.CreatedAt); err != nil {
 			return nil, err
 		}
 		entry.ID, _ = uuid.Parse(idText)
 		entry.CycleID, _ = uuid.Parse(cycleText)
 		entry.MediaID, _ = uuid.Parse(mediaText)
 		entry.RootID, _ = uuid.Parse(rootText)
+		entry.RestoreRevision = uint64(restoreRevision)
 		if versionText != nil {
 			parsed, _ := uuid.Parse(*versionText)
 			entry.LinkVersionID = &parsed
@@ -188,6 +196,10 @@ func scanRecycleEntries(rows pgx.Rows) ([]RecycleEntry, error) {
 		if adoptedText != nil {
 			parsed, _ := uuid.Parse(*adoptedText)
 			entry.AdoptedFileID = &parsed
+		}
+		if replacementWorkflowText != nil {
+			parsed, _ := uuid.Parse(*replacementWorkflowText)
+			entry.ReplacementWorkflowID = &parsed
 		}
 		result = append(result, entry)
 	}

@@ -744,6 +744,7 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 
 type DisplacedLink struct {
 	VersionID           uuid.UUID
+	RootID              uuid.UUID
 	DestinationRoot     string
 	DestinationRelative string
 	ExpectedTarget      string
@@ -752,9 +753,10 @@ type DisplacedLink struct {
 
 func (store *Store) LoadDisplacedLink(ctx context.Context, versionID uuid.UUID) (DisplacedLink, error) {
 	var result DisplacedLink
+	var rootText string
 	var state string
-	err := store.Pool.QueryRow(ctx, `SELECT root.destination_root,link.destination_relative,version.plex_visible_target,version.state,EXISTS(SELECT 1 FROM library_link_removals removal WHERE removal.version_id=version.id)
-		FROM library_link_versions version JOIN library_links link ON link.id=version.library_link_id JOIN library_roots root ON root.id=link.root_id WHERE version.id=$1`, versionID.String()).Scan(&result.DestinationRoot, &result.DestinationRelative, &result.ExpectedTarget, &state, &result.Removed)
+	err := store.Pool.QueryRow(ctx, `SELECT root.id::text,root.destination_root,link.destination_relative,version.plex_visible_target,version.state,EXISTS(SELECT 1 FROM library_link_removals removal WHERE removal.version_id=version.id)
+		FROM library_link_versions version JOIN library_links link ON link.id=version.library_link_id JOIN library_roots root ON root.id=link.root_id WHERE version.id=$1`, versionID.String()).Scan(&rootText, &result.DestinationRoot, &result.DestinationRelative, &result.ExpectedTarget, &state, &result.Removed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DisplacedLink{}, ErrNotFound
 	}
@@ -765,6 +767,7 @@ func (store *Store) LoadDisplacedLink(ctx context.Context, versionID uuid.UUID) 
 		return DisplacedLink{}, ErrConcurrentModification
 	}
 	result.VersionID = versionID
+	result.RootID, _ = uuid.Parse(rootText)
 	return result, nil
 }
 
@@ -774,14 +777,47 @@ func (store *Store) RecordDisplacedLinkRemoved(ctx context.Context, link Displac
 		return err
 	}
 	defer transaction.Rollback(ctx)
-	if _, err := transaction.Exec(ctx, `INSERT INTO library_link_removals(version_id,expected_target,removed_at) VALUES($1,$2,$3) ON CONFLICT(version_id) DO NOTHING`, link.VersionID.String(), link.ExpectedTarget, now.UTC()); err != nil {
+	command, err := transaction.Exec(ctx, `INSERT INTO library_link_removals(version_id,expected_target,removed_at) VALUES($1,$2,$3) ON CONFLICT(version_id) DO NOTHING`, link.VersionID.String(), link.ExpectedTarget, now.UTC())
+	if err != nil {
 		return err
+	}
+	if command.RowsAffected() == 1 {
+		payload, _ := json.Marshal(map[string]string{"version_id": link.VersionID.String()})
+		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'link_version',$2,1,'plex.displaced_refresh_requested',$3,$4,$4)`, uuid.NewV7().String(), link.VersionID.String(), payload, now.UTC()); err != nil {
+			return err
+		}
 	}
 	detail, _ := json.Marshal(map[string]string{"destination_relative": link.DestinationRelative, "source_retained": "true"})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) SELECT $1,'worker','upgrade.displaced_link_removed','library_link_version',$2,$3,$4 WHERE NOT EXISTS(SELECT 1 FROM audit_events WHERE action='upgrade.displaced_link_removed' AND aggregate_id=$2)`, uuid.NewV7().String(), link.VersionID.String(), string(detail), now.UTC()); err != nil {
 		return err
 	}
 	return transaction.Commit(ctx)
+}
+
+func (store *Store) PlexForDisplacedLink(ctx context.Context, versionID uuid.UUID) (DisplacedLink, LibraryRoot, Integration, error) {
+	link, err := store.LoadDisplacedLink(ctx, versionID)
+	if err != nil {
+		return DisplacedLink{}, LibraryRoot{}, Integration{}, err
+	}
+	roots, err := store.ListLibraryRoots(ctx)
+	if err != nil {
+		return DisplacedLink{}, LibraryRoot{}, Integration{}, err
+	}
+	var root LibraryRoot
+	for _, candidate := range roots {
+		if candidate.ID == link.RootID {
+			root = candidate
+			break
+		}
+	}
+	if root.ID == (uuid.UUID{}) || !root.Enabled || root.PlexInstanceID == nil || root.PlexLibraryID == "" {
+		return DisplacedLink{}, LibraryRoot{}, Integration{}, errors.New("displaced link has no enabled Plex library")
+	}
+	integration, err := store.Integration(ctx, *root.PlexInstanceID)
+	if err != nil {
+		return DisplacedLink{}, LibraryRoot{}, Integration{}, err
+	}
+	return link, root, integration, nil
 }
 
 func playablePublicationAsset(path string) bool {

@@ -115,6 +115,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/backups/{id}/download", server.requireOwner(server.downloadBackup))
 	server.mux.HandleFunc("GET /api/v1/recycle", server.requireOwner(server.listRecycle))
 	server.mux.HandleFunc("POST /api/v1/recycle/{id}/restore", server.requireOwner(server.restoreRecycle))
+	server.mux.HandleFunc("POST /api/v1/recycle/{id}/restore-adopted", server.requireOwner(server.restoreAdoptedFiles))
 	server.mux.HandleFunc("POST /api/v1/recycle/{id}/confirm-purge", server.requireOwner(server.confirmRealFilePurge))
 	server.mux.HandleFunc("POST /api/v1/imports/prowlarr", server.requireOwner(server.createProwlarrImport))
 	server.mux.HandleFunc("GET /api/v1/imports/prowlarr/{id}", server.requireOwner(server.getProwlarrImport))
@@ -1404,6 +1405,29 @@ func (server *Server) confirmRealFilePurge(writer http.ResponseWriter, request *
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "real_file_purge_queued", "id": id.String()}})
+}
+
+func (server *Server) restoreAdoptedFiles(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "recycle entry ID is invalid")
+		return
+	}
+	var input struct {
+		Confirmation string `json:"confirmation"`
+	}
+	if err := decodeJSON(request, &input, 8<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	if err := server.store.RequestAdoptedRestore(request.Context(), id, input.Confirmation, time.Now().UTC()); errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "recycle entry was not found")
+		return
+	} else if err != nil {
+		writeError(writer, http.StatusConflict, "restore_not_confirmed", err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "adopted_restore_queued", "id": id.String()}})
 }
 
 func (server *Server) listIntegrations(writer http.ResponseWriter, request *http.Request) {

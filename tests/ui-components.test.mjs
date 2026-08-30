@@ -158,6 +158,7 @@ test("maps persisted operational read models into the live route switch", async 
     "/api/v1/adoption",
     "/execute",
     "/confirm-purge",
+    "/restore-adopted",
     "/api/v1/collections",
     "/api/v1/calendar",
     "/api/v1/settings/notifications",
@@ -171,6 +172,7 @@ test("maps persisted operational read models into the live route switch", async 
   assert.match(screens, /does not manufacture connection-test success/i);
   assert.match(primaryScreens, /REPLACE ADOPTED FILE AFTER PLEX VERIFICATION/);
   assert.match(primaryScreens, /PURGE RETAINED ADOPTED FILE/);
+  assert.match(primaryScreens, /RESTORE RETAINED ADOPTED FILE AFTER PLEX VERIFICATION/);
   assert.match(primaryScreens, /never auto-deleted/i);
 });
 

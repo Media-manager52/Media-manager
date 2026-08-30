@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
@@ -144,6 +145,108 @@ func (service *PlexService) HandleRecycleRefresh(ctx context.Context, event post
 		return err
 	}
 	return client.Refresh(ctx, root.PlexLibraryID, filepath.Dir(filepath.Join(root.PlexVisibleRoot, entry.OriginalRelative)))
+}
+
+func (service *PlexService) HandleDisplacedRefresh(ctx context.Context, event postgres.OutboxEvent) error {
+	link, root, integration, err := service.Store.PlexForDisplacedLink(ctx, event.AggregateID)
+	if err != nil {
+		return err
+	}
+	if !link.Removed {
+		return postgres.ErrConcurrentModification
+	}
+	client, err := service.ClientFor(integration)
+	if err != nil {
+		return err
+	}
+	return client.Refresh(ctx, root.PlexLibraryID, filepath.Dir(filepath.Join(root.PlexVisibleRoot, link.DestinationRelative)))
+}
+
+func (service *PlexService) HandleAdoptedRestoreConfirm(ctx context.Context, event postgres.OutboxEvent) error {
+	restore, err := service.Store.LoadAdoptedRestoreContext(ctx, event.AggregateID)
+	if err != nil {
+		return err
+	}
+	if restore.Leader.State == "restored" || restore.Leader.State == "failed" {
+		return nil
+	}
+	if restore.Leader.State != "awaiting_confirmation" || event.AggregateRevision != restore.Leader.RestoreRevision {
+		return nil
+	}
+	now := time.Now().UTC()
+	if restore.Leader.RestoreDeadlineAt == nil || !now.Before(*restore.Leader.RestoreDeadlineAt) {
+		return service.Store.FailAdoptedRestore(ctx, restore.Leader.ID, "Plex did not confirm every restored adopted path before the deadline", now)
+	}
+	client, err := service.ClientFor(restore.Integration)
+	if err != nil {
+		return err
+	}
+	paths := make([]string, 0, len(restore.Entries))
+	entryByPath := make(map[string]uuid.UUID, len(restore.Entries))
+	for _, entry := range restore.Entries {
+		if entry.State != "awaiting_confirmation" {
+			return postgres.ErrConcurrentModification
+		}
+		path := filepath.Clean(filepath.Join(restore.Root.PlexVisibleRoot, entry.OriginalRelative))
+		paths = append(paths, path)
+		entryByPath[path] = entry.ID
+	}
+	if restore.Leader.RestoreRefreshAt == nil {
+		refreshPath := filepath.Dir(paths[0])
+		for _, path := range paths[1:] {
+			if filepath.Dir(path) != refreshPath {
+				refreshPath = restore.Root.PlexVisibleRoot
+				break
+			}
+		}
+		if err := client.Refresh(ctx, restore.Root.PlexLibraryID, refreshPath); err != nil {
+			return err
+		}
+		return service.Store.MarkAdoptedRestoreRefreshed(ctx, restore.Leader.ID, restore.Leader.RestoreRevision, now, now.Add(5*time.Second))
+	}
+	guids := plexGUIDs(restore.Media)
+	if len(guids) == 0 {
+		return errors.New("adopted restore media has no verified Plex-supported identity")
+	}
+	var observed []plex.Confirmation
+	if restore.Media.Kind == catalog.KindMovie {
+		if len(paths) != 1 {
+			return errors.New("movie adopted restore contains more than one primary path")
+		}
+		confirmation, confirmErr := client.Confirm(ctx, plex.Expected{LibraryKey: restore.Root.PlexLibraryID, Title: restore.Media.Title, PlexVisiblePath: paths[0], ProviderGUIDs: guids})
+		if confirmErr == nil {
+			observed = append(observed, confirmation)
+		}
+		err = confirmErr
+	} else {
+		observed, err = client.ConfirmSeries(ctx, plex.ExpectedSeries{LibraryKey: restore.Root.PlexLibraryID, Title: restore.Media.Title, PlexVisiblePaths: paths, ExpectedEpisodes: map[string][]plex.EpisodeLeaf{}, ProviderGUIDs: guids})
+	}
+	now = time.Now().UTC()
+	if !now.Before(*restore.Leader.RestoreDeadlineAt) {
+		return service.Store.FailAdoptedRestore(ctx, restore.Leader.ID, "Plex did not confirm every restored adopted path before the deadline", now)
+	}
+	if errors.Is(err, plex.ErrNotConfirmed) {
+		delay := 5*time.Second + time.Duration(restore.Leader.RestoreAttempts)*2*time.Second
+		if delay > 30*time.Second {
+			delay = 30 * time.Second
+		}
+		if next := now.Add(delay); next.Before(*restore.Leader.RestoreDeadlineAt) {
+			return service.Store.RescheduleAdoptedRestoreConfirmation(ctx, restore.Leader.ID, restore.Leader.RestoreRevision, now, next)
+		}
+		return service.Store.FailAdoptedRestore(ctx, restore.Leader.ID, "Plex did not confirm every restored adopted path before the deadline", now)
+	}
+	if err != nil {
+		return err
+	}
+	confirmations := make([]postgres.AdoptedRestoreConfirmation, 0, len(observed))
+	for _, confirmation := range observed {
+		entryID, exists := entryByPath[filepath.Clean(confirmation.Path)]
+		if !exists {
+			return errors.New("Plex returned an unplanned adopted restore path")
+		}
+		confirmations = append(confirmations, postgres.AdoptedRestoreConfirmation{RecycleEntryID: entryID, ObservedPath: confirmation.Path, RatingKey: confirmation.RatingKey, ProviderGUID: confirmation.ProviderGUID, ConfirmedAt: confirmation.ConfirmedAt})
+	}
+	return service.Store.CompleteAdoptedRestore(ctx, restore.Leader.ID, confirmations, now)
 }
 
 func (service *PlexService) ClientFor(integration postgres.Integration) (*plex.Client, error) {

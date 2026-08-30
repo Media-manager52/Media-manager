@@ -147,6 +147,15 @@ func TestMoveAndRemoveRegularFileRequireExactFingerprint(t *testing.T) {
 	if err := MoveRegularFile(root, "movie.mkv", ".media-manager-recycle/id/movie.mkv", info.Size(), info.ModTime().UnixNano()); err != nil {
 		t.Fatalf("idempotent move: %v", err)
 	}
+	if err := MoveRegularFile(root, ".media-manager-recycle/id/movie.mkv", "movie.mkv", info.Size(), info.ModTime().UnixNano()); err != nil {
+		t.Fatalf("restore retained file: %v", err)
+	}
+	if err := MoveRegularFile(root, ".media-manager-recycle/id/movie.mkv", "movie.mkv", info.Size(), info.ModTime().UnixNano()); err != nil {
+		t.Fatalf("idempotent restore: %v", err)
+	}
+	if err := MoveRegularFile(root, "movie.mkv", ".media-manager-recycle/id/movie.mkv", info.Size(), info.ModTime().UnixNano()); err != nil {
+		t.Fatalf("retain restored fixture again: %v", err)
+	}
 	if err := RemoveRegularFile(root, ".media-manager-recycle/id/movie.mkv", info.Size(), info.ModTime().UnixNano()+1); !errors.Is(err, ErrCollision) {
 		t.Fatalf("mismatched modtime remove error=%v", err)
 	}
