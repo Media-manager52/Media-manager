@@ -80,13 +80,10 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		if err := service.Store.AttachRecoveredQueue(ctx, job, queueID, time.Now().UTC()); err != nil {
 			return err
 		}
-		job, err = service.Store.LoadAltMountJob(ctx, job.JobID)
-		if err != nil {
-			return err
-		}
-		if job.CurrentAttemptID == nil || *job.CurrentAttemptID != job.JobID || terminalAltMountJob(job.JobState) {
-			return nil
-		}
+		// Queue attachment advances the job revision and durably schedules a
+		// matching reconciliation event. Finish this older event so any later
+		// error cannot be swallowed as a stale retry.
+		return nil
 	}
 	item, err := client.Queue(ctx, altmount.QueueID(*job.ExternalQueueID))
 	if err != nil {
@@ -158,13 +155,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		}
 		allAssets := subtitleAssets(assets)
 		authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, inventory.LocalRelative)
-		verification := subtitles.Verification{SchemaVersion: 1, Status: "unverified", RequiredLanguages: policy.Required, PreferredLanguages: policy.Preferred, FailureReasons: []string{"completed AltMount output could not be inspected safely"}}
-		if rootErr == nil {
-			verification, rootErr = subtitles.Verify(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe)
-		}
-		if rootErr != nil {
-			verification.FailureReasons = []string{rootErr.Error()}
-		}
+		verification := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe, rootErr)
 		recorded, recordErr := service.Store.RecordSubtitleVerification(ctx, job, inventoryID, verification, time.Now().UTC())
 		if recordErr != nil {
 			return recordErr
@@ -175,6 +166,29 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		return service.Store.CompleteImport(ctx, job, true, detail, time.Now().UTC())
 	}
 	return errors.New("unhandled AltMount phase")
+}
+
+func inspectSubtitleRequirements(ctx context.Context, authorizedRoot string, selected, inventory []subtitles.Asset, policy subtitles.Policy, probe subtitles.Probe, inspectionErr error) subtitles.Verification {
+	if inspectionErr == nil {
+		verification, err := subtitles.Verify(ctx, authorizedRoot, selected, inventory, policy, probe)
+		if err == nil {
+			return verification
+		}
+		inspectionErr = err
+	}
+	detail := "completed AltMount output could not be inspected safely"
+	if inspectionErr != nil {
+		detail = inspectionErr.Error()
+	}
+	return subtitles.Verification{
+		SchemaVersion:      1,
+		Status:             "unverified",
+		RequiredLanguages:  append([]string(nil), policy.Required...),
+		PreferredLanguages: append([]string(nil), policy.Preferred...),
+		Videos:             []subtitles.VideoEvidence{},
+		Companions:         []subtitles.Companion{},
+		FailureReasons:     []string{detail},
+	}
 }
 
 func terminalAltMountJob(state string) bool {

@@ -121,7 +121,7 @@ func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.F
 	probeContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	command := exec.CommandContext(probeContext, executable,
-		"-nostdin", "-v", "error",
+		"-v", "error",
 		"-show_entries", "format=format_name,duration:stream=index,codec_type,codec_name,width,height,channels,channel_layout,color_transfer,color_primaries,color_space:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
 		"-of", "json", path,
 	)

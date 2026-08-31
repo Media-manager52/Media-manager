@@ -111,8 +111,9 @@ func (store *Store) AttachRecoveredQueue(ctx context.Context, job AltMountJobCon
 	if existingQueueID != nil && *existingQueueID != queueID {
 		return ErrConcurrentModification
 	}
+	nextJobRevision := jobRevision
 	if existingQueueID == nil {
-		if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET external_queue_id=$2,state='queued',last_reconciled_at=$3,revision=revision+1 WHERE id=$1 AND revision=$4`, job.JobID.String(), queueID, now.UTC(), jobRevision); err != nil {
+		if err := transaction.QueryRow(ctx, `UPDATE altmount_jobs SET external_queue_id=$2,state='queued',last_reconciled_at=$3,revision=revision+1 WHERE id=$1 AND revision=$4 RETURNING revision`, job.JobID.String(), queueID, now.UTC(), jobRevision).Scan(&nextJobRevision); err != nil {
 			return err
 		}
 	}
@@ -135,7 +136,54 @@ func (store *Store) AttachRecoveredQueue(ctx context.Context, job AltMountJobCon
 	} else if current != workflows.StateQueued {
 		return ErrConcurrentModification
 	}
+	if existingQueueID == nil {
+		payload, _ := json.Marshal(map[string]string{"job_id": job.JobID.String(), "workflow_id": job.Workflow.ID.String()})
+		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'altmount_job',$2,$3,'altmount.reconcile_requested',$4,$5,$5) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), job.JobID.String(), nextJobRevision, string(payload), now.UTC()); err != nil {
+			return err
+		}
+	}
 	return transaction.Commit(ctx)
+}
+
+func (store *Store) RequestAltMountReconciliation(ctx context.Context, workflowID uuid.UUID, now time.Time) error {
+	transaction, err := store.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback(ctx)
+	var jobText, workflowState, jobState string
+	var queueID *int64
+	var revision int64
+	err = transaction.QueryRow(ctx, `SELECT job.id::text,workflow.state,job.state,job.external_queue_id,job.revision
+		FROM workflows workflow JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id
+		WHERE workflow.id=$1 FOR UPDATE OF workflow,job`, workflowID.String()).Scan(&jobText, &workflowState, &jobState, &queueID, &revision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if queueID == nil || workflowState != string(workflows.StateQueued) || terminalAltMountState(jobState) {
+		return ErrConcurrentModification
+	}
+	jobID, parseErr := uuid.Parse(jobText)
+	if parseErr != nil {
+		return parseErr
+	}
+	payload, _ := json.Marshal(map[string]string{"job_id": jobID.String(), "workflow_id": workflowID.String()})
+	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'altmount_job',$2,$3,'altmount.reconcile_requested',$4,$5,$5) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), jobID.String(), revision, string(payload), now.UTC()); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
+}
+
+func terminalAltMountState(state string) bool {
+	switch state {
+	case "import_complete", "failed", "cancelled", "removed", "needs_attention":
+		return true
+	default:
+		return false
+	}
 }
 
 func (store *Store) ScheduleAltMountReconcile(ctx context.Context, job AltMountJobContext, next time.Time) error {

@@ -73,3 +73,32 @@ func TestBoundedBufferStopsAtLimit(t *testing.T) {
 		t.Fatalf("second bounded write err=%v", err)
 	}
 }
+
+func TestInspectWithinUsesFFprobeCompatibleArguments(t *testing.T) {
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "Movie.mkv")
+	if err := os.WriteFile(mediaPath, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(t.TempDir(), "ffprobe-fixture")
+	script := `#!/bin/sh
+for argument in "$@"; do
+  if [ "$argument" = "-nostdin" ]; then
+    exit 9
+  fi
+done
+printf '%s' '{"format":{"format_name":"matroska","duration":"60"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"tags":{},"disposition":{"default":1,"forced":0,"hearing_impaired":0}}]}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	probe := NewProbe()
+	probe.Executable = executable
+	evidence, err := probe.InspectWithin(t.Context(), root, "Movie.mkv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence.VideoTracks) != 1 || evidence.Facts["resolution"] != "1080p" {
+		t.Fatalf("evidence=%+v", evidence)
+	}
+}

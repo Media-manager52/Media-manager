@@ -94,6 +94,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/workflows/{id}", server.requireOwner(server.getWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/search", server.requireOwner(server.searchWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/recover-altmount-submission", server.requireOwner(server.recoverAltMountSubmission))
+	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconcile-altmount", server.requireOwner(server.reconcileAltMount))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/cancel", server.requireOwner(server.cancelWorkflow))
 	server.mux.HandleFunc("GET /api/v1/activity", server.requireOwner(server.listActivity))
 	server.mux.HandleFunc("GET /api/v1/files", server.requireOwner(server.listManagedFiles))
@@ -1219,6 +1220,22 @@ func (server *Server) recoverAltMountSubmission(writer http.ResponseWriter, requ
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: workflow})
+}
+
+func (server *Server) reconcileAltMount(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
+		return
+	}
+	if err := server.store.RequestAltMountReconciliation(request.Context(), id, time.Now().UTC()); errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "workflow or current AltMount job was not found")
+		return
+	} else if err != nil {
+		writeError(writer, http.StatusConflict, "reconciliation_failed", "current AltMount job cannot be reconciled safely")
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "reconciliation_queued", "id": id.String()}})
 }
 
 func (server *Server) cancelWorkflow(writer http.ResponseWriter, request *http.Request) {

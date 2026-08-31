@@ -151,6 +151,36 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if unknownWorkflowState != "transport_unknown" || unknownJobState != "transport_unknown" || unknownQueueID != nil {
 		t.Fatalf("unknown workflow=%q job=%q queue=%v", unknownWorkflowState, unknownJobState, unknownQueueID)
 	}
+	unknownJob, err := store.LoadAltMountJob(ctx, unknownIntent.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AttachRecoveredQueue(ctx, unknownJob, 54321, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	unknownJob, err = store.LoadAltMountJob(ctx, unknownIntent.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknownJob.ExternalQueueID == nil || *unknownJob.ExternalQueueID != 54321 || unknownJob.JobState != "queued" || unknownJob.Workflow.State != "queued" {
+		t.Fatalf("recovered job=%+v", unknownJob)
+	}
+	var recoveredEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND aggregate_revision=$2 AND event_type='altmount.reconcile_requested' AND completed_at IS NULL`, unknownJob.JobID.String(), int64(unknownJob.JobRevision)).Scan(&recoveredEvents); err != nil {
+		t.Fatal(err)
+	}
+	if recoveredEvents != 1 {
+		t.Fatalf("recovered reconcile events=%d", recoveredEvents)
+	}
+	if err := store.RequestAltMountReconciliation(ctx, unknownJob.Workflow.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND aggregate_revision=$2 AND event_type='altmount.reconcile_requested' AND completed_at IS NULL`, unknownJob.JobID.String(), int64(unknownJob.JobRevision)).Scan(&recoveredEvents); err != nil {
+		t.Fatal(err)
+	}
+	if recoveredEvents != 1 {
+		t.Fatalf("manual reconcile was not idempotent: events=%d", recoveredEvents)
+	}
 	oldVersionID := seedCurrentSubtitleVersion(t, ctx, store, media.ID, root.ID, profile.ID, altMount.ID, indexer.ID)
 
 	firstJob, firstInventory, firstAssets := seedSubtitleAttempt(t, ctx, store, workflowID, altMount.ID, indexer.ID, 1, "exact-guid-1")
