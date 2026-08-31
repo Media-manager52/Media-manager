@@ -264,7 +264,13 @@ func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases
 			}
 			continue
 		}
-		values[name] = append(values[name], field.Value)
+		value := field.Value
+		if name == "season_number" {
+			if canonical, reliable := canonicalSeasonNumber(value); reliable {
+				value = canonical
+			}
+		}
+		values[name] = append(values[name], value)
 		indices[name] = append(indices[name], index)
 	}
 	names := make([]string, 0, len(values))
@@ -281,6 +287,26 @@ func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases
 		facts = append(facts, releases.Fact{Name: name, Values: values[name], State: state, EvidenceAt: indices[name], ObservedAt: observedAt.UTC()})
 	}
 	return facts
+}
+
+func canonicalSeasonNumber(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) > 1 && (value[0] == 's' || value[0] == 'S') {
+		value = value[1:]
+	}
+	if value == "" || len(value) > 3 {
+		return "", false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return "", false
+		}
+	}
+	season, err := strconv.ParseUint(value, 10, 16)
+	if err != nil || season > 999 {
+		return "", false
+	}
+	return strconv.FormatUint(season, 10), true
 }
 
 func ParseCaps(body []byte, observedAt time.Time) (CapsSnapshot, error) {

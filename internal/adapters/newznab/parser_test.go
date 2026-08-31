@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/media-manager/media-manager/internal/releases"
 )
 
 func TestParsersRejectUnrelatedXML(t *testing.T) {
@@ -72,6 +74,43 @@ func TestParseSearchCanonicalizesOnlyExplicitSubtitleEvidence(t *testing.T) {
 	}
 	if len(subtitleValues) != 2 || subtitleValues[0] != "da" || subtitleValues[1] != "en" {
 		t.Fatalf("unexpected explicit subtitle evidence: %#v", subtitleValues)
+	}
+}
+
+func TestParseSearchCanonicalizesReliableSeasonMetadataWithoutLosingRawEvidence(t *testing.T) {
+	t.Parallel()
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Show.S01.2026.1080p.WEB-DL</title><guid>native-season</guid><newznab:attr name="season" value="S01"/></item></channel></rss>`)
+	items, err := ParseSearch(body, "", "tvsearch", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || len(items[0].Fields) != 1 || items[0].Fields[0].Value != "S01" {
+		t.Fatalf("raw season evidence was not preserved: %#v", items)
+	}
+	items[0] = releases.InferTitleFacts(items[0], time.Unix(2, 0))
+	for _, fact := range items[0].Facts {
+		if fact.Name == "season_number" {
+			if fact.State != releases.FactObserved || len(fact.Values) != 1 || fact.Values[0] != "1" {
+				t.Fatalf("season fact was not canonical and consistent: %#v", fact)
+			}
+			return
+		}
+	}
+	t.Fatal("canonical season fact was not emitted")
+}
+
+func TestCanonicalSeasonNumberRejectsAmbiguousValues(t *testing.T) {
+	t.Parallel()
+	for input, want := range map[string]string{"1": "1", "01": "1", "S001": "1", "s12": "12", "000": "0"} {
+		got, reliable := canonicalSeasonNumber(input)
+		if !reliable || got != want {
+			t.Fatalf("canonicalSeasonNumber(%q)=(%q,%v), want (%q,true)", input, got, reliable, want)
+		}
+	}
+	for _, input := range []string{"", "S", "Season 1", "1,2", "S0001", "-1"} {
+		if got, reliable := canonicalSeasonNumber(input); reliable {
+			t.Fatalf("canonicalSeasonNumber(%q)=(%q,true), want unreliable", input, got)
+		}
 	}
 }
 
