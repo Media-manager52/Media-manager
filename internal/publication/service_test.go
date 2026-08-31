@@ -64,3 +64,30 @@ func TestBuildMoviePlansUseDistinctReleaseIdentity(t *testing.T) {
 		t.Fatalf("release identities missing from destinations: %q %q", firstPlans[0].DestinationRelative, secondPlans[0].DestinationRelative)
 	}
 }
+
+func TestBuildPlansPublishesDanishCompanionBesideVideo(t *testing.T) {
+	t.Parallel()
+	year := uint16(2026)
+	forced := true
+	context := postgres.PublicationContext{
+		Media:                 catalog.MediaItem{Kind: catalog.KindMovie, Title: "Movie", Year: &year, Identities: []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "42", State: catalog.IdentityVerified}}},
+		Root:                  postgres.LibraryRoot{DestinationRoot: "/library/movies", SourceVisibleRoot: "/altmount", PlexVisibleRoot: "/movies"},
+		AltMount:              postgres.Integration{Config: json.RawMessage(`{"local_read_only_root":"/source"}`)},
+		InventoryRootRelative: "queue/17",
+		Assets: []postgres.PublicationAsset{{ID: uuid.NewV7(), RelativePath: "Movie.mkv", Companions: []postgres.PublicationCompanion{{
+			AssetID: uuid.NewV7(), RelativePath: "Movie.da-DK.forced.srt", Language: "da", Forced: &forced,
+		}}}},
+	}
+	plans, links, err := buildPlans(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 || len(plans[0].Companions) != 1 || len(links) != 2 {
+		t.Fatalf("unexpected publication plan: %+v links=%d", plans, len(links))
+	}
+	companion := plans[0].Companions[0]
+	want := strings.TrimSuffix(plans[0].DestinationRelative, ".mkv") + ".da.forced.srt"
+	if companion.DestinationRelative != want || companion.SourceRelative != filepath.Join("queue", "17", "Movie.da-DK.forced.srt") {
+		t.Fatalf("unexpected managed companion: %+v want=%q", companion, want)
+	}
+}

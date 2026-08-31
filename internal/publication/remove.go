@@ -16,6 +16,11 @@ func (service *Service) HandleDisplacedRemoval(ctx context.Context, event postgr
 	if link.Removed {
 		return nil
 	}
+	for _, companion := range link.Companions {
+		if err := library.RemoveSymlink(link.DestinationRoot, companion.DestinationRelative, companion.ExpectedTarget); err != nil {
+			return err
+		}
+	}
 	if err := library.RemoveSymlink(link.DestinationRoot, link.DestinationRelative, link.ExpectedTarget); err != nil {
 		return err
 	}

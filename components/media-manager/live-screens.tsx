@@ -28,6 +28,7 @@ import {
   createMedia,
   executeAdoptionBatch,
   createQualityProfile,
+  updateQualityProfile,
   loadIntegrations,
   loadAdoptionBatch,
   loadAdoptionBatches,
@@ -38,6 +39,7 @@ import {
   loadMediaDetail,
   loadDiscoveryMetadata,
   loadQualityProfiles,
+  loadSubtitleVerifications,
   loadRecycle,
   loadWorkflows,
   recycleMedia,
@@ -59,6 +61,7 @@ import {
   type APIMedia,
   type APIMediaDetail,
   type APIQualityProfile,
+  type APISubtitleVerification,
   type APIRecycleEntry,
   type APIProwlarrImport,
   type APIWorkflow,
@@ -470,17 +473,77 @@ export function LiveRootsScreen() {
 
 export function LiveProfilesScreen() {
   const [profiles, setProfiles] = React.useState<APIQualityProfile[]>([])
+  const [verifications, setVerifications] = React.useState<APISubtitleVerification[]>([])
+  const [editingID, setEditingID] = React.useState("")
   const [kind, setKind] = React.useState<"movie" | "series">("movie")
   const [name, setName] = React.useState("UHD")
   const [resolution, setResolution] = React.useState("2160p")
   const [source, setSource] = React.useState("webdl")
+  const [requiredSubtitles, setRequiredSubtitles] = React.useState("da")
+  const [preferredSubtitles, setPreferredSubtitles] = React.useState("")
   const [upgrades, setUpgrades] = React.useState(true)
   const [isDefault, setIsDefault] = React.useState(true)
+  const [enabled, setEnabled] = React.useState(true)
+  const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState("")
-  const refresh = React.useCallback(async () => { try { setProfiles(await loadQualityProfiles()); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load profiles") } }, [])
+  const refresh = React.useCallback(async () => { try { const [nextProfiles, nextVerifications] = await Promise.all([loadQualityProfiles(), loadSubtitleVerifications()]); setProfiles(nextProfiles); setVerifications(nextVerifications); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load profiles") } }, [])
   React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(initial) }, [refresh])
-  async function submit(event: React.FormEvent) { event.preventDefault(); try { await createQualityProfile({ media_kind: kind, name, policy_version: 1, policy: { rules: [{ name: "Required resolution", fact: "resolution", allowed_values: [resolution], kind: "required", weight: 0, unknown: "hold" }, { name: "Preferred source", fact: "source", allowed_values: [source], kind: "preferred", weight: 100, unknown: "allow" }] }, upgrades_enabled: upgrades, is_default: isDefault, enabled: true }); toast.success("Quality profile saved"); await refresh() } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save profile") } }
-  return <div className="grid gap-4 xl:grid-cols-[1fr_380px]"><Panel className="!p-0" title="Quality profiles" subtitle="Hard requirements reject first; preferences rank eligible candidates."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Kind</TableHead><TableHead>Upgrades</TableHead><TableHead>Default</TableHead><TableHead>State</TableHead></TableRow></TableHeader><TableBody>{profiles.map((profile) => <TableRow key={profile.id}><TableCell className="font-semibold text-[#e5eaf0]">{profile.name}</TableCell><TableCell>{profile.media_kind}</TableCell><TableCell>{profile.upgrades_enabled ? "On" : "Off"}</TableCell><TableCell>{profile.is_default ? "Yes" : "No"}</TableCell><TableCell><StatusChip tone={profile.enabled ? "good" : "neutral"}>{profile.enabled ? "Enabled" : "Disabled"}</StatusChip></TableCell></TableRow>)}</TableBody></Table></div></Panel><Panel title="Create profile" subtitle="A safe starter profile with explicit resolution and preferred source.">{error ? <div className="mb-4"><ErrorNotice error={error} /></div> : null}<form className="grid gap-3" onSubmit={submit}><Field label="Media kind"><Select value={kind} onValueChange={(value) => setKind(value as "movie" | "series")}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="movie">Movie</SelectItem><SelectItem value="series">TV series</SelectItem></SelectContent></Select></Field><Field label="Name"><Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="Required resolution"><Select value={resolution} onValueChange={setResolution}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="2160p">2160p</SelectItem><SelectItem value="1080p">1080p</SelectItem><SelectItem value="720p">720p</SelectItem></SelectContent></Select></Field><Field label="Preferred source"><Select value={source} onValueChange={setSource}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="remux">Remux</SelectItem><SelectItem value="bluray">Blu-ray</SelectItem><SelectItem value="webdl">WEB-DL</SelectItem><SelectItem value="webrip">WEBRip</SelectItem></SelectContent></Select></Field><ToggleRow label="Allow upgrades" checked={upgrades} onChange={setUpgrades} /><ToggleRow label="Make default" checked={isDefault} onChange={setIsDefault} /><Button type="submit"><Settings2 /> Save profile</Button></form></Panel></div>
+  function beginEdit(profile: APIQualityProfile) {
+    const rules = Array.isArray(profile.policy.rules) ? profile.policy.rules as Array<Record<string, unknown>> : []
+    const resolutionRule = rules.find((rule) => rule.fact === "resolution" && rule.kind === "required")
+    const sourceRule = rules.find((rule) => rule.fact === "source" && rule.kind === "preferred")
+    setEditingID(profile.id); setKind(profile.media_kind); setName(profile.name)
+    setResolution(ruleFirstValue(resolutionRule) || "none"); setSource(ruleFirstValue(sourceRule) || "none")
+    setRequiredSubtitles(policyLanguages(profile, "required_subtitle_languages").join(", "))
+    setPreferredSubtitles(policyLanguages(profile, "preferred_subtitle_languages").join(", "))
+    setUpgrades(profile.upgrades_enabled); setIsDefault(profile.is_default); setEnabled(profile.enabled)
+  }
+  function resetForm() { setEditingID(""); setKind("movie"); setName("UHD"); setResolution("2160p"); setSource("webdl"); setRequiredSubtitles("da"); setPreferredSubtitles(""); setUpgrades(true); setIsDefault(true); setEnabled(true) }
+  async function submit(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError("")
+    try {
+      const current = profiles.find((profile) => profile.id === editingID)
+      const existingRules = current && Array.isArray(current.policy.rules) ? current.policy.rules as Array<Record<string, unknown>> : []
+      const rules = mergeProfileRules(existingRules, resolution, source)
+      const policy = { ...(current?.policy ?? {}), rules, required_subtitle_languages: languageInput(requiredSubtitles), preferred_subtitle_languages: languageInput(preferredSubtitles) }
+      const input = { media_kind: kind, name, policy_version: current?.policy_version ?? 1, policy, upgrades_enabled: upgrades, is_default: isDefault, enabled }
+      if (editingID) await updateQualityProfile(editingID, input); else await createQualityProfile(input)
+      toast.success(editingID ? "Quality profile updated" : "Quality profile saved"); resetForm(); await refresh()
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save profile") } finally { setBusy(false) }
+  }
+  return <div className="space-y-4">
+    {error ? <ErrorNotice error={error} /> : null}
+    <div className="grid gap-4 xl:grid-cols-[1fr_400px]">
+      <Panel className="!p-0" title="Quality profiles" subtitle="Required subtitles are verified from completed AltMount output before publication; unknown pre-download evidence remains neutral."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Kind</TableHead><TableHead>Required subtitles</TableHead><TableHead>Preferred subtitles</TableHead><TableHead>Upgrades</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{profiles.map((profile) => <TableRow key={profile.id}><TableCell className="font-semibold text-[#e5eaf0]">{profile.name}{profile.is_default ? <div className="mt-1 text-[8px] text-[#748090]">Default</div> : null}</TableCell><TableCell>{profile.media_kind}</TableCell><TableCell className="font-mono text-[9px]">{policyLanguages(profile, "required_subtitle_languages").join(", ") || "None"}</TableCell><TableCell className="font-mono text-[9px]">{policyLanguages(profile, "preferred_subtitle_languages").join(", ") || "None"}</TableCell><TableCell>{profile.upgrades_enabled ? "On" : "Off"}</TableCell><TableCell><StatusChip tone={profile.enabled ? "good" : "neutral"}>{profile.enabled ? "Enabled" : "Disabled"}</StatusChip></TableCell><TableCell><Button size="sm" variant="outline" onClick={() => beginEdit(profile)}>Edit</Button></TableCell></TableRow>)}</TableBody></Table></div>{profiles.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No quality profiles exist.</div> : null}</Panel>
+      <Panel title={editingID ? "Edit profile" : "Create profile"} subtitle="Danish variants are canonicalized to da by the API. Forced and SDH tags are recorded but are not requirements."><form className="grid gap-3" onSubmit={submit}><Field label="Media kind"><Select value={kind} disabled={Boolean(editingID)} onValueChange={(value) => setKind(value as "movie" | "series")}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="movie">Movie</SelectItem><SelectItem value="series">TV series</SelectItem></SelectContent></Select></Field><Field label="Name"><Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Required resolution"><Select value={resolution} onValueChange={setResolution}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Keep custom / none</SelectItem><SelectItem value="2160p">2160p</SelectItem><SelectItem value="1080p">1080p</SelectItem><SelectItem value="720p">720p</SelectItem></SelectContent></Select></Field><Field label="Preferred source"><Select value={source} onValueChange={setSource}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Keep custom / none</SelectItem><SelectItem value="remux">Remux</SelectItem><SelectItem value="bluray">Blu-ray</SelectItem><SelectItem value="webdl">WEB-DL</SelectItem><SelectItem value="webrip">WEBRip</SelectItem></SelectContent></Select></Field><Field label="Required subtitle languages"><Input className="mm-input font-mono" value={requiredSubtitles} onChange={(event) => setRequiredSubtitles(event.target.value)} placeholder="da" /><div className="mt-1 text-[8.5px] text-[#748090]">Comma-separated reliable tags. Every selected video must satisfy every required language.</div></Field><Field label="Preferred subtitle languages"><Input className="mm-input font-mono" value={preferredSubtitles} onChange={(event) => setPreferredSubtitles(event.target.value)} placeholder="da, en" /></Field><ToggleRow label="Allow upgrades" checked={upgrades} onChange={setUpgrades} /><ToggleRow label="Make default" checked={isDefault} onChange={setIsDefault} /><ToggleRow label="Enabled" checked={enabled} onChange={setEnabled} /><div className="flex gap-2"><Button type="submit" disabled={busy}><Settings2 /> {editingID ? "Update profile" : "Save profile"}</Button>{editingID ? <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button> : null}</div></form></Panel>
+    </div>
+    <Panel className="!p-0" title="AltMount subtitle verification" subtitle="Persisted owner-review evidence. Unverified output is retained, never made current, and never automatically deleted."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media / release</TableHead><TableHead>Attempt</TableHead><TableHead>Required</TableHead><TableHead>Observed</TableHead><TableHead>Result</TableHead><TableHead>Retry</TableHead><TableHead>Evidence</TableHead></TableRow></TableHeader><TableBody>{verifications.map((item) => <TableRow key={item.id}><TableCell className="max-w-sm"><div className="font-semibold text-[#e5eaf0]">{item.media_title}</div><div className="mt-1 break-all font-mono text-[8.5px] text-[#748090]">{item.release_title}</div></TableCell><TableCell>{item.attempt_generation}/2</TableCell><TableCell className="font-mono text-[9px]">{item.required_languages.join(", ") || "None"}</TableCell><TableCell className="font-mono text-[9px]">{item.observed_languages.join(", ") || "Unknown"}</TableCell><TableCell><StatusChip tone={item.status === "verified" ? "good" : "bad"}>{prettyState(item.status)}</StatusChip></TableCell><TableCell><StatusChip tone={item.retry_state === "queued" ? "info" : item.retry_state === "not_needed" ? "good" : "warn"}>{prettyState(item.retry_state)}</StatusChip></TableCell><TableCell className="max-w-md text-[9px] text-[#b7c0cb]">{item.failure_reasons.join(" · ") || `Verified ${timeAgo(item.created_at)}`}</TableCell></TableRow>)}</TableBody></Table></div>{verifications.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No completed AltMount output has been subtitle-verified yet.</div> : null}</Panel>
+  </div>
+}
+
+function policyLanguages(profile: APIQualityProfile, key: "required_subtitle_languages" | "preferred_subtitle_languages") {
+  const value = profile.policy[key]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+}
+
+function ruleFirstValue(rule: Record<string, unknown> | undefined) {
+  const values = rule?.allowed_values
+  return Array.isArray(values) && typeof values[0] === "string" ? values[0] : ""
+}
+
+function languageInput(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean) }
+
+function mergeProfileRules(existing: Array<Record<string, unknown>>, resolution: string, source: string) {
+  const rules = existing.map((rule) => ({ ...rule }))
+  function replace(fact: string, kind: string, value: string, fallback: Record<string, unknown>) {
+    if (value === "none") return
+    const index = rules.findIndex((rule) => rule.fact === fact && rule.kind === kind)
+    const next = { ...(index >= 0 ? rules[index] : fallback), allowed_values: [value] }
+    if (index >= 0) rules[index] = next; else rules.push(next)
+  }
+  replace("resolution", "required", resolution, { name: "Required resolution", fact: "resolution", kind: "required", weight: 0, unknown: "hold" })
+  replace("source", "preferred", source, { name: "Preferred source", fact: "source", kind: "preferred", weight: 100, unknown: "allow" })
+  return rules
 }
 
 export function LiveProwlarrImportScreen() {

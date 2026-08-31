@@ -10,18 +10,25 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/library"
+	"github.com/media-manager/media-manager/internal/mediainfo"
 	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/postgres"
+	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
 type AltMountReconcileService struct {
-	Store         *postgres.Store
-	ResolveSecret SecretResolver
-	Transport     http.RoundTripper
+	Store          *postgres.Store
+	ResolveSecret  SecretResolver
+	Transport      http.RoundTripper
+	MediaInfoProbe interface {
+		InspectWithin(context.Context, string, string) (mediainfo.Evidence, error)
+	}
 }
 
 const (
@@ -122,6 +129,8 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		if persistErr != nil {
 			return persistErr
 		}
+		var selected []subtitles.Asset
+		detail := "movie inventory verified"
 		if job.Media.Kind == catalog.KindSeries {
 			expectationID, seriesID, season, expected, expectationErr := service.Store.PackExpectation(ctx, job.Workflow.ID)
 			if expectationErr != nil {
@@ -134,12 +143,36 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			if !report.Publishable() {
 				return service.Store.CompleteImport(ctx, job, false, fmt.Sprintf("season pack is %s; %d expected episodes are missing", report.Verdict, len(report.Missing)), time.Now().UTC())
 			}
-			return service.Store.CompleteImport(ctx, job, true, "season pack inventory verified", time.Now().UTC())
+			selected = selectedPackAssets(report, assets)
+			detail = "season pack inventory and subtitle requirements verified"
+		} else {
+			selected = selectedMovieAssets(assets)
+			if len(selected) != 1 {
+				return service.Store.CompleteImport(ctx, job, false, "movie release does not have one unambiguous primary media file", time.Now().UTC())
+			}
+			detail = "movie inventory and subtitle requirements verified"
 		}
-		if !hasOneDominantMovie(inventory.Files) {
-			return service.Store.CompleteImport(ctx, job, false, "movie release does not have one unambiguous primary media file", time.Now().UTC())
+		policy, policyErr := service.Store.SubtitlePolicyForWorkflow(ctx, job.Workflow.ID)
+		if policyErr != nil {
+			return policyErr
 		}
-		return service.Store.CompleteImport(ctx, job, true, "movie inventory verified", time.Now().UTC())
+		allAssets := subtitleAssets(assets)
+		authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, inventory.LocalRelative)
+		verification := subtitles.Verification{SchemaVersion: 1, Status: "unverified", RequiredLanguages: policy.Required, PreferredLanguages: policy.Preferred, FailureReasons: []string{"completed AltMount output could not be inspected safely"}}
+		if rootErr == nil {
+			verification, rootErr = subtitles.Verify(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe)
+		}
+		if rootErr != nil {
+			verification.FailureReasons = []string{rootErr.Error()}
+		}
+		recorded, recordErr := service.Store.RecordSubtitleVerification(ctx, job, inventoryID, verification, time.Now().UTC())
+		if recordErr != nil {
+			return recordErr
+		}
+		if recorded.Status != "verified" {
+			return nil
+		}
+		return service.Store.CompleteImport(ctx, job, true, detail, time.Now().UTC())
 	}
 	return errors.New("unhandled AltMount phase")
 }
@@ -171,4 +204,70 @@ func hasOneDominantMovie(files []altmount.OutputFile) bool {
 	}
 	sort.Slice(media, func(i, j int) bool { return media[i].Size > media[j].Size })
 	return media[0].Size > 0 && media[1].Size*5 < media[0].Size
+}
+
+func selectedMovieAssets(assets []packs.ObservedAsset) []subtitles.Asset {
+	media := make([]packs.ObservedAsset, 0, len(assets))
+	for _, asset := range assets {
+		if playableOutputAsset(asset.RelativePath) && !strings.Contains(strings.ToLower(asset.RelativePath), "sample") {
+			media = append(media, asset)
+		}
+	}
+	sort.Slice(media, func(i, j int) bool { return media[i].Size > media[j].Size })
+	if len(media) == 0 || len(media) > 1 && media[1].Size*5 >= media[0].Size {
+		return nil
+	}
+	return []subtitles.Asset{{ID: media[0].ID, RelativePath: media[0].RelativePath, Size: media[0].Size}}
+}
+
+func playableOutputAsset(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mkv", ".mp4", ".m4v", ".avi", ".ts":
+		return true
+	}
+	return false
+}
+
+func selectedPackAssets(report packs.Report, assets []packs.ObservedAsset) []subtitles.Asset {
+	byID := make(map[uuid.UUID]packs.ObservedAsset, len(assets))
+	for _, asset := range assets {
+		byID[asset.ID] = asset
+	}
+	seen := map[uuid.UUID]bool{}
+	result := []subtitles.Asset{}
+	for _, group := range report.Groups {
+		for _, assetID := range group.AssetIDs {
+			asset, exists := byID[assetID]
+			if !exists || seen[assetID] {
+				continue
+			}
+			seen[assetID] = true
+			result = append(result, subtitles.Asset{ID: asset.ID, RelativePath: asset.RelativePath, Size: asset.Size})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].RelativePath < result[j].RelativePath })
+	return result
+}
+
+func subtitleAssets(assets []packs.ObservedAsset) []subtitles.Asset {
+	result := make([]subtitles.Asset, 0, len(assets))
+	for _, asset := range assets {
+		result = append(result, subtitles.Asset{ID: asset.ID, RelativePath: asset.RelativePath, Size: asset.Size})
+	}
+	return result
+}
+
+func authorizedOutputRoot(localReadOnlyRoot, localRelative string) (string, error) {
+	root := filepath.Clean(localReadOnlyRoot)
+	if !filepath.IsAbs(root) {
+		return "", errors.New("AltMount read-only root is invalid")
+	}
+	if localRelative == "" || localRelative == "." {
+		return root, nil
+	}
+	relative, err := library.ValidateRelative(filepath.Clean(localRelative))
+	if err != nil || relative != localRelative {
+		return "", errors.New("AltMount completed output root is unsafe")
+	}
+	return filepath.Join(root, relative), nil
 }

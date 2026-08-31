@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/releases"
+	"github.com/media-manager/media-manager/internal/subtitles"
 )
 
 type Integration struct {
@@ -213,9 +214,35 @@ func (store *Store) CreateQualityProfile(ctx context.Context, profile QualityPro
 	if profile.ID == (uuid.UUID{}) {
 		profile.ID = uuid.NewV7()
 	}
+	profile, err := canonicalQualityProfile(profile)
+	if err != nil {
+		return QualityProfile{}, err
+	}
+	transaction, err := store.Pool.Begin(ctx)
+	if err != nil {
+		return QualityProfile{}, err
+	}
+	defer transaction.Rollback(ctx)
+	if profile.Default {
+		if _, err := transaction.Exec(ctx, `UPDATE quality_profiles SET is_default=false WHERE media_kind=$1`, profile.MediaKind); err != nil {
+			return QualityProfile{}, err
+		}
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO quality_profiles(id,media_kind,name,policy_version,policy,upgrades_enabled,is_default,enabled) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, profile.ID.String(), profile.MediaKind, profile.Name, int64(profile.PolicyVersion), string(profile.Policy), profile.UpgradesEnabled, profile.Default, profile.Enabled); err != nil {
+		return QualityProfile{}, err
+	}
+	return profile, transaction.Commit(ctx)
+}
+
+func canonicalQualityProfile(profile QualityProfile) (QualityProfile, error) {
 	if profile.MediaKind != catalog.KindMovie && profile.MediaKind != catalog.KindSeries || strings.TrimSpace(profile.Name) == "" || !json.Valid(profile.Policy) {
 		return QualityProfile{}, errors.New("invalid quality profile")
 	}
+	canonical, _, err := subtitles.CanonicalizePolicy(profile.Policy)
+	if err != nil {
+		return QualityProfile{}, err
+	}
+	profile.Policy = canonical
 	var wrapped struct {
 		Rules []releases.Rule `json:"rules"`
 	}
@@ -231,18 +258,45 @@ func (store *Store) CreateQualityProfile(ctx context.Context, profile QualityPro
 	if profile.PolicyVersion == 0 {
 		profile.PolicyVersion = 1
 	}
+	profile.Name = strings.TrimSpace(profile.Name)
+	return profile, nil
+}
+
+func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityProfile) (QualityProfile, error) {
+	if profile.ID == (uuid.UUID{}) {
+		return QualityProfile{}, errors.New("quality profile ID is required")
+	}
+	profile, err := canonicalQualityProfile(profile)
+	if err != nil {
+		return QualityProfile{}, err
+	}
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
 		return QualityProfile{}, err
 	}
 	defer transaction.Rollback(ctx)
+	var currentKind catalog.MediaKind
+	var currentVersion int64
+	if err := transaction.QueryRow(ctx, `SELECT media_kind,policy_version FROM quality_profiles WHERE id=$1 FOR UPDATE`, profile.ID.String()).Scan(&currentKind, &currentVersion); errors.Is(err, pgx.ErrNoRows) {
+		return QualityProfile{}, ErrNotFound
+	} else if err != nil {
+		return QualityProfile{}, err
+	}
+	if currentKind != profile.MediaKind {
+		return QualityProfile{}, errors.New("quality profile media kind cannot change")
+	}
+	profile.PolicyVersion = uint64(currentVersion + 1)
 	if profile.Default {
-		if _, err := transaction.Exec(ctx, `UPDATE quality_profiles SET is_default=false WHERE media_kind=$1`, profile.MediaKind); err != nil {
+		if _, err := transaction.Exec(ctx, `UPDATE quality_profiles SET is_default=false WHERE media_kind=$1 AND id<>$2`, profile.MediaKind, profile.ID.String()); err != nil {
 			return QualityProfile{}, err
 		}
 	}
-	if _, err := transaction.Exec(ctx, `INSERT INTO quality_profiles(id,media_kind,name,policy_version,policy,upgrades_enabled,is_default,enabled) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, profile.ID.String(), profile.MediaKind, strings.TrimSpace(profile.Name), int64(profile.PolicyVersion), string(profile.Policy), profile.UpgradesEnabled, profile.Default, profile.Enabled); err != nil {
+	command, err := transaction.Exec(ctx, `UPDATE quality_profiles SET name=$2,policy_version=$3,policy=$4,upgrades_enabled=$5,is_default=$6,enabled=$7 WHERE id=$1`, profile.ID.String(), profile.Name, int64(profile.PolicyVersion), string(profile.Policy), profile.UpgradesEnabled, profile.Default, profile.Enabled)
+	if err != nil {
 		return QualityProfile{}, err
+	}
+	if command.RowsAffected() != 1 {
+		return QualityProfile{}, ErrConcurrentModification
 	}
 	return profile, transaction.Commit(ctx)
 }

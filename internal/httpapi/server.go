@@ -98,6 +98,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/files", server.requireOwner(server.listManagedFiles))
 	server.mux.HandleFunc("GET /api/v1/files/{id}", server.requireOwner(server.getManagedFile))
 	server.mux.HandleFunc("GET /api/v1/intelligence/releases", server.requireOwner(server.listReleaseCandidates))
+	server.mux.HandleFunc("GET /api/v1/acquisition-verifications", server.requireOwner(server.listSubtitleVerifications))
 	server.mux.HandleFunc("GET /api/v1/blocklist", server.requireOwner(server.listReleaseBlocks))
 	server.mux.HandleFunc("POST /api/v1/blocklist", server.requireOwner(server.createReleaseBlock))
 	server.mux.HandleFunc("DELETE /api/v1/blocklist/{id}", server.requireOwner(server.deleteReleaseBlock))
@@ -127,6 +128,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/settings/library-roots", server.requireOwner(server.createLibraryRoot))
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
 	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
+	server.mux.HandleFunc("PATCH /api/v1/settings/quality-profiles/{id}", server.requireOwner(server.updateQualityProfile))
 	server.mux.HandleFunc("GET /api/v1/settings/notifications", server.requireOwner(server.listNotificationDestinations))
 	server.mux.HandleFunc("POST /api/v1/settings/notifications", server.requireOwner(server.createNotificationDestination))
 	server.mux.HandleFunc("PATCH /api/v1/settings/notifications/{id}", server.requireOwner(server.setNotificationDestinationState))
@@ -1543,6 +1545,40 @@ func (server *Server) createQualityProfile(writer http.ResponseWriter, request *
 		return
 	}
 	writeJSON(writer, 201, dataEnvelope{Data: created, Meta: map[string]int{"seerr_requests_requeued": requeued}})
+}
+
+func (server *Server) updateQualityProfile(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "quality profile ID is invalid")
+		return
+	}
+	var item postgres.QualityProfile
+	if err := decodeJSON(request, &item, 512<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	item.ID = id
+	updated, err := server.store.UpdateQualityProfile(request.Context(), item)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "quality profile was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_quality_profile", err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: updated})
+}
+
+func (server *Server) listSubtitleVerifications(writer http.ResponseWriter, request *http.Request) {
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := server.store.ListSubtitleVerifications(request.Context(), limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load subtitle verifications")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items})
 }
 
 func (server *Server) seerrWebhook(writer http.ResponseWriter, request *http.Request) {

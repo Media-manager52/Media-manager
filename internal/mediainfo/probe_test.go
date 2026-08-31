@@ -2,6 +2,8 @@ package mediainfo
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -26,8 +28,27 @@ func TestParseDerivesBoundedQualityFacts(t *testing.T) {
 	if evidence.Facts["resolution"] != "2160p" || evidence.Facts["video_codec"] != "hevc" || evidence.Facts["dynamic_range"] != "pq" {
 		t.Fatalf("unexpected facts: %+v", evidence.Facts)
 	}
-	if evidence.SubtitleTracks[0].Language != "dan" || !evidence.SubtitleTracks[0].Forced {
+	if evidence.SubtitleTracks[0].Language != "dan" || evidence.SubtitleTracks[0].CanonicalLanguage != "da" || evidence.SubtitleTracks[0].Forced == nil || !*evidence.SubtitleTracks[0].Forced {
 		t.Fatalf("unexpected subtitle evidence: %+v", evidence.SubtitleTracks[0])
+	}
+}
+
+func TestInspectWithinRejectsPathEscapeAndSymlink(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.mkv")
+	if err := os.WriteFile(outside, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	probe := NewProbe()
+	if _, err := probe.InspectWithin(t.Context(), root, "../outside.mkv"); err == nil {
+		t.Fatal("path escape was accepted")
+	}
+	if _, err := probe.InspectWithin(t.Context(), root, "linked.mkv"); err == nil {
+		t.Fatal("symlinked source was accepted")
 	}
 }
 

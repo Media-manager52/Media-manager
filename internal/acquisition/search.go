@@ -16,6 +16,7 @@ import (
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
+	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -62,6 +63,16 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 	rules, err := parseRules(search.Policy)
 	if err != nil {
 		return err
+	}
+	subtitlePolicy, err := subtitles.ParsePolicy(search.Policy)
+	if err != nil {
+		return err
+	}
+	for _, language := range subtitlePolicy.Required {
+		rules = append(rules, releases.Rule{Name: "Required subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RuleRequired, Unknown: releases.UnknownAllow})
+	}
+	for _, language := range subtitlePolicy.Preferred {
+		rules = append(rules, releases.Rule{Name: "Preferred subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: 250, Unknown: releases.UnknownAllow})
 	}
 	if strings.HasPrefix(search.Variant, "season:") {
 		season := seasonNumber(search.Variant)
@@ -118,6 +129,7 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 			}
 			evaluation = constrainMediaMatch(observation, evaluation, search.Media)
 			evaluation = applyReleaseBlocks(observation, evaluation, search)
+			evaluation = applyWorkflowExclusions(observation, evaluation, search)
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
 		}
 	}
@@ -127,6 +139,18 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 	fingerprint := sha256.Sum256([]byte(search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)))
 	_, err = service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, time.Now().UTC())
 	return err
+}
+
+func applyWorkflowExclusions(observation releases.Observation, evaluation releases.Evaluation, search postgres.SearchContext) releases.Evaluation {
+	for _, exclusion := range search.Exclusions {
+		if !exclusion.Matches(observation.IndexerID, observation.NativeGUID) {
+			continue
+		}
+		evaluation.Verdict = releases.VerdictRejected
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "workflow subtitle verification", Fact: "native_release", Decision: releases.DecisionFail, Values: []string{observation.NativeGUID}, Reason: exclusion.Reason})
+		return evaluation
+	}
+	return evaluation
 }
 
 func applyReleaseBlocks(observation releases.Observation, evaluation releases.Evaluation, search postgres.SearchContext) releases.Evaluation {

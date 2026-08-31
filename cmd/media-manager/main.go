@@ -142,7 +142,8 @@ func run() error {
 	handlers["workflow.search_requested"] = searchService.Handle
 	retrievalService := &acquisition.RetrievalService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
 	handlers["release.retrieve_requested"] = retrievalService.Handle
-	altMountReconciler := &acquisition.AltMountReconcileService{Store: store, ResolveSecret: resolveSecret}
+	mediaInfoProbe := mediainfo.NewProbe()
+	altMountReconciler := &acquisition.AltMountReconcileService{Store: store, ResolveSecret: resolveSecret, MediaInfoProbe: mediaInfoProbe}
 	handlers["altmount.reconcile_requested"] = altMountReconciler.Handle
 	publicationService := &publication.Service{Store: store}
 	handlers["library.publish_requested"] = publicationService.Handle
@@ -153,7 +154,7 @@ func run() error {
 	handlers["plex.recycle_refresh_requested"] = plexService.HandleRecycleRefresh
 	handlers["plex.displaced_refresh_requested"] = plexService.HandleDisplacedRefresh
 	handlers["plex.adopted_restore_confirm_requested"] = plexService.HandleAdoptedRestoreConfirm
-	adoptionService := &adoptionexec.Service{Store: store, MediaInfoProbe: mediainfo.NewProbe(), PlexClientFor: func(integration postgres.Integration) (adoptionexec.PlexClient, error) {
+	adoptionService := &adoptionexec.Service{Store: store, MediaInfoProbe: mediaInfoProbe, PlexClientFor: func(integration postgres.Integration) (adoptionexec.PlexClient, error) {
 		return plexService.ClientFor(integration)
 	}}
 	handlers["adoption.execute_requested"] = adoptionService.HandleExecute

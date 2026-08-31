@@ -29,3 +29,19 @@ func TestRankIsDeterministic(t *testing.T) {
 		t.Fatal("expected newest equally-scored candidate first")
 	}
 }
+
+func TestPreferredSubtitleUnknownIsNeutralAndPositiveEvidenceScores(t *testing.T) {
+	t.Parallel()
+	rule := Rule{Name: "Preferred subtitle da", Fact: "subtitle_languages", AllowedValues: []string{"da"}, Kind: RulePreferred, Weight: 250, Unknown: UnknownAllow}
+	unknown, err := Evaluate(Observation{ID: uuid.NewV7()}, []Rule{rule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	positive, err := Evaluate(Observation{ID: uuid.NewV7(), Facts: []Fact{{Name: "subtitle_languages", Values: []string{"da"}, State: FactObserved}}}, []Rule{rule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown.Verdict != VerdictEligible || unknown.Score != 0 || positive.Score != 250 {
+		t.Fatalf("unknown=%+v positive=%+v", unknown, positive)
+	}
+}

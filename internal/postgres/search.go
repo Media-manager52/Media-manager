@@ -23,7 +23,21 @@ type SearchContext struct {
 	Policy        json.RawMessage
 	Indexers      []Integration
 	Blocks        []ReleaseBlock
+	Exclusions    []WorkflowReleaseExclusion
+	SubtitleRetry bool
 }
+
+type WorkflowReleaseExclusion struct {
+	CandidateID       uuid.UUID
+	IndexerInstanceID uuid.UUID
+	NativeKey         string
+	Reason            string
+}
+
+func (item WorkflowReleaseExclusion) Matches(indexerID uuid.UUID, nativeKey string) bool {
+	return item.IndexerInstanceID == indexerID && item.NativeKey == nativeKey
+}
+
 type EvaluatedObservation struct {
 	Observation releases.Observation
 	Evaluation  releases.Evaluation
@@ -93,6 +107,27 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	if err != nil {
 		return SearchContext{}, err
 	}
+	if err := store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM subtitle_verifications WHERE workflow_id=$1 AND retry_state='queued')`, result.Workflow.ID.String()).Scan(&result.SubtitleRetry); err != nil {
+		return SearchContext{}, err
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT exclusion.candidate_id::text,exclusion.indexer_instance_id::text,exclusion.native_key,exclusion.reason FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=$1 ORDER BY exclusion.created_at`, result.Workflow.ID.String())
+	if err != nil {
+		return SearchContext{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item WorkflowReleaseExclusion
+		var candidateText, indexerText string
+		if err := rows.Scan(&candidateText, &indexerText, &item.NativeKey, &item.Reason); err != nil {
+			return SearchContext{}, err
+		}
+		item.CandidateID, _ = uuid.Parse(candidateText)
+		item.IndexerInstanceID, _ = uuid.Parse(indexerText)
+		result.Exclusions = append(result.Exclusions, item)
+	}
+	if err := rows.Err(); err != nil {
+		return SearchContext{}, err
+	}
 	return result, nil
 }
 
@@ -150,6 +185,9 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			to = workflows.StateHeld
 		}
 	}
+	if selected == nil && search.SubtitleRetry {
+		to = workflows.StateNeedsAttention
+	}
 	var currentState workflows.State
 	var revision int64
 	if err := transaction.QueryRow(ctx, `SELECT state,revision FROM workflows WHERE id=$1 FOR UPDATE`, search.Workflow.ID.String()).Scan(&currentState, &revision); err != nil {
@@ -158,7 +196,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	if currentState != workflows.StateSearching {
 		return workflows.Workflow{}, ErrConcurrentModification
 	}
-	if _, allowed := map[workflows.State]bool{workflows.StateCandidateSelected: true, workflows.StateWaiting: true, workflows.StateHeld: true}[to]; !allowed {
+	if _, allowed := map[workflows.State]bool{workflows.StateCandidateSelected: true, workflows.StateWaiting: true, workflows.StateHeld: true, workflows.StateNeedsAttention: true}[to]; !allowed {
 		return workflows.Workflow{}, workflows.ErrInvalidTransition
 	}
 	newRevision := revision + 1
@@ -166,11 +204,21 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	if selected != nil {
 		selectedValue = selected.String()
 	}
-	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state=$2,selected_release_id=$3,revision=$4,updated_at=$5 WHERE id=$1 AND revision=$6`, search.Workflow.ID.String(), to, selectedValue, newRevision, now.UTC(), revision); err != nil {
+	var attentionCode, attentionDetail any
+	if to == workflows.StateNeedsAttention {
+		attentionCode = "subtitle_retry_no_alternate"
+		attentionDetail = "The subtitle-unverified release was excluded from this workflow, and the one permitted alternate search found no eligible release."
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state=$2,selected_release_id=$3,revision=$4,updated_at=$5,attention_code=$7,attention_detail=$8 WHERE id=$1 AND revision=$6`, search.Workflow.ID.String(), to, selectedValue, newRevision, now.UTC(), revision, attentionCode, attentionDetail); err != nil {
 		return workflows.Workflow{}, err
 	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,$4,'targeted search evaluated','policy',$5)`, search.Workflow.ID.String(), newRevision, currentState, to, now.UTC()); err != nil {
 		return workflows.Workflow{}, err
+	}
+	if to == workflows.StateNeedsAttention && search.SubtitleRetry {
+		if _, err := transaction.Exec(ctx, `UPDATE subtitle_verifications SET retry_state='no_alternate' WHERE workflow_id=$1 AND retry_state='queued'`, search.Workflow.ID.String()); err != nil {
+			return workflows.Workflow{}, err
+		}
 	}
 	if selected != nil {
 		if _, err := transaction.Exec(ctx, `INSERT INTO candidate_selections(workflow_id,candidate_id,selected_at,actor,reason) VALUES($1,$2,$3,'policy','highest eligible evidence score') ON CONFLICT(workflow_id) DO UPDATE SET candidate_id=EXCLUDED.candidate_id,selected_at=EXCLUDED.selected_at,actor=EXCLUDED.actor,reason=EXCLUDED.reason`, search.Workflow.ID.String(), selected.String(), now.UTC()); err != nil {

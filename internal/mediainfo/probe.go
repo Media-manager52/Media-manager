@@ -13,6 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/media-manager/media-manager/internal/languages"
+	"github.com/media-manager/media-manager/internal/library"
 )
 
 const (
@@ -35,19 +38,21 @@ type Evidence struct {
 }
 
 type Track struct {
-	Index          int    `json:"index"`
-	Codec          string `json:"codec"`
-	Width          int    `json:"width,omitempty"`
-	Height         int    `json:"height,omitempty"`
-	Channels       int    `json:"channels,omitempty"`
-	ChannelLayout  string `json:"channel_layout,omitempty"`
-	Language       string `json:"language,omitempty"`
-	Title          string `json:"title,omitempty"`
-	ColorTransfer  string `json:"color_transfer,omitempty"`
-	ColorPrimaries string `json:"color_primaries,omitempty"`
-	ColorSpace     string `json:"color_space,omitempty"`
-	Default        bool   `json:"default,omitempty"`
-	Forced         bool   `json:"forced,omitempty"`
+	Index             int    `json:"index"`
+	Codec             string `json:"codec"`
+	Width             int    `json:"width,omitempty"`
+	Height            int    `json:"height,omitempty"`
+	Channels          int    `json:"channels,omitempty"`
+	ChannelLayout     string `json:"channel_layout,omitempty"`
+	Language          string `json:"language,omitempty"`
+	CanonicalLanguage string `json:"canonical_language,omitempty"`
+	Title             string `json:"title,omitempty"`
+	ColorTransfer     string `json:"color_transfer,omitempty"`
+	ColorPrimaries    string `json:"color_primaries,omitempty"`
+	ColorSpace        string `json:"color_space,omitempty"`
+	Default           bool   `json:"default,omitempty"`
+	Forced            *bool  `json:"forced,omitempty"`
+	HearingImpaired   *bool  `json:"hearing_impaired,omitempty"`
 }
 
 type Probe struct {
@@ -69,6 +74,38 @@ func (probe *Probe) Inspect(ctx context.Context, path string) (Evidence, error) 
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return Evidence{}, errors.New("media-info source is not a regular file")
 	}
+	return probe.inspect(ctx, clean, nil)
+}
+
+// InspectWithin opens the media through os.Root and passes only that already
+// contained file descriptor to ffprobe. It cannot follow a relative path or a
+// symlink outside the authorized completed-job root.
+func (probe *Probe) InspectWithin(ctx context.Context, rootPath, relative string) (Evidence, error) {
+	if !filepath.IsAbs(rootPath) || filepath.Clean(rootPath) != rootPath {
+		return Evidence{}, errors.New("media-info root must be an absolute clean path")
+	}
+	clean, err := library.ValidateRelative(filepath.Clean(relative))
+	if err != nil || clean != relative {
+		return Evidence{}, errors.New("media-info relative path is unsafe")
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return Evidence{}, errors.New("media-info root is unavailable")
+	}
+	defer root.Close()
+	info, err := root.Lstat(clean)
+	if err != nil || !info.Mode().IsRegular() {
+		return Evidence{}, errors.New("media-info source is not a regular file")
+	}
+	file, err := root.Open(clean)
+	if err != nil {
+		return Evidence{}, errors.New("media-info source is unavailable")
+	}
+	defer file.Close()
+	return probe.inspect(ctx, "/proc/self/fd/3", []*os.File{file})
+}
+
+func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.File) (Evidence, error) {
 	executable := strings.TrimSpace(probe.Executable)
 	if executable == "" {
 		executable = "ffprobe"
@@ -85,9 +122,10 @@ func (probe *Probe) Inspect(ctx context.Context, path string) (Evidence, error) 
 	defer cancel()
 	command := exec.CommandContext(probeContext, executable,
 		"-nostdin", "-v", "error",
-		"-show_entries", "format=format_name,duration:stream=index,codec_type,codec_name,width,height,channels,channel_layout,color_transfer,color_primaries,color_space:stream_tags=language,title:stream_disposition=default,forced",
-		"-of", "json", clean,
+		"-show_entries", "format=format_name,duration:stream=index,codec_type,codec_name,width,height,channels,channel_layout,color_transfer,color_primaries,color_space:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
+		"-of", "json", path,
 	)
+	command.ExtraFiles = extraFiles
 	command.Env = []string{"PATH=" + os.Getenv("PATH"), "LANG=C", "LC_ALL=C"}
 	stdout := &boundedBuffer{limit: maxOutput}
 	stderr := &boundedBuffer{limit: 16 << 10}
@@ -130,8 +168,9 @@ type rawStream struct {
 		Title    string `json:"title"`
 	} `json:"tags"`
 	Disposition struct {
-		Default int `json:"default"`
-		Forced  int `json:"forced"`
+		Default         int `json:"default"`
+		Forced          int `json:"forced"`
+		HearingImpaired int `json:"hearing_impaired"`
 	} `json:"disposition"`
 }
 
@@ -192,12 +231,15 @@ func normalizeTrack(stream rawStream) (Track, error) {
 	if codec == "" {
 		return Track{}, errors.New("media-info track codec is unavailable")
 	}
+	rawLanguage := normalizedText(stream.Tags.Language, 32)
+	canonicalLanguage, _ := languages.Canonical(rawLanguage)
 	return Track{
 		Index: stream.Index, Codec: codec, Width: stream.Width, Height: stream.Height,
 		Channels: stream.Channels, ChannelLayout: normalizedToken(stream.ChannelLayout, 64),
-		Language: normalizedToken(stream.Tags.Language, 32), Title: normalizedText(stream.Tags.Title, 200),
+		Language: rawLanguage, CanonicalLanguage: canonicalLanguage, Title: normalizedText(stream.Tags.Title, 200),
 		ColorTransfer: normalizedToken(stream.ColorTransfer, 64), ColorPrimaries: normalizedToken(stream.ColorPrimaries, 64),
-		ColorSpace: normalizedToken(stream.ColorSpace, 64), Default: stream.Disposition.Default == 1, Forced: stream.Disposition.Forced == 1,
+		ColorSpace: normalizedToken(stream.ColorSpace, 64), Default: stream.Disposition.Default == 1,
+		Forced: explicitDisposition(stream.Disposition.Forced), HearingImpaired: explicitDisposition(stream.Disposition.HearingImpaired),
 	}, nil
 }
 
@@ -215,8 +257,8 @@ func deriveFacts(evidence Evidence) map[string]any {
 		facts["dynamic_range"] = dynamicRange
 	}
 	facts["audio_codecs"] = trackValues(evidence.AudioTracks, func(track Track) string { return track.Codec })
-	facts["audio_languages"] = trackValues(evidence.AudioTracks, func(track Track) string { return track.Language })
-	facts["subtitle_languages"] = trackValues(evidence.SubtitleTracks, func(track Track) string { return track.Language })
+	facts["audio_languages"] = trackValues(evidence.AudioTracks, func(track Track) string { return track.CanonicalLanguage })
+	facts["subtitle_languages"] = trackValues(evidence.SubtitleTracks, func(track Track) string { return track.CanonicalLanguage })
 	return facts
 }
 
@@ -302,6 +344,14 @@ func normalizedText(value string, max int) string {
 		}
 		return character
 	}, value)
+}
+
+func explicitDisposition(value int) *bool {
+	if value != 1 {
+		return nil
+	}
+	result := true
+	return &result
 }
 
 type boundedBuffer struct {

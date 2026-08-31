@@ -32,6 +32,27 @@ func TestParseSearchPreservesRepeatedAttributes(t *testing.T) {
 	}
 }
 
+func TestParseSearchCanonicalizesOnlyExplicitSubtitleEvidence(t *testing.T) {
+	t.Parallel()
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Movie.2026</title><guid>native-subtitles</guid><newznab:attr name="language" value="Danish"/><newznab:attr name="subtitles" value="da-DK, en"/></item></channel></rss>`)
+	items, err := ParseSearch(body, "", "movie", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("unexpected items: %#v", items)
+	}
+	var subtitleValues []string
+	for _, fact := range items[0].Facts {
+		if fact.Name == "subtitle_languages" {
+			subtitleValues = fact.Values
+		}
+	}
+	if len(subtitleValues) != 2 || subtitleValues[0] != "da" || subtitleValues[1] != "en" {
+		t.Fatalf("unexpected explicit subtitle evidence: %#v", subtitleValues)
+	}
+}
+
 func TestProviderUnsupportedIsExplicit(t *testing.T) {
 	_, err := ParseSearch([]byte(`<error code="203" description="No such function"/>`), "", "anime", time.Now())
 	provider, ok := err.(ProviderError)

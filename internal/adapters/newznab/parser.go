@@ -14,6 +14,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/releases"
+	"github.com/media-manager/media-manager/internal/subtitles"
 )
 
 type CapabilityState string
@@ -206,12 +207,23 @@ func (builder *itemBuilder) finish(indexerID, operation string, observedAt time.
 }
 
 func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases.Fact {
-	aliases := map[string]string{"tvdbid": "tvdb_id", "tmdbid": "tmdb_id", "imdb": "imdb_id", "imdbid": "imdb_id", "tvmazeid": "tvmaze_id", "rageid": "rage_id", "season": "season_number", "episode": "episode", "language": "language", "resolution": "resolution", "size": "size", "group": "group"}
+	aliases := map[string]string{"tvdbid": "tvdb_id", "tmdbid": "tmdb_id", "imdb": "imdb_id", "imdbid": "imdb_id", "tvmazeid": "tvmaze_id", "rageid": "rage_id", "season": "season_number", "episode": "episode", "language": "language", "resolution": "resolution", "size": "size", "group": "group", "subtitle": "subtitle_languages", "subtitles": "subtitle_languages", "subtitlelanguage": "subtitle_languages", "subtitlelanguages": "subtitle_languages", "subtitle_language": "subtitle_languages"}
 	values := make(map[string][]string)
 	indices := make(map[string][]int)
 	for index, field := range fields {
 		name, exists := aliases[strings.ToLower(strings.TrimSpace(field.Name))]
 		if !exists || strings.TrimSpace(field.Value) == "" {
+			continue
+		}
+		if name == "subtitle_languages" {
+			for _, token := range strings.FieldsFunc(field.Value, func(value rune) bool {
+				return value == ',' || value == ';' || value == '/' || value == '|' || value == ' ' || value == '\t'
+			}) {
+				if canonical, reliable := subtitles.CanonicalLanguage(token); reliable {
+					values[name] = append(values[name], canonical)
+					indices[name] = append(indices[name], index)
+				}
+			}
 			continue
 		}
 		values[name] = append(values[name], field.Value)

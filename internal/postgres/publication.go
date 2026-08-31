@@ -24,6 +24,15 @@ type PublicationAsset struct {
 	RelativePath string
 	Size         int64
 	Episodes     []packs.ExpectedEpisode
+	Companions   []PublicationCompanion
+}
+
+type PublicationCompanion struct {
+	AssetID         uuid.UUID
+	RelativePath    string
+	Language        string
+	Forced          *bool
+	HearingImpaired *bool
 }
 
 type PublicationContext struct {
@@ -49,6 +58,17 @@ type PublicationVersion struct {
 
 type PublicationPlan struct {
 	AssetID             uuid.UUID
+	DestinationRelative string
+	SourceRelative      string
+	PlexVisibleTarget   string
+	Companions          []PublicationCompanionPlan
+}
+
+type PublicationCompanionPlan struct {
+	AssetID             uuid.UUID
+	Language            string
+	Forced              *bool
+	HearingImpaired     *bool
 	DestinationRelative string
 	SourceRelative      string
 	PlexVisibleTarget   string
@@ -155,6 +175,14 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 	if err != nil {
 		return PublicationContext{}, err
 	}
+	var verificationID string
+	var verificationStatus string
+	if err := store.Pool.QueryRow(ctx, `SELECT id::text,status FROM subtitle_verifications WHERE altmount_job_id=$1 AND inventory_id=$2`, jobID.String(), inventoryID).Scan(&verificationID, &verificationStatus); err != nil {
+		return PublicationContext{}, err
+	}
+	if verificationStatus != "verified" {
+		return PublicationContext{}, errors.New("AltMount output subtitle requirements are not verified")
+	}
 	if result.Media.Kind == catalog.KindMovie {
 		rows, queryErr := store.Pool.Query(ctx, `SELECT id::text,relative_path,size_bytes FROM altmount_output_assets WHERE inventory_id=$1 ORDER BY size_bytes DESC,relative_path`, inventoryID)
 		if queryErr != nil {
@@ -182,6 +210,9 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 			return PublicationContext{}, errors.New("movie inventory has no playable media asset")
 		}
 		result.Assets = result.Assets[:1]
+		if err := store.loadPublicationCompanions(ctx, verificationID, &result); err != nil {
+			return PublicationContext{}, err
+		}
 		return result, nil
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT group_row.id,asset.id::text,asset.relative_path,asset.size_bytes,episode.season,episode.episode,COALESCE(expected.provider_episode_id,''),COALESCE(expected.title,'')
@@ -224,7 +255,37 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 	if len(result.Assets) == 0 {
 		return PublicationContext{}, errors.New("verified season pack has no content groups")
 	}
+	if err := store.loadPublicationCompanions(ctx, verificationID, &result); err != nil {
+		return PublicationContext{}, err
+	}
 	return result, nil
+}
+
+func (store *Store) loadPublicationCompanions(ctx context.Context, verificationID string, result *PublicationContext) error {
+	byVideo := make(map[uuid.UUID]int, len(result.Assets))
+	for index, asset := range result.Assets {
+		byVideo[asset.ID] = index
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT companion.video_asset_id::text,companion.subtitle_asset_id::text,companion.relative_path,companion.language,companion.forced,companion.hearing_impaired FROM subtitle_verification_companions companion WHERE companion.verification_id=$1 ORDER BY companion.relative_path`, verificationID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var videoText, assetText string
+		var item PublicationCompanion
+		if err := rows.Scan(&videoText, &assetText, &item.RelativePath, &item.Language, &item.Forced, &item.HearingImpaired); err != nil {
+			return err
+		}
+		videoID, _ := uuid.Parse(videoText)
+		index, exists := byVideo[videoID]
+		if !exists {
+			return errors.New("verified subtitle companion has no selected video")
+		}
+		item.AssetID, _ = uuid.Parse(assetText)
+		result.Assets[index].Companions = append(result.Assets[index].Companions, item)
+	}
+	return rows.Err()
 }
 
 func (store *Store) PreparePublication(ctx context.Context, workflowID, jobID uuid.UUID, plans []PublicationPlan, now time.Time) ([]PublicationVersion, error) {
@@ -282,6 +343,9 @@ func (store *Store) PreparePublication(ctx context.Context, workflowID, jobID uu
 			existing.DestinationRelative = plan.DestinationRelative
 			existing.SourceRelative = plan.SourceRelative
 			existing.PlexVisibleTarget = plan.PlexVisibleTarget
+			if err := preparePublicationCompanions(ctx, transaction, existing.ID, plan.Companions); err != nil {
+				return nil, err
+			}
 			versions = append(versions, existing)
 			continue
 		}
@@ -296,12 +360,50 @@ func (store *Store) PreparePublication(ctx context.Context, workflowID, jobID uu
 		if _, err := transaction.Exec(ctx, `INSERT INTO library_link_versions(id,library_link_id,workflow_id,source_asset_id,altmount_job_id,generation,source_relative,plex_visible_target,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'planned')`, versionID.String(), linkID.String(), workflowID.String(), plan.AssetID.String(), jobID.String(), generation, plan.SourceRelative, plan.PlexVisibleTarget); err != nil {
 			return nil, err
 		}
+		if err := preparePublicationCompanions(ctx, transaction, versionID, plan.Companions); err != nil {
+			return nil, err
+		}
 		versions = append(versions, PublicationVersion{ID: versionID, AssetID: plan.AssetID, DestinationRelative: plan.DestinationRelative, SourceRelative: plan.SourceRelative, PlexVisibleTarget: plan.PlexVisibleTarget, State: "planned", Generation: generation})
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return versions, nil
+}
+
+func preparePublicationCompanions(ctx context.Context, transaction pgx.Tx, versionID uuid.UUID, plans []PublicationCompanionPlan) error {
+	for _, plan := range plans {
+		var existingSource, existingDestination, existingTarget, existingLanguage string
+		var existingForced, existingHearing *bool
+		err := transaction.QueryRow(ctx, `SELECT source_relative,destination_relative,plex_visible_target,language,forced,hearing_impaired FROM library_link_companions WHERE link_version_id=$1 AND source_asset_id=$2`, versionID.String(), plan.AssetID.String()).Scan(&existingSource, &existingDestination, &existingTarget, &existingLanguage, &existingForced, &existingHearing)
+		if err == nil {
+			if existingSource != plan.SourceRelative || existingDestination != plan.DestinationRelative || existingTarget != plan.PlexVisibleTarget || existingLanguage != plan.Language || !sameOptionalBool(existingForced, plan.Forced) || !sameOptionalBool(existingHearing, plan.HearingImpaired) {
+				return errors.New("persisted subtitle companion plan differs from the retry plan")
+			}
+			continue
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if _, err := transaction.Exec(ctx, `INSERT INTO library_link_companions(id,link_version_id,source_asset_id,language,forced,hearing_impaired,source_relative,destination_relative,plex_visible_target,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'planned')`, uuid.NewV7().String(), versionID.String(), plan.AssetID.String(), plan.Language, plan.Forced, plan.HearingImpaired, plan.SourceRelative, plan.DestinationRelative, plan.PlexVisibleTarget); err != nil {
+			return err
+		}
+	}
+	var count int
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM library_link_companions WHERE link_version_id=$1`, versionID.String()).Scan(&count); err != nil {
+		return err
+	}
+	if count != len(plans) {
+		return errors.New("persisted subtitle companion set differs from the retry plan")
+	}
+	return nil
+}
+
+func sameOptionalBool(left, right *bool) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func (store *Store) MarkPublicationPublishing(ctx context.Context, workflowID, jobID uuid.UUID, now time.Time) error {
@@ -326,6 +428,9 @@ func (store *Store) MarkPublicationPublishing(ctx context.Context, workflowID, j
 		return ErrConcurrentModification
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='publishing' WHERE workflow_id=$1 AND altmount_job_id=$2 AND state='planned'`, workflowID.String(), jobID.String()); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE library_link_companions companion SET state='publishing' FROM library_link_versions version WHERE companion.link_version_id=version.id AND version.workflow_id=$1 AND version.altmount_job_id=$2 AND companion.state='planned'`, workflowID.String(), jobID.String()); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='publishing',revision=revision+1,updated_at=$2 WHERE id=$1`, workflowID.String(), now.UTC()); err != nil {
@@ -366,6 +471,9 @@ func (store *Store) CompletePublication(ctx context.Context, workflowID, jobID u
 		return uuid.UUID{}, ErrConcurrentModification
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='verified',verified_at=$3 WHERE workflow_id=$1 AND altmount_job_id=$2 AND state IN ('planned','publishing')`, workflowID.String(), jobID.String(), now.UTC()); err != nil {
+		return uuid.UUID{}, err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE library_link_companions companion SET state='verified',verified_at=$3 FROM library_link_versions version WHERE companion.link_version_id=version.id AND version.workflow_id=$1 AND version.altmount_job_id=$2 AND companion.state IN ('planned','publishing')`, workflowID.String(), jobID.String(), now.UTC()); err != nil {
 		return uuid.UUID{}, err
 	}
 	scanID := uuid.NewV7()
@@ -411,6 +519,9 @@ func (store *Store) FailPublication(ctx context.Context, workflowID, jobID uuid.
 		return ErrConcurrentModification
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='quarantined' WHERE workflow_id=$1 AND altmount_job_id=$2 AND state IN ('planned','publishing')`, workflowID.String(), jobID.String()); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE library_link_companions companion SET state='quarantined' FROM library_link_versions version WHERE companion.link_version_id=version.id AND version.workflow_id=$1 AND version.altmount_job_id=$2 AND companion.state IN ('planned','publishing')`, workflowID.String(), jobID.String()); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='needs_attention',revision=revision+1,updated_at=$2,attention_code='publication_failed',attention_detail=$3 WHERE id=$1`, workflowID.String(), now.UTC(), detail); err != nil {
@@ -653,6 +764,18 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 	if scanState != "polling" || workflowState != workflows.StatePlexScanning || uint64(scanRevision) != scan.Revision {
 		return ErrConcurrentModification
 	}
+	var companionsReady bool
+	if err := transaction.QueryRow(ctx, `SELECT NOT EXISTS(
+		SELECT 1 FROM library_link_companions companion
+		JOIN library_link_versions version ON version.id=companion.link_version_id
+		JOIN plex_scan_requests request ON request.id=$1
+		WHERE version.workflow_id=request.workflow_id AND version.altmount_job_id=request.altmount_job_id AND companion.state<>'verified'
+	)`, scan.ID.String()).Scan(&companionsReady); err != nil {
+		return err
+	}
+	if !companionsReady {
+		return errors.New("subtitle companions have not completed the Plex verification lifecycle")
+	}
 	type displacedVersion struct {
 		ID         uuid.UUID
 		Generation int
@@ -687,6 +810,9 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 		if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='displaced',displaced_at=$2 WHERE id=$1`, old.ID.String(), now.UTC()); err != nil {
 			return err
 		}
+		if _, err := transaction.Exec(ctx, `UPDATE library_link_companions SET state='displaced',displaced_at=$2 WHERE link_version_id=$1 AND state='current'`, old.ID.String(), now.UTC()); err != nil {
+			return err
+		}
 		if _, err := transaction.Exec(ctx, `UPDATE library_links SET current_version_id=NULL WHERE current_version_id=$1`, old.ID.String()); err != nil {
 			return err
 		}
@@ -704,10 +830,16 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 		if err := transaction.QueryRow(ctx, `SELECT library_link_id::text FROM library_link_versions WHERE id=$1 FOR UPDATE`, version.VersionID.String()).Scan(&linkID); err != nil {
 			return err
 		}
+		if _, err := transaction.Exec(ctx, `UPDATE library_link_companions companion SET state='displaced',displaced_at=$3 FROM library_link_versions old WHERE companion.link_version_id=old.id AND old.library_link_id=$1 AND old.state='current' AND old.id<>$2 AND companion.state='current'`, linkID, version.VersionID.String(), now.UTC()); err != nil {
+			return err
+		}
 		if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='displaced',displaced_at=$2 WHERE library_link_id=$1 AND state='current' AND id<>$3`, linkID, now.UTC(), version.VersionID.String()); err != nil {
 			return err
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='current',verified_at=COALESCE(verified_at,$2) WHERE id=$1`, version.VersionID.String(), now.UTC()); err != nil {
+			return err
+		}
+		if _, err := transaction.Exec(ctx, `UPDATE library_link_companions SET state='current',verified_at=COALESCE(verified_at,$2) WHERE link_version_id=$1 AND state='verified'`, version.VersionID.String(), now.UTC()); err != nil {
 			return err
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE library_links SET current_version_id=$2 WHERE id=$1`, linkID, version.VersionID.String()); err != nil {
@@ -749,6 +881,12 @@ type DisplacedLink struct {
 	DestinationRelative string
 	ExpectedTarget      string
 	Removed             bool
+	Companions          []DisplacedCompanion
+}
+
+type DisplacedCompanion struct {
+	DestinationRelative string
+	ExpectedTarget      string
 }
 
 func (store *Store) LoadDisplacedLink(ctx context.Context, versionID uuid.UUID) (DisplacedLink, error) {
@@ -768,6 +906,21 @@ func (store *Store) LoadDisplacedLink(ctx context.Context, versionID uuid.UUID) 
 	}
 	result.VersionID = versionID
 	result.RootID, _ = uuid.Parse(rootText)
+	rows, err := store.Pool.Query(ctx, `SELECT destination_relative,plex_visible_target FROM library_link_companions WHERE link_version_id=$1 AND state='displaced' ORDER BY destination_relative`, versionID.String())
+	if err != nil {
+		return DisplacedLink{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var companion DisplacedCompanion
+		if err := rows.Scan(&companion.DestinationRelative, &companion.ExpectedTarget); err != nil {
+			return DisplacedLink{}, err
+		}
+		result.Companions = append(result.Companions, companion)
+	}
+	if err := rows.Err(); err != nil {
+		return DisplacedLink{}, err
+	}
 	return result, nil
 }
 

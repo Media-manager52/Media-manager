@@ -125,6 +125,9 @@ TVDB is preferred for series naming when verified; TMDB is the fallback. Movies 
 - AltMount output is read-only. Media Manager publishes only contained symlinks.
 - A season pack remains one AltMount job and one immutable expectation set.
 - AltMount completion is not import completion; import completion is not Plex completion.
+- Completed output is inspected only inside the authorized AltMount job root. Required subtitle languages must be verified on every selected video before publication; Danish variants are stored canonically as `da` with raw evidence retained.
+- A verified external subtitle is published beside its video with Plex-compatible naming and shares that publication generation. It becomes current only after the video completes exact Plex confirmation.
+- Subtitle-unverified output is retained for owner review, never made current, and never automatically deleted. One alternate exact release is permitted per workflow, for two acquisition attempts total.
 - Plex confirmation requires a verified provider GUID and every exact expected path.
 - An upgrade receives a distinct release-version filename. The old symlink is removed only after Plex confirms the replacement; the AltMount source is retained.
 - Replacing an adopted real file requires an exact owner confirmation before every new or delayed search unless that workflow already holds an exact fingerprint-bound authorization. The old file is moved only after Plex confirms the new publication, retained for 30 days, and never physically purged without a second exact owner confirmation after retention.

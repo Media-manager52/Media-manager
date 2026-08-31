@@ -92,6 +92,17 @@ func buildPlans(publicationContext postgres.PublicationContext) ([]postgres.Publ
 	if !filepath.IsAbs(config.LocalReadOnlyRoot) {
 		return nil, nil, errors.New("AltMount read-only root must be absolute")
 	}
+	jobSourceRoot := filepath.Clean(config.LocalReadOnlyRoot)
+	jobPlexSourceRoot := filepath.Clean(publicationContext.Root.SourceVisibleRoot)
+	inventoryPrefix := ""
+	if publicationContext.InventoryRootRelative != "" && publicationContext.InventoryRootRelative != "." {
+		inventoryPrefix, err = library.ValidateRelative(publicationContext.InventoryRootRelative)
+		if err != nil {
+			return nil, nil, errors.New("AltMount completed output root is unsafe")
+		}
+		jobSourceRoot = filepath.Join(jobSourceRoot, inventoryPrefix)
+		jobPlexSourceRoot = filepath.Join(jobPlexSourceRoot, inventoryPrefix)
+	}
 	plans := make([]postgres.PublicationPlan, 0, len(publicationContext.Assets))
 	links := make([]library.LinkPlan, 0, len(publicationContext.Assets))
 	technical := append([]string(nil), publicationContext.Technical...)
@@ -99,11 +110,15 @@ func buildPlans(publicationContext postgres.PublicationContext) ([]postgres.Publ
 		technical = append(technical, publicationContext.ReleaseToken)
 	}
 	for _, asset := range publicationContext.Assets {
-		sourceRelative := asset.RelativePath
-		if publicationContext.InventoryRootRelative != "" && publicationContext.InventoryRootRelative != "." {
-			sourceRelative = filepath.Join(publicationContext.InventoryRootRelative, asset.RelativePath)
+		containedSource, sourceErr := library.ValidateRelative(asset.RelativePath)
+		if sourceErr != nil {
+			return nil, nil, fmt.Errorf("unsafe AltMount source path: %w", sourceErr)
 		}
-		sourceRelative, err = library.ValidateRelative(sourceRelative)
+		persistedSource := containedSource
+		if inventoryPrefix != "" {
+			persistedSource = filepath.Join(inventoryPrefix, containedSource)
+		}
+		persistedSource, err = library.ValidateRelative(persistedSource)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unsafe AltMount source path: %w", err)
 		}
@@ -141,15 +156,61 @@ func buildPlans(publicationContext postgres.PublicationContext) ([]postgres.Publ
 		if err != nil {
 			return nil, nil, err
 		}
-		link := library.LinkPlan{SourceRoot: filepath.Clean(config.LocalReadOnlyRoot), SourceRelative: sourceRelative, DestinationRoot: filepath.Clean(publicationContext.Root.DestinationRoot), DestinationRel: destinationRelative, PlexVisibleSourceRoot: filepath.Clean(publicationContext.Root.SourceVisibleRoot)}
+		link := library.LinkPlan{SourceRoot: jobSourceRoot, SourceRelative: containedSource, DestinationRoot: filepath.Clean(publicationContext.Root.DestinationRoot), DestinationRel: destinationRelative, PlexVisibleSourceRoot: jobPlexSourceRoot}
 		validated, err := library.ValidatePlan(link)
 		if err != nil {
 			return nil, nil, err
 		}
-		plans = append(plans, postgres.PublicationPlan{AssetID: asset.ID, DestinationRelative: destinationRelative, SourceRelative: sourceRelative, PlexVisibleTarget: validated.PlexVisibleTarget})
+		plan := postgres.PublicationPlan{AssetID: asset.ID, DestinationRelative: destinationRelative, SourceRelative: persistedSource, PlexVisibleTarget: validated.PlexVisibleTarget}
 		links = append(links, validated)
+		for _, companion := range asset.Companions {
+			containedCompanion, companionErr := library.ValidateRelative(companion.RelativePath)
+			if companionErr != nil {
+				return nil, nil, fmt.Errorf("unsafe AltMount subtitle source path: %w", companionErr)
+			}
+			persistedCompanion := containedCompanion
+			if inventoryPrefix != "" {
+				persistedCompanion = filepath.Join(inventoryPrefix, containedCompanion)
+			}
+			persistedCompanion, err = library.ValidateRelative(persistedCompanion)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unsafe AltMount subtitle source path: %w", err)
+			}
+			companionDestination, destinationErr := subtitleDestination(destinationRelative, companion)
+			if destinationErr != nil {
+				return nil, nil, destinationErr
+			}
+			companionLink, validateErr := library.ValidatePlan(library.LinkPlan{SourceRoot: jobSourceRoot, SourceRelative: containedCompanion, DestinationRoot: filepath.Clean(publicationContext.Root.DestinationRoot), DestinationRel: companionDestination, PlexVisibleSourceRoot: jobPlexSourceRoot})
+			if validateErr != nil {
+				return nil, nil, validateErr
+			}
+			plan.Companions = append(plan.Companions, postgres.PublicationCompanionPlan{AssetID: companion.AssetID, Language: companion.Language, Forced: companion.Forced, HearingImpaired: companion.HearingImpaired, DestinationRelative: companionDestination, SourceRelative: persistedCompanion, PlexVisibleTarget: companionLink.PlexVisibleTarget})
+			links = append(links, companionLink)
+		}
+		plans = append(plans, plan)
 	}
 	return plans, links, nil
+}
+
+func subtitleDestination(videoDestination string, companion postgres.PublicationCompanion) (string, error) {
+	extension := strings.ToLower(filepath.Ext(companion.RelativePath))
+	switch extension {
+	case ".ass", ".idx", ".srt", ".ssa", ".sub", ".vtt":
+	default:
+		return "", errors.New("subtitle companion extension is unsupported")
+	}
+	if strings.TrimSpace(companion.Language) == "" {
+		return "", errors.New("subtitle companion has no verified language")
+	}
+	suffix := "." + strings.ToLower(strings.TrimSpace(companion.Language))
+	if companion.Forced != nil && *companion.Forced {
+		suffix += ".forced"
+	}
+	if companion.HearingImpaired != nil && *companion.HearingImpaired {
+		suffix += ".sdh"
+	}
+	destination := strings.TrimSuffix(videoDestination, filepath.Ext(videoDestination)) + suffix + extension
+	return library.ValidateRelative(destination)
 }
 
 func namingIdentity(item catalog.MediaItem) (string, string, error) {

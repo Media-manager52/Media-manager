@@ -101,6 +101,15 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return SubmissionIntent{}, err
 	}
+	if generation >= maxSubtitleAcquisitionAttempts {
+		var subtitleAttemptsExhausted bool
+		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM subtitle_verifications WHERE workflow_id=$1 AND status='unverified')`, retrieval.Workflow.ID.String()).Scan(&subtitleAttemptsExhausted); err != nil {
+			return SubmissionIntent{}, err
+		}
+		if subtitleAttemptsExhausted {
+			return SubmissionIntent{}, errors.New("subtitle acquisition attempt limit reached")
+		}
+	}
 	var current workflows.State
 	var revision int64
 	if err := transaction.QueryRow(ctx, `SELECT state,revision FROM workflows WHERE id=$1 FOR UPDATE`, retrieval.Workflow.ID.String()).Scan(&current, &revision); err != nil {
