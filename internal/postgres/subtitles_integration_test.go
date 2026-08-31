@@ -185,12 +185,17 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 
 	firstJob, firstInventory, firstAssets := seedSubtitleAttempt(t, ctx, store, workflowID, altMount.ID, indexer.ID, 1, "exact-guid-1")
 	firstResult := unverifiedSubtitleResult(firstAssets[0], "attempt one has no verified da subtitle")
+	firstResult.PreferredLanguages = nil
 	firstRecord, err := store.RecordSubtitleVerification(ctx, firstJob, firstInventory, firstResult, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if firstRecord.RetryState != "queued" || firstRecord.Status != "unverified" {
 		t.Fatalf("first record=%+v", firstRecord)
+	}
+	var preferredCount int
+	if err := store.Pool.QueryRow(ctx, `SELECT cardinality(preferred_languages) FROM subtitle_verifications WHERE id=$1`, firstRecord.ID.String()).Scan(&preferredCount); err != nil || preferredCount != 0 {
+		t.Fatalf("preferred language empty set=%d err=%v", preferredCount, err)
 	}
 	var firstWorkflowState, firstJobState, oldState string
 	var selected, attempt *string

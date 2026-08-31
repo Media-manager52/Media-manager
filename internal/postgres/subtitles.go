@@ -49,6 +49,11 @@ func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMount
 	if verification.Status != "verified" && verification.Status != "unverified" || job.AttemptGeneration < 1 {
 		return SubtitleVerificationRecord{}, errors.New("invalid subtitle verification")
 	}
+	// pgx encodes a nil slice as SQL NULL, while verification language arrays
+	// are deliberately NOT NULL. Preserve the semantic empty set explicitly.
+	verification.RequiredLanguages = append([]string{}, verification.RequiredLanguages...)
+	verification.PreferredLanguages = append([]string{}, verification.PreferredLanguages...)
+	verification.ObservedLanguages = append([]string{}, verification.ObservedLanguages...)
 	evidence, err := json.Marshal(verification)
 	if err != nil {
 		return SubtitleVerificationRecord{}, err
