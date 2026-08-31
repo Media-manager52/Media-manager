@@ -109,6 +109,11 @@ func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMount
 	if _, err := transaction.Exec(ctx, `INSERT INTO subtitle_verifications(id,workflow_id,altmount_job_id,candidate_id,inventory_id,attempt_generation,status,required_languages,preferred_languages,observed_languages,evidence,failure_reasons,retry_state,verified_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, verificationID.String(), job.Workflow.ID.String(), job.JobID.String(), job.CandidateID.String(), inventoryID.String(), job.AttemptGeneration, verification.Status, verification.RequiredLanguages, verification.PreferredLanguages, verification.ObservedLanguages, evidence, failureReasons, retryState, verifiedAt, now.UTC()); err != nil {
 		return SubtitleVerificationRecord{}, err
 	}
+	if verification.Status == "verified" {
+		if _, err := transaction.Exec(ctx, `UPDATE subtitle_verifications SET retry_state='succeeded' WHERE workflow_id=$1 AND id<>$2 AND retry_state='queued'`, job.Workflow.ID.String(), verificationID.String()); err != nil {
+			return SubtitleVerificationRecord{}, err
+		}
+	}
 	for _, video := range verification.Videos {
 		mediaInfo, marshalErr := json.Marshal(video.MediaInfo)
 		if marshalErr != nil {

@@ -345,7 +345,12 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err != nil || len(verifiedWorkflows) != 1 {
 		t.Fatalf("verified workflow=%+v err=%v", verifiedWorkflows, err)
 	}
-	verifiedJob, verifiedInventory, verifiedAssets := seedSubtitleAttempt(t, ctx, store, verifiedWorkflows[0].ID, altMount.ID, indexer.ID, 1, "verified-guid")
+	verificationRetryJob, verificationRetryInventory, verificationRetryAssets := seedSubtitleAttempt(t, ctx, store, verifiedWorkflows[0].ID, altMount.ID, indexer.ID, 1, "verified-failed-guid")
+	verificationRetryRecord, err := store.RecordSubtitleVerification(ctx, verificationRetryJob, verificationRetryInventory, unverifiedSubtitleResult(verificationRetryAssets[0], "first verification requires an alternate"), time.Now().UTC())
+	if err != nil || verificationRetryRecord.RetryState != "queued" {
+		t.Fatalf("verification retry=%+v err=%v", verificationRetryRecord, err)
+	}
+	verifiedJob, verifiedInventory, verifiedAssets := seedSubtitleAttempt(t, ctx, store, verifiedWorkflows[0].ID, altMount.ID, indexer.ID, 2, "verified-guid")
 	verifiedResult := subtitles.Verification{
 		SchemaVersion: 1, Status: "verified", RequiredLanguages: []string{"da"}, PreferredLanguages: []string{"da"}, ObservedLanguages: []string{"da"},
 		Videos:     []subtitles.VideoEvidence{{AssetID: verifiedAssets[0], RelativePath: "Movie.mkv", MediaInfo: mediainfo.Evidence{SchemaVersion: 1, ContainerNames: []string{"matroska"}, VideoTracks: []mediainfo.Track{{Index: 0, Codec: "hevc", Width: 1920, Height: 1080}}, AudioTracks: []mediainfo.Track{}, SubtitleTracks: []mediainfo.Track{}, Facts: map[string]any{"subtitle_languages": []string{}}}, ObservedLanguages: []string{"da"}}},
@@ -353,6 +358,10 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	}
 	if _, err := store.RecordSubtitleVerification(ctx, verifiedJob, verifiedInventory, verifiedResult, time.Now().UTC()); err != nil {
 		t.Fatal(err)
+	}
+	var successfulRetryState string
+	if err := store.Pool.QueryRow(ctx, `SELECT retry_state FROM subtitle_verifications WHERE id=$1`, verificationRetryRecord.ID.String()).Scan(&successfulRetryState); err != nil || successfulRetryState != "succeeded" {
+		t.Fatalf("successful retry state=%q err=%v", successfulRetryState, err)
 	}
 	if err := store.CompleteImport(ctx, verifiedJob, true, "subtitle requirements verified", time.Now().UTC()); err != nil {
 		t.Fatal(err)
