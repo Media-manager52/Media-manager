@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/xml"
@@ -100,20 +99,19 @@ func classified(code string, cause error) error {
 }
 
 var (
-	ErrInvalidEndpoint    = errors.New("invalid Newznab endpoint")
-	ErrResponseTooLarge   = errors.New("Newznab response exceeds the configured limit")
-	ErrInvalidNZB         = errors.New("downloaded document is not NZB XML")
-	ErrNoNFO              = errors.New("release has no NFO document")
-	ErrSchedulerRequired  = errors.New("indexer scheduler is required")
-	ErrCrossHostRedirect  = errors.New("cross-host redirect rejected")
-	ErrTLSDowngrade       = errors.New("TLS downgrade rejected")
-	ErrTooManyRedirects   = errors.New("too many redirects")
-	ErrUnsafeRedirect     = errors.New("unsafe redirect target rejected")
-	ErrRedirectCredential = errors.New("redirect source credential rejected")
-	ErrRedirectURLPolicy  = errors.New("redirect URL policy rejected")
-	ErrRedirectDNS        = errors.New("redirect DNS resolution rejected")
-	ErrRedirectAddress    = errors.New("redirect DNS address rejected")
-	ErrRedirectTransport  = errors.New("redirect pinned transport rejected")
+	ErrInvalidEndpoint   = errors.New("invalid Newznab endpoint")
+	ErrResponseTooLarge  = errors.New("Newznab response exceeds the configured limit")
+	ErrInvalidNZB        = errors.New("downloaded document is not NZB XML")
+	ErrNoNFO             = errors.New("release has no NFO document")
+	ErrSchedulerRequired = errors.New("indexer scheduler is required")
+	ErrCrossHostRedirect = errors.New("cross-host redirect rejected")
+	ErrTLSDowngrade      = errors.New("TLS downgrade rejected")
+	ErrTooManyRedirects  = errors.New("too many redirects")
+	ErrUnsafeRedirect    = errors.New("unsafe redirect target rejected")
+	ErrRedirectURLPolicy = errors.New("redirect URL policy rejected")
+	ErrRedirectDNS       = errors.New("redirect DNS resolution rejected")
+	ErrRedirectAddress   = errors.New("redirect DNS address rejected")
+	ErrRedirectTransport = errors.New("redirect pinned transport rejected")
 )
 
 func unsafeRedirect(reason error) error {
@@ -449,8 +447,6 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 			code = "newznab_tls_downgrade_rejected"
 		case errors.Is(err, ErrTooManyRedirects):
 			code = "newznab_too_many_redirects"
-		case errors.Is(err, ErrRedirectCredential):
-			code = "newznab_redirect_source_credential_rejected"
 		case errors.Is(err, ErrRedirectURLPolicy):
 			code = "newznab_redirect_url_policy_rejected"
 		case errors.Is(err, ErrRedirectDNS):
@@ -718,8 +714,8 @@ func (client *Client) redirectTarget(previous *url.URL, response *http.Response)
 	if target.User != nil || target.Fragment != "" || len(target.String()) > 8192 {
 		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
-	if redirectContainsSecret(target, client.config.APIKey) {
-		return nil, unsafeRedirect(ErrRedirectCredential)
+	if err := stripRedirectSourceCredential(target, client.config.APIKey); err != nil {
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	previousOrigin, err := exactOrigin(previous)
 	if err != nil {
@@ -735,29 +731,29 @@ func (client *Client) redirectTarget(previous *url.URL, response *http.Response)
 	return target, nil
 }
 
-func redirectContainsSecret(target *url.URL, secret string) bool {
+func stripRedirectSourceCredential(target *url.URL, secret string) error {
 	if target == nil || target.RawQuery == "" || secret == "" {
-		return false
+		return nil
 	}
-	decoded, err := url.QueryUnescape(target.RawQuery)
-	if err != nil {
-		return true
-	}
-	if strings.Contains(target.RawQuery, secret) || strings.Contains(decoded, secret) {
-		return true
-	}
-	values, err := url.ParseQuery(target.RawQuery)
-	if err != nil {
-		return true
-	}
-	for _, entries := range values {
-		for _, entry := range entries {
-			if subtle.ConstantTimeCompare([]byte(entry), []byte(secret)) == 1 {
-				return true
-			}
+	components := strings.Split(target.RawQuery, "&")
+	retained := make([]string, 0, len(components))
+	for _, component := range components {
+		name, value, _ := strings.Cut(component, "=")
+		decodedName, nameErr := url.QueryUnescape(name)
+		decodedValue, valueErr := url.QueryUnescape(value)
+		if nameErr != nil || valueErr != nil {
+			return ErrRedirectURLPolicy
 		}
+		if strings.Contains(component, secret) || strings.Contains(decodedName, secret) || strings.Contains(decodedValue, secret) {
+			continue
+		}
+		retained = append(retained, component)
 	}
-	return false
+	target.RawQuery = strings.Join(retained, "&")
+	if target.RawQuery == "" {
+		target.ForceQuery = false
+	}
+	return nil
 }
 
 func (client *Client) resolveAndValidateRedirectTarget(ctx context.Context, target *url.URL) ([]netip.Addr, error) {

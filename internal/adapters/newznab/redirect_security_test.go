@@ -60,7 +60,7 @@ func TestGetNZBRedirectPinsValidatedAddressAgainstDNSRebindingAndPreservesTLSNam
 		if request.URL.Query().Get("apikey") != "source-api-key-fixture" {
 			t.Error("source did not receive its configured API key")
 		}
-		writer.Header().Set("Location", "https://DOWNLOAD.TEST.:443/files/release.nzb?ticket=one")
+		writer.Header().Set("Location", "https://DOWNLOAD.TEST.:443/files/release.nzb?ticket=one&apikey=source-api-key-fixture")
 		writer.WriteHeader(http.StatusFound)
 	}))
 	defer source.Close()
@@ -319,29 +319,38 @@ func TestRedirectConstructionDoesNotInheritQueryOrOriginHeaders(t *testing.T) {
 		t.Fatalf("safe headers=%v", request.Header)
 	}
 
-	response.Header.Set("Location", "/download/release.nzb?apikey=source-api-key-fixture")
-	if _, err := client.redirectTarget(previous, response); !errors.Is(err, ErrUnsafeRedirect) {
-		t.Fatalf("API-key redirect error=%v", err)
+	response.Header.Set("Location", "/download/release.nzb?ticket=one&apikey=source-api-key-fixture&keep=two")
+	target, err = client.redirectTarget(previous, response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.RawQuery != "ticket=one&keep=two" {
+		t.Fatalf("source credential was not removed exactly: query keys=%v", queryKeys(target.Query()))
 	}
 }
 
-func TestRedirectCredentialRejectionHasSpecificRedactedClassification(t *testing.T) {
-	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Location", "/download/release.nzb?apikey=source-api-key-fixture")
+func TestRedirectSourceCredentialIsRemovedBeforeTheNextRequest(t *testing.T) {
+	var redirectedRequests atomic.Int32
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/download/release.nzb" {
+			redirectedRequests.Add(1)
+			if request.URL.Query().Has("apikey") || request.URL.Query().Get("ticket") != "one" || strings.Contains(request.URL.RawQuery, "source-api-key-fixture") {
+				t.Errorf("redirect request retained source credentials: keys=%v", queryKeys(request.URL.Query()))
+			}
+			_, _ = writer.Write([]byte(redirectTestNZB))
+			return
+		}
+		writer.Header().Set("Location", "/download/release.nzb?ticket=one&apikey=source-api-key-fixture")
 		writer.WriteHeader(http.StatusFound)
 	}))
 	defer source.Close()
 	client, _ := newRedirectTestClient(t, "credential", source.URL, nil, nil)
 
-	_, err := client.GetNZB(context.Background(), "native-id")
-	assertSafeCode(t, err, "newznab_redirect_source_credential_rejected")
-	if err.Error() != "Newznab request failed" {
-		t.Fatalf("persistable error=%q", err.Error())
+	if _, err := client.GetNZB(context.Background(), "native-id"); err != nil {
+		t.Fatal(err)
 	}
-	for _, private := range []string{"source-api-key-fixture", source.URL, "/download/release.nzb"} {
-		if strings.Contains(err.Error(), private) {
-			t.Fatalf("persistable error exposed private URL material: %v", err)
-		}
+	if redirectedRequests.Load() != 1 {
+		t.Fatalf("redirect requests=%d", redirectedRequests.Load())
 	}
 }
 
