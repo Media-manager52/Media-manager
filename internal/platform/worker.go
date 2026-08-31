@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -106,7 +108,18 @@ func (worker *Worker) runBatch(ctx context.Context) error {
 	return nil
 }
 
-func safeError(err error) string { return fmt.Sprintf("%T", err) }
+var safeErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{2,99}$`)
+
+func safeError(err error) string {
+	var coded interface{ SafeCode() string }
+	if errors.As(err, &coded) {
+		code := strings.TrimSpace(coded.SafeCode())
+		if safeErrorCodePattern.MatchString(code) {
+			return code
+		}
+	}
+	return fmt.Sprintf("%T", err)
+}
 func min(left, right int) int {
 	if left < right {
 		return left

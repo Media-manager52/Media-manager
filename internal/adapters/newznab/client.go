@@ -59,6 +59,25 @@ type HTTPError struct {
 }
 
 func (err HTTPError) Error() string { return fmt.Sprintf("newznab returned HTTP %d", err.StatusCode) }
+func (err HTTPError) SafeCode() string {
+	if err.StatusCode < 100 || err.StatusCode > 599 {
+		return "newznab_http_error"
+	}
+	return fmt.Sprintf("newznab_http_%d", err.StatusCode)
+}
+
+type safeError struct {
+	code  string
+	cause error
+}
+
+func (err safeError) Error() string    { return err.cause.Error() }
+func (err safeError) Unwrap() error    { return err.cause }
+func (err safeError) SafeCode() string { return err.code }
+
+func classified(code string, cause error) error {
+	return safeError{code: code, cause: cause}
+}
 
 var (
 	ErrInvalidEndpoint   = errors.New("invalid Newznab endpoint")
@@ -66,6 +85,9 @@ var (
 	ErrInvalidNZB        = errors.New("downloaded document is not NZB XML")
 	ErrNoNFO             = errors.New("release has no NFO document")
 	ErrSchedulerRequired = errors.New("indexer scheduler is required")
+	ErrCrossHostRedirect = errors.New("cross-host redirect rejected")
+	ErrTLSDowngrade      = errors.New("TLS downgrade rejected")
+	ErrTooManyRedirects  = errors.New("too many redirects")
 )
 
 type responseValidator func([]byte) (indexers.Outcome, error)
@@ -178,12 +200,16 @@ func (client *Client) GetNFO(ctx context.Context, nativeID string) ([]byte, erro
 }
 
 func (client *Client) GetNZB(ctx context.Context, nativeID string) ([]byte, error) {
-	return client.request(ctx, indexers.WorkloadRetrieval, []Param{{Name: "t", Value: "get"}, {Name: "id", Value: nativeID}}, client.nzbLimit, func(body []byte) (indexers.Outcome, error) {
+	return client.GetNZBGuarded(ctx, nativeID, nil)
+}
+
+func (client *Client) GetNZBGuarded(ctx context.Context, nativeID string, guard func(context.Context) error) ([]byte, error) {
+	return client.requestGuarded(ctx, indexers.WorkloadRetrieval, []Param{{Name: "t", Value: "get"}, {Name: "id", Value: nativeID}}, client.nzbLimit, guard, func(body []byte) (indexers.Outcome, error) {
 		if provider, ok := providerErrorDocument(body); ok {
 			return validationFailureOutcome(provider), provider
 		}
 		if err := validateNZB(body); err != nil {
-			return indexers.OutcomeSystemFailure, ErrInvalidNZB
+			return indexers.OutcomeSystemFailure, classified("newznab_invalid_nzb", ErrInvalidNZB)
 		}
 		return indexers.OutcomeSuccess, nil
 	})
@@ -240,6 +266,10 @@ func validateNZB(body []byte) error {
 }
 
 func (client *Client) request(ctx context.Context, workload indexers.Workload, params []Param, limit int64, validate responseValidator) ([]byte, error) {
+	return client.requestGuarded(ctx, workload, params, limit, nil, validate)
+}
+
+func (client *Client) requestGuarded(ctx context.Context, workload indexers.Workload, params []Param, limit int64, guard func(context.Context) error, validate responseValidator) ([]byte, error) {
 	permit, err := client.scheduler.Acquire(ctx, client.config.IndexerID, workload)
 	if err != nil {
 		return nil, err
@@ -250,6 +280,13 @@ func (client *Client) request(ctx context.Context, workload indexers.Workload, p
 			permit.Close()
 		}
 	}()
+	if guard != nil {
+		if err := guard(ctx); err != nil {
+			recorded = true
+			_ = permit.Record(context.Background(), indexers.OutcomeCancelled, nil)
+			return nil, err
+		}
+	}
 
 	endpoint := *client.base
 	endpoint.RawQuery = encode(params, client.config.APIKey)
@@ -257,7 +294,7 @@ func (client *Client) request(ctx context.Context, workload indexers.Workload, p
 	if err != nil {
 		recorded = true
 		_ = permit.Record(context.Background(), indexers.OutcomeSystemFailure, nil)
-		return nil, errors.New("could not construct Newznab request")
+		return nil, classified("newznab_request_build_failed", errors.New("could not construct Newznab request"))
 	}
 	req.Header.Set("Accept", "application/xml, application/rss+xml, text/plain;q=0.8")
 	req.Header.Set("User-Agent", "MediaManager/1")
@@ -265,7 +302,16 @@ func (client *Client) request(ctx context.Context, workload indexers.Workload, p
 	if err != nil {
 		recorded = true
 		_ = permit.Record(context.Background(), indexers.OutcomeSystemFailure, nil)
-		return nil, errors.New("Newznab request failed")
+		code := "newznab_transport_failed"
+		switch {
+		case errors.Is(err, ErrCrossHostRedirect):
+			code = "newznab_cross_host_redirect_rejected"
+		case errors.Is(err, ErrTLSDowngrade):
+			code = "newznab_tls_downgrade_rejected"
+		case errors.Is(err, ErrTooManyRedirects):
+			code = "newznab_too_many_redirects"
+		}
+		return nil, classified(code, errors.New("Newznab request failed"))
 	}
 	defer response.Body.Close()
 	outcome := classify(response.StatusCode)
@@ -282,7 +328,10 @@ func (client *Client) request(ctx context.Context, workload indexers.Workload, p
 		return nil, fmt.Errorf("persist indexer pacing state: %w", recordErr)
 	}
 	if readErr != nil {
-		return nil, readErr
+		if errors.Is(readErr, ErrResponseTooLarge) {
+			return nil, classified("newznab_response_too_large", readErr)
+		}
+		return nil, classified("newznab_response_read_failed", errors.New("Newznab response could not be read"))
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, HTTPError{StatusCode: response.StatusCode, RetryAfter: response.Header.Get("Retry-After")}
@@ -370,13 +419,13 @@ func readBounded(reader io.Reader, limit int64) ([]byte, error) {
 
 func safeRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 3 {
-		return errors.New("too many redirects")
+		return ErrTooManyRedirects
 	}
 	if len(via) > 0 && !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
-		return errors.New("cross-host redirect rejected")
+		return ErrCrossHostRedirect
 	}
 	if req.URL.Scheme != "https" && via[0].URL.Scheme == "https" {
-		return errors.New("TLS downgrade rejected")
+		return ErrTLSDowngrade
 	}
 	return nil
 }

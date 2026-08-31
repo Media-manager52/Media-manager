@@ -2,13 +2,83 @@ package newznab
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/media-manager/media-manager/internal/indexers"
 )
+
+func TestGetNZBGuardedStopsAfterPacingBeforeProviderRequest(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		writer.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	scheduler := indexers.NewScheduler(1, nil)
+	if err := scheduler.Configure("guarded", indexers.Budget{MinimumInterval: 25 * time.Millisecond, FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := scheduler.Acquire(context.Background(), "guarded", indexers.WorkloadRetrieval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := seed.Record(context.Background(), indexers.OutcomeSuccess, nil); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{IndexerID: "guarded", BaseURL: server.URL, APIKey: "secret", AllowHTTP: true}, scheduler, server.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardFailure := errors.New("workflow changed")
+	started := time.Now()
+	if _, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error { return guardFailure }); !errors.Is(err, guardFailure) {
+		t.Fatalf("guard error=%v", err)
+	}
+	if elapsed := time.Since(started); elapsed < 15*time.Millisecond {
+		t.Fatalf("guard ran before scheduler wait completed: %s", elapsed)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("provider requests=%d, want 0", got)
+	}
+	if got := scheduler.Snapshot("guarded").LastOutcome; got != indexers.OutcomeCancelled {
+		t.Fatalf("scheduler outcome=%q, want cancelled", got)
+	}
+}
+
+func TestGetNZBClassifiesCrossHostRedirectWithoutExposingURL(t *testing.T) {
+	var targetRequests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		targetRequests.Add(1)
+	}))
+	defer target.Close()
+	redirectTarget := strings.Replace(target.URL, "127.0.0.1", "localhost", 1)
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, redirectTarget, http.StatusFound)
+	}))
+	defer source.Close()
+	scheduler := indexers.NewScheduler(1, nil)
+	if err := scheduler.Configure("redirect", indexers.Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{IndexerID: "redirect", BaseURL: source.URL, APIKey: "secret", AllowHTTP: true}, scheduler, source.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.GetNZB(context.Background(), "native-id")
+	var coded interface{ SafeCode() string }
+	if !errors.As(err, &coded) || coded.SafeCode() != "newznab_cross_host_redirect_rejected" || strings.Contains(err.Error(), redirectTarget) {
+		t.Fatalf("classified redirect error=%T %v", err, err)
+	}
+	if got := targetRequests.Load(); got != 0 {
+		t.Fatalf("cross-host redirect target requests=%d, want 0", got)
+	}
+}
 
 func TestValidatedResponseControlsPersistedSchedulerOutcome(t *testing.T) {
 	tests := []struct {

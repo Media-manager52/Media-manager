@@ -18,7 +18,7 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-const maxReleaseRetrievalAttempts = 5
+const maxReleaseRetrievalAttempts = 2
 
 type RetrievalService struct {
 	Store         *postgres.Store
@@ -117,7 +117,22 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err != nil {
 		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
 	}
-	nzb, err := indexerClient.GetNZB(ctx, retrievalID)
+	nzb, err := indexerClient.GetNZBGuarded(ctx, retrievalID, func(guardCtx context.Context) error {
+		current, loadErr := service.Store.LoadRetrievalContext(guardCtx, workflowID, candidateID)
+		if errors.Is(loadErr, postgres.ErrNotFound) {
+			return postgres.ErrConcurrentModification
+		}
+		if loadErr != nil {
+			return loadErr
+		}
+		if current.Workflow.State != workflows.StateCandidateSelected || current.Workflow.Revision != retrieval.Workflow.Revision || current.CandidateID != retrieval.CandidateID {
+			return postgres.ErrConcurrentModification
+		}
+		return nil
+	})
+	if errors.Is(err, postgres.ErrConcurrentModification) {
+		return nil
+	}
 	if err != nil {
 		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
 	}
@@ -159,7 +174,12 @@ func (service *RetrievalService) retryOrRecordRetrievalFailure(ctx context.Conte
 	if event.Attempts < maxReleaseRetrievalAttempts {
 		return cause
 	}
-	if err := service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, "selected release NZB could not be retrieved after bounded retries", time.Now().UTC()); err != nil {
+	detail := "selected release NZB could not be retrieved after two bounded requests"
+	var coded interface{ SafeCode() string }
+	if errors.As(cause, &coded) {
+		detail += " (" + coded.SafeCode() + ")"
+	}
+	if err := service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, detail, time.Now().UTC()); err != nil {
 		return errors.Join(cause, err)
 	}
 	return nil

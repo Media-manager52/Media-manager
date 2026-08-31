@@ -66,6 +66,19 @@ func (err ProviderError) Error() string {
 	return "Newznab provider error " + err.Code + ": " + err.Description
 }
 
+func (err ProviderError) SafeCode() string {
+	code := strings.TrimSpace(err.Code)
+	if len(code) < 1 || len(code) > 4 {
+		return "newznab_provider_error"
+	}
+	for _, character := range code {
+		if character < '0' || character > '9' {
+			return "newznab_provider_error"
+		}
+	}
+	return "newznab_provider_" + code
+}
+
 var ErrMalformedXML = errors.New("malformed Newznab XML")
 
 func ParseSearch(body []byte, indexerID, operation string, observedAt time.Time) ([]releases.Observation, error) {
