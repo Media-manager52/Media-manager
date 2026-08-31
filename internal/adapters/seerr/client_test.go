@@ -39,6 +39,9 @@ func TestSearchUsesBoundedEncodedQuery(t *testing.T) {
 		if request.URL.Path != "/api/v1/search" || request.URL.Query().Get("query") != "Dune & Sand" || request.URL.Query().Get("page") != "2" {
 			t.Fatalf("unexpected search URL: %s", request.URL.String())
 		}
+		if request.URL.RawQuery != "page=2&query=Dune%20%26%20Sand" {
+			t.Fatalf("unexpected raw search query: %s", request.URL.RawQuery)
+		}
 		if request.Header.Get("X-Api-Key") != "secret" {
 			t.Fatal("missing Seerr API key")
 		}

@@ -200,7 +200,9 @@ func (client *Client) Search(ctx context.Context, query string, page int) (Searc
 	values := endpoint.Query()
 	values.Set("query", query)
 	values.Set("page", strconv.Itoa(page))
-	endpoint.RawQuery = values.Encode()
+	// Seerr's search route rejects application/x-www-form-urlencoded spaces
+	// encoded as '+'. Preserve standard escaping while using RFC 3986 spaces.
+	endpoint.RawQuery = strings.ReplaceAll(values.Encode(), "+", "%20")
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return SearchPage{}, err
