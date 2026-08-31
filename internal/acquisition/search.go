@@ -147,7 +147,11 @@ func applyWorkflowExclusions(observation releases.Observation, evaluation releas
 			continue
 		}
 		evaluation.Verdict = releases.VerdictRejected
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "workflow subtitle verification", Fact: "native_release", Decision: releases.DecisionFail, Values: []string{observation.NativeGUID}, Reason: exclusion.Reason})
+		rule := "workflow release verification"
+		if exclusion.FailureKind == "subtitle_verification" {
+			rule = "workflow subtitle verification"
+		}
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: rule, Fact: "native_release", Decision: releases.DecisionFail, Values: []string{observation.NativeGUID}, Reason: exclusion.Reason})
 		return evaluation
 	}
 	return evaluation
@@ -198,7 +202,7 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 		}
 		matched := false
 		for _, value := range fact.Values {
-			if strings.EqualFold(strings.TrimSpace(value), expected) {
+			if providerIdentityEqual(fact.Name, value, expected) {
 				matched = true
 				break
 			}
@@ -217,6 +221,32 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "series identity evidence", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Reason: "provider supplied no matching series ID and the canonical first-air year is not explicit"})
 	}
 	return evaluation
+}
+
+func providerIdentityEqual(factName, observed, expected string) bool {
+	if strings.EqualFold(strings.TrimSpace(observed), strings.TrimSpace(expected)) {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(factName), "imdb_id") {
+		return false
+	}
+	observedID, observedOK := normalizeIMDbID(observed)
+	expectedID, expectedOK := normalizeIMDbID(expected)
+	return observedOK && expectedOK && observedID == expectedID
+}
+
+func normalizeIMDbID(value string) (string, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.TrimPrefix(value, "tt")
+	if len(value) < 7 || len(value) > 9 {
+		return "", false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return "", false
+		}
+	}
+	return value, true
 }
 
 func buildRequest(search postgres.SearchContext, config indexerConfig) newznab.SearchRequest {

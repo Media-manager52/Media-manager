@@ -18,6 +18,8 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
+const maxReleaseRetrievalAttempts = 5
+
 type RetrievalService struct {
 	Store         *postgres.Store
 	Scheduler     *indexers.Scheduler
@@ -111,9 +113,13 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err != nil {
 		return err
 	}
-	nzb, err := indexerClient.GetNZB(ctx, retrieval.NativeID)
+	retrievalID, err := newznab.RetrievalID(retrieval.NativeID, indexerConfiguration.BaseURL)
 	if err != nil {
-		return err
+		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
+	}
+	nzb, err := indexerClient.GetNZB(ctx, retrievalID)
+	if err != nil {
+		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
 	}
 	var config altMountConfig
 	if err := json.Unmarshal(retrieval.DownloadClient.Config, &config); err != nil {
@@ -147,4 +153,14 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 		return service.Store.MarkAltMountFailed(ctx, workflowID, intent.JobID, time.Now().UTC())
 	}
 	return service.Store.MarkAltMountSubmitted(ctx, workflowID, intent.JobID, int64(item.ID), time.Now().UTC())
+}
+
+func (service *RetrievalService) retryOrRecordRetrievalFailure(ctx context.Context, event postgres.OutboxEvent, retrieval postgres.RetrievalContext, cause error) error {
+	if event.Attempts < maxReleaseRetrievalAttempts {
+		return cause
+	}
+	if err := service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, "selected release NZB could not be retrieved after bounded retries", time.Now().UTC()); err != nil {
+		return errors.Join(cause, err)
+	}
+	return nil
 }

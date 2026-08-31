@@ -140,7 +140,7 @@ func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMount
 		if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET state='needs_attention',revision=revision+1,last_reconciled_at=$2,error_code='subtitle_requirements_unverified',error_detail=$3 WHERE id=$1`, job.JobID.String(), now.UTC(), detail); err != nil {
 			return SubtitleVerificationRecord{}, err
 		}
-		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,verification_id,reason,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, job.Workflow.ID.String(), candidateText, indexerText, nativeKey, verificationID.String(), detail, now.UTC()); err != nil {
+		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,verification_id,failure_kind,reason,created_at) VALUES($1,$2,$3,$4,$5,'subtitle_verification',$6,$7)`, job.Workflow.ID.String(), candidateText, indexerText, nativeKey, verificationID.String(), detail, now.UTC()); err != nil {
 			return SubtitleVerificationRecord{}, err
 		}
 		if retryState == "queued" {

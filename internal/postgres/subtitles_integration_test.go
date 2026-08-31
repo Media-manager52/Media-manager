@@ -66,6 +66,37 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 		t.Fatalf("workflow=%+v err=%v", created, err)
 	}
 	workflowID := created[0].ID
+	retrievalMedia, err := catalog.New(catalog.KindMovie, "Retrieval Failure Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654320", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	retrievalWorkflows, err := store.CreateManualMedia(ctx, retrievalMedia, root.ID, profile.ID, altMount.ID, nil, false, "test")
+	if err != nil || len(retrievalWorkflows) != 1 {
+		t.Fatalf("retrieval workflow=%+v err=%v", retrievalWorkflows, err)
+	}
+	retrievalWorkflow := retrievalWorkflows[0]
+	retrieval := seedRetrievalCandidate(t, ctx, store, retrievalWorkflow.ID, indexer.ID, "https://indexer.invalid/details/exact-retrieval-guid")
+	if err := store.RecordReleaseRetrievalFailure(ctx, retrieval, "bounded test retrieval failure", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var retrievalState, retrievalAttention, failureKind string
+	var verificationID *string
+	if err := store.Pool.QueryRow(ctx, `SELECT workflow.state,workflow.attention_code,exclusion.failure_kind,exclusion.verification_id::text
+		FROM workflows workflow JOIN workflow_release_exclusions exclusion ON exclusion.workflow_id=workflow.id
+		WHERE workflow.id=$1`, retrievalWorkflow.ID.String()).Scan(&retrievalState, &retrievalAttention, &failureKind, &verificationID); err != nil {
+		t.Fatal(err)
+	}
+	if retrievalState != "needs_attention" || retrievalAttention != "release_retrieval_failed" || failureKind != "release_retrieval" || verificationID != nil {
+		t.Fatalf("retrieval failure state=%q attention=%q kind=%q verification=%v", retrievalState, retrievalAttention, failureKind, verificationID)
+	}
+	retrievalSearch, err := store.LoadSearchContext(ctx, retrievalWorkflow.ID)
+	if err != nil || len(retrievalSearch.Exclusions) != 1 || !retrievalSearch.Exclusions[0].Matches(indexer.ID, "https://indexer.invalid/details/exact-retrieval-guid") || retrievalSearch.Exclusions[0].Matches(indexer.ID, "https://indexer.invalid/details/exact-retrieval-guid-2") || retrievalSearch.Exclusions[0].Matches(uuid.NewV7(), "https://indexer.invalid/details/exact-retrieval-guid") {
+		t.Fatalf("retrieval exclusion=%+v err=%v", retrievalSearch.Exclusions, err)
+	}
+	mainSearch, err := store.LoadSearchContext(ctx, workflowID)
+	if err != nil || len(mainSearch.Exclusions) != 0 {
+		t.Fatalf("retrieval exclusion escaped workflow: %+v err=%v", mainSearch.Exclusions, err)
+	}
 	oldVersionID := seedCurrentSubtitleVersion(t, ctx, store, media.ID, root.ID, profile.ID, altMount.ID, indexer.ID)
 
 	firstJob, firstInventory, firstAssets := seedSubtitleAttempt(t, ctx, store, workflowID, altMount.ID, indexer.ID, 1, "exact-guid-1")
@@ -271,6 +302,28 @@ func seedSubtitleAttempt(t *testing.T, ctx context.Context, store *Store, workfl
 		t.Fatal(err)
 	}
 	return job, inventoryID, []uuid.UUID{videoID, sidecarID}
+}
+
+func seedRetrievalCandidate(t *testing.T, ctx context.Context, store *Store, workflowID, indexerID uuid.UUID, nativeKey string) RetrievalContext {
+	t.Helper()
+	runID, observationID, candidateID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO search_runs(id,workflow_id,mode,query_fingerprint,state,policy_version,started_at,completed_at) VALUES($1,$2,'targeted',$3,'complete',1,now(),now())`, runID.String(), workflowID.String(), []byte{7}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_observations(id,indexer_instance_id,operation_key,native_guid,title,body_sha256,raw_fields,normalized_facts,parse_version,problems,observed_at) VALUES($1,$2,'test',$3,'Retrieval.Test.2026.1080p.WEB-DL',$4,'[]','[]','test','[]',now())`, observationID.String(), indexerID.String(), nativeKey, []byte{7}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at) VALUES($1,$2,$3,$4,$5,$6,'Retrieval.Test.2026.1080p.WEB-DL',$7,now())`, candidateID.String(), workflowID.String(), runID.String(), observationID.String(), indexerID.String(), nativeKey, "native:"+nativeKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='candidate_selected',selected_release_id=$2,revision=revision+1,updated_at=now() WHERE id=$1`, workflowID.String(), candidateID.String()); err != nil {
+		t.Fatal(err)
+	}
+	retrieval, err := store.LoadRetrievalContext(ctx, workflowID, candidateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return retrieval
 }
 
 func seedCurrentSubtitleVersion(t *testing.T, ctx context.Context, store *Store, mediaID, rootID, profileID, altMountID, indexerID uuid.UUID) uuid.UUID {

@@ -43,6 +43,39 @@ func TestConstrainSeriesMatchRequiresPositiveIdentityOrYear(t *testing.T) {
 	}
 }
 
+func TestConstrainMovieMatchNormalizesIMDbPrefixOnly(t *testing.T) {
+	year := uint16(2019)
+	media := catalog.MediaItem{
+		Kind:  catalog.KindMovie,
+		Title: "Klaus",
+		Year:  &year,
+		Identities: []catalog.ExternalIdentity{{
+			Namespace: "imdb",
+			Value:     "tt4729430",
+			State:     catalog.IdentityVerified,
+		}},
+	}
+	tests := []struct {
+		name        string
+		fact        releases.Fact
+		wantVerdict releases.Verdict
+	}{
+		{name: "numeric observation matches canonical IMDb", fact: releases.Fact{Name: "imdb_id", Values: []string{"4729430"}, State: releases.FactObserved}, wantVerdict: releases.VerdictEligible},
+		{name: "canonical observation matches", fact: releases.Fact{Name: "imdb_id", Values: []string{"tt4729430"}, State: releases.FactObserved}, wantVerdict: releases.VerdictEligible},
+		{name: "different IMDb rejected", fact: releases.Fact{Name: "imdb_id", Values: []string{"4729431"}, State: releases.FactObserved}, wantVerdict: releases.VerdictRejected},
+		{name: "malformed IMDb rejected", fact: releases.Fact{Name: "imdb_id", Values: []string{"Klaus"}, State: releases.FactObserved}, wantVerdict: releases.VerdictRejected},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			observation := releases.Observation{Title: "Klaus.2019.1080p.WEB-DL", Facts: []releases.Fact{test.fact}}
+			evaluation := releases.Evaluation{Verdict: releases.VerdictEligible}
+			if got := constrainMediaMatch(observation, evaluation, media).Verdict; got != test.wantVerdict {
+				t.Fatalf("verdict=%q, want %q", got, test.wantVerdict)
+			}
+		})
+	}
+}
+
 func TestApplyReleaseBlocksUsesNarrowScope(t *testing.T) {
 	indexerID, otherIndexerID, mediaID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
 	search := postgres.SearchContext{Media: catalog.MediaItem{ID: mediaID}, Variant: "season:03", Blocks: []postgres.ReleaseBlock{

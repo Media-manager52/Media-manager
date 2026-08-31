@@ -45,3 +45,34 @@ func TestValidatedResponseControlsPersistedSchedulerOutcome(t *testing.T) {
 		})
 	}
 }
+
+func TestRetrievalIDPreservesIdentityAndSafelyExtractsDetailsID(t *testing.T) {
+	tests := []struct {
+		name      string
+		nativeKey string
+		baseURL   string
+		want      string
+		wantError bool
+	}{
+		{name: "plain provider ID", nativeKey: "0e415c0b-6943-4f00-88ab-415d70388531", baseURL: "https://ordinary.example/api", want: "0e415c0b-6943-4f00-88ab-415d70388531"},
+		{name: "NZBFinder details permalink", nativeKey: "https://nzbfinder.ws/details/0e415c0b-6943-4f00-88ab-415d70388531", baseURL: "https://nzbfinder.ws/api", want: "0e415c0b-6943-4f00-88ab-415d70388531"},
+		{name: "DrunkenSlug details permalink", nativeKey: "https://drunkenslug.com/details/0123456789abcdef0123456789abcdef01234567", baseURL: "https://drunkenslug.com/api", want: "0123456789abcdef0123456789abcdef01234567"},
+		{name: "unverified provider permalink rejected", nativeKey: "https://ordinary.example/details/0e415c0b-6943-4f00-88ab-415d70388531", baseURL: "https://ordinary.example/api", wantError: true},
+		{name: "trailing slash rejected", nativeKey: "https://nzbfinder.ws/details/0e415c0b-6943-4f00-88ab-415d70388531/", baseURL: "https://nzbfinder.ws/api", wantError: true},
+		{name: "query rejected", nativeKey: "https://nzbfinder.ws/details/0e415c0b-6943-4f00-88ab-415d70388531?apikey=secret", baseURL: "https://nzbfinder.ws/api", wantError: true},
+		{name: "userinfo rejected", nativeKey: "https://user:secret@nzbfinder.ws/details/0e415c0b-6943-4f00-88ab-415d70388531", baseURL: "https://nzbfinder.ws/api", wantError: true},
+		{name: "other provider rejected", nativeKey: "https://other.example/details/0e415c0b-6943-4f00-88ab-415d70388531", baseURL: "https://nzbfinder.ws/api", wantError: true},
+		{name: "scheme mismatch rejected", nativeKey: "http://nzbfinder.ws/details/0e415c0b-6943-4f00-88ab-415d70388531", baseURL: "https://nzbfinder.ws/api", wantError: true},
+		{name: "non-details URL rejected", nativeKey: "https://nzbfinder.ws/download/0e415c0b-6943-4f00-88ab-415d70388531", baseURL: "https://nzbfinder.ws/api", wantError: true},
+		{name: "encoded path rejected", nativeKey: "https://nzbfinder.ws/details/0e415c0b%2F6943-4f00-88ab-415d70388531", baseURL: "https://nzbfinder.ws/api", wantError: true},
+		{name: "weak identity rejected", nativeKey: "weak:abcdef", baseURL: "https://ordinary.example/api", wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := RetrievalID(test.nativeKey, test.baseURL)
+			if (err != nil) != test.wantError || got != test.want {
+				t.Fatalf("RetrievalID()=%q, %v; want %q, error=%v", got, err, test.want, test.wantError)
+			}
+		})
+	}
+}

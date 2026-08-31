@@ -31,6 +31,7 @@ type WorkflowReleaseExclusion struct {
 	CandidateID       uuid.UUID
 	IndexerInstanceID uuid.UUID
 	NativeKey         string
+	FailureKind       string
 	Reason            string
 }
 
@@ -110,7 +111,7 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	if err := store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM subtitle_verifications WHERE workflow_id=$1 AND retry_state='queued')`, result.Workflow.ID.String()).Scan(&result.SubtitleRetry); err != nil {
 		return SearchContext{}, err
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT exclusion.candidate_id::text,exclusion.indexer_instance_id::text,exclusion.native_key,exclusion.reason FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=$1 ORDER BY exclusion.created_at`, result.Workflow.ID.String())
+	rows, err := store.Pool.Query(ctx, `SELECT exclusion.candidate_id::text,exclusion.indexer_instance_id::text,exclusion.native_key,exclusion.failure_kind,exclusion.reason FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=$1 ORDER BY exclusion.created_at`, result.Workflow.ID.String())
 	if err != nil {
 		return SearchContext{}, err
 	}
@@ -118,7 +119,7 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	for rows.Next() {
 		var item WorkflowReleaseExclusion
 		var candidateText, indexerText string
-		if err := rows.Scan(&candidateText, &indexerText, &item.NativeKey, &item.Reason); err != nil {
+		if err := rows.Scan(&candidateText, &indexerText, &item.NativeKey, &item.FailureKind, &item.Reason); err != nil {
 			return SearchContext{}, err
 		}
 		item.CandidateID, _ = uuid.Parse(candidateText)
