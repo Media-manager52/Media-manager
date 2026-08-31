@@ -32,6 +32,28 @@ func TestParseSearchPreservesRepeatedAttributes(t *testing.T) {
 	}
 }
 
+func TestParseSearchPrefersCleanNewznabGUIDAttribute(t *testing.T) {
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Klaus.2019.1080p.WEB-DL</title><guid>https://treasure-maps.com/details/0123456789abcdef0123456789abcdef</guid><link>https://treasure-maps.com/details/0123456789abcdef0123456789abcdef</link><newznab:attr name="guid" value="0123456789abcdef0123456789abcdef"/></item></channel></rss>`)
+	items, err := ParseSearch(body, "", "movie", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].NativeGUID != "0123456789abcdef0123456789abcdef" || len(items[0].Fields) != 1 || items[0].Fields[0].Value != "0123456789abcdef0123456789abcdef" {
+		t.Fatalf("clean Newznab guid attribute was not preserved as native identity: %#v", items)
+	}
+}
+
+func TestParseSearchDoesNotGuessBetweenConflictingGUIDAttributes(t *testing.T) {
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Movie.2026</title><guid>rss-native</guid><newznab:attr name="guid" value="attribute-one"/><newznab:attr name="guid" value="attribute-two"/></item></channel></rss>`)
+	items, err := ParseSearch(body, "", "movie", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].NativeGUID != "rss-native" || len(items[0].Problems) != 1 {
+		t.Fatalf("conflicting Newznab guid attributes were not held safely: %#v", items)
+	}
+}
+
 func TestParseSearchCanonicalizesOnlyExplicitSubtitleEvidence(t *testing.T) {
 	t.Parallel()
 	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Movie.2026</title><guid>native-subtitles</guid><newznab:attr name="language" value="Danish"/><newznab:attr name="subtitles" value="da-DK, en"/></item></channel></rss>`)

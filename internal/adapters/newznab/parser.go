@@ -187,9 +187,16 @@ func (builder *itemBuilder) text(element, value string) {
 }
 
 func (builder *itemBuilder) finish(indexerID, operation string, observedAt time.Time, bodyHash string) releases.Observation {
-	observation := releases.Observation{ID: uuid.NewV7(), Operation: operation, NativeGUID: strings.TrimSpace(builder.guid), Title: strings.TrimSpace(builder.title), DownloadURL: strings.TrimSpace(builder.link), Fields: append([]releases.RawField(nil), builder.fields...), BodyHash: bodyHash, ObservedAt: observedAt.UTC(), ParseVersion: "newznab-v1"}
+	nativeGUID, conflictingAttributeGUID := nativeAttributeGUID(builder.fields)
+	if nativeGUID == "" {
+		nativeGUID = strings.TrimSpace(builder.guid)
+	}
+	observation := releases.Observation{ID: uuid.NewV7(), Operation: operation, NativeGUID: nativeGUID, Title: strings.TrimSpace(builder.title), DownloadURL: strings.TrimSpace(builder.link), Fields: append([]releases.RawField(nil), builder.fields...), BodyHash: bodyHash, ObservedAt: observedAt.UTC(), ParseVersion: "newznab-v1"}
 	if parsed, err := uuid.Parse(indexerID); err == nil {
 		observation.IndexerID = parsed
+	}
+	if conflictingAttributeGUID {
+		observation.Problems = append(observation.Problems, "conflicting Newznab guid attributes; RSS guid retained")
 	}
 	for _, category := range builder.category {
 		observation.Fields = append(observation.Fields, releases.RawField{Name: "category", Value: category, Ordinal: len(observation.Fields)})
@@ -204,6 +211,24 @@ func (builder *itemBuilder) finish(indexerID, operation string, observedAt time.
 	}
 	observation.Facts = normalizeFacts(observation.Fields, observedAt)
 	return observation
+}
+
+func nativeAttributeGUID(fields []releases.RawField) (string, bool) {
+	value := ""
+	for _, field := range fields {
+		if !strings.EqualFold(strings.TrimSpace(field.Name), "guid") {
+			continue
+		}
+		candidate := strings.TrimSpace(field.Value)
+		if candidate == "" || !retrievalIDPattern.MatchString(candidate) {
+			continue
+		}
+		if value != "" && value != candidate {
+			return "", true
+		}
+		value = candidate
+	}
+	return value, false
 }
 
 func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases.Fact {
