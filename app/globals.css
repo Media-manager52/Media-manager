@@ -15,38 +15,38 @@
 }
 
 :root {
-  --background: #080a0d;
-  --foreground: #f3f5f7;
-  --card: #10141a;
-  --card-foreground: #f3f5f7;
-  --popover: #10141a;
-  --popover-foreground: #f3f5f7;
-  --primary: #8da6ff;
-  --primary-foreground: #08101d;
-  --secondary: #171c24;
+  --background: #080b12;
+  --foreground: #f4f6fa;
+  --card: #0e141e;
+  --card-foreground: #f4f6fa;
+  --popover: #111925;
+  --popover-foreground: #f4f6fa;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #111925;
   --secondary-foreground: #e7ebf0;
-  --muted: #151a21;
-  --muted-foreground: #8b96a5;
-  --accent: #1a2234;
-  --accent-foreground: #f3f5f7;
+  --muted: #111925;
+  --muted-foreground: #929dac;
+  --accent: #171428;
+  --accent-foreground: #f4f6fa;
   --destructive: #eb7d7d;
-  --border: #252d38;
-  --input: #28313d;
-  --ring: #86a2ff;
-  --chart-1: #86a2ff;
+  --border: #202a39;
+  --input: #202a39;
+  --ring: #7c3aed;
+  --chart-1: #7c3aed;
   --chart-2: #59c797;
   --chart-3: #f0bd62;
   --chart-4: #aa8cff;
   --chart-5: #69c7da;
   --radius: 0.72rem;
-  --sidebar: #090c10;
+  --sidebar: #0b0f17;
   --sidebar-foreground: #dbe1e8;
-  --sidebar-primary: #8da6ff;
-  --sidebar-primary-foreground: #08101d;
-  --sidebar-accent: #1a2234;
+  --sidebar-primary: #7c3aed;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #171428;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #232a34;
-  --sidebar-ring: #86a2ff;
+  --sidebar-border: #202a39;
+  --sidebar-ring: #7c3aed;
 }
 
 @theme inline {
@@ -100,10 +100,7 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
-  background:
-    radial-gradient(950px 560px at 76% -18%, rgba(89, 111, 195, 0.14), transparent 65%),
-    radial-gradient(700px 500px at 12% 110%, rgba(78, 94, 151, 0.07), transparent 70%),
-    var(--background);
+  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 15px;
@@ -111,7 +108,7 @@ body {
 
 button, a, input, select, textarea { outline-color: var(--ring); }
 
-::selection { background: rgba(134, 162, 255, 0.32); color: white; }
+::selection { background: rgba(124, 58, 237, 0.34); color: white; }
 
 .mm-panel {
   position: relative;

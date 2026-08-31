@@ -8,6 +8,7 @@ import {
   ArchiveRestore,
   Bell,
   BookOpenCheck,
+  ChevronDown,
   DatabaseBackup,
   FileClock,
   Files,
@@ -60,6 +61,7 @@ import {
 import { Toaster } from "@/components/ui/sonner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { loadSystemHealth, loadSystemInfo } from "@/lib/media-manager-api"
 import { normalizeRoute, routeTitles } from "@/lib/media-manager-routes"
 import {
   LiveConnectionsScreen,
@@ -102,7 +104,7 @@ type NavGroup = { label: string; items: NavItem[] }
 const liveNavigation: NavGroup[] = [
   { label: "Home", items: [{ label: "Overview", href: "/", icon: MonitorCog }] },
   { label: "Library", items: [
-    { label: "Media", href: "/media", icon: Library },
+    { label: "Movies", href: "/media", icon: Library },
     { label: "Collections", href: "/collections", icon: BookOpenCheck },
     { label: "Calendar", href: "/calendar", icon: FileClock },
     { label: "Wanted & Upgrades", href: "/wanted", icon: ListChecks },
@@ -159,6 +161,17 @@ export function MediaManagerApp({ path }: { path: string }) {
   const renderedNavigation = liveNavigation
   const flatNavigation = renderedNavigation.flatMap((group) => group.items.map((item) => ({ ...item, group: group.label })))
   const [commandOpen, setCommandOpen] = React.useState(false)
+  const [openGroups, setOpenGroups] = React.useState<Set<string>>(() => new Set(["Home", "Library"]))
+  const [serviceStatus, setServiceStatus] = React.useState<{ ready?: boolean; version?: string }>({})
+  const libraryLayout = path === "/media"
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+    Promise.all([loadSystemHealth(controller.signal), loadSystemInfo(controller.signal)])
+      .then(([health, info]) => setServiceStatus({ ready: health.database_state === "ready" && health.schema_version === health.expected_schema, version: info.version }))
+      .catch(() => { if (!controller.signal.aborted) setServiceStatus({ ready: false }) })
+    return () => controller.abort()
+  }, [])
 
   React.useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -177,62 +190,69 @@ export function MediaManagerApp({ path }: { path: string }) {
   }, [router, setCommandOpen])
 
   return (
-    <SidebarProvider style={{ "--sidebar-width": "252px" } as React.CSSProperties}>
-      <Sidebar collapsible="offcanvas" className="border-r border-[#222a34] bg-[#090c10]">
-        <SidebarHeader className="border-b border-white/[0.06] p-4">
-          <Link href="/" className="flex items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-[#8199f4]">
-            <div className="grid size-9 place-items-center rounded-[11px] bg-gradient-to-br from-[#9bb0ff] to-[#647ddd] text-[11px] font-black tracking-[-0.08em] text-[#08101d] shadow-[0_8px_28px_rgba(100,125,221,.3)]">MM</div>
-            <div className="min-w-0"><div className="truncate text-[13px] font-extrabold text-[#f0f3f6]">Media Manager</div><div className="mt-0.5 truncate text-[9px] text-[#778291]">One system for the whole library</div></div>
+    <SidebarProvider style={{ "--sidebar-width": "184px" } as React.CSSProperties}>
+      <Sidebar collapsible="offcanvas" className="border-r border-[#202a39] bg-[#0b0f17]">
+        <SidebarHeader className="h-[60px] justify-center border-b border-[#202a39] px-3 py-0">
+          <Link href="/" className="flex items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]">
+            <div className="grid size-8 place-items-center rounded-[6px] bg-[#7c3aed] text-[10px] font-black tracking-[-0.08em] text-white">MM</div>
+            <div className="min-w-0"><div className="truncate text-[11px] font-extrabold text-[#f4f6fa]">Media Manager</div><div className="mt-0.5 truncate text-[8px] text-[#758192]">Owner console</div></div>
           </Link>
         </SidebarHeader>
-        <SidebarContent className="px-2 py-2 scrollbar-thin">
-          {renderedNavigation.map((group) => (
-            <SidebarGroup key={group.label} className="py-1.5">
-              <SidebarGroupLabel className="h-6 px-2 text-[8.5px] font-extrabold uppercase tracking-[0.18em] text-[#707b8a]">{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent>
+        <SidebarContent className="gap-0 px-1.5 py-2 scrollbar-thin">
+          {renderedNavigation.map((group) => {
+            const groupActive = group.items.some((item) => isRouteActive(path, item.href))
+            const open = openGroups.has(group.label) || groupActive
+            return (
+            <SidebarGroup key={group.label} className="py-0.5">
+              <SidebarGroupLabel asChild className="h-7 px-2 text-[8px] font-extrabold uppercase tracking-[0.14em] text-[#758192] hover:bg-[#111925] hover:text-[#c2c8d0]">
+                <button type="button" aria-expanded={open} onClick={() => setOpenGroups((current) => { const next = new Set(current); if (next.has(group.label)) next.delete(group.label); else next.add(group.label); return next })}><span>{group.label}</span><ChevronDown className={cn("ml-auto size-3 transition-transform", !open && "-rotate-90", groupActive && "text-[#9f7aea]")} /></button>
+              </SidebarGroupLabel>
+              {open ? <SidebarGroupContent>
                 <SidebarMenu>
                   {group.items.map((item) => {
                     const active = isRouteActive(path, item.href)
                     const Icon = item.icon
                     return (
                       <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={active} tooltip={item.label} className="h-8 rounded-lg px-2 text-[11px] text-[#aeb7c3] data-[active=true]:bg-[#1a2234] data-[active=true]:font-bold data-[active=true]:text-white hover:bg-[#121820] hover:text-white">
-                          <Link href={item.href}><Icon className={cn("size-4", active && "text-[#a8b8ff]")} /><span>{item.label}</span></Link>
+                        <SidebarMenuButton asChild isActive={active} tooltip={item.label} className="h-7 rounded-[5px] px-2 text-[9.5px] text-[#9ba5b2] data-[active=true]:bg-[#211b36] data-[active=true]:font-bold data-[active=true]:text-white hover:bg-[#111925] hover:text-white">
+                          <Link href={item.href}><Icon className={cn("size-3.5", active && "text-[#a98cf5]")} /><span>{item.label}</span></Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     )
                   })}
                 </SidebarMenu>
-              </SidebarGroupContent>
+              </SidebarGroupContent> : null}
             </SidebarGroup>
-          ))}
+          )})}
         </SidebarContent>
-        <SidebarFooter className="border-t border-white/[0.06] p-3">
-          <Link href="/system/health" className="flex items-center gap-2 rounded-lg p-2 transition hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8199f4]">
-            <span className="size-2 rounded-full bg-[#5fce9e] shadow-[0_0_0_4px_rgba(95,206,158,.09)]" />
-            <div><div className="text-[9.5px] font-bold text-[#dbe1e8]">Owner service</div><div className="mt-0.5 text-[8.5px] text-[#707b89]">Open live health</div></div>
+        <SidebarFooter className="border-t border-[#202a39] p-2">
+          <Link href="/system/health" className="flex items-center gap-2 rounded-[5px] p-2 transition hover:bg-[#111925] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]">
+            <span className={cn("size-2 rounded-full", serviceStatus.ready === undefined ? "bg-[#697586]" : serviceStatus.ready ? "bg-[#54c48e]" : "bg-[#d99a4e]")} />
+            <div className="min-w-0"><div className="truncate text-[8.5px] font-bold text-[#dbe1e8]">{serviceStatus.ready === undefined ? "Checking service" : serviceStatus.ready ? "Service healthy" : "Service attention"}</div><div className="mt-0.5 truncate text-[7.5px] text-[#707b89]">{serviceStatus.version ? `Version ${serviceStatus.version}` : "Health & version"}</div></div>
           </Link>
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
 
       <SidebarInset className="min-w-0 bg-transparent">
-        <div className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-white/[0.055] bg-[#080a0d]/90 px-3 backdrop-blur-xl sm:px-5 lg:px-7">
+        <div className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-3 border-b border-[#202a39] bg-[#080b12]/95 px-3 backdrop-blur-md sm:px-4">
           <SidebarTrigger className="md:hidden" />
-          <button onClick={() => setCommandOpen(true)} className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-[#252d38] bg-[#0d1116] px-3 text-left text-[10px] text-[#818c9b] transition hover:border-[#3b4655] sm:max-w-[430px]">
-            <Search className="size-4 shrink-0" /><span className="truncate">Navigate Media Manager…</span><kbd className="ml-auto hidden rounded-md border border-[#2e3744] bg-[#151a21] px-1.5 py-0.5 text-[8px] text-[#aeb6c1] sm:inline">Ctrl K</kbd>
+          <button onClick={() => setCommandOpen(true)} className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[6px] border border-[#202a39] bg-[#0e141e] px-3 text-left text-[9px] text-[#818c9b] transition hover:border-[#344155] sm:max-w-[360px]">
+            <Search className="size-3.5 shrink-0" /><span className="truncate">Navigate Media Manager…</span><kbd className="ml-auto hidden rounded-[4px] border border-[#283447] bg-[#111925] px-1.5 py-0.5 text-[7px] text-[#aeb6c1] sm:inline">Ctrl K</kbd>
           </button>
           <div className="ml-auto flex items-center gap-2">
             <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label="Notifications" onClick={() => toast.info("Workflow attention appears on the overview")}><Bell /></Button></TooltipTrigger><TooltipContent>Notifications</TooltipContent></Tooltip>
           </div>
         </div>
 
-        <main className="mx-auto w-full max-w-[1780px] p-3 pb-12 sm:p-5 lg:p-7">
-          <PageHeader
-            {...page}
-            actions={<><Button variant="outline" size="sm" onClick={() => setCommandOpen(true)}><Search /> Search</Button>{isAddContext(path) ? <Button asChild size="sm"><Link href="/discover"><Plus /> Add media</Link></Button> : null}</>}
-          />
-          <div className="mt-5"><RouteContent path={path} /></div>
+        <main className={cn("w-full", libraryLayout ? "h-[calc(100dvh-60px)] min-h-0 overflow-hidden" : "mx-auto max-w-[1780px] p-3 pb-12 sm:p-5 lg:p-7")}>
+          {libraryLayout ? <RouteContent path={path} /> : <>
+            <PageHeader
+              {...page}
+              actions={<><Button variant="outline" size="sm" onClick={() => setCommandOpen(true)}><Search /> Search</Button>{isAddContext(path) ? <Button asChild size="sm"><Link href="/discover"><Plus /> Add media</Link></Button> : null}</>}
+            />
+            <div className="mt-5"><RouteContent path={path} /></div>
+          </>}
         </main>
       </SidebarInset>
 

@@ -1,17 +1,21 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
   Activity,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Database,
   DatabaseBackup,
   Download,
   FileCheck2,
   Files,
+  Film,
   Gauge,
   Grid2X2,
   Globe2,
@@ -25,11 +29,15 @@ import {
   Search,
   SearchCheck,
   ShieldCheck,
+  SlidersHorizontal,
+  X,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   createReleaseBlock,
   createNotificationDestination,
@@ -39,7 +47,7 @@ import {
   loadActivity,
   loadCalendar,
   loadDashboard,
-  loadMedia,
+  loadCatalogMedia,
   loadManagedFile,
   loadManagedFiles,
   loadNotificationDeliveries,
@@ -54,16 +62,23 @@ import {
   loadSystemInfo,
   loadTasks,
   loadWanted,
+  loadWorkflows,
   setNotificationDestinationEnabled,
   uploadImportListSnapshot,
   type APIActivity,
+  type APIIdentity,
+  type APIManagedFile,
+  type APIMedia,
   type APIReleaseCandidate,
   type APISourceStatus,
   type APISystemHealth,
   type APISystemInfo,
   type APITasks,
   type APIImportList,
+  type APIWantedItem,
+  type APIWorkflow,
 } from "@/lib/media-manager-api"
+import { cn } from "@/lib/utils"
 import { InlineNotice, KeyValue, MetricCard, Panel, StatusChip } from "./ui"
 
 type Tone = "good" | "info" | "warn" | "bad" | "neutral"
@@ -189,20 +204,349 @@ export function LiveOperationalDashboardScreen() {
   </div>
 }
 
+type MovieLibrarySummary = "all" | "available" | "missing" | "monitoring" | "upgradable"
+
+export type MovieLibraryFilters = {
+  query: string
+  summary: MovieLibrarySummary
+  quality: string
+  resolution: string
+  audio: string
+  language: string
+  availability: MovieLibrarySummary
+  root: string
+  plexConfirmedOnly: boolean
+  managedOnly: boolean
+}
+
+export type MovieLibraryRecord = {
+  id: string
+  title: string
+  year?: number
+  identities: APIIdentity[]
+  files: APIManagedFile[]
+  wanted: APIWantedItem[]
+  workflows: APIWorkflow[]
+  profiles: string[]
+  roots: string[]
+  resolutions: string[]
+  audioCodecs: string[]
+  languages: string[]
+  dynamicRanges: string[]
+  available: boolean
+  missing: boolean
+  monitoring: boolean
+  upgradable: boolean
+}
+
+const initialMovieFilters: MovieLibraryFilters = {
+  query: "",
+  summary: "all",
+  quality: "",
+  resolution: "",
+  audio: "",
+  language: "",
+  availability: "all",
+  root: "",
+  plexConfirmedOnly: false,
+  managedOnly: false,
+}
+
+function factValues(file: APIManagedFile, key: string) {
+  const nested = file.quality_evidence.facts
+  const facts = nested && typeof nested === "object" && !Array.isArray(nested)
+    ? nested as Record<string, unknown>
+    : file.quality_evidence
+  const value = facts[key]
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+  if (typeof value === "string" && value.trim()) return [value]
+  if (typeof value === "number") return [String(value)]
+  return []
+}
+
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right))
+}
+
+export function buildMovieLibraryRecords(media: APIMedia[], files: APIManagedFile[], wanted: APIWantedItem[], workflows: APIWorkflow[]) {
+  return media
+    .filter((item) => item.kind === "movie")
+    .map<MovieLibraryRecord>((item) => {
+      const itemFiles = files.filter((file) => file.media_id === item.id)
+      const itemWanted = wanted.filter((entry) => entry.media_id === item.id)
+      const itemWorkflows = workflows.filter((workflow) => workflow.media_id === item.id)
+      return {
+        id: item.id,
+        title: item.title,
+        year: item.year,
+        identities: item.identities ?? [],
+        files: itemFiles,
+        wanted: itemWanted,
+        workflows: itemWorkflows,
+        profiles: uniqueValues([
+          ...itemFiles.map((file) => file.quality_profile),
+          ...itemWanted.map((entry) => entry.target_profile),
+        ]),
+        roots: uniqueValues(itemFiles.map((file) => file.root_name)),
+        resolutions: uniqueValues(itemFiles.flatMap((file) => factValues(file, "resolution"))),
+        audioCodecs: uniqueValues(itemFiles.flatMap((file) => factValues(file, "audio_codecs"))),
+        languages: uniqueValues(itemFiles.flatMap((file) => [
+          ...factValues(file, "audio_languages"),
+          ...factValues(file, "subtitle_languages"),
+        ])),
+        dynamicRanges: uniqueValues(itemFiles.flatMap((file) => [
+          ...factValues(file, "dynamic_range"),
+          ...factValues(file, "hdr_format"),
+        ])),
+        available: itemFiles.some((file) => file.state === "current" && file.plex_confirmed),
+        missing: itemWanted.some((entry) => entry.gap === "missing"),
+        monitoring: itemWorkflows.some((workflow) => workflow.state === "monitored"),
+        upgradable: itemWanted.some((entry) => entry.gap === "upgrade"),
+      }
+    })
+    .sort((left, right) => left.title.localeCompare(right.title) || (left.year ?? 0) - (right.year ?? 0))
+}
+
+function matchesMovieSummary(item: MovieLibraryRecord, summary: MovieLibrarySummary) {
+  if (summary === "available") return item.available
+  if (summary === "missing") return item.missing
+  if (summary === "monitoring") return item.monitoring
+  if (summary === "upgradable") return item.upgradable
+  return true
+}
+
+export function filterMovieLibraryRecords(items: MovieLibraryRecord[], filters: MovieLibraryFilters) {
+  const query = filters.query.trim().toLocaleLowerCase()
+  return items.filter((item) => {
+    const searchable = [
+      item.title,
+      item.year ? String(item.year) : "",
+      ...item.identities.flatMap((identity) => [identity.namespace, identity.value, `${identity.namespace} ${identity.value}`]),
+    ].join(" ").toLocaleLowerCase()
+    return (!query || searchable.includes(query))
+      && matchesMovieSummary(item, filters.summary)
+      && matchesMovieSummary(item, filters.availability)
+      && (!filters.quality || item.profiles.includes(filters.quality))
+      && (!filters.resolution || item.resolutions.includes(filters.resolution))
+      && (!filters.audio || item.audioCodecs.includes(filters.audio))
+      && (!filters.language || item.languages.includes(filters.language))
+      && (!filters.root || item.roots.includes(filters.root))
+      && (!filters.plexConfirmedOnly || item.files.some((file) => file.plex_confirmed))
+      && (!filters.managedOnly || item.files.length > 0)
+  })
+}
+
+export const movieLibraryLoader = async (signal: AbortSignal) => {
+  const [media, files, wanted, workflows] = await Promise.all([
+    loadCatalogMedia(signal),
+    loadManagedFiles(signal),
+    loadWanted(signal),
+    loadWorkflows(false, signal),
+  ])
+  return buildMovieLibraryRecords(media, files, wanted, workflows)
+}
+
+function resolutionLabel(value: string) {
+  return value.toLocaleLowerCase() === "2160p" ? "4K" : value
+}
+
+function movieAvailability(item: MovieLibraryRecord) {
+  if (item.available && item.upgradable) return { label: "Available · upgrade wanted", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
+  if (item.available) return { label: "Available", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
+  if (item.missing) return { label: "Missing", tone: "text-[#e89b65]", dot: "bg-[#df8752]" }
+  if (item.monitoring) return { label: "Monitoring", tone: "text-[#b59af7]", dot: "bg-[#8b5cf6]" }
+  return { label: "Cataloged", tone: "text-[#929dac]", dot: "bg-[#667085]" }
+}
+
 export function LiveLibraryScreen() {
-  const [query, setQuery] = React.useState("")
-  const [kind, setKind] = React.useState<"All" | "Movie" | "Series">("All")
+  const [filters, setFilters] = React.useState<MovieLibraryFilters>(initialMovieFilters)
   const [view, setView] = React.useState<"grid" | "list">("grid")
-  const { data, error, refresh } = useLiveData(loadMedia)
-  const records = data ?? []
-  const filtered = records.filter((item) => (kind === "All" || item.kind === kind)
-    && `${item.title} ${item.year} ${item.externalIds.join(" ")}`.toLowerCase().includes(query.toLowerCase()))
-  return <div className="space-y-4">
-    {error ? <ErrorNotice error={error} /> : null}
-    <Panel className="!p-3"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="relative min-w-0 flex-1 lg:max-w-md"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#758091]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, year, TMDB, TVDB, IMDb…" className="mm-input pl-9" /></div><div className="flex flex-wrap items-center gap-2">{(["All", "Movie", "Series"] as const).map((value) => <Button key={value} size="sm" variant={kind === value ? "default" : "outline"} onClick={() => setKind(value)}>{value}</Button>)}<Button variant="outline" size="icon" aria-label="Grid view" onClick={() => setView("grid")}><Grid2X2 /></Button><Button variant="outline" size="icon" aria-label="List view" onClick={() => setView("list")}><List /></Button><RefreshButton onClick={refresh} /></div></div></Panel>
-    <div className="flex items-center justify-between px-1 text-[10px] text-[#7f8a9a]"><span>{filtered.length} of {records.length} live records</span><span>Sorted by title</span></div>
-    {!data && !error ? <LoadingPanel label="Loading the live catalog…" /> : filtered.length === 0 ? <Panel><div className="py-12 text-center"><div className="text-sm font-bold text-white">{records.length === 0 ? "Your catalog is empty" : "No media matched"}</div><div className="mt-2 text-[10px] text-[#7f8a9a]">{records.length === 0 ? "Add a movie or an exact TV season pack to begin." : "Change the search or media type filter."}</div>{records.length === 0 ? <Button asChild className="mt-4" size="sm"><Link href="/discover"><Plus /> Add media</Link></Button> : null}</div></Panel> : view === "grid" ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">{filtered.map((item) => <Link key={item.id} href={item.kind === "Movie" ? `/media/movies/${item.id}` : `/media/series/${item.id}`} className="group overflow-hidden rounded-[15px] border border-white/[0.07] bg-[#0e1217] transition hover:-translate-y-0.5 hover:border-[#445064]"><div className="grid aspect-[2/3] place-items-center bg-gradient-to-b from-[#171d26] to-[#0b0f14]"><Library className="size-10 text-[#536076]" /></div><div className="p-3"><div className="truncate text-[11px] font-extrabold text-[#edf1f6]">{item.title}</div><div className="mt-1 text-[9.5px] text-[#7f8997]">{item.year || "Year unknown"} · {item.kind}</div><div className="mt-2 truncate text-[9px] text-[#8e98a6]">{item.externalIds.join(" · ") || "No verified external identity"}</div></div></Link>)}</div> : <Panel className="!p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Title</TableHead><TableHead>Type</TableHead><TableHead>Verified identities</TableHead><TableHead>Catalog state</TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.id}><TableCell><Link className="font-semibold text-[#e9edf3] hover:text-[#aebdff]" href={item.kind === "Movie" ? `/media/movies/${item.id}` : `/media/series/${item.id}`}>{item.title} <span className="text-[#788392]">({item.year || "—"})</span></Link></TableCell><TableCell>{item.kind}</TableCell><TableCell className="font-mono text-[9px]">{item.externalIds.join(" · ") || "—"}</TableCell><TableCell><StatusChip>Cataloged</StatusChip></TableCell></TableRow>)}</TableBody></Table></div></Panel>}
+  const [moreOpen, setMoreOpen] = React.useState(false)
+  const [page, setPage] = React.useState(1)
+  const [selectedID, setSelectedID] = React.useState<string | null | undefined>(undefined)
+  const [detailTab, setDetailTab] = React.useState("overview")
+  const { data, error, refresh } = useLiveData(movieLibraryLoader)
+  const records = React.useMemo(() => data ?? [], [data])
+  const filtered = React.useMemo(() => filterMovieLibraryRecords(records, filters), [records, filters])
+  const facets = React.useMemo(() => ({
+    quality: uniqueValues(records.flatMap((item) => item.profiles)),
+    resolution: uniqueValues(records.flatMap((item) => item.resolutions)),
+    audio: uniqueValues(records.flatMap((item) => item.audioCodecs)),
+    language: uniqueValues(records.flatMap((item) => item.languages)),
+    root: uniqueValues(records.flatMap((item) => item.roots)),
+  }), [records])
+  const counts = React.useMemo(() => ({
+    all: records.length,
+    available: records.filter((item) => item.available).length,
+    missing: records.filter((item) => item.missing).length,
+    monitoring: records.filter((item) => item.monitoring).length,
+    upgradable: records.filter((item) => item.upgradable).length,
+  }), [records])
+  const pageSize = 10
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const requestedSelection = selectedID === undefined ? filtered[0] : records.find((item) => item.id === selectedID)
+  const selected = selectedID === null ? null : requestedSelection && filtered.some((item) => item.id === requestedSelection.id) ? requestedSelection : filtered[0] ?? null
+
+  function setFilter<K extends keyof MovieLibraryFilters>(key: K, value: MovieLibraryFilters[K]) {
+    setFilters((current) => ({ ...current, [key]: value }))
+    setPage(1)
+    setDetailTab("overview")
+  }
+
+  function selectMovie(id: string) {
+    setSelectedID(id)
+    setDetailTab("overview")
+  }
+
+  const summaryItems: Array<{ key: MovieLibrarySummary; label: string; count: number }> = [
+    { key: "all", label: "All Movies", count: counts.all },
+    { key: "available", label: "Available", count: counts.available },
+    { key: "missing", label: "Missing", count: counts.missing },
+    { key: "monitoring", label: "Monitoring", count: counts.monitoring },
+    { key: "upgradable", label: "Upgradable", count: counts.upgradable },
+  ]
+
+  return <div className={cn("grid h-full min-h-0 bg-[#080b12]", selected && "xl:grid-cols-[minmax(0,1fr)_245px]")}>
+    <section className="flex min-h-0 min-w-0 flex-col px-3 pb-12 pt-3 sm:px-4 sm:pb-3 sm:pt-3" aria-labelledby="movie-library-title">
+      <div className="mb-2 flex min-h-8 items-center gap-2">
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            <h1 id="movie-library-title" className="text-[18px] font-[800] tracking-[-0.025em] text-[#f4f6fa]">Movies</h1>
+            <span className="text-[10px] font-semibold text-[#929dac]" aria-label={`${records.length} movies`}>{records.length}</span>
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <Button variant="ghost" size="icon-sm" aria-label="Refresh movies" onClick={refresh}><RefreshCw /></Button>
+          <div className="flex rounded-md border border-[#202a39] bg-[#0e141e] p-0.5" aria-label="Library view">
+            <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")} className={cn("grid size-7 place-items-center rounded-[4px] text-[#7e8998] outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]", view === "grid" && "bg-[#25203a] text-[#bca7ff]")}><Grid2X2 className="size-3.5" /></button>
+            <button type="button" aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")} className={cn("grid size-7 place-items-center rounded-[4px] text-[#7e8998] outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]", view === "list" && "bg-[#25203a] text-[#bca7ff]")}><List className="size-3.5" /></button>
+          </div>
+          <Button asChild size="sm" className="h-8 bg-[#7c3aed] px-2.5 text-white hover:bg-[#6d2fd4]"><Link href="/discover"><Plus /> Add Movie</Link></Button>
+        </div>
+      </div>
+
+      {error ? <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-[#5c3339] bg-[#211419] px-3 py-2 text-[10px] text-[#f1a6a6]" role="alert"><span>{error}</span><button type="button" className="font-bold underline underline-offset-2" onClick={refresh}>Retry</button></div> : null}
+
+      <div className="relative mb-2 shrink-0">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin" aria-label="Movie filters">
+          <label className="relative block w-[140px] shrink-0"><span className="sr-only">Search movies</span><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#697586]" /><Input value={filters.query} onChange={(event) => setFilter("query", event.target.value)} placeholder="Search movies" className="h-8 border-[#202a39] bg-[#0e141e] pl-8 text-[10px] shadow-none placeholder:text-[#697586] focus-visible:border-[#7c3aed] focus-visible:ring-[#7c3aed]/20" /></label>
+          <LibrarySelect label="Quality" value={filters.quality} onChange={(value) => setFilter("quality", value)} options={facets.quality} className="w-[82px]" />
+          <LibrarySelect label="Resolution" value={filters.resolution} onChange={(value) => setFilter("resolution", value)} options={facets.resolution} className="w-[82px]" />
+          <LibrarySelect label="Audio" value={filters.audio} onChange={(value) => setFilter("audio", value)} options={facets.audio} className="w-[76px]" />
+          <LibrarySelect label="Language" value={filters.language} onChange={(value) => setFilter("language", value)} options={facets.language} className="w-[84px]" />
+          <LibrarySelect label="Availability" value={filters.availability} onChange={(value) => setFilter("availability", value as MovieLibrarySummary)} options={["available", "missing", "monitoring", "upgradable"]} className="w-[96px]" />
+          <LibrarySelect label="Root Folder" value={filters.root} onChange={(value) => setFilter("root", value)} options={facets.root} className="w-[96px]" />
+          <Button type="button" variant="outline" size="sm" aria-expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)} className="h-8 shrink-0 border-[#202a39] bg-[#0e141e] px-2 text-[9px] text-[#aab3bf] shadow-none hover:bg-[#141c28]"><SlidersHorizontal /> More Filters{filters.plexConfirmedOnly || filters.managedOnly ? <span className="size-1.5 rounded-full bg-[#7c3aed]" aria-label="Additional filters active" /> : null}</Button>
+        </div>
+        {moreOpen ? <div className="absolute right-0 top-9 z-20 w-48 rounded-md border border-[#283447] bg-[#111925] p-2 shadow-xl">
+          <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-[10px] text-[#c5ccd5] hover:bg-[#17202d]"><input type="checkbox" checked={filters.plexConfirmedOnly} onChange={(event) => setFilter("plexConfirmedOnly", event.target.checked)} className="accent-[#7c3aed]" /> Plex confirmed only</label>
+          <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-[10px] text-[#c5ccd5] hover:bg-[#17202d]"><input type="checkbox" checked={filters.managedOnly} onChange={(event) => setFilter("managedOnly", event.target.checked)} className="accent-[#7c3aed]" /> Has managed file</label>
+        </div> : null}
+      </div>
+
+      <div className="mb-2 grid shrink-0 grid-cols-5 gap-1.5" aria-label="Movie summaries">
+        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("min-w-0 rounded-md border border-[#202a39] bg-[#0e141e] px-2 py-1.5 text-left outline-none transition hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c3aed]", filters.summary === item.key && "border-[#6d3add] bg-[#171428]")}><span className="block truncate text-[8px] font-bold uppercase tracking-[0.08em] text-[#7f8a99]">{item.label}</span><span className={cn("mt-0.5 block text-[16px] font-[800] leading-none text-[#f4f6fa]", filters.summary === item.key && "text-[#c6b5ff]")}>{item.count}</span></button>)}
+      </div>
+
+      <div className="mb-1 flex shrink-0 items-center justify-between text-[8.5px] text-[#758192]" aria-live="polite"><span>{filtered.length} {filtered.length === 1 ? "movie" : "movies"}</span><span>Title order</span></div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto pr-0.5 scrollbar-thin">
+        {!data && !error ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-[#202a39] bg-[#0e141e] text-[10px] text-[#929dac]" role="status">Loading the live movie catalog…</div>
+          : visible.length === 0 ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-dashed border-[#283447] bg-[#0e141e]"><div className="px-6 text-center"><Film className="mx-auto size-6 text-[#596579]" /><div className="mt-2 text-[11px] font-bold text-[#f4f6fa]">{records.length === 0 ? "Your movie catalog is empty" : "No movies matched"}</div><div className="mt-1 text-[9px] text-[#7f8a99]">{records.length === 0 ? "Use Add Movie to create a real catalog entry." : "Change or clear the active filters."}</div></div></div>
+          : view === "grid" ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            {visible.map((item) => <MovieLibraryCard key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMovie} />)}
+          </div> : <div className="overflow-hidden rounded-md border border-[#202a39] bg-[#0e141e]">
+            {visible.map((item) => <MovieLibraryRow key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMovie} />)}
+          </div>}
+      </div>
+
+      <div className="sticky bottom-0 z-10 mt-2 flex h-9 shrink-0 items-center justify-between border-t border-[#202a39] bg-[#080b12]/95 pt-2 backdrop-blur-sm" aria-label="Movie pagination">
+        <span className="text-[8.5px] text-[#758192]">{filtered.length ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)} of ${filtered.length}` : "0 movies"}</span>
+        <div className="flex items-center gap-1"><Button type="button" variant="ghost" size="icon-xs" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => setPage(Math.max(1, currentPage - 1))}><ChevronLeft /></Button><span className="min-w-14 text-center text-[9px] font-semibold text-[#aeb7c3]">{currentPage} / {pageCount}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Next page" disabled={currentPage >= pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))}><ChevronRight /></Button></div>
+      </div>
+    </section>
+
+    {selected ? <>
+      {selectedID !== undefined ? <button type="button" aria-label="Close movie details" onClick={() => setSelectedID(null)} className="fixed inset-0 z-40 bg-black/60 xl:hidden" /> : null}
+      <MovieInspector key={selected.id} item={selected} tab={detailTab} auto={selectedID === undefined} onTabChange={setDetailTab} onClose={() => setSelectedID(null)} />
+    </> : null}
+
+    <nav className="fixed inset-x-0 bottom-0 z-30 flex h-12 items-center justify-around border-t border-[#202a39] bg-[#0e141e] px-3 md:hidden" aria-label="Mobile navigation">
+      <Link href="/media" aria-current="page" className="flex flex-col items-center gap-0.5 text-[8px] font-bold text-[#bca7ff]"><Library className="size-4" />Library</Link>
+      <Link href="/discover" className="flex flex-col items-center gap-0.5 text-[8px] font-semibold text-[#929dac]"><Plus className="size-4" />Add</Link>
+      <Link href="/activity/queue" className="flex flex-col items-center gap-0.5 text-[8px] font-semibold text-[#929dac]"><Activity className="size-4" />Activity</Link>
+    </nav>
   </div>
+}
+
+function LibrarySelect({ label, value, options, onChange, className }: { label: string; value: string; options: string[]; onChange: (value: string) => void; className?: string }) {
+  return <label className="shrink-0"><span className="sr-only">{label}</span><NativeSelect size="sm" value={value} onChange={(event) => onChange(event.target.value)} className={cn("h-8 border-[#202a39] bg-[#0e141e] px-2 pr-6 text-[9px] text-[#aab3bf] shadow-none focus-visible:border-[#7c3aed] focus-visible:ring-[#7c3aed]/20", className)} aria-label={label}><NativeSelectOption value="">{label}</NativeSelectOption>{options.map((option) => <NativeSelectOption key={option} value={option}>{pretty(option)}</NativeSelectOption>)}</NativeSelect></label>
+}
+
+export function MovieLibraryCard({ item, selected, onSelect }: { item: MovieLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
+  const availability = movieAvailability(item)
+  const labels = uniqueValues([...item.resolutions.map(resolutionLabel), ...item.dynamicRanges])
+  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("group flex min-w-0 overflow-hidden rounded-[6px] border border-[#202a39] bg-[#0e141e] text-left outline-none transition hover:border-[#3a4658] focus-visible:ring-2 focus-visible:ring-[#7c3aed] sm:block", selected && "border-[#7c3aed] ring-1 ring-[#7c3aed]/45")}>
+    <div className="relative h-[94px] w-[70px] shrink-0 overflow-hidden border-r border-[#202a39] bg-[#111925] sm:h-auto sm:w-auto sm:border-b sm:border-r-0 sm:aspect-[2/3]"><Image src="/media/movie-placeholder.svg" alt="" width={300} height={450} className="h-full w-full object-cover" /><div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-[#080b12]/90 px-1 py-0.5 text-[7px] font-extrabold uppercase text-[#f4f6fa]">{label}</span>)}</div></div>
+    <div className="min-w-0 flex-1 p-2"><div className="truncate text-[10px] font-[750] leading-tight text-[#f4f6fa]">{item.title}</div><div className="mt-1 text-[8.5px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-2 flex items-center gap-1.5 text-[8px] font-semibold", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.label}</span></div></div>
+  </button>
+}
+
+function MovieLibraryRow({ item, selected, onSelect }: { item: MovieLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
+  const availability = movieAvailability(item)
+  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("flex w-full items-center gap-3 border-b border-[#202a39] px-3 py-2 text-left outline-none last:border-0 hover:bg-[#111925] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7c3aed]", selected && "bg-[#171428]")}><Image src="/media/movie-placeholder.svg" alt="" width={72} height={96} className="h-12 w-9 rounded-[3px] border border-[#283447] object-cover" /><div className="min-w-0 flex-1"><div className="truncate text-[10px] font-bold text-[#f4f6fa]">{item.title} <span className="font-normal text-[#7f8a99]">{item.year ? `(${item.year})` : ""}</span></div><div className="mt-1 truncate text-[8.5px] text-[#929dac]">{item.profiles.join(" · ") || "No managed quality profile"}</div></div><div className={cn("hidden items-center gap-1.5 text-[8.5px] font-semibold sm:flex", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div><ChevronRight className="size-3.5 text-[#687486]" /></button>
+}
+
+export function MovieInspector({ item, tab, auto, onTabChange, onClose }: { item: MovieLibraryRecord; tab: string; auto: boolean; onTabChange: (tab: string) => void; onClose: () => void }) {
+  const availability = movieAvailability(item)
+  const currentFile = [...item.files].sort((left, right) => right.generation - left.generation).find((file) => file.state === "current") ?? item.files[0]
+  const qualityProfile = currentFile?.quality_profile ?? item.wanted[0]?.target_profile ?? "Not assigned"
+  return <aside aria-label={`Details for ${item.title}`} className={cn("fixed inset-0 z-50 min-h-0 flex-col overflow-hidden border-l border-[#202a39] bg-[#0e141e] sm:bottom-0 sm:left-auto sm:top-[60px] sm:w-[330px] xl:static xl:z-auto xl:flex xl:h-full xl:w-auto", auto ? "hidden" : "flex")}>
+    <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#202a39] px-3"><span className="text-[9px] font-extrabold uppercase tracking-[0.12em] text-[#929dac]">Movie details</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Close details" onClick={onClose}><X /></Button></div>
+    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+      <div className="border-b border-[#202a39] p-3">
+        <div className="flex gap-3 xl:block"><Image src="/media/movie-placeholder.svg" alt="" width={300} height={450} className="aspect-[2/3] w-[86px] shrink-0 rounded-[5px] border border-[#283447] object-cover xl:w-full" /><div className="min-w-0 pt-1 xl:pt-3"><h2 className="text-[15px] font-[800] leading-tight tracking-[-0.02em] text-[#f4f6fa]">{item.title}</h2><div className="mt-1 text-[9px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-2 flex items-center gap-1.5 text-[8.5px] font-bold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div></div></div>
+        <Button asChild size="sm" className="mt-3 h-8 w-full bg-[#7c3aed] text-white hover:bg-[#6d2fd4]"><Link href={`/media/movies/${item.id}`}><Film /> Open movie details</Link></Button>
+      </div>
+
+      <Tabs value={tab} onValueChange={onTabChange} className="gap-0">
+        <TabsList variant="line" className="grid h-9 w-full grid-cols-4 gap-0 border-b border-[#202a39] px-1">
+          {(["overview", "files", "metadata", "history"] as const).map((value) => <TabsTrigger key={value} value={value} className="h-9 px-1 text-[8px] capitalize text-[#8792a1] after:bg-[#7c3aed] data-[state=active]:text-[#f4f6fa]">{value}</TabsTrigger>)}
+        </TabsList>
+        <TabsContent value="overview" className="p-3">
+          <InspectorRow label="Availability" value={availability.label} />
+          <InspectorRow label="Quality profile" value={qualityProfile} />
+          <InspectorRow label="Resolution" value={item.resolutions.map(resolutionLabel).join(", ") || "Unknown"} />
+          <InspectorRow label="Audio" value={item.audioCodecs.join(", ") || "Unknown"} />
+          <InspectorRow label="Languages" value={item.languages.join(", ") || "Unknown"} />
+          <InspectorRow label="Root folder" value={item.roots.join(", ") || "Not published"} />
+          <InspectorRow label="Plex verification" value={currentFile ? currentFile.plex_confirmed ? "Exact path confirmed" : "Not confirmed" : "No managed file"} />
+        </TabsContent>
+        <TabsContent value="files" className="space-y-2 p-3">
+          {item.files.map((file) => <Link key={file.id} href={`/files/${file.id}`} className="block rounded-[5px] border border-[#202a39] bg-[#111925] p-2 outline-none hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c3aed]"><div className="flex items-center justify-between gap-2"><span className="truncate text-[9px] font-bold text-[#e8ebf0]">{file.variant}</span><span className="text-[8px] text-[#8e99a8]">Gen {file.generation}</span></div><div className="mt-1 text-[8px] text-[#7f8a99]">{pretty(file.state)} · {formatBytes(file.source_size_bytes)}</div><div className="mt-1 truncate font-mono text-[7.5px] text-[#707c8d]">{file.destination_relative}</div></Link>)}
+          {item.files.length === 0 ? <InspectorEmpty>No managed files are recorded.</InspectorEmpty> : null}
+        </TabsContent>
+        <TabsContent value="metadata" className="space-y-2 p-3">
+          {item.identities.map((identity) => <div key={`${identity.namespace}:${identity.value}`} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="text-[8px] font-bold uppercase tracking-[0.08em] text-[#8d98a7]">{identity.namespace}</div><div className="mt-1 break-all font-mono text-[8.5px] text-[#e4e8ed]">{identity.value}</div>{identity.state ? <div className="mt-1 text-[7.5px] text-[#748091]">{pretty(identity.state)}</div> : null}</div>)}
+          {item.identities.length === 0 ? <InspectorEmpty>No provider identities are recorded.</InspectorEmpty> : null}
+        </TabsContent>
+        <TabsContent value="history" className="space-y-2 p-3">
+          {item.workflows.map((workflow) => <div key={workflow.id} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="flex items-center justify-between gap-2"><span className="text-[8.5px] font-bold text-[#e4e8ed]">{pretty(workflow.state)}</span><span className="text-[7.5px] text-[#748091]">{timeAgo(workflow.updated_at)}</span></div><div className="mt-1 font-mono text-[7.5px] text-[#7f8a99]">{workflow.variant}</div></div>)}
+          {item.workflows.length === 0 ? <InspectorEmpty>No workflow history is recorded.</InspectorEmpty> : null}
+        </TabsContent>
+      </Tabs>
+    </div>
+  </aside>
+}
+
+function InspectorRow({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-start justify-between gap-3 border-b border-[#202a39] py-2 last:border-0"><span className="text-[8.5px] text-[#7f8a99]">{label}</span><span className="max-w-[58%] text-right text-[8.5px] font-semibold leading-4 text-[#dce1e7]">{value}</span></div>
+}
+
+function InspectorEmpty({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-[5px] border border-dashed border-[#283447] px-3 py-6 text-center text-[8.5px] text-[#7f8a99]">{children}</div>
 }
 
 export function LiveWantedScreen() {
