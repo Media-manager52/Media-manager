@@ -121,7 +121,7 @@ func TestGetNZBRedirectRejectsMixedPublicAndPrivateAnswersBeforeDial(t *testing.
 	}
 
 	_, err := client.GetNZB(context.Background(), "native-id")
-	assertSafeCode(t, err, "newznab_unsafe_redirect_target_rejected")
+	assertSafeCode(t, err, "newznab_redirect_dns_address_rejected")
 	if dials.Load() != 0 {
 		t.Fatalf("dial count=%d", dials.Load())
 	}
@@ -261,7 +261,7 @@ func TestCrossOriginRedirectFailureIsRedactedForLoggingAndPersistence(t *testing
 	}
 
 	_, err := client.GetNZB(context.Background(), "native-id")
-	assertSafeCode(t, err, "newznab_unsafe_redirect_target_rejected")
+	assertSafeCode(t, err, "newznab_redirect_dns_resolution_rejected")
 	if err.Error() != "Newznab request failed" {
 		t.Fatalf("persistable error=%q", err.Error())
 	}
@@ -322,6 +322,26 @@ func TestRedirectConstructionDoesNotInheritQueryOrOriginHeaders(t *testing.T) {
 	response.Header.Set("Location", "/download/release.nzb?apikey=source-api-key-fixture")
 	if _, err := client.redirectTarget(previous, response); !errors.Is(err, ErrUnsafeRedirect) {
 		t.Fatalf("API-key redirect error=%v", err)
+	}
+}
+
+func TestRedirectCredentialRejectionHasSpecificRedactedClassification(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Location", "/download/release.nzb?apikey=source-api-key-fixture")
+		writer.WriteHeader(http.StatusFound)
+	}))
+	defer source.Close()
+	client, _ := newRedirectTestClient(t, "credential", source.URL, nil, nil)
+
+	_, err := client.GetNZB(context.Background(), "native-id")
+	assertSafeCode(t, err, "newznab_redirect_source_credential_rejected")
+	if err.Error() != "Newznab request failed" {
+		t.Fatalf("persistable error=%q", err.Error())
+	}
+	for _, private := range []string{"source-api-key-fixture", source.URL, "/download/release.nzb"} {
+		if strings.Contains(err.Error(), private) {
+			t.Fatalf("persistable error exposed private URL material: %v", err)
+		}
 	}
 }
 

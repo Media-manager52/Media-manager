@@ -90,16 +90,25 @@ func classified(code string, cause error) error {
 }
 
 var (
-	ErrInvalidEndpoint   = errors.New("invalid Newznab endpoint")
-	ErrResponseTooLarge  = errors.New("Newznab response exceeds the configured limit")
-	ErrInvalidNZB        = errors.New("downloaded document is not NZB XML")
-	ErrNoNFO             = errors.New("release has no NFO document")
-	ErrSchedulerRequired = errors.New("indexer scheduler is required")
-	ErrCrossHostRedirect = errors.New("cross-host redirect rejected")
-	ErrTLSDowngrade      = errors.New("TLS downgrade rejected")
-	ErrTooManyRedirects  = errors.New("too many redirects")
-	ErrUnsafeRedirect    = errors.New("unsafe redirect target rejected")
+	ErrInvalidEndpoint    = errors.New("invalid Newznab endpoint")
+	ErrResponseTooLarge   = errors.New("Newznab response exceeds the configured limit")
+	ErrInvalidNZB         = errors.New("downloaded document is not NZB XML")
+	ErrNoNFO              = errors.New("release has no NFO document")
+	ErrSchedulerRequired  = errors.New("indexer scheduler is required")
+	ErrCrossHostRedirect  = errors.New("cross-host redirect rejected")
+	ErrTLSDowngrade       = errors.New("TLS downgrade rejected")
+	ErrTooManyRedirects   = errors.New("too many redirects")
+	ErrUnsafeRedirect     = errors.New("unsafe redirect target rejected")
+	ErrRedirectCredential = errors.New("redirect source credential rejected")
+	ErrRedirectURLPolicy  = errors.New("redirect URL policy rejected")
+	ErrRedirectDNS        = errors.New("redirect DNS resolution rejected")
+	ErrRedirectAddress    = errors.New("redirect DNS address rejected")
+	ErrRedirectTransport  = errors.New("redirect pinned transport rejected")
 )
+
+func unsafeRedirect(reason error) error {
+	return errors.Join(ErrUnsafeRedirect, reason)
+}
 
 type responseValidator func([]byte) (indexers.Outcome, error)
 
@@ -335,6 +344,16 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 			code = "newznab_tls_downgrade_rejected"
 		case errors.Is(err, ErrTooManyRedirects):
 			code = "newznab_too_many_redirects"
+		case errors.Is(err, ErrRedirectCredential):
+			code = "newznab_redirect_source_credential_rejected"
+		case errors.Is(err, ErrRedirectURLPolicy):
+			code = "newznab_redirect_url_policy_rejected"
+		case errors.Is(err, ErrRedirectDNS):
+			code = "newznab_redirect_dns_resolution_rejected"
+		case errors.Is(err, ErrRedirectAddress):
+			code = "newznab_redirect_dns_address_rejected"
+		case errors.Is(err, ErrRedirectTransport):
+			code = "newznab_redirect_pinned_transport_rejected"
 		case errors.Is(err, ErrUnsafeRedirect):
 			code = "newznab_unsafe_redirect_target_rejected"
 		}
@@ -576,15 +595,15 @@ func (client *Client) doWithManualRedirects(ctx context.Context, initial *http.R
 
 func (client *Client) redirectTarget(previous *url.URL, response *http.Response) (*url.URL, error) {
 	if previous == nil || response == nil {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	location := response.Header.Get("Location")
 	if strings.TrimSpace(location) == "" || len(location) > 8192 {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	reference, err := url.Parse(location)
 	if err != nil || reference.User != nil || reference.Fragment != "" {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	target := previous.ResolveReference(reference)
 	if reference.RawQuery == "" && !reference.ForceQuery {
@@ -592,18 +611,18 @@ func (client *Client) redirectTarget(previous *url.URL, response *http.Response)
 		target.ForceQuery = false
 	}
 	if target.User != nil || target.Fragment != "" || len(target.String()) > 8192 {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	if redirectContainsSecret(target, client.config.APIKey) {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectCredential)
 	}
 	previousOrigin, err := exactOrigin(previous)
 	if err != nil {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	targetOrigin, err := exactOrigin(target)
 	if err != nil {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	if targetOrigin != previousOrigin && targetOrigin.scheme == "http" && previousOrigin.scheme == "https" {
 		return nil, ErrTLSDowngrade
@@ -639,18 +658,21 @@ func redirectContainsSecret(target *url.URL, secret string) bool {
 func (client *Client) resolveAndValidateRedirectTarget(ctx context.Context, target *url.URL) ([]netip.Addr, error) {
 	origin, err := exactOrigin(target)
 	if err != nil || target == nil || len(target.String()) > 8192 || origin.scheme != "https" || origin.port != "443" || origin.hostname == "localhost" || net.ParseIP(origin.hostname) != nil || client.resolveRedirectAddresses == nil {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	addresses, err := client.resolveRedirectAddresses(ctx, origin.hostname)
-	if err != nil || len(addresses) == 0 || len(addresses) > maxRedirectAddresses {
-		return nil, ErrUnsafeRedirect
+	if err != nil {
+		return nil, unsafeRedirect(ErrRedirectDNS)
+	}
+	if len(addresses) == 0 || len(addresses) > maxRedirectAddresses {
+		return nil, unsafeRedirect(ErrRedirectAddress)
 	}
 	validated := make([]netip.Addr, 0, len(addresses))
 	seen := make(map[netip.Addr]struct{}, len(addresses))
 	for _, address := range addresses {
 		address = address.Unmap()
 		if !publicInternetAddress(address) {
-			return nil, ErrUnsafeRedirect
+			return nil, unsafeRedirect(ErrRedirectAddress)
 		}
 		if _, exists := seen[address]; exists {
 			continue
@@ -659,7 +681,7 @@ func (client *Client) resolveAndValidateRedirectTarget(ctx context.Context, targ
 		validated = append(validated, address)
 	}
 	if len(validated) == 0 {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectAddress)
 	}
 	return validated, nil
 }
@@ -676,7 +698,7 @@ func defaultPinnedDialer(timeout time.Duration) func(context.Context, string, st
 func (client *Client) newPinnedRedirectTransport(target *url.URL, addresses []netip.Addr) (*http.Transport, error) {
 	origin, err := exactOrigin(target)
 	if err != nil || origin.scheme != "https" || origin.port != "443" || len(addresses) == 0 || client.dialPinnedAddress == nil {
-		return nil, ErrUnsafeRedirect
+		return nil, unsafeRedirect(ErrRedirectTransport)
 	}
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
@@ -685,7 +707,7 @@ func (client *Client) newPinnedRedirectTransport(target *url.URL, addresses []ne
 	}
 	if base, ok := client.transport.(*http.Transport); ok && base.TLSClientConfig != nil {
 		if base.TLSClientConfig.InsecureSkipVerify {
-			return nil, ErrUnsafeRedirect
+			return nil, unsafeRedirect(ErrRedirectTransport)
 		}
 		tlsConfig.RootCAs = base.TLSClientConfig.RootCAs
 		if base.TLSClientConfig.MinVersion > tlsConfig.MinVersion {
@@ -710,11 +732,11 @@ func (client *Client) newPinnedRedirectTransport(target *url.URL, addresses []ne
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		hostname, port, splitErr := net.SplitHostPort(address)
 		if splitErr != nil || port != origin.port {
-			return nil, ErrUnsafeRedirect
+			return nil, unsafeRedirect(ErrRedirectTransport)
 		}
 		normalized, normalizeErr := normalizeHostname(hostname)
 		if normalizeErr != nil || normalized != origin.hostname {
-			return nil, ErrUnsafeRedirect
+			return nil, unsafeRedirect(ErrRedirectTransport)
 		}
 		var lastErr error
 		for _, validatedAddress := range addresses {
@@ -728,7 +750,7 @@ func (client *Client) newPinnedRedirectTransport(target *url.URL, addresses []ne
 			}
 		}
 		if lastErr == nil {
-			lastErr = ErrUnsafeRedirect
+			lastErr = unsafeRedirect(ErrRedirectTransport)
 		}
 		return nil, lastErr
 	}

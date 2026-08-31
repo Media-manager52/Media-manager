@@ -73,7 +73,7 @@ func TestGetNZBRejectsUnsafeCrossHostRedirectWithoutExposingURL(t *testing.T) {
 	}
 	_, err = client.GetNZB(context.Background(), "native-id")
 	var coded interface{ SafeCode() string }
-	if !errors.As(err, &coded) || coded.SafeCode() != "newznab_unsafe_redirect_target_rejected" || strings.Contains(err.Error(), redirectTarget) {
+	if !errors.As(err, &coded) || coded.SafeCode() != "newznab_redirect_url_policy_rejected" || strings.Contains(err.Error(), redirectTarget) {
 		t.Fatalf("classified redirect error=%T %v", err, err)
 	}
 	if got := targetRequests.Load(); got != 0 {
