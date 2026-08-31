@@ -41,15 +41,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 	if err := json.Unmarshal(job.Client.Config, &config); err != nil {
 		return err
 	}
-	secretValue, err := service.ResolveSecret(job.Client.SecretRef)
-	if err != nil {
-		return err
-	}
-	var secret altMountSecret
-	if err := json.Unmarshal([]byte(secretValue), &secret); err != nil {
-		return err
-	}
-	client, err := altmount.New(altmount.Config{BaseURL: config.BaseURL, Username: secret.Username, Password: secret.Password, AllowHTTP: config.AllowHTTP, RequestTimeout: time.Duration(config.RequestTimeoutMS) * time.Millisecond}, service.Transport)
+	client, err := newAltMountClient(config, job.Client.SecretRef, service.ResolveSecret, service.Transport)
 	if err != nil {
 		return err
 	}

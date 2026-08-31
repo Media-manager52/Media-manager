@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 	"uuid"
 
@@ -26,6 +27,7 @@ type RetrievalService struct {
 
 type altMountConfig struct {
 	BaseURL           string `json:"base_url"`
+	Authentication    string `json:"authentication"`
 	AllowHTTP         bool   `json:"allow_http"`
 	Category          string `json:"category"`
 	RequestTimeoutMS  int64  `json:"request_timeout_ms"`
@@ -35,6 +37,30 @@ type altMountConfig struct {
 type altMountSecret struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+func newAltMountClient(config altMountConfig, secretRef string, resolveSecret SecretResolver, transport http.RoundTripper) (*altmount.HTTPClient, error) {
+	clientConfig := altmount.Config{BaseURL: config.BaseURL, AllowHTTP: config.AllowHTTP, RequestTimeout: time.Duration(config.RequestTimeoutMS) * time.Millisecond}
+	switch strings.ToLower(strings.TrimSpace(config.Authentication)) {
+	case "anonymous_admin":
+		clientConfig.AllowAnonymousAdmin = true
+	case "", "session":
+		if resolveSecret == nil {
+			return nil, errors.New("AltMount secret resolver is unavailable")
+		}
+		secretValue, err := resolveSecret(secretRef)
+		if err != nil {
+			return nil, err
+		}
+		var secret altMountSecret
+		if err := json.Unmarshal([]byte(secretValue), &secret); err != nil {
+			return nil, err
+		}
+		clientConfig.Username, clientConfig.Password = secret.Username, secret.Password
+	default:
+		return nil, errors.New("unsupported AltMount authentication mode")
+	}
+	return altmount.New(clientConfig, transport)
 }
 
 func (service *RetrievalService) Handle(ctx context.Context, event postgres.OutboxEvent) error {
@@ -93,16 +119,7 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err := json.Unmarshal(retrieval.DownloadClient.Config, &config); err != nil {
 		return err
 	}
-	secretValue, err := service.ResolveSecret(retrieval.DownloadClient.SecretRef)
-	if err != nil {
-		return err
-	}
-	var secret altMountSecret
-	if err := json.Unmarshal([]byte(secretValue), &secret); err != nil {
-		return err
-	}
-	timeout := time.Duration(config.RequestTimeoutMS) * time.Millisecond
-	client, err := altmount.New(altmount.Config{BaseURL: config.BaseURL, Username: secret.Username, Password: secret.Password, AllowHTTP: config.AllowHTTP, RequestTimeout: timeout}, service.Transport)
+	client, err := newAltMountClient(config, retrieval.DownloadClient.SecretRef, service.ResolveSecret, service.Transport)
 	if err != nil {
 		return err
 	}

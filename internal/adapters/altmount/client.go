@@ -23,12 +23,13 @@ import (
 const maximumUploadSize = int64(100 << 20)
 
 type Config struct {
-	BaseURL         string
-	Username        string
-	Password        string
-	AllowHTTP       bool
-	RequestTimeout  time.Duration
-	MaxResponseSize int64
+	BaseURL             string
+	Username            string
+	Password            string
+	AllowAnonymousAdmin bool
+	AllowHTTP           bool
+	RequestTimeout      time.Duration
+	MaxResponseSize     int64
 }
 
 type HTTPClient struct {
@@ -57,11 +58,15 @@ var (
 	ErrInvalidUpload = errors.New("invalid AltMount upload")
 	ErrResponseLimit = errors.New("AltMount response exceeds the configured limit")
 	ErrSessionCookie = errors.New("AltMount did not issue a JWT session cookie")
+	ErrLoginRequired = errors.New("AltMount requires an authenticated login")
+	ErrAdminRequired = errors.New("AltMount did not expose an anonymous admin session")
 )
 
 func New(config Config, transport http.RoundTripper) (*HTTPClient, error) {
 	base, err := url.Parse(strings.TrimSpace(config.BaseURL))
-	if err != nil || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || (base.Path != "" && base.Path != "/") || (base.Scheme != "https" && !(config.AllowHTTP && base.Scheme == "http")) || config.Username == "" || config.Password == "" {
+	hasUsername, hasPassword := strings.TrimSpace(config.Username) != "", config.Password != ""
+	hasSessionCredentials := hasUsername && hasPassword
+	if err != nil || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || (base.Path != "" && base.Path != "/") || (base.Scheme != "https" && !(config.AllowHTTP && base.Scheme == "http")) || hasUsername != hasPassword || hasSessionCredentials == config.AllowAnonymousAdmin {
 		return nil, ErrInvalidConfig
 	}
 	if config.RequestTimeout <= 0 {
@@ -85,6 +90,25 @@ func New(config Config, transport http.RoundTripper) (*HTTPClient, error) {
 func (client *HTTPClient) Login(ctx context.Context) (Session, error) {
 	client.loginMu.Lock()
 	defer client.loginMu.Unlock()
+	if client.config.AllowAnonymousAdmin {
+		var authConfig struct {
+			LoginRequired bool `json:"login_required"`
+		}
+		if err := client.jsonOnce(ctx, http.MethodGet, "/api/auth/config", nil, &authConfig); err != nil {
+			return Session{}, err
+		}
+		if authConfig.LoginRequired {
+			return Session{}, ErrLoginRequired
+		}
+		var user User
+		if err := client.jsonOnce(ctx, http.MethodGet, "/api/user", nil, &user); err != nil {
+			return Session{}, err
+		}
+		if strings.TrimSpace(user.ID) == "" || !user.IsAdmin {
+			return Session{}, ErrAdminRequired
+		}
+		return Session{User: user, AuthenticatedAt: time.Now().UTC()}, nil
+	}
 	var response struct {
 		User User `json:"user"`
 	}
@@ -105,9 +129,16 @@ func (client *HTTPClient) Login(ctx context.Context) (Session, error) {
 }
 
 func (client *HTTPClient) Refresh(ctx context.Context) error {
+	if client.config.AllowAnonymousAdmin {
+		_, err := client.Login(ctx)
+		return err
+	}
 	return client.json(ctx, http.MethodPost, "/api/user/refresh", nil, nil)
 }
 func (client *HTTPClient) Logout(ctx context.Context) error {
+	if client.config.AllowAnonymousAdmin {
+		return nil
+	}
 	return client.json(ctx, http.MethodPost, "/api/auth/logout", nil, nil)
 }
 

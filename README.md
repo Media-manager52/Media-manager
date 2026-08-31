@@ -67,13 +67,24 @@ The AltMount integration config uses its reported path plus the read-only contai
 ```json
 {
   "base_url": "http://altmount:8080",
+  "authentication": "anonymous_admin",
   "allow_http": true,
-  "reported_root": "/complete",
+  "reported_root": "/",
   "local_read_only_root": "/mnt/altmount",
   "category": "media-manager",
   "request_timeout_ms": 30000
 }
 ```
+
+Use `"authentication": "anonymous_admin"` only when AltMount reports
+`login_required: false`. Media Manager verifies that live setting and the
+anonymous admin identity before queue access, and stops if AltMount later
+requires login. Otherwise omit the field (or use `"session"`) and provide the
+documented username/password JSON secret. AltMount's personal API key does not
+authenticate its native `/api/queue` endpoints and is not used for this path.
+Set `reported_root` to the common absolute prefix returned in AltMount queue
+`storage_path` values; this host reports `/movies`, `/tv`, and `/tmp`, so `/`
+maps those paths into the read-only `/mnt/altmount` mount.
 
 Integration secrets are referenced by environment-variable name. Put those values in `.env.integrations`, which is loaded only into the API container. An AltMount secret is JSON such as `{"username":"owner","password":"..."}`; Newznab references contain an API key; a Plex reference contains its token or `{"token":"..."}`. Never commit `.env` or `.env.integrations`.
 
