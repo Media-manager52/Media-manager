@@ -204,8 +204,8 @@ func Rank(observations []Observation, evaluations []Evaluation) []Evaluation {
 			return result[i].Score > result[j].Score
 		}
 		left, right := byID[result[i].ObservationID], byID[result[j].ObservationID]
-		if !left.ObservedAt.Equal(right.ObservedAt) {
-			return left.ObservedAt.After(right.ObservedAt)
+		if left.IndexerID != right.IndexerID {
+			return left.IndexerID.String() < right.IndexerID.String()
 		}
 		return left.NativeGUID < right.NativeGUID
 	})

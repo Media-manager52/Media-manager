@@ -21,12 +21,19 @@ func TestRequiredUnknownIsHeldAndPreferenceIsExplainable(t *testing.T) {
 	}
 }
 
-func TestRankIsDeterministic(t *testing.T) {
-	older := Observation{ID: uuid.NewV7(), NativeGUID: "b", ObservedAt: time.Unix(1, 0)}
-	newer := Observation{ID: uuid.NewV7(), NativeGUID: "a", ObservedAt: time.Unix(2, 0)}
-	ranked := Rank([]Observation{older, newer}, []Evaluation{{ObservationID: older.ID, Verdict: VerdictEligible, Score: 1}, {ObservationID: newer.ID, Verdict: VerdictEligible, Score: 1}})
-	if ranked[0].ObservationID != newer.ID {
-		t.Fatal("expected newest equally-scored candidate first")
+func TestRankUsesStableProviderAndNativeIdentity(t *testing.T) {
+	firstIndexer := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	secondIndexer := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	stable := Observation{ID: uuid.NewV7(), IndexerID: firstIndexer, NativeGUID: "z", ObservedAt: time.Unix(1, 0)}
+	lastResponse := Observation{ID: uuid.NewV7(), IndexerID: secondIndexer, NativeGUID: "a", ObservedAt: time.Unix(2, 0)}
+	ranked := Rank([]Observation{stable, lastResponse}, []Evaluation{{ObservationID: stable.ID, Verdict: VerdictEligible, Score: 1}, {ObservationID: lastResponse.ID, Verdict: VerdictEligible, Score: 1}})
+	if ranked[0].ObservationID != stable.ID {
+		t.Fatal("equally scored candidates were biased by response completion time")
+	}
+	sameIndexerLater := Observation{ID: uuid.NewV7(), IndexerID: firstIndexer, NativeGUID: "b", ObservedAt: time.Unix(3, 0)}
+	ranked = Rank([]Observation{stable, sameIndexerLater}, []Evaluation{{ObservationID: stable.ID, Verdict: VerdictEligible, Score: 1}, {ObservationID: sameIndexerLater.ID, Verdict: VerdictEligible, Score: 1}})
+	if ranked[0].ObservationID != sameIndexerLater.ID {
+		t.Fatal("same-provider tie was not resolved by durable native identity")
 	}
 }
 

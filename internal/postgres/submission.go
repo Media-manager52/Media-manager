@@ -232,7 +232,6 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 	if skipped <= maxDuplicatePackageSkips {
 		err = transaction.QueryRow(ctx, `SELECT candidate.id::text
 			FROM release_candidates candidate
-			JOIN release_observations observation ON observation.id=candidate.observation_id
 			JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
 			JOIN workflows workflow ON workflow.id=candidate.workflow_id
 			JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id AND profile.policy_version=decision.policy_version
@@ -243,7 +242,7 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			      AND exclusion.indexer_instance_id=candidate.indexer_instance_id
 			      AND exclusion.native_key=candidate.native_key
 			  )
-			ORDER BY decision.score DESC,observation.observed_at DESC,observation.native_guid
+			ORDER BY decision.score DESC,candidate.indexer_instance_id,candidate.native_key
 			LIMIT 1`, retrieval.Workflow.ID.String()).Scan(&nextCandidateText)
 	}
 	if err == nil && nextCandidateText != "" {
