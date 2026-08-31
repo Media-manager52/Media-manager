@@ -10,6 +10,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -146,7 +147,8 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	evaluations := make([]releases.Evaluation, 0, len(evaluated))
 	candidateByObservation := map[uuid.UUID]uuid.UUID{}
 	for _, entry := range evaluated {
-		observation := entry.Observation
+		observation := newznab.SanitizeObservation(entry.Observation)
+		evaluation := newznab.SanitizeEvaluation(entry.Evaluation)
 		rawFields, _ := json.Marshal(observation.Fields)
 		facts, _ := json.Marshal(observation.Facts)
 		problems, _ := json.Marshal(observation.Problems)
@@ -165,12 +167,12 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		}
 		candidateID, _ = uuid.Parse(returned)
 		candidateByObservation[observation.ID] = candidateID
-		reasons, _ := json.Marshal(entry.Evaluation.Explanations)
-		if _, err := transaction.Exec(ctx, `INSERT INTO candidate_decisions(workflow_id,candidate_id,policy_version,verdict,score,reasons,actor,decided_at) VALUES($1,$2,$3,$4,$5,$6,'policy',$7) ON CONFLICT(workflow_id,candidate_id,policy_version) DO UPDATE SET verdict=EXCLUDED.verdict,score=EXCLUDED.score,reasons=EXCLUDED.reasons,decided_at=EXCLUDED.decided_at`, search.Workflow.ID.String(), candidateID.String(), int64(search.PolicyVersion), entry.Evaluation.Verdict, entry.Evaluation.Score, string(reasons), now.UTC()); err != nil {
+		reasons, _ := json.Marshal(evaluation.Explanations)
+		if _, err := transaction.Exec(ctx, `INSERT INTO candidate_decisions(workflow_id,candidate_id,policy_version,verdict,score,reasons,actor,decided_at) VALUES($1,$2,$3,$4,$5,$6,'policy',$7) ON CONFLICT(workflow_id,candidate_id,policy_version) DO UPDATE SET verdict=EXCLUDED.verdict,score=EXCLUDED.score,reasons=EXCLUDED.reasons,decided_at=EXCLUDED.decided_at`, search.Workflow.ID.String(), candidateID.String(), int64(search.PolicyVersion), evaluation.Verdict, evaluation.Score, string(reasons), now.UTC()); err != nil {
 			return workflows.Workflow{}, err
 		}
 		observations = append(observations, observation)
-		evaluations = append(evaluations, entry.Evaluation)
+		evaluations = append(evaluations, evaluation)
 	}
 	ranked := releases.Rank(observations, evaluations)
 	to := workflows.StateWaiting

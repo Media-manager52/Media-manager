@@ -15,9 +15,13 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-const CurrentSchemaVersion int64 = 26
+const CurrentSchemaVersion int64 = 28
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	return migrateThrough(ctx, pool, CurrentSchemaVersion)
+}
+
+func migrateThrough(ctx context.Context, pool *pgxpool.Pool, maximumVersion int64) error {
 	entries, err := fs.ReadDir(migrationFiles, "migrations")
 	if err != nil {
 		return err
@@ -43,6 +47,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		version, err := strconv.ParseInt(versionText, 10, 64)
 		if err != nil {
 			return fmt.Errorf("invalid migration filename %s", entry.Name())
+		}
+		if version > maximumVersion {
+			continue
 		}
 		var already bool
 		if err := connection.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version=$1)`, version).Scan(&already); err != nil {

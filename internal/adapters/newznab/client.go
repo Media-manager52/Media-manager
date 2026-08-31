@@ -191,7 +191,7 @@ func (client *Client) search(ctx context.Context, workload indexers.Workload, re
 		if parseErr != nil {
 			return validationFailureOutcome(parseErr), parseErr
 		}
-		observations = parsed
+		observations = sanitizeObservationsWithCredential(parsed, client.config.APIKey)
 		if len(parsed) == 0 {
 			return indexers.OutcomeNoResults, nil
 		}
@@ -220,13 +220,21 @@ func (client *Client) Details(ctx context.Context, nativeID string) ([]releases.
 		if parseErr != nil {
 			return validationFailureOutcome(parseErr), parseErr
 		}
-		observations = parsed
+		observations = sanitizeObservationsWithCredential(parsed, client.config.APIKey)
 		if len(parsed) == 0 {
 			return indexers.OutcomeNoResults, nil
 		}
 		return indexers.OutcomeSuccess, nil
 	})
 	return observations, err
+}
+
+func sanitizeObservationsWithCredential(observations []releases.Observation, credential string) []releases.Observation {
+	result := make([]releases.Observation, len(observations))
+	for index, observation := range observations {
+		result[index] = SanitizeObservationWithCredential(observation, credential)
+	}
+	return result
 }
 
 func (client *Client) GetNFO(ctx context.Context, nativeID string) ([]byte, error) {
@@ -525,8 +533,7 @@ func providerErrorDocument(body []byte) (ProviderError, bool) {
 				provider.Description = attribute.Value
 			}
 		}
-		provider.Unsupported = provider.Code == "203" || strings.Contains(strings.ToLower(provider.Description), "no such function") || strings.Contains(strings.ToLower(provider.Description), "not supported")
-		return provider, true
+		return finalizeProviderError(provider), true
 	}
 }
 

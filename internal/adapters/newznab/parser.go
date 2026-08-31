@@ -63,20 +63,40 @@ type ProviderError struct {
 }
 
 func (err ProviderError) Error() string {
-	return "Newznab provider error " + err.Code + ": " + err.Description
+	return "Newznab provider error (" + err.SafeCode() + ")"
 }
 
 func (err ProviderError) SafeCode() string {
 	code := strings.TrimSpace(err.Code)
-	if len(code) < 1 || len(code) > 4 {
+	if !validProviderCode(code) {
 		return "newznab_provider_error"
+	}
+	return "newznab_provider_" + code
+}
+
+func validProviderCode(code string) bool {
+	if len(code) < 1 || len(code) > 4 {
+		return false
 	}
 	for _, character := range code {
 		if character < '0' || character > '9' {
-			return "newznab_provider_error"
+			return false
 		}
 	}
-	return "newznab_provider_" + code
+	return true
+}
+
+func finalizeProviderError(provider ProviderError) ProviderError {
+	code := strings.TrimSpace(provider.Code)
+	description := provider.Description
+	provider.Unsupported = code == "203" || strings.Contains(strings.ToLower(description), "no such function") || strings.Contains(strings.ToLower(description), "not supported")
+	if validProviderCode(code) {
+		provider.Code = code
+	} else {
+		provider.Code = ""
+	}
+	provider.Description = ""
+	return provider
 }
 
 var ErrMalformedXML = errors.New("malformed Newznab XML")
@@ -126,8 +146,7 @@ func ParseSearch(body []byte, indexerID, operation string, observedAt time.Time)
 						provider.Description = attribute.Value
 					}
 				}
-				provider.Unsupported = provider.Code == "203" || strings.Contains(strings.ToLower(provider.Description), "no such function") || strings.Contains(strings.ToLower(provider.Description), "not supported")
-				return nil, provider
+				return nil, finalizeProviderError(provider)
 			case "item":
 				current = &itemBuilder{}
 			case "attr":
@@ -200,11 +219,12 @@ func (builder *itemBuilder) text(element, value string) {
 }
 
 func (builder *itemBuilder) finish(indexerID, operation string, observedAt time.Time, bodyHash string) releases.Observation {
-	nativeGUID, conflictingAttributeGUID := nativeAttributeGUID(builder.fields)
+	sanitizedFields := SanitizeRawFields(builder.fields)
+	nativeGUID, conflictingAttributeGUID := nativeAttributeGUID(sanitizedFields)
 	if nativeGUID == "" {
-		nativeGUID = strings.TrimSpace(builder.guid)
+		nativeGUID = SanitizeProviderValue(strings.TrimSpace(builder.guid))
 	}
-	observation := releases.Observation{ID: uuid.NewV7(), Operation: operation, NativeGUID: nativeGUID, Title: strings.TrimSpace(builder.title), DownloadURL: strings.TrimSpace(builder.link), Fields: append([]releases.RawField(nil), builder.fields...), BodyHash: bodyHash, ObservedAt: observedAt.UTC(), ParseVersion: "newznab-v1"}
+	observation := releases.Observation{ID: uuid.NewV7(), Operation: operation, NativeGUID: nativeGUID, Title: SanitizeProviderValue(strings.TrimSpace(builder.title)), DownloadURL: SanitizeProviderValue(strings.TrimSpace(builder.link)), Fields: sanitizedFields, BodyHash: bodyHash, ObservedAt: observedAt.UTC(), ParseVersion: "newznab-v1"}
 	if parsed, err := uuid.Parse(indexerID); err == nil {
 		observation.IndexerID = parsed
 	}
