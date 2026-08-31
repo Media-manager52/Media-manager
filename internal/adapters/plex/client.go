@@ -167,12 +167,13 @@ func (client *Client) metadataItem(ctx context.Context, ratingKey string) (Item,
 		return Item{}, err
 	}
 	var document struct {
-		Items []Item `xml:"Video"`
+		Videos      []Item `xml:"Video"`
+		Directories []Item `xml:"Directory"`
 	}
 	if err := xml.Unmarshal(body, &document); err != nil {
 		return Item{}, err
 	}
-	for _, item := range document.Items {
+	for _, item := range append(document.Videos, document.Directories...) {
 		if item.RatingKey == ratingKey {
 			return item, nil
 		}
@@ -214,6 +215,13 @@ func (client *Client) ConfirmSeries(ctx context.Context, expected ExpectedSeries
 	}
 	for _, show := range shows.Items {
 		guid := matchingGUID(show, expected.ProviderGUIDs)
+		if guid == "" && numeric(show.RatingKey) {
+			detailed, detailErr := client.metadataItem(ctx, show.RatingKey)
+			if detailErr != nil && !errors.Is(detailErr, ErrNotConfirmed) {
+				return nil, detailErr
+			}
+			guid = matchingGUID(detailed, expected.ProviderGUIDs)
+		}
 		if guid == "" || !numeric(show.RatingKey) {
 			continue
 		}

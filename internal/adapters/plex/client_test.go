@@ -94,3 +94,28 @@ func TestConfirmSeriesRequiresEveryExpectedPath(t *testing.T) {
 		t.Fatalf("expected 2 confirmations, got %d", len(confirmations))
 	}
 }
+
+func TestConfirmSeriesLoadsProviderIdentityFromShowDetail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/library/sections/4/all":
+			_, _ = writer.Write([]byte(`<MediaContainer><Directory ratingKey="99" title="Show" guid="plex://show/internal"/></MediaContainer>`))
+		case "/library/metadata/99":
+			_, _ = writer.Write([]byte(`<MediaContainer><Directory ratingKey="99" title="Show" guid="plex://show/internal"><Guid id="tmdb://42"/><Guid id="tvdb://123"/></Directory></MediaContainer>`))
+		case "/library/metadata/99/allLeaves":
+			_, _ = writer.Write([]byte(`<MediaContainer><Video ratingKey="101" parentIndex="1" index="1"><Media><Part file="/tv/Show/Season 01/Show - S01E01.mkv"/></Media></Video></MediaContainer>`))
+		default:
+			t.Fatalf("unexpected path %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, Token: "secret", AllowHTTP: true}, server.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/tv/Show/Season 01/Show - S01E01.mkv"
+	confirmations, err := client.ConfirmSeries(context.Background(), ExpectedSeries{LibraryKey: "4", Title: "Show", ProviderGUIDs: []string{"tvdb://123"}, PlexVisiblePaths: []string{path}, ExpectedEpisodes: map[string][]EpisodeLeaf{path: {{Season: 1, Episode: 1}}}})
+	if err != nil || len(confirmations) != 1 || confirmations[0].ProviderGUID != "tvdb://123" || confirmations[0].Path != path {
+		t.Fatalf("confirmations=%+v err=%v", confirmations, err)
+	}
+}
