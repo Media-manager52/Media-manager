@@ -435,7 +435,7 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 		_ = permit.Record(context.Background(), indexers.OutcomeSystemFailure, nil)
 		return nil, classified("newznab_request_build_failed", errors.New("could not construct Newznab request"))
 	}
-	response, closeResponseTransport, err := client.doWithManualRedirects(requestCtx, req, allowCrossOriginRedirect)
+	response, closeResponseTransport, redirected, err := client.doWithManualRedirects(requestCtx, req, allowCrossOriginRedirect)
 	if err != nil {
 		recorded = true
 		_ = permit.Record(context.Background(), indexers.OutcomeSystemFailure, nil)
@@ -463,6 +463,9 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 	defer closeResponseTransport()
 	defer response.Body.Close()
 	outcome := classify(response.StatusCode)
+	if redirected && outcome == indexers.OutcomeAuthFailed {
+		outcome = indexers.OutcomeSystemFailure
+	}
 	body, readErr := readBounded(response.Body, limit)
 	if readErr != nil {
 		outcome = indexers.OutcomeSystemFailure
@@ -638,33 +641,33 @@ func isRedirectStatus(status int) bool {
 	}
 }
 
-func (client *Client) doWithManualRedirects(ctx context.Context, initial *http.Request, allowCrossOrigin bool) (*http.Response, func(), error) {
+func (client *Client) doWithManualRedirects(ctx context.Context, initial *http.Request, allowCrossOrigin bool) (*http.Response, func(), bool, error) {
 	if initial == nil || initial.URL == nil {
-		return nil, func() {}, ErrUnsafeRedirect
+		return nil, func() {}, false, ErrUnsafeRedirect
 	}
 	originalOrigin, err := exactOrigin(initial.URL)
 	if err != nil {
-		return nil, func() {}, ErrUnsafeRedirect
+		return nil, func() {}, false, ErrUnsafeRedirect
 	}
 	request := initial
 	for redirectCount := 0; ; redirectCount++ {
 		currentOrigin, originErr := exactOrigin(request.URL)
 		if originErr != nil {
-			return nil, func() {}, ErrUnsafeRedirect
+			return nil, func() {}, redirectCount > 0, ErrUnsafeRedirect
 		}
 		requestClient := client.http
 		closeTransport := func() {}
 		if currentOrigin != originalOrigin {
 			if !allowCrossOrigin {
-				return nil, func() {}, ErrCrossHostRedirect
+				return nil, func() {}, redirectCount > 0, ErrCrossHostRedirect
 			}
 			addresses, resolveErr := client.resolveAndValidateRedirectTarget(ctx, request.URL)
 			if resolveErr != nil {
-				return nil, func() {}, resolveErr
+				return nil, func() {}, redirectCount > 0, resolveErr
 			}
 			transport, transportErr := client.newPinnedRedirectTransport(request.URL, addresses)
 			if transportErr != nil {
-				return nil, func() {}, transportErr
+				return nil, func() {}, redirectCount > 0, transportErr
 			}
 			requestClient = &http.Client{Transport: transport, CheckRedirect: rejectAutomaticRedirect}
 			closeTransport = transport.CloseIdleConnections
@@ -672,24 +675,24 @@ func (client *Client) doWithManualRedirects(ctx context.Context, initial *http.R
 		response, requestErr := requestClient.Do(request)
 		if requestErr != nil {
 			closeTransport()
-			return nil, func() {}, requestErr
+			return nil, func() {}, redirectCount > 0, requestErr
 		}
 		if !isRedirectStatus(response.StatusCode) {
-			return response, closeTransport, nil
+			return response, closeTransport, redirectCount > 0, nil
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, redirectDrainLimit))
 		_ = response.Body.Close()
 		closeTransport()
 		if redirectCount >= maxRedirects {
-			return nil, func() {}, ErrTooManyRedirects
+			return nil, func() {}, true, ErrTooManyRedirects
 		}
 		next, redirectErr := client.redirectTarget(request.URL, response)
 		if redirectErr != nil {
-			return nil, func() {}, redirectErr
+			return nil, func() {}, true, redirectErr
 		}
 		request, redirectErr = newNewznabRequest(ctx, next)
 		if redirectErr != nil {
-			return nil, func() {}, ErrUnsafeRedirect
+			return nil, func() {}, true, ErrUnsafeRedirect
 		}
 	}
 }

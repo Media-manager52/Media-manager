@@ -354,6 +354,28 @@ func TestRedirectSourceCredentialIsRemovedBeforeTheNextRequest(t *testing.T) {
 	}
 }
 
+func TestRedirectTargetForbiddenDoesNotInvalidateSourceCredentials(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/download/release.nzb" {
+			writer.WriteHeader(http.StatusForbidden)
+			return
+		}
+		writer.Header().Set("Location", "/download/release.nzb?ticket=one&apikey=source-api-key-fixture")
+		writer.WriteHeader(http.StatusFound)
+	}))
+	defer source.Close()
+	client, scheduler := newRedirectTestClient(t, "redirect-forbidden", source.URL, nil, nil)
+
+	_, err := client.GetNZB(context.Background(), "native-id")
+	var status HTTPError
+	if !errors.As(err, &status) || status.StatusCode != http.StatusForbidden {
+		t.Fatalf("error=%v", err)
+	}
+	if scheduler.Snapshot("redirect-forbidden").LastOutcome != indexers.OutcomeSystemFailure {
+		t.Fatalf("redirect 403 invalidated source credentials: outcome=%q", scheduler.Snapshot("redirect-forbidden").LastOutcome)
+	}
+}
+
 func TestExactOriginUsesSchemeNormalizedHostnameAndEffectivePort(t *testing.T) {
 	parse := func(value string) requestOrigin {
 		t.Helper()

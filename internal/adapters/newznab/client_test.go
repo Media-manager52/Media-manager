@@ -14,7 +14,7 @@ import (
 	"github.com/media-manager/media-manager/internal/indexers"
 )
 
-func TestGetNZBGuardedStopsAfterPacingBeforeProviderRequest(t *testing.T) {
+func TestGetNZBGuardedDefersPacingBeforeGuardAndProviderRequest(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests.Add(1)
@@ -38,14 +38,23 @@ func TestGetNZBGuardedStopsAfterPacingBeforeProviderRequest(t *testing.T) {
 	}
 	guardFailure := errors.New("workflow changed")
 	started := time.Now()
-	if _, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error { return guardFailure }); !errors.Is(err, guardFailure) {
-		t.Fatalf("guard error=%v", err)
+	if _, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error { return guardFailure }); err == nil {
+		t.Fatal("pacing deferral was not returned")
+	} else {
+		var deferred indexers.CooldownError
+		if !errors.As(err, &deferred) {
+			t.Fatalf("pacing error=%v", err)
+		}
 	}
-	if elapsed := time.Since(started); elapsed < 15*time.Millisecond {
-		t.Fatalf("guard ran before scheduler wait completed: %s", elapsed)
+	if elapsed := time.Since(started); elapsed > 15*time.Millisecond {
+		t.Fatalf("pacing deferral blocked for %s", elapsed)
 	}
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("provider requests=%d, want 0", got)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if _, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error { return guardFailure }); !errors.Is(err, guardFailure) {
+		t.Fatalf("guard error after pacing deadline=%v", err)
 	}
 	if got := scheduler.Snapshot("guarded").LastOutcome; got != indexers.OutcomeCancelled {
 		t.Fatalf("scheduler outcome=%q, want cancelled", got)

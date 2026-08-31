@@ -87,6 +87,7 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 	}
 	var evaluated []postgres.EvaluatedObservation
 	successfulIndexers := 0
+	var earliestDeferral error
 	for _, integration := range search.Indexers {
 		var config indexerConfig
 		if err := json.Unmarshal(integration.Config, &config); err != nil {
@@ -110,6 +111,13 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 		request := buildRequest(search, config)
 		observations, err := client.Search(ctx, request)
 		if err != nil {
+			var current interface{ RetryAt() time.Time }
+			if errors.As(err, &current) {
+				var earliest interface{ RetryAt() time.Time }
+				if earliestDeferral == nil || errors.As(earliestDeferral, &earliest) && current.RetryAt().Before(earliest.RetryAt()) {
+					earliestDeferral = err
+				}
+			}
 			continue
 		}
 		successfulIndexers++
@@ -134,6 +142,9 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 		}
 	}
 	if successfulIndexers == 0 {
+		if earliestDeferral != nil {
+			return earliestDeferral
+		}
 		return fmt.Errorf("all %d configured indexers failed before returning a valid search response", len(search.Indexers))
 	}
 	fingerprint := sha256.Sum256([]byte(search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)))

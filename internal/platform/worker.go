@@ -95,8 +95,15 @@ func (worker *Worker) runBatch(ctx context.Context) error {
 			handlerErr = heartbeatErr
 		}
 		if handlerErr != nil {
-			backoff := time.Duration(1<<min(event.Attempts, 8)) * time.Second
-			if failErr := worker.Store.FailOutbox(ctx, event.ID, worker.Owner, safeError(handlerErr), time.Now().Add(backoff)); failErr != nil {
+			retryAt := nextRetryAt(handlerErr, event.Attempts, time.Now())
+			var deferred interface{ RetryAt() time.Time }
+			if errors.As(handlerErr, &deferred) {
+				if deferErr := worker.Store.DeferOutbox(ctx, event.ID, worker.Owner, safeError(handlerErr), retryAt); deferErr != nil {
+					return deferErr
+				}
+				continue
+			}
+			if failErr := worker.Store.FailOutbox(ctx, event.ID, worker.Owner, safeError(handlerErr), retryAt); failErr != nil {
 				return failErr
 			}
 			continue
@@ -106,6 +113,16 @@ func (worker *Worker) runBatch(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func nextRetryAt(handlerErr error, attempts int, now time.Time) time.Time {
+	backoff := time.Duration(1<<min(attempts, 8)) * time.Second
+	retryAt := now.Add(backoff)
+	var deferred interface{ RetryAt() time.Time }
+	if errors.As(handlerErr, &deferred) && deferred.RetryAt().After(retryAt) {
+		retryAt = deferred.RetryAt()
+	}
+	return retryAt
 }
 
 var safeErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{2,99}$`)

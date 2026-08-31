@@ -2,6 +2,7 @@ package indexers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -59,4 +60,35 @@ func TestRateLimitDoesNotBecomeUnsupportedAndHonorsRetryAfter(t *testing.T) {
 	if snapshot.LastOutcome != OutcomeRateLimited || time.Until(snapshot.CooldownUntil) < 29*time.Second {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
+}
+
+func TestPersistedCooldownDefersWithoutHoldingSchedulerSlots(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	scheduler := NewScheduler(1, nil)
+	scheduler.now = func() time.Time { return now }
+	if err := scheduler.Configure("one", Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	lane := scheduler.getLane("one")
+	lane.mu.Lock()
+	lane.loaded = true
+	lane.snapshot = Snapshot{IndexerID: "one", CooldownUntil: now.Add(30 * time.Second)}
+	lane.mu.Unlock()
+	started := time.Now()
+	_, err := scheduler.Acquire(context.Background(), "one", WorkloadRetrieval)
+	var deferred CooldownError
+	if !errors.As(err, &deferred) || deferred.RetryAt() != now.Add(30*time.Second) {
+		t.Fatalf("deferred error=%v retry=%v", err, deferred.RetryAt())
+	}
+	if time.Since(started) > 100*time.Millisecond {
+		t.Fatal("cooldown blocked the caller")
+	}
+	lane.mu.Lock()
+	lane.snapshot.CooldownUntil = now
+	lane.mu.Unlock()
+	permit, err := scheduler.Acquire(context.Background(), "one", WorkloadRetrieval)
+	if err != nil {
+		t.Fatalf("scheduler slots were retained after deferral: %v", err)
+	}
+	permit.Close()
 }

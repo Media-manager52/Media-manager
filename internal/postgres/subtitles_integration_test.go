@@ -402,6 +402,40 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	}
 }
 
+func TestDeferredOutboxWorkDoesNotConsumeAnAttempt(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	store := subtitleIntegrationStore(t, ctx, databaseURL)
+	defer store.Close()
+
+	eventID, aggregateID := uuid.NewV7(), uuid.NewV7()
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'test',$2,1,'test.deferred','{}',now(),now())`, eventID.String(), aggregateID.String()); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute)
+	if err != nil || len(claimed) != 1 || claimed[0].ID != eventID || claimed[0].Attempts != 1 {
+		t.Fatalf("claimed=%+v err=%v", claimed, err)
+	}
+	retryAt := time.Now().UTC().Add(time.Minute)
+	if err := store.DeferOutbox(ctx, eventID, "test-owner", "indexer_pacing_deferred", retryAt); err != nil {
+		t.Fatal(err)
+	}
+	var attempts int
+	var availableAt time.Time
+	var leaseOwner *string
+	var lastError string
+	if err := store.Pool.QueryRow(ctx, `SELECT attempts,available_at,lease_owner,last_error FROM outbox_events WHERE id=$1`, eventID.String()).Scan(&attempts, &availableAt, &leaseOwner, &lastError); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 || leaseOwner != nil || lastError != "indexer_pacing_deferred" || availableAt.Before(retryAt.Add(-time.Second)) {
+		t.Fatalf("attempts=%d available=%v owner=%v error=%q", attempts, availableAt, leaseOwner, lastError)
+	}
+}
+
 func testNZBPackageIdentity(seed byte) [sha256.Size]byte {
 	var identity [sha256.Size]byte
 	identity[0] = seed

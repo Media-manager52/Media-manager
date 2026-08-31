@@ -80,6 +80,14 @@ var (
 	ErrInvalidBudget     = errors.New("invalid indexer budget")
 )
 
+type CooldownError struct {
+	Until time.Time
+}
+
+func (err CooldownError) Error() string      { return "indexer request is deferred by persisted pacing" }
+func (err CooldownError) SafeCode() string   { return "indexer_pacing_deferred" }
+func (err CooldownError) RetryAt() time.Time { return err.Until.UTC() }
+
 func NewScheduler(globalLimit int, store SnapshotStore) *Scheduler {
 	if globalLimit < 1 {
 		globalLimit = 1
@@ -141,12 +149,10 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		notBefore = lane.snapshot.CooldownUntil
 	}
 	lane.mu.RUnlock()
-	if delay := notBefore.Sub(now); delay > 0 {
-		if err := wait(ctx, delay); err != nil {
-			<-scheduler.global
-			<-lane.gate
-			return nil, err
-		}
+	if notBefore.After(now) {
+		<-scheduler.global
+		<-lane.gate
+		return nil, CooldownError{Until: notBefore}
 	}
 	return &Permit{scheduler: scheduler, lane: lane, indexerID: indexerID, workload: workload}, nil
 }
@@ -275,15 +281,4 @@ func backoff(indexerID string, failures uint32, budget Budget) time.Duration {
 		return base
 	}
 	return half + time.Duration(hash.Sum64()%uint64(half+1))
-}
-
-func wait(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }

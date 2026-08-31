@@ -174,6 +174,10 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 }
 
 func (service *RetrievalService) retryOrRecordRetrievalFailure(ctx context.Context, event postgres.OutboxEvent, retrieval postgres.RetrievalContext, cause error) error {
+	var deferred interface{ RetryAt() time.Time }
+	if errors.As(cause, &deferred) {
+		return cause
+	}
 	if event.Attempts < maxReleaseRetrievalAttempts {
 		return cause
 	}

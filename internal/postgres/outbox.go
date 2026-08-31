@@ -92,6 +92,20 @@ func (store *Store) FailOutbox(ctx context.Context, id uuid.UUID, owner, detail 
 	return nil
 }
 
+func (store *Store) DeferOutbox(ctx context.Context, id uuid.UUID, owner, detail string, retryAt time.Time) error {
+	if len(detail) > 1000 {
+		detail = detail[:1000]
+	}
+	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,attempts=GREATEST(attempts-1,0),lease_owner=NULL,lease_until=NULL,last_error=$4 WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrConcurrentModification
+	}
+	return nil
+}
+
 func (store *Store) RenewOutboxLease(ctx context.Context, id uuid.UUID, owner string, lease time.Duration) error {
 	if lease <= 0 {
 		lease = time.Minute
