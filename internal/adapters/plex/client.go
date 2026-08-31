@@ -139,19 +139,56 @@ func (client *Client) Confirm(ctx context.Context, expected Expected) (Confirmat
 	}
 	expectedPath := filepath.Clean(expected.PlexVisiblePath)
 	for _, item := range document.Items {
-		guid := matchingGUID(item, expected.ProviderGUIDs)
-		if guid == "" {
+		matchedPath := matchingPartPath(item, expectedPath)
+		if matchedPath == "" {
 			continue
 		}
-		for _, media := range item.Media {
-			for _, part := range media.Parts {
-				if filepath.Clean(part.File) == expectedPath {
-					return Confirmation{RatingKey: item.RatingKey, Path: part.File, ProviderGUID: guid, ConfirmedAt: time.Now().UTC()}, nil
-				}
+		guid := matchingGUID(item, expected.ProviderGUIDs)
+		if guid == "" && numeric(item.RatingKey) {
+			detailed, detailErr := client.metadataItem(ctx, item.RatingKey)
+			if detailErr != nil && !errors.Is(detailErr, ErrNotConfirmed) {
+				return Confirmation{}, detailErr
 			}
+			guid = matchingGUID(detailed, expected.ProviderGUIDs)
+		}
+		if guid != "" {
+			return Confirmation{RatingKey: item.RatingKey, Path: matchedPath, ProviderGUID: guid, ConfirmedAt: time.Now().UTC()}, nil
 		}
 	}
 	return Confirmation{}, ErrNotConfirmed
+}
+
+func (client *Client) metadataItem(ctx context.Context, ratingKey string) (Item, error) {
+	if !numeric(ratingKey) {
+		return Item{}, ErrInvalidConfig
+	}
+	body, err := client.get(ctx, "/library/metadata/"+ratingKey, nil)
+	if err != nil {
+		return Item{}, err
+	}
+	var document struct {
+		Items []Item `xml:"Video"`
+	}
+	if err := xml.Unmarshal(body, &document); err != nil {
+		return Item{}, err
+	}
+	for _, item := range document.Items {
+		if item.RatingKey == ratingKey {
+			return item, nil
+		}
+	}
+	return Item{}, ErrNotConfirmed
+}
+
+func matchingPartPath(item Item, expectedPath string) string {
+	for _, media := range item.Media {
+		for _, part := range media.Parts {
+			if filepath.Clean(part.File) == expectedPath {
+				return part.File
+			}
+		}
+	}
+	return ""
 }
 
 // ConfirmSeries verifies the series identity on the show and every expected

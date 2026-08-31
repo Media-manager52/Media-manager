@@ -29,6 +29,28 @@ func TestConfirmationRequiresPathAndIdentity(t *testing.T) {
 	}
 }
 
+func TestConfirmationLoadsExactItemIdentityWhenSectionOmitsGuids(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/library/sections/1/all":
+			_, _ = writer.Write([]byte(`<MediaContainer><Video ratingKey="7" title="Movie" guid="plex://movie/internal"><Media><Part file="/library/movies/Movie/Movie.mkv"/></Media></Video></MediaContainer>`))
+		case "/library/metadata/7":
+			_, _ = writer.Write([]byte(`<MediaContainer><Video ratingKey="7" title="Movie" guid="plex://movie/internal"><Guid id="imdb://tt0000042"/><Guid id="tmdb://42"/></Video></MediaContainer>`))
+		default:
+			t.Fatalf("unexpected path %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, Token: "secret", AllowHTTP: true}, server.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmation, err := client.Confirm(context.Background(), Expected{LibraryKey: "1", Title: "Movie", PlexVisiblePath: "/library/movies/Movie/Movie.mkv", ProviderGUIDs: []string{"tmdb://42"}})
+	if err != nil || confirmation.RatingKey != "7" || confirmation.ProviderGUID != "tmdb://42" {
+		t.Fatalf("unexpected confirmation: %#v %v", confirmation, err)
+	}
+}
+
 func TestConfirmSeriesRequiresEveryEpisodeLeafForMultiEpisodeFile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/library/metadata/10/allLeaves" {
