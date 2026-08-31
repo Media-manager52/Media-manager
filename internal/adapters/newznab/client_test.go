@@ -2,9 +2,12 @@ package newznab
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -51,7 +54,7 @@ func TestGetNZBGuardedStopsAfterPacingBeforeProviderRequest(t *testing.T) {
 	}
 }
 
-func TestGetNZBClassifiesCrossHostRedirectWithoutExposingURL(t *testing.T) {
+func TestGetNZBRejectsUnsafeCrossHostRedirectWithoutExposingURL(t *testing.T) {
 	var targetRequests atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		targetRequests.Add(1)
@@ -72,11 +75,94 @@ func TestGetNZBClassifiesCrossHostRedirectWithoutExposingURL(t *testing.T) {
 	}
 	_, err = client.GetNZB(context.Background(), "native-id")
 	var coded interface{ SafeCode() string }
+	if !errors.As(err, &coded) || coded.SafeCode() != "newznab_unsafe_redirect_target_rejected" || strings.Contains(err.Error(), redirectTarget) {
+		t.Fatalf("classified redirect error=%T %v", err, err)
+	}
+	if got := targetRequests.Load(); got != 0 {
+		t.Fatalf("cross-host redirect target requests=%d, want 0", got)
+	}
+}
+
+func TestSearchStillRejectsCrossHostRedirect(t *testing.T) {
+	var targetRequests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		targetRequests.Add(1)
+	}))
+	defer target.Close()
+	redirectTarget := strings.Replace(target.URL, "127.0.0.1", "localhost", 1)
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, redirectTarget, http.StatusFound)
+	}))
+	defer source.Close()
+	scheduler := indexers.NewScheduler(1, nil)
+	if err := scheduler.Configure("search-redirect", indexers.Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{IndexerID: "search-redirect", BaseURL: source.URL, APIKey: "secret", AllowHTTP: true}, scheduler, source.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Search(context.Background(), SearchRequest{Mode: "search"})
+	var coded interface{ SafeCode() string }
 	if !errors.As(err, &coded) || coded.SafeCode() != "newznab_cross_host_redirect_rejected" || strings.Contains(err.Error(), redirectTarget) {
 		t.Fatalf("classified redirect error=%T %v", err, err)
 	}
 	if got := targetRequests.Load(); got != 0 {
 		t.Fatalf("cross-host redirect target requests=%d, want 0", got)
+	}
+}
+
+func TestGetNZBFollowsValidatedHTTPSCrossHostRedirect(t *testing.T) {
+	const validNZB = `<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><file poster="owner"><groups><group>alt.binaries.test</group></groups><segments><segment bytes="12" number="1">message@example</segment></segments></file></nzb>`
+	var targetRequests atomic.Int32
+	target := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		targetRequests.Add(1)
+		writer.Header().Set("Content-Type", "application/x-nzb")
+		_, _ = writer.Write([]byte(validNZB))
+	}))
+	defer target.Close()
+	redirectTarget := strings.Replace(target.URL, "127.0.0.1", "localhost", 1)
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, redirectTarget, http.StatusFound)
+	}))
+	defer source.Close()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // Test servers use unrelated self-signed names.
+	scheduler := indexers.NewScheduler(1, nil)
+	if err := scheduler.Configure("validated-redirect", indexers.Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{IndexerID: "validated-redirect", BaseURL: source.URL, APIKey: "secret", AllowHTTP: true}, scheduler, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var validations atomic.Int32
+	client.validateNZBRedirectTarget = func(_ context.Context, target *url.URL) error {
+		validations.Add(1)
+		if target.Scheme != "https" || target.Hostname() != "localhost" {
+			t.Fatalf("unexpected redirect target scheme=%q host=%q", target.Scheme, target.Hostname())
+		}
+		return nil
+	}
+	body, err := client.GetNZB(context.Background(), "native-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != validNZB || validations.Load() != 1 || targetRequests.Load() != 1 {
+		t.Fatalf("body=%d bytes validations=%d target_requests=%d", len(body), validations.Load(), targetRequests.Load())
+	}
+}
+
+func TestPublicInternetAddressRejectsNonPublicRanges(t *testing.T) {
+	for _, value := range []string{"127.0.0.1", "10.0.0.1", "100.64.0.1", "192.0.2.1", "::1", "fc00::1", "2001:db8::1"} {
+		if publicInternetAddress(netip.MustParseAddr(value)) {
+			t.Fatalf("non-public address accepted: %s", value)
+		}
+	}
+	for _, value := range []string{"1.1.1.1", "2606:4700:4700::1111"} {
+		if !publicInternetAddress(netip.MustParseAddr(value)) {
+			t.Fatalf("public address rejected: %s", value)
+		}
 	}
 }
 

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -45,12 +47,14 @@ type Config struct {
 }
 
 type Client struct {
-	config    Config
-	base      *url.URL
-	http      *http.Client
-	scheduler *indexers.Scheduler
-	bodyLimit int64
-	nzbLimit  int64
+	config                    Config
+	base                      *url.URL
+	http                      *http.Client
+	nzbHTTP                   *http.Client
+	scheduler                 *indexers.Scheduler
+	bodyLimit                 int64
+	nzbLimit                  int64
+	validateNZBRedirectTarget func(context.Context, *url.URL) error
 }
 
 type HTTPError struct {
@@ -88,6 +92,7 @@ var (
 	ErrCrossHostRedirect = errors.New("cross-host redirect rejected")
 	ErrTLSDowngrade      = errors.New("TLS downgrade rejected")
 	ErrTooManyRedirects  = errors.New("too many redirects")
+	ErrUnsafeRedirect    = errors.New("unsafe redirect target rejected")
 )
 
 type responseValidator func([]byte) (indexers.Outcome, error)
@@ -109,7 +114,17 @@ func New(config Config, scheduler *indexers.Scheduler, transport http.RoundTripp
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	return &Client{config: config, base: parsed, scheduler: scheduler, http: &http.Client{Transport: transport, Timeout: config.Timeout, CheckRedirect: safeRedirect}, bodyLimit: defaultResponseLimit, nzbLimit: defaultNZBLimit}, nil
+	client := &Client{
+		config:                    config,
+		base:                      parsed,
+		scheduler:                 scheduler,
+		bodyLimit:                 defaultResponseLimit,
+		nzbLimit:                  defaultNZBLimit,
+		validateNZBRedirectTarget: validatePublicHTTPSRedirectTarget,
+	}
+	client.http = &http.Client{Transport: transport, Timeout: config.Timeout, CheckRedirect: safeRedirect}
+	client.nzbHTTP = &http.Client{Transport: transport, Timeout: config.Timeout, CheckRedirect: client.safeNZBRedirect}
+	return client, nil
 }
 
 func (client *Client) Search(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
@@ -204,7 +219,7 @@ func (client *Client) GetNZB(ctx context.Context, nativeID string) ([]byte, erro
 }
 
 func (client *Client) GetNZBGuarded(ctx context.Context, nativeID string, guard func(context.Context) error) ([]byte, error) {
-	return client.requestGuarded(ctx, indexers.WorkloadRetrieval, []Param{{Name: "t", Value: "get"}, {Name: "id", Value: nativeID}}, client.nzbLimit, guard, func(body []byte) (indexers.Outcome, error) {
+	return client.requestGuardedWithHTTP(ctx, client.nzbHTTP, indexers.WorkloadRetrieval, []Param{{Name: "t", Value: "get"}, {Name: "id", Value: nativeID}}, client.nzbLimit, guard, func(body []byte) (indexers.Outcome, error) {
 		if provider, ok := providerErrorDocument(body); ok {
 			return validationFailureOutcome(provider), provider
 		}
@@ -270,6 +285,10 @@ func (client *Client) request(ctx context.Context, workload indexers.Workload, p
 }
 
 func (client *Client) requestGuarded(ctx context.Context, workload indexers.Workload, params []Param, limit int64, guard func(context.Context) error, validate responseValidator) ([]byte, error) {
+	return client.requestGuardedWithHTTP(ctx, client.http, workload, params, limit, guard, validate)
+}
+
+func (client *Client) requestGuardedWithHTTP(ctx context.Context, requestClient *http.Client, workload indexers.Workload, params []Param, limit int64, guard func(context.Context) error, validate responseValidator) ([]byte, error) {
 	permit, err := client.scheduler.Acquire(ctx, client.config.IndexerID, workload)
 	if err != nil {
 		return nil, err
@@ -298,7 +317,7 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 	}
 	req.Header.Set("Accept", "application/xml, application/rss+xml, text/plain;q=0.8")
 	req.Header.Set("User-Agent", "MediaManager/1")
-	response, err := client.http.Do(req)
+	response, err := requestClient.Do(req)
 	if err != nil {
 		recorded = true
 		_ = permit.Record(context.Background(), indexers.OutcomeSystemFailure, nil)
@@ -310,6 +329,8 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 			code = "newznab_tls_downgrade_rejected"
 		case errors.Is(err, ErrTooManyRedirects):
 			code = "newznab_too_many_redirects"
+		case errors.Is(err, ErrUnsafeRedirect):
+			code = "newznab_unsafe_redirect_target_rejected"
 		}
 		return nil, classified(code, errors.New("Newznab request failed"))
 	}
@@ -421,11 +442,98 @@ func safeRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 3 {
 		return ErrTooManyRedirects
 	}
-	if len(via) > 0 && !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
+	if len(via) == 0 || req.URL == nil || req.URL.User != nil || strings.TrimSpace(req.URL.Hostname()) == "" {
+		return ErrUnsafeRedirect
+	}
+	if !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
 		return ErrCrossHostRedirect
 	}
 	if req.URL.Scheme != "https" && via[0].URL.Scheme == "https" {
 		return ErrTLSDowngrade
 	}
 	return nil
+}
+
+func (client *Client) safeNZBRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 3 {
+		return ErrTooManyRedirects
+	}
+	if len(via) == 0 || req.URL == nil || req.URL.User != nil || strings.TrimSpace(req.URL.Hostname()) == "" {
+		return ErrUnsafeRedirect
+	}
+	if req.URL.Scheme != "https" && via[0].URL.Scheme == "https" {
+		return ErrTLSDowngrade
+	}
+	if strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
+		return nil
+	}
+	if req.URL.Scheme != "https" || client.validateNZBRedirectTarget == nil {
+		return ErrUnsafeRedirect
+	}
+	if err := client.validateNZBRedirectTarget(req.Context(), req.URL); err != nil {
+		return ErrUnsafeRedirect
+	}
+	req.Header.Del("Authorization")
+	req.Header.Del("Cookie")
+	req.Header.Del("Proxy-Authorization")
+	return nil
+}
+
+func validatePublicHTTPSRedirectTarget(ctx context.Context, target *url.URL) error {
+	if target == nil || target.Scheme != "https" || target.User != nil || target.Hostname() == "" || len(target.String()) > 8192 {
+		return ErrUnsafeRedirect
+	}
+	if port := target.Port(); port != "" && port != "443" {
+		return ErrUnsafeRedirect
+	}
+	hostname := strings.TrimSuffix(strings.ToLower(target.Hostname()), ".")
+	if hostname == "" || hostname == "localhost" || net.ParseIP(hostname) != nil {
+		return ErrUnsafeRedirect
+	}
+	addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", hostname)
+	if err != nil || len(addresses) == 0 {
+		return ErrUnsafeRedirect
+	}
+	for _, address := range addresses {
+		if !publicInternetAddress(address.Unmap()) {
+			return ErrUnsafeRedirect
+		}
+	}
+	return nil
+}
+
+var nonPublicInternetPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/128"),
+	netip.MustParsePrefix("::1/128"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("fe80::/10"),
+	netip.MustParsePrefix("ff00::/8"),
+}
+
+func publicInternetAddress(address netip.Addr) bool {
+	if !address.IsValid() || !address.IsGlobalUnicast() || address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast() || address.IsUnspecified() {
+		return false
+	}
+	for _, prefix := range nonPublicInternetPrefixes {
+		if prefix.Contains(address) {
+			return false
+		}
+	}
+	return true
 }
