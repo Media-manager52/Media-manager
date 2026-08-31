@@ -85,6 +85,9 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err != nil {
 		return err
 	}
+	if retrieval.Workflow.State == workflows.StateSubmitting && retrieval.Workflow.GrabAttemptID != nil {
+		return service.Store.MarkAltMountUnknown(ctx, workflowID, *retrieval.Workflow.GrabAttemptID, time.Now().UTC())
+	}
 	if event.AggregateRevision != retrieval.Workflow.Revision || retrieval.Workflow.State != workflows.StateCandidateSelected {
 		return nil
 	}

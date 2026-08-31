@@ -93,6 +93,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/workflows", server.requireOwner(server.listWorkflows))
 	server.mux.HandleFunc("GET /api/v1/workflows/{id}", server.requireOwner(server.getWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/search", server.requireOwner(server.searchWorkflow))
+	server.mux.HandleFunc("POST /api/v1/workflows/{id}/recover-altmount-submission", server.requireOwner(server.recoverAltMountSubmission))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/cancel", server.requireOwner(server.cancelWorkflow))
 	server.mux.HandleFunc("GET /api/v1/activity", server.requireOwner(server.listActivity))
 	server.mux.HandleFunc("GET /api/v1/files", server.requireOwner(server.listManagedFiles))
@@ -1187,6 +1188,37 @@ func (server *Server) searchWorkflow(writer http.ResponseWriter, request *http.R
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "search_queued", "id": id.String()}})
+}
+
+func (server *Server) recoverAltMountSubmission(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
+		return
+	}
+	workflow, err := server.store.GetWorkflow(request.Context(), id)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load workflow")
+		return
+	}
+	if workflow.State != workflows.StateSubmitting || workflow.GrabAttemptID == nil {
+		writeError(writer, http.StatusConflict, "recovery_failed", "workflow does not have an unresolved AltMount submission")
+		return
+	}
+	if err := server.store.MarkAltMountUnknown(request.Context(), workflow.ID, *workflow.GrabAttemptID, time.Now().UTC()); err != nil {
+		writeError(writer, http.StatusConflict, "recovery_failed", "AltMount submission recovery could not be queued")
+		return
+	}
+	workflow, err = server.store.GetWorkflow(request.Context(), id)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not reload workflow")
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: workflow})
 }
 
 func (server *Server) cancelWorkflow(writer http.ResponseWriter, request *http.Request) {

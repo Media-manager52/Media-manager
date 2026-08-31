@@ -97,6 +97,60 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err != nil || len(mainSearch.Exclusions) != 0 {
 		t.Fatalf("retrieval exclusion escaped workflow: %+v err=%v", mainSearch.Exclusions, err)
 	}
+
+	submissionMedia, err := catalog.New(catalog.KindMovie, "Submission Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654319", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	submissionWorkflows, err := store.CreateManualMedia(ctx, submissionMedia, root.ID, profile.ID, altMount.ID, nil, false, "test")
+	if err != nil || len(submissionWorkflows) != 1 {
+		t.Fatalf("submission workflow=%+v err=%v", submissionWorkflows, err)
+	}
+	submission := seedRetrievalCandidate(t, ctx, store, submissionWorkflows[0].ID, indexer.ID, "submission-guid")
+	intent, err := store.BeginAltMountSubmission(ctx, submission, time.Now().UTC())
+	if err != nil || !intent.ShouldSubmit {
+		t.Fatalf("submission intent=%+v err=%v", intent, err)
+	}
+	loadedSubmission, err := store.LoadRetrievalContext(ctx, submission.Workflow.ID, submission.CandidateID)
+	if err != nil || loadedSubmission.Workflow.GrabAttemptID == nil || *loadedSubmission.Workflow.GrabAttemptID != intent.JobID {
+		t.Fatalf("loaded submitting workflow=%+v err=%v", loadedSubmission.Workflow, err)
+	}
+	if err := store.MarkAltMountSubmitted(ctx, submission.Workflow.ID, intent.JobID, 12345, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var submittedWorkflowState, submittedJobState string
+	var submittedQueueID int64
+	if err := store.Pool.QueryRow(ctx, `SELECT workflow.state,job.state,job.external_queue_id FROM workflows workflow JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id WHERE workflow.id=$1`, submission.Workflow.ID.String()).Scan(&submittedWorkflowState, &submittedJobState, &submittedQueueID); err != nil {
+		t.Fatal(err)
+	}
+	if submittedWorkflowState != "queued" || submittedJobState != "queued" || submittedQueueID != 12345 {
+		t.Fatalf("submitted workflow=%q job=%q queue=%d", submittedWorkflowState, submittedJobState, submittedQueueID)
+	}
+
+	unknownMedia, err := catalog.New(catalog.KindMovie, "Unknown Submission Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654318", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownWorkflows, err := store.CreateManualMedia(ctx, unknownMedia, root.ID, profile.ID, altMount.ID, nil, false, "test")
+	if err != nil || len(unknownWorkflows) != 1 {
+		t.Fatalf("unknown workflow=%+v err=%v", unknownWorkflows, err)
+	}
+	unknown := seedRetrievalCandidate(t, ctx, store, unknownWorkflows[0].ID, indexer.ID, "unknown-submission-guid")
+	unknownIntent, err := store.BeginAltMountSubmission(ctx, unknown, time.Now().UTC())
+	if err != nil || !unknownIntent.ShouldSubmit {
+		t.Fatalf("unknown submission intent=%+v err=%v", unknownIntent, err)
+	}
+	if err := store.MarkAltMountUnknown(ctx, unknown.Workflow.ID, unknownIntent.JobID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var unknownWorkflowState, unknownJobState string
+	var unknownQueueID *int64
+	if err := store.Pool.QueryRow(ctx, `SELECT workflow.state,job.state,job.external_queue_id FROM workflows workflow JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id WHERE workflow.id=$1`, unknown.Workflow.ID.String()).Scan(&unknownWorkflowState, &unknownJobState, &unknownQueueID); err != nil {
+		t.Fatal(err)
+	}
+	if unknownWorkflowState != "transport_unknown" || unknownJobState != "transport_unknown" || unknownQueueID != nil {
+		t.Fatalf("unknown workflow=%q job=%q queue=%v", unknownWorkflowState, unknownJobState, unknownQueueID)
+	}
 	oldVersionID := seedCurrentSubtitleVersion(t, ctx, store, media.ID, root.ID, profile.ID, altMount.ID, indexer.ID)
 
 	firstJob, firstInventory, firstAssets := seedSubtitleAttempt(t, ctx, store, workflowID, altMount.ID, indexer.ID, 1, "exact-guid-1")

@@ -33,8 +33,9 @@ type SubmissionIntent struct {
 func (store *Store) LoadRetrievalContext(ctx context.Context, workflowID, candidateID uuid.UUID) (RetrievalContext, error) {
 	var result RetrievalContext
 	var workflowText, clientText, indexerText string
+	var attemptText *string
 	var revision int64
-	err := store.Pool.QueryRow(ctx, `SELECT w.id::text,w.state,w.revision,w.variant,w.download_client_id::text,c.id::text,c.native_key,c.title,c.indexer_instance_id::text FROM workflows w JOIN release_candidates c ON c.workflow_id=w.id WHERE w.id=$1 AND c.id=$2 AND w.selected_release_id=c.id`, workflowID.String(), candidateID.String()).Scan(&workflowText, &result.Workflow.State, &revision, &result.Variant, &clientText, &workflowText, &result.NativeID, &result.ReleaseTitle, &indexerText)
+	err := store.Pool.QueryRow(ctx, `SELECT w.id::text,w.state,w.revision,w.variant,w.download_client_id::text,w.grab_attempt_id::text,c.id::text,c.native_key,c.title,c.indexer_instance_id::text FROM workflows w JOIN release_candidates c ON c.workflow_id=w.id WHERE w.id=$1 AND c.id=$2 AND w.selected_release_id=c.id`, workflowID.String(), candidateID.String()).Scan(&workflowText, &result.Workflow.State, &revision, &result.Variant, &clientText, &attemptText, &workflowText, &result.NativeID, &result.ReleaseTitle, &indexerText)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RetrievalContext{}, ErrNotFound
 	}
@@ -45,6 +46,13 @@ func (store *Store) LoadRetrievalContext(ctx context.Context, workflowID, candid
 	result.Workflow.Revision = uint64(revision)
 	result.CandidateID = candidateID
 	result.Workflow.DownloadClientID, _ = uuid.Parse(clientText)
+	if attemptText != nil {
+		parsed, parseErr := uuid.Parse(*attemptText)
+		if parseErr != nil {
+			return RetrievalContext{}, parseErr
+		}
+		result.Workflow.GrabAttemptID = &parsed
+	}
 	indexerID, _ := uuid.Parse(indexerText)
 	result.Indexer, err = store.Integration(ctx, indexerID)
 	if err != nil {
@@ -204,7 +212,7 @@ func (store *Store) finishSubmission(ctx context.Context, workflowID, jobID uuid
 		return ErrConcurrentModification
 	}
 	var jobRevision int64
-	if err := transaction.QueryRow(ctx, `UPDATE altmount_jobs SET state=$2,external_queue_id=$3,submitted_at=CASE WHEN $3 IS NULL THEN submitted_at ELSE $4 END,last_reconciled_at=$4,revision=revision+1 WHERE id=$1 RETURNING revision`, jobID.String(), jobState, queueID, now.UTC()).Scan(&jobRevision); err != nil {
+	if err := transaction.QueryRow(ctx, `UPDATE altmount_jobs SET state=$2,external_queue_id=$3::bigint,submitted_at=CASE WHEN $3::bigint IS NULL THEN submitted_at ELSE $4 END,last_reconciled_at=$4,revision=revision+1 WHERE id=$1 RETURNING revision`, jobID.String(), jobState, queueID, now.UTC()).Scan(&jobRevision); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state=$2,revision=revision+1,updated_at=$3 WHERE id=$1 AND revision=$4`, workflowID.String(), workflowState, now.UTC(), revision); err != nil {
