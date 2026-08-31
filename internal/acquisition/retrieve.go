@@ -176,6 +176,10 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 func (service *RetrievalService) retryOrRecordRetrievalFailure(ctx context.Context, event postgres.OutboxEvent, retrieval postgres.RetrievalContext, cause error) error {
 	var deferred interface{ RetryAt() time.Time }
 	if errors.As(cause, &deferred) {
+		if terminalRetrievalAccessFailure(event.LastError) {
+			detail := "selected release NZB access was rejected after one bounded request (" + event.LastError + ")"
+			return service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, detail, time.Now().UTC())
+		}
 		return cause
 	}
 	if event.Attempts < maxReleaseRetrievalAttempts {
@@ -190,4 +194,8 @@ func (service *RetrievalService) retryOrRecordRetrievalFailure(ctx context.Conte
 		return errors.Join(cause, err)
 	}
 	return nil
+}
+
+func terminalRetrievalAccessFailure(safeCode string) bool {
+	return safeCode == "newznab_http_401" || safeCode == "newznab_http_403"
 }

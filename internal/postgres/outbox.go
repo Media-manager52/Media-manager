@@ -21,6 +21,7 @@ type OutboxEvent struct {
 	Payload           json.RawMessage
 	Attempts          int
 	OccurredAt        time.Time
+	LastError         string
 }
 
 func (store *Store) ClaimOutbox(ctx context.Context, owner string, limit int, lease time.Duration) ([]OutboxEvent, error) {
@@ -38,7 +39,7 @@ func (store *Store) ClaimOutbox(ctx context.Context, owner string, limit int, le
 UPDATE outbox_events AS event
 SET lease_owner=$2,lease_until=now()+($3 * interval '1 second'),attempts=attempts+1
 FROM picked WHERE event.id=picked.id
-RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at`, limit, owner, lease.Seconds())
+RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at,COALESCE(event.last_error,'')`, limit, owner, lease.Seconds())
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +50,7 @@ RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.agg
 		var idText, aggregateText string
 		var revision int64
 		var payload []byte
-		if err := rows.Scan(&idText, &event.AggregateType, &aggregateText, &revision, &event.Type, &payload, &event.Attempts, &event.OccurredAt); err != nil {
+		if err := rows.Scan(&idText, &event.AggregateType, &aggregateText, &revision, &event.Type, &payload, &event.Attempts, &event.OccurredAt, &event.LastError); err != nil {
 			return nil, err
 		}
 		event.ID, err = uuid.Parse(idText)

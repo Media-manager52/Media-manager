@@ -24,3 +24,16 @@ func TestDeferredIndexerPacingDoesNotConsumeRetrievalAttemptLimit(t *testing.T) 
 		t.Fatalf("deferred pacing became a release failure: %v", err)
 	}
 }
+
+func TestRetrievalAccessRejectionsAreTerminalSafeCodes(t *testing.T) {
+	for _, code := range []string{"newznab_http_401", "newznab_http_403"} {
+		if !terminalRetrievalAccessFailure(code) {
+			t.Fatalf("access rejection %q was not terminal", code)
+		}
+	}
+	for _, code := range []string{"", "newznab_http_429", "newznab_redirect_dns_resolution_rejected", "*url.Error"} {
+		if terminalRetrievalAccessFailure(code) {
+			t.Fatalf("non-access outcome %q became terminal", code)
+		}
+	}
+}
