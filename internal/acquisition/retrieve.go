@@ -120,7 +120,7 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err != nil {
 		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
 	}
-	nzb, err := indexerClient.GetNZBGuarded(ctx, retrievalID, func(guardCtx context.Context) error {
+	nzb, err := indexerClient.GetNZBPackageGuarded(ctx, retrievalID, func(guardCtx context.Context) error {
 		current, loadErr := service.Store.LoadRetrievalContext(guardCtx, workflowID, candidateID)
 		if errors.Is(loadErr, postgres.ErrNotFound) {
 			return postgres.ErrConcurrentModification
@@ -150,7 +150,7 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if _, err := client.Login(ctx); err != nil {
 		return err
 	}
-	intent, err := service.Store.BeginAltMountSubmission(ctx, retrieval, time.Now().UTC())
+	intent, err := service.Store.BeginAltMountSubmission(ctx, retrieval, nzb.Identity, time.Now().UTC())
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 		}
 		return nil
 	}
-	upload := altmount.UploadRequest{Filename: intent.Filename, Size: int64(len(nzb)), Category: config.Category, Priority: altmount.PriorityNormal, Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(nzb)), nil }}
+	upload := altmount.UploadRequest{Filename: intent.Filename, Size: int64(len(nzb.Body)), Category: config.Category, Priority: altmount.PriorityNormal, Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(nzb.Body)), nil }}
 	item, err := client.UploadNZB(ctx, upload)
 	if err != nil {
 		var ambiguous altmount.AmbiguousSubmissionError

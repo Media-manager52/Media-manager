@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -23,12 +24,16 @@ type RetrievalContext struct {
 	DownloadClient Integration
 }
 type SubmissionIntent struct {
-	JobID           uuid.UUID
-	Filename        string
-	State           string
-	ExternalQueueID *int64
-	ShouldSubmit    bool
+	JobID            uuid.UUID
+	Filename         string
+	State            string
+	ExternalQueueID  *int64
+	ShouldSubmit     bool
+	DuplicatePackage bool
+	NextCandidateID  *uuid.UUID
 }
+
+const maxDuplicatePackageSkips = 4
 
 func (store *Store) LoadRetrievalContext(ctx context.Context, workflowID, candidateID uuid.UUID) (RetrievalContext, error) {
 	var result RetrievalContext
@@ -105,7 +110,7 @@ func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval
 	return transaction.Commit(ctx)
 }
 
-func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval RetrievalContext, now time.Time) (SubmissionIntent, error) {
+func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval RetrievalContext, packageIdentity [sha256.Size]byte, now time.Time) (SubmissionIntent, error) {
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return SubmissionIntent{}, err
@@ -169,10 +174,27 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 	if current != workflows.StateCandidateSelected {
 		return SubmissionIntent{}, ErrConcurrentModification
 	}
+	var failedVerificationText string
+	err = transaction.QueryRow(ctx, `SELECT verification.id::text
+		FROM altmount_jobs job
+		JOIN subtitle_verifications verification ON verification.altmount_job_id=job.id
+		WHERE job.workflow_id=$1 AND job.nzb_package_sha256=$2 AND verification.status='unverified'
+		ORDER BY job.attempt_generation
+		LIMIT 1`, retrieval.Workflow.ID.String(), packageIdentity[:]).Scan(&failedVerificationText)
+	if err == nil {
+		failedVerificationID, parseErr := uuid.Parse(failedVerificationText)
+		if parseErr != nil {
+			return SubmissionIntent{}, parseErr
+		}
+		return recordDuplicatePackage(ctx, transaction, retrieval, failedVerificationID, current, revision, now)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return SubmissionIntent{}, err
+	}
 	jobID := uuid.NewV7()
 	filename = releaseSlug(retrieval.ReleaseTitle) + "--mm-" + jobID.String() + ".nzb"
 	generation++
-	if _, err := transaction.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,submission_started_at,revision) VALUES($1,$2,$3,$4,$5,$6,'submitting',$7,1)`, jobID.String(), retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), retrieval.DownloadClient.ID.String(), generation, filename, now.UTC()); err != nil {
+	if _, err := transaction.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,submission_started_at,revision,nzb_package_sha256) VALUES($1,$2,$3,$4,$5,$6,'submitting',$7,1,$8)`, jobID.String(), retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), retrieval.DownloadClient.ID.String(), generation, filename, now.UTC(), packageIdentity[:]); err != nil {
 		return SubmissionIntent{}, err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='submitting',grab_attempt_id=$2,revision=revision+1,updated_at=$3 WHERE id=$1 AND revision=$4`, retrieval.Workflow.ID.String(), jobID.String(), now.UTC(), revision); err != nil {
@@ -185,6 +207,92 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 		return SubmissionIntent{}, err
 	}
 	return SubmissionIntent{JobID: jobID, Filename: filename, State: "submitting", ShouldSubmit: true}, nil
+}
+
+func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval RetrievalContext, failedVerificationID uuid.UUID, current workflows.State, revision int64, now time.Time) (SubmissionIntent, error) {
+	const detail = "exact NZB package already failed required subtitle verification in this workflow"
+	var indexerText, nativeKey string
+	if err := transaction.QueryRow(ctx, `SELECT indexer_instance_id::text,native_key FROM release_candidates WHERE workflow_id=$1 AND id=$2`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String()).Scan(&indexerText, &nativeKey); err != nil {
+		return SubmissionIntent{}, err
+	}
+	command, err := transaction.Exec(ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,verification_id,failure_kind,reason,created_at)
+		VALUES($1,$2,$3,$4,$5,'duplicate_package',$6,$7)
+		ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO NOTHING`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), indexerText, nativeKey, failedVerificationID.String(), detail, now.UTC())
+	if err != nil {
+		return SubmissionIntent{}, err
+	}
+	if command.RowsAffected() != 1 {
+		return SubmissionIntent{}, ErrConcurrentModification
+	}
+	var skipped int
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM workflow_release_exclusions WHERE workflow_id=$1 AND failure_kind='duplicate_package'`, retrieval.Workflow.ID.String()).Scan(&skipped); err != nil {
+		return SubmissionIntent{}, err
+	}
+	var nextCandidateText string
+	if skipped <= maxDuplicatePackageSkips {
+		err = transaction.QueryRow(ctx, `SELECT candidate.id::text
+			FROM release_candidates candidate
+			JOIN release_observations observation ON observation.id=candidate.observation_id
+			JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
+			JOIN workflows workflow ON workflow.id=candidate.workflow_id
+			JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id AND profile.policy_version=decision.policy_version
+			WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
+			  AND NOT EXISTS (
+			    SELECT 1 FROM workflow_release_exclusions exclusion
+			    WHERE exclusion.workflow_id=candidate.workflow_id
+			      AND exclusion.indexer_instance_id=candidate.indexer_instance_id
+			      AND exclusion.native_key=candidate.native_key
+			  )
+			ORDER BY decision.score DESC,observation.observed_at DESC,observation.native_guid
+			LIMIT 1`, retrieval.Workflow.ID.String()).Scan(&nextCandidateText)
+	}
+	if err == nil && nextCandidateText != "" {
+		nextCandidateID, parseErr := uuid.Parse(nextCandidateText)
+		if parseErr != nil {
+			return SubmissionIntent{}, parseErr
+		}
+		newRevision := revision + 1
+		if _, err := transaction.Exec(ctx, `UPDATE workflows SET selected_release_id=$2,grab_attempt_id=NULL,revision=$3,updated_at=$4,attention_code=NULL,attention_detail=NULL WHERE id=$1 AND revision=$5`, retrieval.Workflow.ID.String(), nextCandidateID.String(), newRevision, now.UTC(), revision); err != nil {
+			return SubmissionIntent{}, err
+		}
+		if _, err := transaction.Exec(ctx, `INSERT INTO candidate_selections(workflow_id,candidate_id,selected_at,actor,reason) VALUES($1,$2,$3,'policy','next eligible candidate after exact duplicate package') ON CONFLICT(workflow_id) DO UPDATE SET candidate_id=EXCLUDED.candidate_id,selected_at=EXCLUDED.selected_at,actor=EXCLUDED.actor,reason=EXCLUDED.reason`, retrieval.Workflow.ID.String(), nextCandidateID.String(), now.UTC()); err != nil {
+			return SubmissionIntent{}, err
+		}
+		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,$3,$4,'worker',$5)`, retrieval.Workflow.ID.String(), newRevision, current, detail+"; next eligible candidate selected", now.UTC()); err != nil {
+			return SubmissionIntent{}, err
+		}
+		payload, _ := json.Marshal(map[string]string{"workflow_id": retrieval.Workflow.ID.String(), "candidate_id": nextCandidateID.String()})
+		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'release.retrieve_requested',$4,$5,$5)`, uuid.NewV7().String(), retrieval.Workflow.ID.String(), newRevision, string(payload), now.UTC()); err != nil {
+			return SubmissionIntent{}, err
+		}
+		if err := transaction.Commit(ctx); err != nil {
+			return SubmissionIntent{}, err
+		}
+		return SubmissionIntent{State: string(current), ShouldSubmit: false, DuplicatePackage: true, NextCandidateID: &nextCandidateID}, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return SubmissionIntent{}, err
+	}
+	attentionCode := "duplicate_package_no_alternate"
+	attentionDetail := "The next eligible release resolved to an exact package that already failed subtitle verification, and no unexcluded eligible candidate remains."
+	if skipped > maxDuplicatePackageSkips {
+		attentionCode = "duplicate_package_skip_limit"
+		attentionDetail = "The bounded exact-package duplicate skip limit was reached; owner review is required."
+	}
+	newRevision := revision + 1
+	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='needs_attention',selected_release_id=NULL,grab_attempt_id=NULL,revision=$2,updated_at=$3,attention_code=$4,attention_detail=$5 WHERE id=$1 AND revision=$6`, retrieval.Workflow.ID.String(), newRevision, now.UTC(), attentionCode, attentionDetail, revision); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE subtitle_verifications SET retry_state='no_alternate' WHERE workflow_id=$1 AND retry_state='queued'`, retrieval.Workflow.ID.String()); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'needs_attention',$4,'worker',$5)`, retrieval.Workflow.ID.String(), newRevision, current, attentionDetail, now.UTC()); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return SubmissionIntent{}, err
+	}
+	return SubmissionIntent{State: "needs_attention", ShouldSubmit: false, DuplicatePackage: true}, nil
 }
 
 func (store *Store) MarkAltMountSubmitted(ctx context.Context, workflowID, jobID uuid.UUID, queueID int64, now time.Time) error {

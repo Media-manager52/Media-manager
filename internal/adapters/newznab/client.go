@@ -3,8 +3,10 @@ package newznab
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -27,6 +29,9 @@ const (
 	maxRedirects         = 3
 	maxRedirectAddresses = 16
 	redirectDrainLimit   = int64(8 << 10)
+	maxNZBFiles          = 10_000
+	maxNZBSegments       = 1_000_000
+	maxNZBMessageIDBytes = 1_024
 )
 
 type Param struct {
@@ -41,6 +46,11 @@ type SearchRequest struct {
 	Limit      int     `json:"limit,omitempty"`
 	Offset     int     `json:"offset,omitempty"`
 	Extended   bool    `json:"extended"`
+}
+
+type NZBPackage struct {
+	Body     []byte
+	Identity [sha256.Size]byte
 }
 
 type Config struct {
@@ -238,65 +248,160 @@ func (client *Client) GetNZB(ctx context.Context, nativeID string) ([]byte, erro
 }
 
 func (client *Client) GetNZBGuarded(ctx context.Context, nativeID string, guard func(context.Context) error) ([]byte, error) {
-	return client.requestGuarded(ctx, indexers.WorkloadRetrieval, []Param{{Name: "t", Value: "get"}, {Name: "id", Value: nativeID}}, client.nzbLimit, guard, true, func(body []byte) (indexers.Outcome, error) {
+	pack, err := client.GetNZBPackageGuarded(ctx, nativeID, guard)
+	return pack.Body, err
+}
+
+func (client *Client) GetNZBPackageGuarded(ctx context.Context, nativeID string, guard func(context.Context) error) (NZBPackage, error) {
+	var identity [sha256.Size]byte
+	body, err := client.requestGuarded(ctx, indexers.WorkloadRetrieval, []Param{{Name: "t", Value: "get"}, {Name: "id", Value: nativeID}}, client.nzbLimit, guard, true, func(body []byte) (indexers.Outcome, error) {
 		if provider, ok := providerErrorDocument(body); ok {
 			return validationFailureOutcome(provider), provider
 		}
-		if err := validateNZB(body); err != nil {
+		parsed, parseErr := PackageIdentity(body)
+		if parseErr != nil {
 			return indexers.OutcomeSystemFailure, classified("newznab_invalid_nzb", ErrInvalidNZB)
 		}
+		identity = parsed
 		return indexers.OutcomeSuccess, nil
 	})
+	if err != nil {
+		return NZBPackage{}, err
+	}
+	return NZBPackage{Body: body, Identity: identity}, nil
 }
 
 func validateNZB(body []byte) error {
+	_, err := PackageIdentity(body)
+	return err
+}
+
+func PackageIdentity(body []byte) ([sha256.Size]byte, error) {
+	var zero [sha256.Size]byte
 	decoder := xml.NewDecoder(bytes.NewReader(body))
 	decoder.Strict = true
+	identity := sha256.New()
+	_, _ = identity.Write([]byte("media-manager-nzb-package-v1\x00"))
 	rootSeen, rootClosed := false, false
 	depth, files, segments, tokens := 0, 0, 0, 0
+	fileDepth, fileSegments := 0, 0
+	segmentDepth := 0
+	segmentBytes, segmentNumber := uint64(0), uint64(0)
+	var messageID strings.Builder
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return err
+			return zero, err
 		}
 		tokens++
 		if tokens > 4_000_000 {
-			return ErrInvalidNZB
+			return zero, ErrInvalidNZB
 		}
 		switch typed := token.(type) {
 		case xml.StartElement:
 			if !rootSeen {
 				if !strings.EqualFold(typed.Name.Local, "nzb") {
-					return ErrInvalidNZB
+					return zero, ErrInvalidNZB
 				}
 				rootSeen = true
 			} else if rootClosed {
-				return ErrInvalidNZB
+				return zero, ErrInvalidNZB
+			}
+			if segmentDepth != 0 {
+				return zero, ErrInvalidNZB
 			}
 			depth++
 			if strings.EqualFold(typed.Name.Local, "file") {
+				if fileDepth != 0 {
+					return zero, ErrInvalidNZB
+				}
 				files++
+				if files > maxNZBFiles {
+					return zero, ErrInvalidNZB
+				}
+				fileDepth, fileSegments = depth, 0
+				_, _ = identity.Write([]byte{0xf0})
 			}
 			if strings.EqualFold(typed.Name.Local, "segment") {
+				if fileDepth == 0 || depth <= fileDepth {
+					return zero, ErrInvalidNZB
+				}
 				segments++
+				fileSegments++
+				if segments > maxNZBSegments {
+					return zero, ErrInvalidNZB
+				}
+				var bytesText, numberText string
+				for _, attribute := range typed.Attr {
+					switch strings.ToLower(attribute.Name.Local) {
+					case "bytes":
+						bytesText = strings.TrimSpace(attribute.Value)
+					case "number":
+						numberText = strings.TrimSpace(attribute.Value)
+					}
+				}
+				segmentBytes, err = strconv.ParseUint(bytesText, 10, 63)
+				if err != nil || segmentBytes == 0 {
+					return zero, ErrInvalidNZB
+				}
+				segmentNumber, err = strconv.ParseUint(numberText, 10, 31)
+				if err != nil || segmentNumber == 0 {
+					return zero, ErrInvalidNZB
+				}
+				segmentDepth = depth
+				messageID.Reset()
+			}
+		case xml.CharData:
+			if segmentDepth != 0 {
+				if messageID.Len()+len(typed) > maxNZBMessageIDBytes {
+					return zero, ErrInvalidNZB
+				}
+				_, _ = messageID.Write(typed)
 			}
 		case xml.EndElement:
+			if segmentDepth == depth && strings.EqualFold(typed.Name.Local, "segment") {
+				message := strings.TrimSpace(messageID.String())
+				if message == "" {
+					return zero, ErrInvalidNZB
+				}
+				_, _ = identity.Write([]byte{0x51})
+				writeNZBIdentityUint(identity, segmentNumber)
+				writeNZBIdentityUint(identity, segmentBytes)
+				writeNZBIdentityUint(identity, uint64(len(message)))
+				_, _ = io.WriteString(identity, message)
+				segmentDepth = 0
+			}
+			if fileDepth == depth && strings.EqualFold(typed.Name.Local, "file") {
+				if fileSegments == 0 || segmentDepth != 0 {
+					return zero, ErrInvalidNZB
+				}
+				_, _ = identity.Write([]byte{0x0f})
+				fileDepth = 0
+			}
 			depth--
 			if depth < 0 {
-				return ErrInvalidNZB
+				return zero, ErrInvalidNZB
 			}
 			if rootSeen && depth == 0 {
 				rootClosed = true
 			}
 		}
 	}
-	if !rootSeen || !rootClosed || depth != 0 || files == 0 || segments == 0 {
-		return ErrInvalidNZB
+	if !rootSeen || !rootClosed || depth != 0 || fileDepth != 0 || segmentDepth != 0 || files == 0 || segments == 0 {
+		return zero, ErrInvalidNZB
 	}
-	return nil
+	var result [sha256.Size]byte
+	copy(result[:], identity.Sum(nil))
+	return result, nil
+}
+
+func writeNZBIdentityUint(writer io.Writer, value uint64) {
+	var encoded [binary.MaxVarintLen64]byte
+	length := binary.PutUvarint(encoded[:], value)
+	_, _ = writer.Write(encoded[:length])
 }
 
 func (client *Client) request(ctx context.Context, workload indexers.Workload, params []Param, limit int64, validate responseValidator) ([]byte, error) {

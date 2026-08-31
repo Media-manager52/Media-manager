@@ -149,3 +149,66 @@ func TestValidateNZBRequiresParsedDocumentWithFilesAndSegments(t *testing.T) {
 		}
 	}
 }
+
+func TestPackageIdentityUsesOnlyTheOrderedUsenetSegmentManifest(t *testing.T) {
+	t.Parallel()
+	first := []byte(`<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><head><meta type="title">Provider title</meta></head><file poster="poster-a" subject="first subject"><groups><group>alt.binaries.test</group></groups><segments><segment bytes="12" number="1"> message-one@example </segment><segment bytes="34" number="2">message-two@example</segment></segments></file></nzb>`)
+	second := []byte(`<nzb>
+	<head><meta type="title">Different provider title</meta></head>
+	<file poster="poster-b" subject="different subject"><groups><group>another.group</group></groups><segments>
+		<segment number="1" bytes="12">message-one@example</segment>
+		<segment number="2" bytes="34">message-two@example</segment>
+	</segments></file></nzb>`)
+	firstIdentity, err := PackageIdentity(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondIdentity, err := PackageIdentity(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstIdentity != secondIdentity {
+		t.Fatal("provider metadata or XML formatting changed exact package identity")
+	}
+}
+
+func TestPackageIdentityChangesWithManifestContentOrBoundaries(t *testing.T) {
+	t.Parallel()
+	base := []byte(`<nzb><file><segments><segment bytes="12" number="1">one@example</segment><segment bytes="34" number="2">two@example</segment></segments></file></nzb>`)
+	changed := [][]byte{
+		[]byte(`<nzb><file><segments><segment bytes="13" number="1">one@example</segment><segment bytes="34" number="2">two@example</segment></segments></file></nzb>`),
+		[]byte(`<nzb><file><segments><segment bytes="12" number="2">one@example</segment><segment bytes="34" number="1">two@example</segment></segments></file></nzb>`),
+		[]byte(`<nzb><file><segments><segment bytes="12" number="1">different@example</segment><segment bytes="34" number="2">two@example</segment></segments></file></nzb>`),
+		[]byte(`<nzb><file><segments><segment bytes="34" number="2">two@example</segment><segment bytes="12" number="1">one@example</segment></segments></file></nzb>`),
+		[]byte(`<nzb><file><segments><segment bytes="12" number="1">one@example</segment></segments></file><file><segments><segment bytes="34" number="2">two@example</segment></segments></file></nzb>`),
+	}
+	want, err := PackageIdentity(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range changed {
+		got, parseErr := PackageIdentity(body)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		if got == want {
+			t.Fatalf("different manifest produced the same identity: %s", body)
+		}
+	}
+}
+
+func TestPackageIdentityRejectsIncompleteSegmentEvidence(t *testing.T) {
+	t.Parallel()
+	invalid := [][]byte{
+		[]byte(`<nzb><file><segments><segment number="1">one@example</segment></segments></file></nzb>`),
+		[]byte(`<nzb><file><segments><segment bytes="12">one@example</segment></segments></file></nzb>`),
+		[]byte(`<nzb><file><segments><segment bytes="0" number="1">one@example</segment></segments></file></nzb>`),
+		[]byte(`<nzb><file><segments><segment bytes="12" number="1"> </segment></segments></file></nzb>`),
+		[]byte(`<nzb><segment bytes="12" number="1">one@example</segment></nzb>`),
+	}
+	for _, body := range invalid {
+		if _, err := PackageIdentity(body); err == nil {
+			t.Fatalf("incomplete manifest evidence accepted: %s", body)
+		}
+	}
+}
