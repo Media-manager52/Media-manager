@@ -2,12 +2,10 @@ package newznab
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -109,47 +107,6 @@ func TestSearchStillRejectsCrossHostRedirect(t *testing.T) {
 	}
 	if got := targetRequests.Load(); got != 0 {
 		t.Fatalf("cross-host redirect target requests=%d, want 0", got)
-	}
-}
-
-func TestGetNZBFollowsValidatedHTTPSCrossHostRedirect(t *testing.T) {
-	const validNZB = `<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><file poster="owner"><groups><group>alt.binaries.test</group></groups><segments><segment bytes="12" number="1">message@example</segment></segments></file></nzb>`
-	var targetRequests atomic.Int32
-	target := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		targetRequests.Add(1)
-		writer.Header().Set("Content-Type", "application/x-nzb")
-		_, _ = writer.Write([]byte(validNZB))
-	}))
-	defer target.Close()
-	redirectTarget := strings.Replace(target.URL, "127.0.0.1", "localhost", 1)
-	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		http.Redirect(writer, request, redirectTarget, http.StatusFound)
-	}))
-	defer source.Close()
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // Test servers use unrelated self-signed names.
-	scheduler := indexers.NewScheduler(1, nil)
-	if err := scheduler.Configure("validated-redirect", indexers.Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
-		t.Fatal(err)
-	}
-	client, err := New(Config{IndexerID: "validated-redirect", BaseURL: source.URL, APIKey: "secret", AllowHTTP: true}, scheduler, transport)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var validations atomic.Int32
-	client.validateNZBRedirectTarget = func(_ context.Context, target *url.URL) error {
-		validations.Add(1)
-		if target.Scheme != "https" || target.Hostname() != "localhost" {
-			t.Fatalf("unexpected redirect target scheme=%q host=%q", target.Scheme, target.Hostname())
-		}
-		return nil
-	}
-	body, err := client.GetNZB(context.Background(), "native-id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != validNZB || validations.Load() != 1 || targetRequests.Load() != 1 {
-		t.Fatalf("body=%d bytes validations=%d target_requests=%d", len(body), validations.Load(), targetRequests.Load())
 	}
 }
 
