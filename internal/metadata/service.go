@@ -64,7 +64,10 @@ func (service *Service) Build(ctx context.Context, kind catalog.MediaKind, tmdbI
 			continue
 		}
 		if provider.name == "tmdb" {
-			mergeMetadata(contribution.Metadata, target, true)
+			fallback := *target
+			fallback.Sources = metadataSourcesExcept(target.Sources, "tmdb")
+			fallback.Ratings = metadataRatingsExcept(target.Ratings, "tmdb")
+			mergeMetadata(contribution.Metadata, &fallback, true)
 			target = contribution.Metadata
 		} else {
 			mergeMetadata(target, contribution.Metadata, true)
@@ -212,6 +215,24 @@ func hasRating(values []catalog.MetadataRating, source string) bool {
 		}
 	}
 	return false
+}
+func metadataSourcesExcept(values []catalog.MetadataSource, provider string) []catalog.MetadataSource {
+	result := make([]catalog.MetadataSource, 0, len(values))
+	for _, value := range values {
+		if value.Provider != provider {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+func metadataRatingsExcept(values []catalog.MetadataRating, provider string) []catalog.MetadataRating {
+	result := make([]catalog.MetadataRating, 0, len(values))
+	for _, value := range values {
+		if value.Source != provider {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 func verifiedIdentity(values []catalog.ExternalIdentity, namespace string) string {
 	for _, value := range values {

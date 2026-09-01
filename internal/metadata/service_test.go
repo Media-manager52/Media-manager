@@ -42,6 +42,9 @@ func TestBuildMergesDirectProvidersWithoutReplacingTMDBPrimary(t *testing.T) {
 	if !hasIdentity(result.Identities, "imdb", "tt1234567") || !hasIdentity(result.Identities, "simkl", "88") || len(result.Metadata.Ratings) != 3 {
 		t.Fatalf("provider evidence missing: %+v", result)
 	}
+	if countSources(result.Metadata.Sources, "tmdb") != 1 {
+		t.Fatalf("TMDB source duplicated: %+v", result.Metadata.Sources)
+	}
 }
 
 func TestBuildKeepsTruthfulFallbackAndRejectsConflictingContribution(t *testing.T) {
@@ -63,4 +66,14 @@ func hasIdentity(values []catalog.ExternalIdentity, namespace, value string) boo
 		}
 	}
 	return false
+}
+
+func countSources(values []catalog.MetadataSource, provider string) int {
+	count := 0
+	for _, source := range values {
+		if source.Provider == provider {
+			count++
+		}
+	}
+	return count
 }
