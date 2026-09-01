@@ -12,6 +12,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	plexadapter "github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/mediainfo"
@@ -41,6 +42,13 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	}
 	indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Indexer", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "INDEXER_KEY"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	searchDialects := newznab.SearchDialects{
+		Movie:  newznab.SearchDialect{Mode: "movie", Params: []string{"q", "imdbid"}},
+		Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "tvdbid", "season"}},
+	}
+	if _, err := store.CompleteNewznabCommission(ctx, indexer.ID, newznab.CapsSnapshot{BodyHash: "test-caps", DefaultLimit: 100, MaximumLimit: 100}, searchDialects, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	indexerTwo, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Indexer Two", Config: json.RawMessage(`{"base_url":"https://indexer-two.invalid/api"}`), SecretRef: "INDEXER_TWO_KEY"})
@@ -104,6 +112,74 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	mainSearch, err := store.LoadSearchContext(ctx, workflowID)
 	if err != nil || len(mainSearch.Exclusions) != 0 {
 		t.Fatalf("retrieval exclusion escaped workflow: %+v err=%v", mainSearch.Exclusions, err)
+	}
+
+	outputFailureMedia, err := catalog.New(catalog.KindMovie, "Output Failure Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654317", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputFailureWorkflows, err := store.CreateManualMedia(ctx, outputFailureMedia, root.ID, profile.ID, altMount.ID, nil, false, "test")
+	if err != nil || len(outputFailureWorkflows) != 1 {
+		t.Fatalf("output failure workflow=%+v err=%v", outputFailureWorkflows, err)
+	}
+	outputFailureRetrieval := seedRetrievalCandidate(t, ctx, store, outputFailureWorkflows[0].ID, indexer.ID, "output-failure-guid")
+	outputFailureIntent, err := store.BeginAltMountSubmission(ctx, outputFailureRetrieval, testNZBPackageIdentity(31), time.Now().UTC())
+	if err != nil || !outputFailureIntent.ShouldSubmit {
+		t.Fatalf("output failure intent=%+v err=%v", outputFailureIntent, err)
+	}
+	outputFailureJob, err := store.LoadAltMountJob(ctx, outputFailureIntent.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteImport(ctx, outputFailureJob, false, "season pack is incomplete", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestWorkflowSearch(ctx, outputFailureWorkflows[0].ID, "", time.Now().UTC()); err != nil {
+		t.Fatalf("first failed-output retry: %v", err)
+	}
+	var outputWorkflowState, outputJobState, outputFailureKind, excludedNativeKey string
+	var outputSearchEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT workflow.state,job.state,exclusion.failure_kind,exclusion.native_key,
+		(SELECT count(*) FROM outbox_events event WHERE event.aggregate_id=workflow.id AND event.event_type='workflow.search_requested')
+		FROM workflows workflow
+		JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id
+		JOIN workflow_release_exclusions exclusion ON exclusion.workflow_id=workflow.id AND exclusion.candidate_id=job.candidate_id
+		WHERE workflow.id=$1`, outputFailureWorkflows[0].ID.String()).Scan(&outputWorkflowState, &outputJobState, &outputFailureKind, &excludedNativeKey, &outputSearchEvents); err != nil {
+		t.Fatal(err)
+	}
+	if outputWorkflowState != "searching" || outputJobState != "needs_attention" || outputFailureKind != "output_verification" || excludedNativeKey != "output-failure-guid" || outputSearchEvents != 1 {
+		t.Fatalf("failed-output retry workflow=%q job=%q kind=%q native=%q events=%d", outputWorkflowState, outputJobState, outputFailureKind, excludedNativeKey, outputSearchEvents)
+	}
+	outputSearch, err := store.LoadSearchContext(ctx, outputFailureWorkflows[0].ID)
+	if err != nil || len(outputSearch.Exclusions) != 1 || !outputSearch.Exclusions[0].Matches(indexer.ID, "output-failure-guid") || outputSearch.Exclusions[0].Matches(indexer.ID, "output-failure-guid-similar") {
+		t.Fatalf("failed-output exclusion=%+v err=%v", outputSearch.Exclusions, err)
+	}
+
+	boundedOutputMedia, err := catalog.New(catalog.KindMovie, "Bounded Output Failure Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654316", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundedOutputWorkflows, err := store.CreateManualMedia(ctx, boundedOutputMedia, root.ID, profile.ID, altMount.ID, nil, false, "test")
+	if err != nil || len(boundedOutputWorkflows) != 1 {
+		t.Fatalf("bounded output workflow=%+v err=%v", boundedOutputWorkflows, err)
+	}
+	boundedOutputJob, _, _ := seedSubtitleAttempt(t, ctx, store, boundedOutputWorkflows[0].ID, altMount.ID, indexer.ID, 2, "bounded-output-guid")
+	if err := store.CompleteImport(ctx, boundedOutputJob, false, "second output is incomplete", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestWorkflowSearch(ctx, boundedOutputWorkflows[0].ID, "", time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "acquisition attempt limit reached") {
+		t.Fatalf("second failed-output retry error=%v", err)
+	}
+	var boundedOutputState, boundedOutputJobState string
+	var boundedOutputExclusions, boundedOutputEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT workflow.state,job.state,
+		(SELECT count(*) FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=workflow.id),
+		(SELECT count(*) FROM outbox_events event WHERE event.aggregate_id=workflow.id AND event.event_type='workflow.search_requested')
+		FROM workflows workflow JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id WHERE workflow.id=$1`, boundedOutputWorkflows[0].ID.String()).Scan(&boundedOutputState, &boundedOutputJobState, &boundedOutputExclusions, &boundedOutputEvents); err != nil {
+		t.Fatal(err)
+	}
+	if boundedOutputState != "needs_attention" || boundedOutputJobState != "needs_attention" || boundedOutputExclusions != 0 || boundedOutputEvents != 0 {
+		t.Fatalf("bounded output workflow=%q job=%q exclusions=%d events=%d", boundedOutputState, boundedOutputJobState, boundedOutputExclusions, boundedOutputEvents)
 	}
 
 	submissionMedia, err := catalog.New(catalog.KindMovie, "Submission Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654319", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())

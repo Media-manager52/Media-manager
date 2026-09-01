@@ -329,6 +329,11 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	if !indexerAvailable {
 		return errors.New("search requires at least one commissioned Newznab indexer")
 	}
+	type failedOutput struct {
+		candidateID, indexerID uuid.UUID
+		nativeKey, reason      string
+	}
+	var outputFailure *failedOutput
 	if state == workflows.StateNeedsAttention {
 		switch attentionCode {
 		case "altmount_identity_unresolved", "altmount_output_unavailable", "plex_timeout", "seerr_snapshot_changed", "seerr_request_revoked":
@@ -340,6 +345,38 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		}
 		if publicationStarted {
 			return errors.New("workflow publication already started; recover or verify the existing links instead of searching again")
+		}
+		var jobState, candidateText, indexerText, nativeKey, detail string
+		var attemptGeneration int
+		err := transaction.QueryRow(ctx, `SELECT job.state,job.attempt_generation,candidate.id::text,candidate.indexer_instance_id::text,candidate.native_key,COALESCE(job.error_detail,'')
+			FROM workflows workflow
+			JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id
+			JOIN release_candidates candidate ON candidate.id=job.candidate_id AND candidate.workflow_id=workflow.id AND candidate.id=workflow.selected_release_id
+			WHERE workflow.id=$1
+			FOR UPDATE OF job`, workflowID.String()).Scan(&jobState, &attemptGeneration, &candidateText, &indexerText, &nativeKey, &detail)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err == nil && jobState == "needs_attention" {
+			if attemptGeneration >= maxAcquisitionAttempts {
+				return errors.New("acquisition attempt limit reached; failed output remains available for owner review")
+			}
+			candidateID, candidateErr := uuid.Parse(candidateText)
+			if candidateErr != nil {
+				return candidateErr
+			}
+			indexerID, indexerErr := uuid.Parse(indexerText)
+			if indexerErr != nil {
+				return indexerErr
+			}
+			detail = strings.TrimSpace(detail)
+			if detail == "" {
+				detail = "completed AltMount output did not satisfy release requirements"
+			}
+			if len(detail) > 1000 {
+				detail = detail[:1000]
+			}
+			outputFailure = &failedOutput{candidateID: candidateID, indexerID: indexerID, nativeKey: nativeKey, reason: detail}
 		}
 	}
 	type adoptedCurrent struct {
@@ -384,6 +421,13 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		}
 		detail, _ := json.Marshal(map[string]any{"adopted_files": len(adoptedFiles), "variant": variant, "search_queued": true})
 		if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','workflow.adopted_replacement_authorized','workflow',$2,$3,$4)`, uuid.NewV7().String(), workflowID.String(), detail, now.UTC()); err != nil {
+			return err
+		}
+	}
+	if outputFailure != nil {
+		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,verification_id,failure_kind,reason,created_at)
+			VALUES($1,$2,$3,$4,NULL,'output_verification',$5,$6)
+			ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO NOTHING`, workflowID.String(), outputFailure.candidateID.String(), outputFailure.indexerID.String(), outputFailure.nativeKey, outputFailure.reason, now.UTC()); err != nil {
 			return err
 		}
 	}

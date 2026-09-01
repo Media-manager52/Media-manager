@@ -13,7 +13,7 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-const maxSubtitleAcquisitionAttempts = 2
+const maxAcquisitionAttempts = 2
 
 type SubtitleVerificationRecord struct {
 	ID                 uuid.UUID       `json:"id"`
@@ -97,7 +97,7 @@ func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMount
 	verificationID := uuid.NewV7()
 	retryState := "not_needed"
 	if verification.Status == "unverified" {
-		if job.AttemptGeneration < maxSubtitleAcquisitionAttempts {
+		if job.AttemptGeneration < maxAcquisitionAttempts {
 			retryState = "queued"
 		} else {
 			retryState = "exhausted"
