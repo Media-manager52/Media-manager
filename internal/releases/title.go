@@ -27,6 +27,7 @@ var (
 	audioAAC        = regexp.MustCompile(`(?i)(?:^|[ ._\-])aac(?:\d|$|[ ._\-])`)
 	audioMP3        = regexp.MustCompile(`(?i)(?:^|[ ._\-])mp3(?:$|[ ._\-])`)
 	audioAtmos      = regexp.MustCompile(`(?i)(?:^|[ ._\-])atmos(?:$|[ ._\-])`)
+	danishSubs      = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:da|dan|danish|dansk|dk)[ ._\-]?(?:subs?|subtitles?|undertekst(?:er)?)(?:$|[ ._\-])`)
 )
 
 // CanonicalResolution normalizes only explicit, reliable release resolution
@@ -111,6 +112,12 @@ func InferTitleFacts(observation Observation, observedAt time.Time) Observation 
 	}
 	if audio := inferredAudioCodec(observation.Title); audio != "" {
 		inferred = append(inferred, Fact{Name: "audio_codec", Values: []string{audio}, State: FactInferred, ObservedAt: observedAt.UTC()})
+	}
+	// Only explicit subtitle markers are positive pre-download evidence. A
+	// standalone language or broad labels such as NORDIC/MULTISUBS remain
+	// unknown because they can describe audio, origin, or an unspecified set.
+	if danishSubs.MatchString(observation.Title) {
+		inferred = append(inferred, Fact{Name: "subtitle_languages", Values: []string{"da"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	}
 	if strings.Contains(lower, "dolby vision") || strings.Contains(lower, "dovi") || strings.Contains(lower, " dv ") {
 		inferred = append(inferred, Fact{Name: "dynamic_range", Values: []string{"dolby_vision"}, State: FactInferred, ObservedAt: observedAt.UTC()})

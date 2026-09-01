@@ -99,3 +99,42 @@ func TestInferTitleFactsCanonicalizesUHD(t *testing.T) {
 	}
 	t.Fatal("UHD was not inferred as canonical 2160p")
 }
+
+func TestInferTitleFactsRecordsOnlyExplicitDanishSubtitleEvidence(t *testing.T) {
+	t.Parallel()
+	positive := []string{
+		"Dexter.S02.Retail.DKsubs.1080p.WEB-DL",
+		"NCIS.S19.DANiSH.SUBS.1080p.WEB-DL",
+		"Movie.2026.da-subtitle.2160p.WEB-DL",
+		"Movie.2026.dansk_undertekster.2160p.WEB-DL",
+	}
+	for _, title := range positive {
+		observation := InferTitleFacts(Observation{Title: title}, time.Unix(1, 0))
+		if !hasInferredFact(observation.Facts, "subtitle_languages", "da") {
+			t.Errorf("%q did not produce inferred canonical Danish subtitle evidence", title)
+		}
+	}
+
+	unknown := []string{
+		"Movie.2026.DANISH.AUDIO.2160p.WEB-DL",
+		"Movie.2026.MULTISUBS.2160p.WEB-DL-DANiSHBiTS",
+		"Movie.2026.NORDIC.2160p.WEB-DL",
+		"Movie.2026.SUBPACK.1080p.WEB-DL",
+		"Movie.2026.NLSubs.1080p.WEB-DL",
+	}
+	for _, title := range unknown {
+		observation := InferTitleFacts(Observation{Title: title}, time.Unix(1, 0))
+		if hasInferredFact(observation.Facts, "subtitle_languages", "da") {
+			t.Errorf("%q was incorrectly treated as Danish subtitle evidence", title)
+		}
+	}
+}
+
+func hasInferredFact(facts []Fact, name, value string) bool {
+	for _, fact := range facts {
+		if fact.Name == name && fact.State == FactInferred && len(fact.Values) == 1 && fact.Values[0] == value {
+			return true
+		}
+	}
+	return false
+}
