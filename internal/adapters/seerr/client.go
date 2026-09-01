@@ -137,7 +137,11 @@ func (identifier *Identifier) UnmarshalJSON(value []byte) error {
 		if err := json.Unmarshal(value, &decoded); err != nil {
 			return err
 		}
-		trimmed = decoded
+		trimmed = strings.TrimSpace(decoded)
+		if trimmed == "" {
+			*identifier = ""
+			return nil
+		}
 	}
 	if _, err := strconv.ParseInt(trimmed, 10, 64); err != nil {
 		return err

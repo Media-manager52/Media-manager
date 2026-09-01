@@ -20,6 +20,16 @@ func TestParseWebhookAcceptsLifecycleWakeups(t *testing.T) {
 	}
 }
 
+func TestParseWebhookAcceptsEmptyOptionalProviderIdentifier(t *testing.T) {
+	event, err := ParseWebhook([]byte(`{"notification_type":"MEDIA_AUTO_APPROVED","request_id":"1","media_type":"movie","media_tmdbid":"860508","media_tvdbid":""}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.RequestID.String() != "1" || event.MediaTMDBID.String() != "860508" || event.MediaTVDBID.String() != "" {
+		t.Fatalf("unexpected webhook identifiers: %+v", event)
+	}
+}
+
 func TestRequestReturnsTypedNotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusNotFound)
