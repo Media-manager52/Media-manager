@@ -172,6 +172,7 @@ type rawStream struct {
 		Forced          int `json:"forced"`
 		HearingImpaired int `json:"hearing_impaired"`
 	} `json:"disposition"`
+	SideDataList json.RawMessage `json:"side_data_list"`
 }
 
 func Parse(body []byte) (Evidence, error) {

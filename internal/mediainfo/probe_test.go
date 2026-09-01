@@ -13,7 +13,7 @@ func TestParseDerivesBoundedQualityFacts(t *testing.T) {
 	body := []byte(`{
   "format":{"format_name":"matroska,webm","duration":"3661.250000"},
   "streams":[
-    {"index":0,"codec_type":"video","codec_name":"hevc","width":3840,"height":2160,"color_transfer":"smpte2084","color_primaries":"bt2020","color_space":"bt2020nc","tags":{},"disposition":{"default":1,"forced":0}},
+    {"index":0,"codec_type":"video","codec_name":"hevc","width":3840,"height":2160,"color_transfer":"smpte2084","color_primaries":"bt2020","color_space":"bt2020nc","tags":{},"disposition":{"default":1,"forced":0},"side_data_list":[{"side_data_type":"DOVI configuration record","dv_profile":8}]},
     {"index":1,"codec_type":"audio","codec_name":"eac3","channels":6,"channel_layout":"5.1(side)","tags":{"language":"eng","title":"Main"},"disposition":{"default":1,"forced":0}},
     {"index":2,"codec_type":"subtitle","codec_name":"subrip","tags":{"language":"dan"},"disposition":{"default":0,"forced":1}}
   ]
@@ -59,6 +59,9 @@ func TestParseRejectsUnknownOrMissingVideoEvidence(t *testing.T) {
 	}
 	if _, err := Parse([]byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"audio","codec_name":"aac","channels":2,"tags":{},"disposition":{}}]}`)); err == nil {
 		t.Fatal("document without video was accepted")
+	}
+	if _, err := Parse([]byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"video","codec_name":"hevc","width":3840,"height":2160,"tags":{},"disposition":{},"invented":true}]}`)); err == nil {
+		t.Fatal("unknown stream field was accepted")
 	}
 }
 
