@@ -44,4 +44,5 @@ next-env.d.ts
 /outputs/
 /data/backups/*
 !/data/backups/.gitkeep
+/data/provider-secrets/
 /work/
