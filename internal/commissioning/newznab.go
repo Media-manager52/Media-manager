@@ -31,6 +31,8 @@ type config struct {
 	BudgetWindow      int64  `json:"budget_window_seconds"`
 }
 
+const maximumCommissionPacingWait = 10 * time.Second
+
 func (service *NewznabService) Commission(ctx context.Context, integrationID uuid.UUID) (postgres.Integration, error) {
 	integration, err := service.Store.Integration(ctx, integrationID)
 	if err != nil {
@@ -65,6 +67,16 @@ func (service *NewznabService) Commission(ctx context.Context, integrationID uui
 	query := "media-manager-commission-" + uuid.NewV7().String()
 	validationDialect := dialects.Series
 	observations, err := client.CommissionSearch(probeContext, newznab.SearchRequest{Mode: validationDialect.Mode, Params: []newznab.Param{{Name: "q", Value: query}}, Limit: 1})
+	if delay, ok := commissionPacingDelay(err, time.Now().UTC()); ok {
+		timer := time.NewTimer(delay)
+		select {
+		case <-probeContext.Done():
+			timer.Stop()
+			return postgres.Integration{}, probeContext.Err()
+		case <-timer.C:
+		}
+		observations, err = client.CommissionSearch(probeContext, newznab.SearchRequest{Mode: validationDialect.Mode, Params: []newznab.Param{{Name: "q", Value: query}}, Limit: 1})
+	}
 	if err != nil {
 		return postgres.Integration{}, err
 	}
@@ -72,4 +84,19 @@ func (service *NewznabService) Commission(ctx context.Context, integrationID uui
 		return postgres.Integration{}, errors.New("random negative Newznab query unexpectedly returned a release")
 	}
 	return service.Store.CompleteNewznabCommission(ctx, integration.ID, caps, dialects, time.Now().UTC())
+}
+
+func commissionPacingDelay(err error, now time.Time) (time.Duration, bool) {
+	var pacing indexers.CooldownError
+	if !errors.As(err, &pacing) {
+		return 0, false
+	}
+	delay := pacing.RetryAt().Sub(now.UTC())
+	if delay < 0 {
+		delay = 0
+	}
+	if delay > maximumCommissionPacingWait {
+		return 0, false
+	}
+	return delay, true
 }
