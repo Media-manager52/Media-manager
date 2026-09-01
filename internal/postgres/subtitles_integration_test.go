@@ -364,6 +364,20 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if records != 2 || exclusions != 3 || activeVersions != 0 {
 		t.Fatalf("records=%d exclusions=%d unverified publications=%d", records, exclusions, activeVersions)
 	}
+	summaries, err := store.ListWorkflowSummaries(ctx, 100, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failedSummary *WorkflowSummary
+	for index := range summaries {
+		if summaries[index].ID == workflowID {
+			failedSummary = &summaries[index]
+			break
+		}
+	}
+	if failedSummary == nil || failedSummary.AcquisitionAttempts != 2 || failedSummary.RetainedOutputCount != 2 || failedSummary.ExcludedReleaseCount != 3 || failedSummary.SearchAllowed || failedSummary.SearchBlockedReason == "" {
+		t.Fatalf("failed workflow recovery summary=%+v", failedSummary)
+	}
 	review, err := store.ListSubtitleVerifications(ctx, 10)
 	if err != nil || len(review) != 2 || review[0].Status != "unverified" || !review[0].CanReverify || !review[1].CanReverify {
 		t.Fatalf("owner review=%+v err=%v", review, err)

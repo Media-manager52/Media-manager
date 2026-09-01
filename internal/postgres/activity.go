@@ -22,6 +22,11 @@ type WorkflowSummary struct {
 	Revision                               uint64            `json:"revision"`
 	AttentionCode                          string            `json:"attention_code,omitempty"`
 	AttentionDetail                        string            `json:"attention_detail,omitempty"`
+	AcquisitionAttempts                    int               `json:"acquisition_attempts"`
+	RetainedOutputCount                    int               `json:"retained_output_count"`
+	ExcludedReleaseCount                   int               `json:"excluded_release_count"`
+	SearchAllowed                          bool              `json:"search_allowed"`
+	SearchBlockedReason                    string            `json:"search_blocked_reason,omitempty"`
 	AdoptedReplacementConfirmationRequired bool              `json:"adopted_replacement_confirmation_required"`
 	TerminalAt                             *time.Time        `json:"terminal_at,omitempty"`
 	CreatedAt                              time.Time         `json:"created_at"`
@@ -67,6 +72,12 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		mediaIDValue = mediaID.String()
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(workflow.attention_detail,''),
+		COALESCE((SELECT max(job.attempt_generation) FROM altmount_jobs job WHERE job.workflow_id=workflow.id),0),
+		(SELECT count(*) FROM altmount_output_inventories inventory JOIN altmount_jobs job ON job.id=inventory.job_id WHERE job.workflow_id=workflow.id),
+		(SELECT count(*) FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=workflow.id),
+		EXISTS(SELECT 1 FROM library_link_versions version WHERE version.workflow_id=workflow.id AND version.state IN ('publishing','verified','current','quarantined')),
+		COALESCE((SELECT job.state='needs_attention' FROM altmount_jobs job WHERE job.id=workflow.grab_attempt_id),false),
+		COALESCE((SELECT job.attempt_generation FROM altmount_jobs job WHERE job.id=workflow.grab_attempt_id),0),
 		EXISTS(SELECT 1 FROM adopted_files adopted WHERE adopted.media_id=workflow.media_id AND adopted.variant=workflow.variant AND adopted.state='current' AND NOT EXISTS(SELECT 1 FROM adopted_replacement_authorizations replacement_auth WHERE replacement_auth.workflow_id=workflow.id AND replacement_auth.adopted_file_id=adopted.id AND replacement_auth.destination_relative=adopted.destination_relative AND replacement_auth.source_size=adopted.source_size AND replacement_auth.source_modtime_ns=adopted.source_modtime_ns)),
 		workflow.terminal_at,workflow.created_at,workflow.updated_at
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
@@ -83,7 +94,9 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		var idText, mediaText string
 		var year *int16
 		var revision int64
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		var publicationStarted, currentJobNeedsAttention bool
+		var currentAttempt int
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RetainedOutputCount, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &currentAttempt, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)
@@ -93,7 +106,28 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 			converted := uint16(*year)
 			item.Year = &converted
 		}
+		item.SearchAllowed, item.SearchBlockedReason = workflowSearchReadiness(item, publicationStarted, currentJobNeedsAttention, currentAttempt)
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+func workflowSearchReadiness(item WorkflowSummary, publicationStarted, currentJobNeedsAttention bool, currentAttempt int) (bool, string) {
+	if item.State == workflows.StateMonitored || item.State == workflows.StateWaiting || item.State == workflows.StateHeld {
+		return true, ""
+	}
+	if item.State != workflows.StateNeedsAttention {
+		return false, "Workflow is already in progress or terminal."
+	}
+	switch item.AttentionCode {
+	case "altmount_identity_unresolved", "altmount_output_unavailable", "plex_timeout", "seerr_snapshot_changed", "seerr_request_revoked":
+		return false, "Owner recovery is required before another search can start."
+	}
+	if publicationStarted {
+		return false, "Publication has started; recover or verify the existing links instead of searching again."
+	}
+	if currentJobNeedsAttention && currentAttempt >= maxAcquisitionAttempts {
+		return false, "Two acquisition attempts were used; failed output remains retained for owner review."
+	}
+	return true, ""
 }
