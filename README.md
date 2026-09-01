@@ -32,6 +32,23 @@ The first production path is deliberately narrow: **Seerr + Media Manager + Newz
 
 5. Open the HTTPS address configured in Cosmos and sign in with `OWNER_USERNAME` and the password used to create `OWNER_PASSWORD_HASH`. On the Docker host itself, use the loopback origin configured by `MEDIA_MANAGER_PORT` (port 8080 by default).
 
+### Authenticated local smoke test
+
+The gateway correctly stores only the owner's password hash, so an HTTP client
+cannot derive a login from the deployment configuration. Run the local smoke
+helper from an interactive terminal:
+
+```sh
+scripts/smoke-gateway-auth.sh
+```
+
+It prompts silently for the existing owner password, keeps it only in process
+memory for the duration of the check, and never passes it as a command argument.
+The check is locked to `127.0.0.1`, does not follow redirects, and verifies the
+unauthenticated boundary, authenticated UI rendering, and authenticated API
+readiness. Nothing is added to `.env`, the repository, or local credential
+storage.
+
 Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, UI, and Caddy use isolated private networks; only the authenticated API also joins the external integrations network. No service port except the loopback gateway is published. Caddy proxies `/api/*` and injects the owner credential only after its own owner login. Do not change `MEDIA_MANAGER_BIND` to a LAN address unless another authenticated TLS proxy protects that listener.
 
 Compose passes PostgreSQL credentials as discrete `PG*` variables, so a strong database password does not need URL escaping. A standalone API deployment may instead provide `DATABASE_URL`.
