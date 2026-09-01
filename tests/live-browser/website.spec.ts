@@ -210,6 +210,26 @@ test("opens navigation controls without changing server state", async ({ page },
   await verifyViewport(page)
 })
 
+test("validates configured movie and TV add forms without submitting", async ({ page }) => {
+  await visit(page, "/discover")
+
+  const mediaType = page.getByLabel("Media type")
+  const searchImmediately = page.getByRole("switch", { name: "Search immediately" })
+  await expect(mediaType).toContainText("Movie")
+  await expect(page.getByRole("button", { name: "Add and search" })).toBeEnabled()
+
+  await searchImmediately.click()
+  await expect(searchImmediately).toHaveAttribute("data-state", "unchecked")
+  await expect(page.getByRole("button", { name: "Add without search" })).toBeEnabled()
+
+  await mediaType.click()
+  await page.getByRole("option", { name: "TV series" }).click()
+  await expect(mediaType).toContainText("TV series")
+  await expect(page.getByLabel("Exact seasons and episode counts")).toHaveValue("1:10")
+  await expect(page.getByRole("button", { name: "Add without search" })).toBeEnabled()
+  await verifyViewport(page)
+})
+
 test("renders available live detail routes", async ({ page }) => {
   const detailLists = [
     { list: "/media", selector: 'a[href^="/media/movies/"]', heading: "Movie details" },
