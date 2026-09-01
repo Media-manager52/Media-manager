@@ -97,6 +97,8 @@ html {
   scrollbar-gutter: stable;
 }
 
+html:has(.mm-library-root) { scrollbar-gutter: auto; }
+
 body {
   min-height: 100vh;
   margin: 0;

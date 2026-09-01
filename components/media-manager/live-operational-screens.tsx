@@ -350,6 +350,11 @@ function resolutionLabel(value: string) {
   return value.toLocaleLowerCase() === "2160p" ? "4K" : value
 }
 
+function compactValues(values: string[], limit = 6) {
+  if (values.length <= limit) return values.join(", ")
+  return `${values.slice(0, limit).join(", ")} +${values.length - limit}`
+}
+
 function movieAvailability(item: MovieLibraryRecord) {
   if (item.available && item.upgradable) return { label: "Available · upgrade wanted", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
   if (item.available) return { label: "Available", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
@@ -408,7 +413,7 @@ export function LiveLibraryScreen() {
     { key: "upgradable", label: "Upgradable", count: counts.upgradable },
   ]
 
-  return <div className={cn("grid h-full min-h-0 bg-[#080b12]", selected && "xl:grid-cols-[minmax(0,1fr)_245px]")}>
+  return <div className={cn("mm-library-root grid h-full min-h-0 bg-[#080b12]", selected && "xl:grid-cols-[minmax(0,1fr)_245px]")}>
     <section className="flex min-h-0 min-w-0 flex-col px-3 pb-12 pt-3 sm:px-4 sm:pb-3 sm:pt-3" aria-labelledby="movie-library-title">
       <div className="mb-2 flex min-h-8 items-center gap-2">
         <div className="min-w-0">
@@ -446,8 +451,8 @@ export function LiveLibraryScreen() {
         </div> : null}
       </div>
 
-      <div className="mb-2 grid shrink-0 grid-cols-5 gap-1.5" aria-label="Movie summaries">
-        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("min-w-0 rounded-md border border-[#202a39] bg-[#0e141e] px-2 py-1.5 text-left outline-none transition hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c3aed]", filters.summary === item.key && "border-[#6d3add] bg-[#171428]")}><span className="block truncate text-[8px] font-bold uppercase tracking-[0.08em] text-[#7f8a99]">{item.label}</span><span className={cn("mt-0.5 block text-[16px] font-[800] leading-none text-[#f4f6fa]", filters.summary === item.key && "text-[#c6b5ff]")}>{item.count}</span></button>)}
+      <div className="mb-2 flex shrink-0 gap-1.5 overflow-x-auto pb-0.5 scrollbar-none sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0" aria-label="Movie summaries">
+        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("w-[88px] shrink-0 rounded-md border border-[#202a39] bg-[#0e141e] px-1.5 py-1.5 text-left outline-none transition hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c3aed] sm:w-auto sm:min-w-0 sm:px-2", filters.summary === item.key && "border-[#6d3add] bg-[#171428]")}><span className="block truncate text-[8px] font-bold uppercase tracking-[0.08em] text-[#7f8a99]">{item.label}</span><span className={cn("mt-0.5 block text-[16px] font-[800] leading-none text-[#f4f6fa]", filters.summary === item.key && "text-[#c6b5ff]")}>{item.count}</span></button>)}
       </div>
 
       <div className="mb-1 flex shrink-0 items-center justify-between text-[8.5px] text-[#758192]" aria-live="polite"><span>{filtered.length} {filtered.length === 1 ? "movie" : "movies"}</span><span>Title order</span></div>
@@ -490,7 +495,7 @@ export function MovieLibraryCard({ item, selected, onSelect }: { item: MovieLibr
   const labels = uniqueValues([...item.resolutions.map(resolutionLabel), ...item.dynamicRanges])
   return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("group flex min-w-0 overflow-hidden rounded-[6px] border border-[#202a39] bg-[#0e141e] text-left outline-none transition hover:border-[#3a4658] focus-visible:ring-2 focus-visible:ring-[#7c3aed] sm:block", selected && "border-[#7c3aed] ring-1 ring-[#7c3aed]/45")}>
     <div className="relative h-[94px] w-[70px] shrink-0 overflow-hidden border-r border-[#202a39] bg-[#111925] sm:h-auto sm:w-auto sm:border-b sm:border-r-0 sm:aspect-[2/3]"><Image src="/media/movie-placeholder.svg" alt="" width={300} height={450} className="h-full w-full object-cover" /><div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-[#080b12]/90 px-1 py-0.5 text-[7px] font-extrabold uppercase text-[#f4f6fa]">{label}</span>)}</div></div>
-    <div className="min-w-0 flex-1 p-2"><div className="truncate text-[10px] font-[750] leading-tight text-[#f4f6fa]">{item.title}</div><div className="mt-1 text-[8.5px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-2 flex items-center gap-1.5 text-[8px] font-semibold", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.label}</span></div></div>
+    <div className="min-w-0 flex-1 p-1"><div className="truncate text-[10px] font-[750] leading-tight text-[#f4f6fa]">{item.title}</div><div className="text-[8.5px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-0.5 flex items-center gap-1.5 text-[8px] font-semibold", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.label}</span></div></div>
   </button>
 }
 
@@ -520,7 +525,7 @@ export function MovieInspector({ item, tab, auto, onTabChange, onClose }: { item
           <InspectorRow label="Quality profile" value={qualityProfile} />
           <InspectorRow label="Resolution" value={item.resolutions.map(resolutionLabel).join(", ") || "Unknown"} />
           <InspectorRow label="Audio" value={item.audioCodecs.join(", ") || "Unknown"} />
-          <InspectorRow label="Languages" value={item.languages.join(", ") || "Unknown"} />
+          <InspectorRow label="Languages" value={compactValues(item.languages) || "Unknown"} />
           <InspectorRow label="Root folder" value={item.roots.join(", ") || "Not published"} />
           <InspectorRow label="Plex verification" value={currentFile ? currentFile.plex_confirmed ? "Exact path confirmed" : "Not confirmed" : "No managed file"} />
         </TabsContent>

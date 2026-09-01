@@ -164,6 +164,7 @@ test("desktop and mobile layout contracts remain explicit in the focused screen"
   assert.match(shell, /--sidebar-width": "184px"/);
   assert.match(shell, /h-\[60px\]/);
   assert.match(screen, /xl:grid-cols-\[minmax\(0,1fr\)_245px\]/);
+  assert.match(screen, /mm-library-root/);
   assert.match(screen, /sm:px-4/);
   assert.match(screen, /lg:grid-cols-5/);
   assert.match(screen, /const pageSize = 10/);
