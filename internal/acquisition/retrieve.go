@@ -117,7 +117,7 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err != nil {
 		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
 	}
-	nzb, err := indexerClient.GetNZBPackageGuarded(ctx, retrievalID, func(guardCtx context.Context) error {
+	nzb, err := indexerClient.GetNZBPackageFromLocatorGuarded(ctx, retrievalID, retrieval.DownloadLocatorRef, func(guardCtx context.Context) error {
 		current, loadErr := service.Store.LoadRetrievalContext(guardCtx, workflowID, candidateID)
 		if errors.Is(loadErr, postgres.ErrNotFound) {
 			return postgres.ErrConcurrentModification

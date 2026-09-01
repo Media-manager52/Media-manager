@@ -80,6 +80,22 @@ func TestSanitizeObservationWithCredentialRemovesProviderSpecificAliases(t *test
 	}
 }
 
+func TestSanitizeObservationWithCredentialRemovesDrunkenSlugPathCredential(t *testing.T) {
+	t.Parallel()
+	const credential = "provider-path-secret"
+	const releaseID = "0123456789abcdef0123456789abcdef01234567"
+	observation := releases.Observation{DownloadURL: "https://drunkenslug.com/getnzb/" + releaseID + ".nzb&i=12345&r=" + credential}
+
+	sanitized := SanitizeObservationWithCredential(observation, credential)
+	want := "https://drunkenslug.com/getnzb/" + releaseID + ".nzb&i=12345"
+	if sanitized.DownloadURL != want || strings.Contains(sanitized.DownloadURL, credential) {
+		t.Fatal("DrunkenSlug download locator was not safely sanitized")
+	}
+	if repeated := SanitizeObservationWithCredential(sanitized, credential); repeated.DownloadURL != want {
+		t.Fatal("DrunkenSlug download locator sanitization is not idempotent")
+	}
+}
+
 func TestParseSearchNeverReturnsCredentialMaterial(t *testing.T) {
 	t.Parallel()
 	secret := "parser-secret-must-not-escape"

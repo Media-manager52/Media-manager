@@ -15,13 +15,14 @@ import (
 )
 
 type RetrievalContext struct {
-	Workflow       workflows.Workflow
-	Variant        string
-	CandidateID    uuid.UUID
-	NativeID       string
-	ReleaseTitle   string
-	Indexer        Integration
-	DownloadClient Integration
+	Workflow           workflows.Workflow
+	Variant            string
+	CandidateID        uuid.UUID
+	NativeID           string
+	DownloadLocatorRef string
+	ReleaseTitle       string
+	Indexer            Integration
+	DownloadClient     Integration
 }
 type SubmissionIntent struct {
 	JobID            uuid.UUID
@@ -40,7 +41,7 @@ func (store *Store) LoadRetrievalContext(ctx context.Context, workflowID, candid
 	var workflowText, clientText, indexerText string
 	var attemptText *string
 	var revision int64
-	err := store.Pool.QueryRow(ctx, `SELECT w.id::text,w.state,w.revision,w.variant,w.download_client_id::text,w.grab_attempt_id::text,c.id::text,c.native_key,c.title,c.indexer_instance_id::text FROM workflows w JOIN release_candidates c ON c.workflow_id=w.id WHERE w.id=$1 AND c.id=$2 AND w.selected_release_id=c.id`, workflowID.String(), candidateID.String()).Scan(&workflowText, &result.Workflow.State, &revision, &result.Variant, &clientText, &attemptText, &workflowText, &result.NativeID, &result.ReleaseTitle, &indexerText)
+	err := store.Pool.QueryRow(ctx, `SELECT w.id::text,w.state,w.revision,w.variant,w.download_client_id::text,w.grab_attempt_id::text,c.id::text,c.native_key,c.download_locator_ref,c.title,c.indexer_instance_id::text FROM workflows w JOIN release_candidates c ON c.workflow_id=w.id WHERE w.id=$1 AND c.id=$2 AND w.selected_release_id=c.id`, workflowID.String(), candidateID.String()).Scan(&workflowText, &result.Workflow.State, &revision, &result.Variant, &clientText, &attemptText, &workflowText, &result.NativeID, &result.DownloadLocatorRef, &result.ReleaseTitle, &indexerText)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RetrievalContext{}, ErrNotFound
 	}

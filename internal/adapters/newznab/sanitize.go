@@ -114,7 +114,7 @@ func sanitizeProviderValue(value, credential string, depth int) (string, bool) {
 func sanitizeDirectURL(value, credential string, depth int) (string, bool, bool) {
 	queryAt := strings.IndexByte(value, '?')
 	if queryAt < 0 {
-		if !queryContainsCredential(value) {
+		if !queryContainsCredential(value) && !rawQueryContainsConfiguredCredential(value, credential) {
 			return value, false, false
 		}
 		sanitized, changed := sanitizeRawQuery(value, credential, depth)
@@ -139,6 +139,23 @@ func sanitizeDirectURL(value, credential string, depth int) (string, bool, bool)
 	}
 	result += value[queryEnd:]
 	return result, true, true
+}
+
+func rawQueryContainsConfiguredCredential(value, credential string) bool {
+	if credential == "" {
+		return false
+	}
+	parts := strings.Split(value, "&")
+	if len(parts) > maxCredentialQueryParts {
+		parts = parts[:maxCredentialQueryParts]
+	}
+	for _, part := range parts {
+		_, rawValue, hasValue := strings.Cut(part, "=")
+		if hasValue && containsEncodedCredential(rawValue, credential) {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizeRawQuery(rawQuery, credential string, depth int) (string, bool) {

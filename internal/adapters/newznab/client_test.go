@@ -3,9 +3,11 @@ package newznab
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +15,12 @@ import (
 
 	"github.com/media-manager/media-manager/internal/indexers"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
 
 func TestGetNZBGuardedDefersPacingBeforeGuardAndProviderRequest(t *testing.T) {
 	var requests atomic.Int32
@@ -196,5 +204,87 @@ func TestRetrievalIDPreservesIdentityAndSafelyExtractsDetailsID(t *testing.T) {
 				t.Fatalf("RetrievalID()=%q, %v; want %q, error=%v", got, err, test.want, test.wantError)
 			}
 		})
+	}
+}
+
+func TestDrunkenSlugAdvertisedDownloadUsesSanitizedLocator(t *testing.T) {
+	t.Parallel()
+	const releaseID = "0123456789abcdef0123456789abcdef01234567"
+	const apiKey = "test-provider-key"
+	const sanitizedLocator = "https://drunkenslug.com/getnzb/" + releaseID + ".nzb&i=12345"
+	var requests atomic.Int32
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests.Add(1)
+		if request.URL.Host != "drunkenslug.com" || request.URL.Path != "/getnzb/"+releaseID+".nzb&i=12345&r="+apiKey || request.URL.RawQuery != "" {
+			t.Fatal("advertised locator did not produce the exact provider request shape")
+		}
+		if request.Referer() != "" || request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
+			t.Fatal("advertised locator request carried origin-specific headers")
+		}
+		body := `<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><file poster="test" subject="test"><groups><group>alt.binaries.test</group></groups><segments><segment bytes="12" number="1">message@example</segment></segments></file></nzb>`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	})
+	scheduler := indexers.NewScheduler(1, nil)
+	if err := scheduler.Configure("drunkenslug", indexers.Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{IndexerID: "drunkenslug", BaseURL: "https://drunkenslug.com/api", APIKey: apiKey}, scheduler, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardCalls := 0
+	locatorReference := DownloadLocatorReference(sanitizedLocator, "https://drunkenslug.com/details/"+releaseID)
+	pack, err := client.GetNZBPackageFromLocatorGuarded(context.Background(), releaseID, locatorReference, func(context.Context) error {
+		guardCalls++
+		return nil
+	})
+	if err != nil || len(pack.Body) == 0 {
+		t.Fatalf("advertised locator retrieval failed: %v", err)
+	}
+	if requests.Load() != 1 || guardCalls != 1 {
+		t.Fatalf("requests=%d guard calls=%d, want 1 and 1", requests.Load(), guardCalls)
+	}
+}
+
+func TestDrunkenSlugAdvertisedDownloadRejectsLocatorMismatch(t *testing.T) {
+	t.Parallel()
+	const releaseID = "0123456789abcdef0123456789abcdef01234567"
+	wrong := "advertised:https://drunkenslug.com/getnzb/ffffffffffffffffffffffffffffffffffffffff.nzb&i=12345"
+	if _, advertised, err := advertisedDownloadTarget(wrong, "https://drunkenslug.com/details/"+releaseID, "https://drunkenslug.com/api", "secret"); !advertised || err == nil {
+		t.Fatal("mismatched advertised locator was not rejected")
+	}
+}
+
+func TestDownloadLocatorReferenceKeepsOnlyCredentialFreeVerifiedShape(t *testing.T) {
+	t.Parallel()
+	const releaseID = "0123456789abcdef0123456789abcdef01234567"
+	native := "https://drunkenslug.com/details/" + releaseID
+	valid := "https://drunkenslug.com/getnzb/" + releaseID + ".nzb&i=12345"
+	if got := DownloadLocatorReference(valid, native); got != "advertised:"+valid {
+		t.Fatal("credential-free verified locator was not retained")
+	}
+	for _, unsafe := range []string{
+		valid + "&r=must-not-persist",
+		"https://other.example/getnzb/" + releaseID + ".nzb&i=12345",
+		"https://drunkenslug.com/getnzb/ffffffffffffffffffffffffffffffffffffffff.nzb&i=12345",
+	} {
+		if got := DownloadLocatorReference(unsafe, native); got != "native:"+native {
+			t.Fatal("unverified or credential-bearing locator was retained")
+		}
+	}
+}
+
+func TestCrossOriginRedirectRejectsCredentialInPath(t *testing.T) {
+	t.Parallel()
+	client := &Client{config: Config{APIKey: "source-secret"}}
+	previous, _ := url.Parse("https://drunkenslug.com/getnzb/release.nzb&i=1&r=source-secret")
+	for _, location := range []string{
+		"https://downloads.example/file/source-secret/package.nzb",
+		"https://downloads.example/file/source%2Dsecret/package.nzb",
+	} {
+		response := &http.Response{Header: http.Header{"Location": []string{location}}}
+		if _, err := client.redirectTarget(previous, response); !errors.Is(err, ErrRedirectURLPolicy) {
+			t.Fatal("cross-origin redirect carrying a source credential in its path was not rejected")
+		}
 	}
 }

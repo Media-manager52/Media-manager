@@ -161,7 +161,8 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		}
 		candidateID := uuid.NewV7()
 		var returned string
-		err = transaction.QueryRow(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET search_run_id=EXCLUDED.search_run_id,observation_id=EXCLUDED.observation_id,title=EXCLUDED.title,created_at=EXCLUDED.created_at RETURNING id::text`, candidateID.String(), search.Workflow.ID.String(), runID.String(), observation.ID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Title, "native:"+observation.NativeGUID, now.UTC()).Scan(&returned)
+		locatorReference := newznab.DownloadLocatorReference(observation.DownloadURL, observation.NativeGUID)
+		err = transaction.QueryRow(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET search_run_id=EXCLUDED.search_run_id,observation_id=EXCLUDED.observation_id,title=EXCLUDED.title,download_locator_ref=EXCLUDED.download_locator_ref,created_at=EXCLUDED.created_at RETURNING id::text`, candidateID.String(), search.Workflow.ID.String(), runID.String(), observation.ID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Title, locatorReference, now.UTC()).Scan(&returned)
 		if err != nil {
 			return workflows.Workflow{}, err
 		}

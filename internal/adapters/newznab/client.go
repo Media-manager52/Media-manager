@@ -259,8 +259,12 @@ func (client *Client) GetNZBGuarded(ctx context.Context, nativeID string, guard 
 }
 
 func (client *Client) GetNZBPackageGuarded(ctx context.Context, nativeID string, guard func(context.Context) error) (NZBPackage, error) {
+	return client.GetNZBPackageFromLocatorGuarded(ctx, nativeID, "", guard)
+}
+
+func (client *Client) GetNZBPackageFromLocatorGuarded(ctx context.Context, nativeID, locatorReference string, guard func(context.Context) error) (NZBPackage, error) {
 	var identity [sha256.Size]byte
-	body, err := client.requestGuarded(ctx, indexers.WorkloadRetrieval, []Param{{Name: "t", Value: "get"}, {Name: "id", Value: nativeID}}, client.nzbLimit, guard, true, func(body []byte) (indexers.Outcome, error) {
+	validate := func(body []byte) (indexers.Outcome, error) {
 		if provider, ok := providerErrorDocument(body); ok {
 			return validationFailureOutcome(provider), provider
 		}
@@ -270,7 +274,17 @@ func (client *Client) GetNZBPackageGuarded(ctx context.Context, nativeID string,
 		}
 		identity = parsed
 		return indexers.OutcomeSuccess, nil
-	})
+	}
+	target, advertised, err := advertisedDownloadTarget(locatorReference, nativeID, client.config.BaseURL, client.config.APIKey)
+	if err != nil {
+		return NZBPackage{}, classified("newznab_download_locator_rejected", errors.New("advertised Newznab download locator was rejected"))
+	}
+	var body []byte
+	if advertised {
+		body, err = client.requestTargetGuarded(ctx, indexers.WorkloadRetrieval, target, client.nzbLimit, guard, true, validate)
+	} else {
+		body, err = client.requestGuarded(ctx, indexers.WorkloadRetrieval, []Param{{Name: "t", Value: "get"}, {Name: "id", Value: nativeID}}, client.nzbLimit, guard, true, validate)
+	}
 	if err != nil {
 		return NZBPackage{}, err
 	}
@@ -415,6 +429,12 @@ func (client *Client) request(ctx context.Context, workload indexers.Workload, p
 }
 
 func (client *Client) requestGuarded(ctx context.Context, workload indexers.Workload, params []Param, limit int64, guard func(context.Context) error, allowCrossOriginRedirect bool, validate responseValidator) ([]byte, error) {
+	endpoint := *client.base
+	endpoint.RawQuery = encode(params, client.config.APIKey)
+	return client.requestTargetGuarded(ctx, workload, &endpoint, limit, guard, allowCrossOriginRedirect, validate)
+}
+
+func (client *Client) requestTargetGuarded(ctx context.Context, workload indexers.Workload, endpoint *url.URL, limit int64, guard func(context.Context) error, allowCrossOriginRedirect bool, validate responseValidator) ([]byte, error) {
 	permit, err := client.scheduler.Acquire(ctx, client.config.IndexerID, workload)
 	if err != nil {
 		return nil, err
@@ -428,9 +448,7 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 	requestCtx, cancel := context.WithTimeout(ctx, client.config.Timeout)
 	defer cancel()
 
-	endpoint := *client.base
-	endpoint.RawQuery = encode(params, client.config.APIKey)
-	req, err := newNewznabRequest(requestCtx, &endpoint)
+	req, err := newNewznabRequest(requestCtx, endpoint)
 	if err != nil {
 		recorded = true
 		_ = permit.Record(context.Background(), indexers.OutcomeSystemFailure, nil)
@@ -748,6 +766,9 @@ func (client *Client) redirectTarget(previous *url.URL, response *http.Response)
 	}
 	targetOrigin, err := exactOrigin(target)
 	if err != nil {
+		return nil, unsafeRedirect(ErrRedirectURLPolicy)
+	}
+	if targetOrigin != previousOrigin && containsEncodedCredential(target.String(), client.config.APIKey) {
 		return nil, unsafeRedirect(ErrRedirectURLPolicy)
 	}
 	if targetOrigin != previousOrigin && targetOrigin.scheme == "http" && previousOrigin.scheme == "https" {
