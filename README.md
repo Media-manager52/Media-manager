@@ -49,6 +49,23 @@ unauthenticated boundary, authenticated UI rendering, and authenticated API
 readiness. Nothing is added to `.env`, the repository, or local credential
 storage.
 
+For a comprehensive read-only acceptance pass against the deployed website,
+run:
+
+```sh
+npm run test:live-browser
+```
+
+This separate Playwright suite prompts for the password the same way, visits
+every static route at desktop, tablet, and mobile sizes, checks available detail
+routes and safe interactions, captures core-page screenshots, and audits layout,
+accessibility, browser errors, and failed local requests. It blocks every
+state-changing request and every non-loopback request before transmission;
+external artwork therefore exercises the local placeholder without contacting
+its provider. Traces and video are disabled so authentication headers cannot be
+written to artifacts. Results stay under
+`.sites-runtime/live-playwright-results/`.
+
 Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, UI, and Caddy use isolated private networks; only the authenticated API also joins the external integrations network. No service port except the loopback gateway is published. Caddy proxies `/api/*` and injects the owner credential only after its own owner login. Do not change `MEDIA_MANAGER_BIND` to a LAN address unless another authenticated TLS proxy protects that listener.
 
 Compose passes PostgreSQL credentials as discrete `PG*` variables, so a strong database password does not need URL escaping. A standalone API deployment may instead provide `DATABASE_URL`.

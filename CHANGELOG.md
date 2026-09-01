@@ -9,6 +9,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 ### Added
 
 - A loopback-only authenticated gateway smoke helper that prompts securely without storing the owner password.
+- A credential-safe live Playwright acceptance suite for every deployed route across desktop, tablet, and mobile viewports.
 - A responsive TV Shows library with real series metadata, season-level workflow/file state, filters, selection, and exact series-detail navigation.
 - A concise repository code map and local movie-library benchmark for developer and AI-assisted maintenance.
 - Owner-only live screens for library, workflows, wanted media, files, sources, settings, health, audit history, adoption review, and release evidence.
