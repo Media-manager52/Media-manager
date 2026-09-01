@@ -80,7 +80,7 @@ screens.
 | Multiple roots/defaults/per-item override | Real backend, partial UI | Movie/series defaults and explicit request overrides are enforced. UI can create/list but cannot validate, edit, or disable roots. |
 | Recycle retention | Real | Managed links enter a 30-day persisted cycle and preserve AltMount source. Displaced adopted real files enter a separate fingerprint-bound cycle only after replacement Plex confirmation, are never automatically deleted, and require an exact owner phrase after retention before the purge worker can remove them. Both link restore and Plex-gated whole-cycle adopted rollback are implemented; unsafe collisions stop in an owner-attention state. |
 | Existing-library adoption | Partial | Read-only bounded discovery, companion classification, per-item review, exact-season TV scope, compatible catalog/root/profile validation, exact live-action confirmation, contained same-root renames, verified cross-root copy/remove, durable root/path/content fingerprints, retry recovery, reverse rollback, bounded ffprobe media-info capture, Plex path/identity confirmation, current-file provenance, reviewed post-Plex monitoring/search, uniquely named replacements, separately confirmed 30-day displacement, and Plex-gated rollback are real. Monitoring requires the prior same-scope workflow to be resolved; immediate search is separately exact-phrase authorized and series workflows clone the latest immutable episode snapshot. Execution remains capped at 25 approved items. | Add richer journal/recovery UI. |
-| Prowlarr backup-only import | Real, with a review gap | ZIP/SQLite parsing is bounded and review creates disabled Newznab instances. The owner must manually place extracted keys into the secret environment before approval; import history/listing is absent. There is no Prowlarr runtime connection. |
+| Prowlarr backup-only import | Real, with a review gap | ZIP/SQLite parsing is bounded, preserves provider query/grab ceilings, and review creates disabled Newznab instances. Commissioning snapshots advertised movie/TV dialects and allowed parameters before enablement. The owner must manually place extracted keys into the secret environment before approval; there is no Prowlarr runtime connection. |
 | Integration/profile/root lifecycle | Partial | Create and list are real. Quality profiles additionally support owner-only edit/enable/default changes with policy-version advancement and canonical subtitle goals. Integration/root update, delete, default reassignment, and most safe connection tests remain missing. |
 | Audit/history | Partial | Core writes append `audit_events` and workflow transitions and now have a bounded owner read API/UI; not every operation emits an audit event and pagination/filtering are missing. |
 | Component health | Partial | Process, PostgreSQL/schema, outbox, integration configuration, and persisted indexer-operation state are real. Bounded Plex/AltMount/Seerr operation status is still missing. |
@@ -101,7 +101,7 @@ for smoke testing without explicit approval.
 
 ## Infrastructure and verification status
 
-- The four Compose services are healthy: PostgreSQL, API, UI, and gateway. Schema 29 adds bounded persisted media metadata without altering the schema-27/28 Newznab credential sanitization protections.
+- The four Compose services are healthy: PostgreSQL, API, UI, and gateway. Schema 30 adds a durable rolling Newznab query/grab reservation ledger without altering the schema-27/28 credential sanitization or schema-29 metadata protections.
 - The gateway is bound to `127.0.0.1:28080` through its dedicated publish
   network and retains `NET_BIND_SERVICE` only.
 - Cosmos 0.23.2 now points the Media Manager domain at
@@ -111,8 +111,10 @@ for smoke testing without explicit approval.
   The protected hostname returns Cosmos authentication, while the loopback target
   returns the Media Manager gateway's expected authentication response and
   security headers.
-- Baseline verification passed: ESLint, TypeScript, UI build/tests, Go tests with
-  race detection, and `docker compose config --quiet`.
+- Baseline verification passed: ESLint, TypeScript, UI build/tests, Go formatting,
+  vet and race tests, PostgreSQL lifecycle tests, and Compose validation. All nine
+  enabled Newznab endpoints passed live CAPS plus one paced random negative TV
+  query using their advertised dialect; OldBoys remained disabled and uncontacted.
 - The live UI artifact is dependency-separated from the development concept
   fixtures; an automated artifact scan verifies that fixture records are absent.
 
