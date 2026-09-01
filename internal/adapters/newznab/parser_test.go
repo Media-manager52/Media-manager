@@ -2,6 +2,7 @@ package newznab
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -75,6 +76,27 @@ func TestParseSearchCanonicalizesOnlyExplicitSubtitleEvidence(t *testing.T) {
 	if len(subtitleValues) != 2 || subtitleValues[0] != "da" || subtitleValues[1] != "en" {
 		t.Fatalf("unexpected explicit subtitle evidence: %#v", subtitleValues)
 	}
+}
+
+func TestParseSearchCanonicalizesRepeatedProviderSubsWithoutChangingRawFields(t *testing.T) {
+	t.Parallel()
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Show.S01.1080p.WEB-DL</title><guid>native-subs</guid><newznab:attr name="subs" value="English (US), Danish (DK)"/><newznab:attr name="SuBs" value="da-DK"/></item></channel></rss>`)
+	items, err := ParseSearch(body, "", "tvsearch", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || len(items[0].Fields) != 2 || items[0].Fields[0].Name != "subs" || items[0].Fields[0].Value != "English (US), Danish (DK)" || items[0].Fields[1].Name != "SuBs" || items[0].Fields[1].Value != "da-DK" {
+		t.Fatalf("raw repeated subs evidence changed: %#v", items)
+	}
+	for _, fact := range items[0].Facts {
+		if fact.Name == "subtitle_languages" {
+			if !reflect.DeepEqual(fact.Values, []string{"da", "da"}) || !reflect.DeepEqual(fact.EvidenceAt, []int{0, 1}) || fact.State != releases.FactObserved {
+				t.Fatalf("unexpected canonical subs fact: %#v", fact)
+			}
+			return
+		}
+	}
+	t.Fatal("provider subs attribute did not produce subtitle_languages")
 }
 
 func TestParseSearchCanonicalizesReliableSeasonMetadataWithoutLosingRawEvidence(t *testing.T) {
