@@ -46,8 +46,15 @@ services:
       SEERR_INSTANCE_ID: ${SEERR_INSTANCE_ID:-}
       SEERR_WEBHOOK_SECRET: ${SEERR_WEBHOOK_SECRET:-}
       SEERR_ALLOW_HTTP: ${SEERR_ALLOW_HTTP:-false}
+      TMDB_ACCESS_TOKEN_FILE: /run/secrets/media_manager_tmdb_token
+      TVDB_API_KEY_FILE: /run/secrets/media_manager_tvdb_key
+      SIMKL_CLIENT_ID_FILE: /run/secrets/media_manager_simkl_client_id
     env_file:
       - .env.integrations
+    secrets:
+      - media_manager_tmdb_token
+      - media_manager_tvdb_key
+      - media_manager_simkl_client_id
     volumes:
       - ${ALTMOUNT_HOST_PATH:?set ALTMOUNT_HOST_PATH}:/mnt/altmount:ro
       - ${MOVIES_HOST_PATH:?set MOVIES_HOST_PATH}:/libraries/movies:rw
@@ -89,6 +96,14 @@ services:
 
 volumes:
   postgres-data:
+
+secrets:
+  media_manager_tmdb_token:
+    file: ${METADATA_TMDB_TOKEN_SOURCE_FILE:-/dev/null}
+  media_manager_tvdb_key:
+    file: ${METADATA_TVDB_KEY_SOURCE_FILE:-/dev/null}
+  media_manager_simkl_client_id:
+    file: ${METADATA_SIMKL_CLIENT_ID_SOURCE_FILE:-/dev/null}
 
 networks:
   frontend:
