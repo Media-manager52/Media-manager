@@ -99,6 +99,46 @@ func TestParseSearchCanonicalizesReliableSeasonMetadataWithoutLosingRawEvidence(
 	t.Fatal("canonical season fact was not emitted")
 }
 
+func TestParseSearchCanonicalizesReliableResolutionMetadataWithoutLosingRawEvidence(t *testing.T) {
+	t.Parallel()
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Show.S01.1080p.WEB-DL</title><guid>native-resolution</guid><newznab:attr name="resolution" value="1920x1080 1.78:1"/></item></channel></rss>`)
+	items, err := ParseSearch(body, "", "tvsearch", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || len(items[0].Fields) != 1 || items[0].Fields[0].Value != "1920x1080 1.78:1" {
+		t.Fatalf("raw resolution evidence was not preserved: %#v", items)
+	}
+	items[0] = releases.InferTitleFacts(items[0], time.Unix(2, 0))
+	for _, fact := range items[0].Facts {
+		if fact.Name == "resolution" {
+			if fact.State != releases.FactObserved || len(fact.Values) != 1 || fact.Values[0] != "1080p" {
+				t.Fatalf("resolution fact was not canonical and consistent: %#v", fact)
+			}
+			return
+		}
+	}
+	t.Fatal("canonical resolution fact was not emitted")
+}
+
+func TestCanonicalResolutionRejectsAmbiguousValues(t *testing.T) {
+	t.Parallel()
+	for input, want := range map[string]string{
+		"4K": "2160p", "UHD": "2160p", "3840x2160 1.78:1": "2160p",
+		"1920 x 1080": "1080p", "1280×720": "720p", "720x576 PAL": "576p", "720x480": "480p",
+	} {
+		got, reliable := releases.CanonicalResolution(input)
+		if !reliable || got != want {
+			t.Fatalf("CanonicalResolution(%q)=(%q,%v), want (%q,true)", input, got, reliable, want)
+		}
+	}
+	for _, input := range []string{"", "1080i", "2K", "1920x", "640x1080", "unknown"} {
+		if got, reliable := releases.CanonicalResolution(input); reliable {
+			t.Fatalf("CanonicalResolution(%q)=(%q,true), want unreliable", input, got)
+		}
+	}
+}
+
 func TestCanonicalSeasonNumberRejectsAmbiguousValues(t *testing.T) {
 	t.Parallel()
 	for input, want := range map[string]string{"1": "1", "01": "1", "S001": "1", "s12": "12", "000": "0"} {

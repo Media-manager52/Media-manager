@@ -52,3 +52,32 @@ func TestPreferredSubtitleUnknownIsNeutralAndPositiveEvidenceScores(t *testing.T
 		t.Fatalf("unknown=%+v positive=%+v", unknown, positive)
 	}
 }
+
+func TestBestAvailablePreferencesRankResolutionBeforeAudio(t *testing.T) {
+	t.Parallel()
+	rules := []Rule{
+		{Name: "Prefer 2160p", Fact: "resolution", AllowedValues: []string{"2160p"}, Kind: RulePreferred, Weight: 50000, Unknown: UnknownAllow},
+		{Name: "Prefer 1080p", Fact: "resolution", AllowedValues: []string{"1080p"}, Kind: RulePreferred, Weight: 40000, Unknown: UnknownAllow},
+		{Name: "Prefer TrueHD Atmos", Fact: "audio_codec", AllowedValues: []string{"truehd_atmos"}, Kind: RulePreferred, Weight: 5300, Unknown: UnknownAllow},
+		{Name: "Prefer AAC", Fact: "audio_codec", AllowedValues: []string{"aac"}, Kind: RulePreferred, Weight: 1500, Unknown: UnknownAllow},
+	}
+	now := time.Unix(1, 0)
+	uhd := InferTitleFacts(Observation{ID: uuid.NewV7(), Title: "Movie.2160p.WEB-DL.AAC2.0"}, now)
+	hd := InferTitleFacts(Observation{ID: uuid.NewV7(), Title: "Movie.1080p.Remux.TrueHD.7.1.Atmos"}, now)
+	unknown := InferTitleFacts(Observation{ID: uuid.NewV7(), Title: "Movie.Without.Quality.Evidence"}, now)
+	evaluations := make([]Evaluation, 0, 3)
+	for _, observation := range []Observation{uhd, hd, unknown} {
+		evaluation, err := Evaluate(observation, rules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if evaluation.Verdict != VerdictEligible {
+			t.Fatalf("best-available evidence was not neutral/eligible: %+v", evaluation)
+		}
+		evaluations = append(evaluations, evaluation)
+	}
+	ranked := Rank([]Observation{uhd, hd, unknown}, evaluations)
+	if len(ranked) != 3 || ranked[0].ObservationID != uhd.ID || ranked[1].ObservationID != hd.ID || ranked[2].ObservationID != unknown.ID {
+		t.Fatalf("unexpected best-available rank order: %+v", ranked)
+	}
+}

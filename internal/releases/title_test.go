@@ -62,3 +62,40 @@ func TestTitleMatchesCanonicalPrefixAndYear(t *testing.T) {
 		t.Fatal("different title was accepted")
 	}
 }
+
+func TestInferTitleFactsRecordsBoundedAudioCodecEvidence(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"Movie.2026.2160p.Remux.TrueHD.7.1.Atmos":        "truehd_atmos",
+		"Movie.2026.2160p.BluRay.DTS-HD.MA.7.1":          "dts_hd_ma",
+		"Movie.2026.2160p.BluRay.DTS-HD.5.1":             "dts_hd",
+		"Movie.2026.2160p.WEB-DL.DDP5.1.Atmos":           "eac3_atmos",
+		"Movie.2026.1080p.WEB-DL.E-AC-3.5.1":             "eac3",
+		"Movie.2026.1080p.BluRay.FLAC.2.0":               "flac",
+		"Movie.2026.1080p.WEB-DL.AAC2.0":                 "aac",
+		"Movie.2026.1080p.WEB-DL.Without.Audio.Metadata": "",
+	}
+	for title, want := range tests {
+		observation := InferTitleFacts(Observation{Title: title}, time.Unix(1, 0))
+		got := ""
+		for _, fact := range observation.Facts {
+			if fact.Name == "audio_codec" && len(fact.Values) == 1 {
+				got = fact.Values[0]
+			}
+		}
+		if got != want {
+			t.Errorf("%q audio_codec=%q, want %q", title, got, want)
+		}
+	}
+}
+
+func TestInferTitleFactsCanonicalizesUHD(t *testing.T) {
+	t.Parallel()
+	observation := InferTitleFacts(Observation{Title: "Movie.2026.UHD.WEB-DL"}, time.Unix(1, 0))
+	for _, fact := range observation.Facts {
+		if fact.Name == "resolution" && fact.State == FactInferred && len(fact.Values) == 1 && fact.Values[0] == "2160p" {
+			return
+		}
+	}
+	t.Fatal("UHD was not inferred as canonical 2160p")
+}

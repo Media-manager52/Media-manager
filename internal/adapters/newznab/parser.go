@@ -289,6 +289,10 @@ func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases
 			if canonical, reliable := canonicalSeasonNumber(value); reliable {
 				value = canonical
 			}
+		} else if name == "resolution" {
+			if canonical, reliable := releases.CanonicalResolution(value); reliable {
+				value = canonical
+			}
 		}
 		values[name] = append(values[name], value)
 		indices[name] = append(indices[name], index)
