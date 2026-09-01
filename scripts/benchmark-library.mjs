@@ -51,17 +51,17 @@ function fixtures(count) {
 }
 
 try {
-  const { buildMovieLibraryRecords, filterMovieLibraryRecords, initialMovieFilters } = await vite.ssrLoadModule("/lib/movie-library.ts");
+  const { buildMediaLibraryRecords, filterMediaLibraryRecords, initialMediaFilters } = await vite.ssrLoadModule("/lib/media-library.ts");
   const rows = [];
   for (const count of [500, 1_000, 2_000, 4_000, 10_000]) {
     const data = fixtures(count);
     const builds = [];
     const filters = [];
     for (let run = 0; run < 5; run += 1) {
-      const built = duration(() => buildMovieLibraryRecords(data.media, data.files, data.wanted, data.workflows));
+      const built = duration(() => buildMediaLibraryRecords("movie", data.media, data.files, data.wanted, data.workflows));
       builds.push(built.milliseconds);
-      filters.push(duration(() => filterMovieLibraryRecords(built.result, {
-        ...initialMovieFilters,
+      filters.push(duration(() => filterMediaLibraryRecords(built.result, {
+        ...initialMediaFilters,
         query: `tmdb ${count - 1}`,
       })).milliseconds);
     }

@@ -6,23 +6,24 @@ import type {
   APIWorkflow,
 } from "@/lib/media-manager-api"
 
-export type MovieLibrarySummary = "all" | "available" | "missing" | "monitoring" | "upgradable"
+export type MediaLibrarySummary = "all" | "available" | "missing" | "monitoring" | "upgradable"
 
-export type MovieLibraryFilters = {
+export type MediaLibraryFilters = {
   query: string
-  summary: MovieLibrarySummary
+  summary: MediaLibrarySummary
   quality: string
   resolution: string
   audio: string
   language: string
-  availability: MovieLibrarySummary
+  availability: MediaLibrarySummary
   root: string
   plexConfirmedOnly: boolean
   managedOnly: boolean
 }
 
-export type MovieLibraryRecord = {
+export type MediaLibraryRecord = {
   id: string
+  kind: APIMedia["kind"]
   title: string
   year?: number
   identities: APIIdentity[]
@@ -43,7 +44,7 @@ export type MovieLibraryRecord = {
   searchText: string
 }
 
-export const initialMovieFilters: MovieLibraryFilters = {
+export const initialMediaFilters: MediaLibraryFilters = {
   query: "",
   summary: "all",
   quality: "",
@@ -82,7 +83,7 @@ function groupByMediaID<T extends { media_id: string }>(items: T[]) {
   return grouped
 }
 
-function movieSearchText(item: APIMedia) {
+function mediaSearchText(item: APIMedia) {
   return [
     item.title,
     item.year ? String(item.year) : "",
@@ -94,7 +95,8 @@ function movieSearchText(item: APIMedia) {
   ].join(" ").toLocaleLowerCase()
 }
 
-export function buildMovieLibraryRecords(
+export function buildMediaLibraryRecords(
+  kind: APIMedia["kind"],
   media: APIMedia[],
   files: APIManagedFile[],
   wanted: APIWantedItem[],
@@ -105,13 +107,14 @@ export function buildMovieLibraryRecords(
   const workflowsByMediaID = groupByMediaID(workflows)
 
   return media
-    .filter((item) => item.kind === "movie")
-    .map<MovieLibraryRecord>((item) => {
+    .filter((item) => item.kind === kind)
+    .map<MediaLibraryRecord>((item) => {
       const itemFiles = filesByMediaID.get(item.id) ?? []
       const itemWanted = wantedByMediaID.get(item.id) ?? []
       const itemWorkflows = workflowsByMediaID.get(item.id) ?? []
       return {
         id: item.id,
+        kind: item.kind,
         title: item.title,
         year: item.year,
         identities: item.identities ?? [],
@@ -138,13 +141,13 @@ export function buildMovieLibraryRecords(
         missing: itemWanted.some((entry) => entry.gap === "missing"),
         monitoring: itemWorkflows.some((workflow) => workflow.state === "monitored"),
         upgradable: itemWanted.some((entry) => entry.gap === "upgrade"),
-        searchText: movieSearchText(item),
+        searchText: mediaSearchText(item),
       }
     })
     .sort((left, right) => left.title.localeCompare(right.title) || (left.year ?? 0) - (right.year ?? 0))
 }
 
-function matchesMovieSummary(item: MovieLibraryRecord, summary: MovieLibrarySummary) {
+function matchesMediaSummary(item: MediaLibraryRecord, summary: MediaLibrarySummary) {
   if (summary === "available") return item.available
   if (summary === "missing") return item.missing
   if (summary === "monitoring") return item.monitoring
@@ -152,11 +155,11 @@ function matchesMovieSummary(item: MovieLibraryRecord, summary: MovieLibrarySumm
   return true
 }
 
-export function filterMovieLibraryRecords(items: MovieLibraryRecord[], filters: MovieLibraryFilters) {
+export function filterMediaLibraryRecords(items: MediaLibraryRecord[], filters: MediaLibraryFilters) {
   const query = filters.query.trim().toLocaleLowerCase()
   return items.filter((item) => (!query || item.searchText.includes(query))
-    && matchesMovieSummary(item, filters.summary)
-    && matchesMovieSummary(item, filters.availability)
+    && matchesMediaSummary(item, filters.summary)
+    && matchesMediaSummary(item, filters.availability)
     && (!filters.quality || item.profiles.includes(filters.quality))
     && (!filters.resolution || item.resolutions.includes(filters.resolution))
     && (!filters.audio || item.audioCodecs.includes(filters.audio))

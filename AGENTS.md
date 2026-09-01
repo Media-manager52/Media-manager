@@ -24,7 +24,7 @@ truthful, and safe for an owner-operated production media system.
 - `internal/postgres`: PostgreSQL repositories and migrations.
 - `internal/httpapi`: owner and internal HTTP routes.
 - `app`, `components`, `lib`: Vinext/React UI, route screens, and API client.
-- `lib/movie-library.ts`: pure movie-library joins and local filtering.
+- `lib/media-library.ts`: pure movie/series library joins and local filtering.
 - `tests` and `tests/browser`: local UI/unit and browser coverage; unexpected external
   network access must remain blocked.
 

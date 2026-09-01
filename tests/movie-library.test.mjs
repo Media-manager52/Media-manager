@@ -27,11 +27,13 @@ after(async () => {
 const firstID = "11111111-1111-4111-8111-111111111111";
 const secondID = "22222222-2222-4222-8222-222222222222";
 const firstFileID = "33333333-3333-4333-8333-333333333333";
+const seriesID = "44444444-4444-4444-8444-444444444444";
+const seriesFileID = "77777777-7777-4777-8777-777777777777";
 
 const media = [
   { id: firstID, kind: "movie", title: "First Local Movie", year: 2024, identities: [{ namespace: "tmdb", value: "101", state: "verified" }], metadata: { original_title: "First Original", overview: "First persisted overview", original_language: "en", format: "Movie", status: "Released", runtime_minutes: 98, poster_url: "https://image.tmdb.org/t/p/w500/first.jpg", genres: ["Drama"], countries: ["DK"], networks: [], aliases: [], sources: [{ provider: "tmdb", provider_id: "101", url: "https://www.themoviedb.org/movie/101", role: "primary descriptive metadata" }], ratings: [{ source: "tmdb", value: 8.1, votes: 200 }], events: [], observed_at: "2026-09-01T00:00:00Z" } },
   { id: secondID, kind: "movie", title: "Second Local Movie", year: 2022, identities: [{ namespace: "imdb", value: "tt0000202", state: "verified" }] },
-  { id: "44444444-4444-4444-8444-444444444444", kind: "series", title: "Local Series", year: 2020, identities: [] },
+  { id: seriesID, kind: "series", title: "Local Series", year: 2020, identities: [{ namespace: "tvdb", value: "303", state: "verified" }], metadata: { original_title: "Local Series", overview: "Persisted series overview", original_language: "da", format: "Series", status: "Returning", release_date: "2020-02-03", season_count: 2, episode_count: 14, genres: ["Drama"], countries: ["DK"], networks: [{ name: "Local Network", source: "tvdb" }], aliases: [], sources: [], ratings: [], events: [], observed_at: "2026-09-01T00:00:00Z" } },
 ];
 
 const files = [{
@@ -53,16 +55,37 @@ const files = [{
   quality_evidence_state: "media_info",
   quality_evidence: { facts: { resolution: "1080p", audio_codecs: ["eac3"], audio_languages: ["en"], subtitle_languages: ["da"] } },
   source_size_bytes: 1024,
+}, {
+  id: seriesFileID,
+  media_id: seriesID,
+  media_kind: "series",
+  title: "Local Series",
+  year: 2020,
+  root_name: "TV Primary",
+  destination_relative: "Local Series (2020) {tvdb-303}/Season 01/Local Series - S01E01.mkv",
+  source_relative: "series-job/episode.mkv",
+  plex_visible_target: "/tv/Local Series (2020) {tvdb-303}/Season 01/Local Series - S01E01.mkv",
+  state: "current",
+  generation: 1,
+  plex_confirmed: true,
+  variant: "season:01",
+  origin: "altmount",
+  quality_profile: "TV 1080p Danish",
+  quality_evidence_state: "media_info",
+  quality_evidence: { facts: { resolution: "1080p", audio_codecs: ["aac"], subtitle_languages: ["da"] } },
+  source_size_bytes: 2048,
 }];
 
 const wanted = [
   { workflow_id: "55555555-5555-4555-8555-555555555555", media_id: firstID, media_kind: "movie", title: "First Local Movie", gap: "upgrade", current_state: "plex_confirmed", target_profile: "Movie 1080p Danish", upgrades_enabled: true, variant: "movie", updated_at: "2026-09-01T00:00:00Z" },
   { workflow_id: "66666666-6666-4666-8666-666666666666", media_id: secondID, media_kind: "movie", title: "Second Local Movie", gap: "missing", current_state: "monitored", target_profile: "Movie 1080p Danish", upgrades_enabled: true, variant: "movie", updated_at: "2026-09-01T00:00:00Z" },
+  { workflow_id: "88888888-8888-4888-8888-888888888888", media_id: seriesID, media_kind: "series", title: "Local Series", gap: "upgrade", current_state: "plex_confirmed", target_profile: "TV 1080p Danish", upgrades_enabled: true, variant: "season:01", updated_at: "2026-09-01T00:00:00Z" },
 ];
 
 const workflows = [
   { id: wanted[0].workflow_id, media_id: firstID, media_kind: "movie", title: "First Local Movie", year: 2024, variant: "movie", state: "plex_confirmed", revision: 4, adopted_replacement_confirmation_required: false, created_at: "2026-08-31T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
   { id: wanted[1].workflow_id, media_id: secondID, media_kind: "movie", title: "Second Local Movie", year: 2022, variant: "movie", state: "monitored", revision: 1, adopted_replacement_confirmation_required: false, created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
+  { id: wanted[2].workflow_id, media_id: seriesID, media_kind: "series", title: "Local Series", year: 2020, variant: "season:01", state: "plex_confirmed", revision: 5, adopted_replacement_confirmation_required: false, created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
 ];
 
 const baseFilters = {
@@ -79,8 +102,8 @@ const baseFilters = {
 };
 
 test("builds and filters movies only from persisted API fields", async () => {
-  const { buildMovieLibraryRecords, filterMovieLibraryRecords } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
-  const records = buildMovieLibraryRecords(media, files, wanted, workflows);
+  const { buildMediaLibraryRecords, filterMediaLibraryRecords } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+  const records = buildMediaLibraryRecords("movie", media, files, wanted, workflows);
 
   assert.equal(records.length, 2);
   assert.equal(records[0].title, "First Local Movie");
@@ -106,13 +129,13 @@ test("builds and filters movies only from persisted API fields", async () => {
     [{ plexConfirmedOnly: true }, [firstID]],
     [{ managedOnly: true }, [firstID]],
   ]) {
-    const result = filterMovieLibraryRecords(records, { ...baseFilters, ...change });
+    const result = filterMediaLibraryRecords(records, { ...baseFilters, ...change });
     assert.deepEqual(result.map((item) => item.id), expected);
   }
 });
 
 test("joins every related record at the supported catalog bound", async () => {
-  const { buildMovieLibraryRecords, filterMovieLibraryRecords } = await vite.ssrLoadModule("/lib/movie-library.ts");
+  const { buildMediaLibraryRecords, filterMediaLibraryRecords } = await vite.ssrLoadModule("/lib/media-library.ts");
   const count = 10_000;
   const largeMedia = Array.from({ length: count }, (_, index) => ({
     id: `media-${index}`,
@@ -137,7 +160,7 @@ test("joins every related record at the supported catalog bound", async () => {
     media_id: item.id,
   }));
 
-  const records = buildMovieLibraryRecords(largeMedia, largeFiles, largeWanted, largeWorkflows);
+  const records = buildMediaLibraryRecords("movie", largeMedia, largeFiles, largeWanted, largeWorkflows);
 
   assert.equal(records.length, count);
   assert.equal(new Set(records.map((item) => item.id)).size, count);
@@ -148,15 +171,15 @@ test("joins every related record at the supported catalog bound", async () => {
     assert.equal(record.workflows[0].id, `workflow-${index}`);
   }
   assert.deepEqual(
-    filterMovieLibraryRecords(records, { ...baseFilters, query: "tmdb 9374" }).map((item) => item.id),
+    filterMediaLibraryRecords(records, { ...baseFilters, query: "tmdb 9374" }).map((item) => item.id),
     ["media-9374"],
   );
 });
 
 test("movie card is a native keyboard control with truthful selection and status", async () => {
-  const { buildMovieLibraryRecords, MovieLibraryCard } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
-  const [record] = buildMovieLibraryRecords(media, files, wanted, workflows);
-  const html = renderToStaticMarkup(React.createElement(MovieLibraryCard, { item: record, selected: true, onSelect() {} }));
+  const { buildMediaLibraryRecords, MediaLibraryCard } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+  const [record] = buildMediaLibraryRecords("movie", media, files, wanted, workflows);
+  const html = renderToStaticMarkup(React.createElement(MediaLibraryCard, { item: record, selected: true, onSelect() {} }));
 
   assert.match(html, /<button/);
   assert.match(html, /type="button"/);
@@ -167,13 +190,13 @@ test("movie card is a native keyboard control with truthful selection and status
 });
 
 test("changing the selected record cannot retain previous inspector data", async () => {
-  const { buildMovieLibraryRecords, MovieInspector } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
-  const records = buildMovieLibraryRecords(media, files, wanted, workflows);
+  const { buildMediaLibraryRecords, MediaInspector } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+  const records = buildMediaLibraryRecords("movie", media, files, wanted, workflows);
   const props = { tab: "files", auto: false, onTabChange() {}, onClose() {} };
-  const first = renderToStaticMarkup(React.createElement(MovieInspector, { ...props, item: records[0] }));
-  const second = renderToStaticMarkup(React.createElement(MovieInspector, { ...props, item: records[1] }));
-  const firstOverview = renderToStaticMarkup(React.createElement(MovieInspector, { ...props, tab: "overview", item: records[0] }));
-  const firstMetadata = renderToStaticMarkup(React.createElement(MovieInspector, { ...props, tab: "metadata", item: records[0] }));
+  const first = renderToStaticMarkup(React.createElement(MediaInspector, { ...props, item: records[0] }));
+  const second = renderToStaticMarkup(React.createElement(MediaInspector, { ...props, item: records[1] }));
+  const firstOverview = renderToStaticMarkup(React.createElement(MediaInspector, { ...props, tab: "overview", item: records[0] }));
+  const firstMetadata = renderToStaticMarkup(React.createElement(MediaInspector, { ...props, tab: "metadata", item: records[0] }));
 
   assert.match(first, /First Local Movie/);
   assert.match(firstOverview, /First persisted overview/);
@@ -184,6 +207,34 @@ test("changing the selected record cannot retain previous inspector data", async
   assert.doesNotMatch(second, /First persisted overview/);
   assert.doesNotMatch(second, new RegExp(firstFileID));
   for (const tab of ["overview", "files", "metadata", "history"]) assert.match(second, new RegExp(`>${tab}<`, "i"));
+});
+
+test("series records use real season state and exact series navigation", async () => {
+  const { buildMediaLibraryRecords, filterMediaLibraryRecords, MediaLibraryCard, MediaInspector } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+  const [record] = buildMediaLibraryRecords("series", media, files, wanted, workflows);
+
+  assert.equal(record.kind, "series");
+  assert.equal(record.available, true);
+  assert.equal(record.upgradable, true);
+  assert.equal(record.files[0].variant, "season:01");
+  assert.equal(record.metadata.season_count, 2);
+  assert.deepEqual(filterMediaLibraryRecords([record], { ...baseFilters, query: "tvdb 303" }).map((item) => item.id), [seriesID]);
+
+  const card = renderToStaticMarkup(React.createElement(MediaLibraryCard, { item: record, selected: true, onSelect() {} }));
+  const inspector = renderToStaticMarkup(React.createElement(MediaInspector, { item: record, tab: "overview", auto: false, onTabChange() {}, onClose() {} }));
+  const partial = renderToStaticMarkup(React.createElement(MediaLibraryCard, { item: { ...record, missing: true }, selected: false, onSelect() {} }));
+  assert.match(card, /Local Series, 2020\. Available · upgrade wanted/);
+  assert.match(card, /2 seasons/);
+  assert.match(card, /series-placeholder\.svg/);
+  assert.match(inspector, new RegExp(`/media/series/${seriesID}`));
+  assert.match(inspector, />TV show details</);
+  assert.match(inspector, />Seasons</);
+  assert.match(inspector, />2</);
+  assert.match(inspector, /Local Network/);
+  const refreshButton = inspector.match(/<button[^>]*>[\s\S]*?Refresh metadata<\/button>/);
+  assert.ok(refreshButton);
+  assert.doesNotMatch(refreshButton[0], /\sdisabled(?:=|>)/);
+  assert.match(partial, /Partially available/);
 });
 
 test("library controls preserve routes and expose working view and tab state", async () => {
@@ -305,7 +356,7 @@ test("catalog loader returns only complete bounded pagination results", async (t
   });
 });
 
-test("movie library loader makes only the four expected same-origin API reads", async () => {
+test("movie and series library loaders make only the expected same-origin API reads", async () => {
   const requested = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
@@ -322,9 +373,19 @@ test("movie library loader makes only the four expected same-origin API reads", 
   };
 
   try {
-    const { movieLibraryLoader } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
-    const records = await movieLibraryLoader(new AbortController().signal);
-    assert.equal(records.length, 2);
+    const { movieLibraryLoader, seriesLibraryLoader } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+    const movieRecords = await movieLibraryLoader(new AbortController().signal);
+    assert.equal(movieRecords.length, 2);
+    assert.deepEqual(requested.sort(), [
+      "/api/v1/files?limit=300",
+      "/api/v1/media?limit=200&offset=0",
+      "/api/v1/wanted?limit=300",
+      "/api/v1/workflows?limit=300&active=false",
+    ]);
+    requested.length = 0;
+    const seriesRecords = await seriesLibraryLoader(new AbortController().signal);
+    assert.equal(seriesRecords.length, 1);
+    assert.equal(seriesRecords[0].id, seriesID);
     assert.deepEqual(requested.sort(), [
       "/api/v1/files?limit=300",
       "/api/v1/media?limit=200&offset=0",

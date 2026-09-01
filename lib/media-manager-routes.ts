@@ -1,6 +1,7 @@
 export const routeTitles: Record<string, { area: string; title: string; subtitle: string }> = {
   "/": { area: "Home", title: "Overview", subtitle: "The operational state of your library, automation, and release intelligence." },
-  "/media": { area: "Library", title: "Media", subtitle: "Browse, filter, monitor, and manage every movie and series." },
+  "/media": { area: "Library", title: "Movies", subtitle: "Browse, filter, and inspect the complete bounded movie catalog." },
+  "/media/series": { area: "Library", title: "TV Shows", subtitle: "Browse series, inspect season-pack state, and open exact series details." },
   "/files": { area: "Library", title: "File Manager", subtitle: "Inspect real files, virtual files, symlinks, provenance, and safe operations." },
   "/collections": { area: "Library", title: "Collections", subtitle: "Franchises, smart rules, and custom media groupings." },
   "/calendar": { area: "Library", title: "Calendar", subtitle: "Future releases and episodes that Media Manager is monitoring." },

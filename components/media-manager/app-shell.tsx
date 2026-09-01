@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   Sparkles,
   TerminalSquare,
+  Tv,
   Users,
   Webhook,
   type LucideIcon,
@@ -105,6 +106,7 @@ const liveNavigation: NavGroup[] = [
   { label: "Home", items: [{ label: "Overview", href: "/", icon: MonitorCog }] },
   { label: "Library", items: [
     { label: "Movies", href: "/media", icon: Library },
+    { label: "TV Shows", href: "/media/series", icon: Tv },
     { label: "Collections", href: "/collections", icon: BookOpenCheck },
     { label: "Calendar", href: "/calendar", icon: FileClock },
     { label: "Wanted & Upgrades", href: "/wanted", icon: ListChecks },
@@ -163,7 +165,7 @@ export function MediaManagerApp({ path }: { path: string }) {
   const [commandOpen, setCommandOpen] = React.useState(false)
   const [openGroups, setOpenGroups] = React.useState<Set<string>>(() => new Set(["Home", "Library"]))
   const [serviceStatus, setServiceStatus] = React.useState<{ ready?: boolean; version?: string }>({})
-  const libraryLayout = path === "/media"
+  const libraryLayout = path === "/media" || path === "/media/series"
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -269,6 +271,7 @@ function RouteContent({ path }: { path: string }) {
   const normalized = normalizeRoute(path)
   if (path === "/") return <LiveOperationalDashboardScreen />
   if (path === "/media") return <LiveLibraryScreen />
+  if (path === "/media/series") return <LiveLibraryScreen mediaKind="series" />
   if (path === "/collections") return <LiveCollectionsScreen />
   if (path === "/calendar") return <LiveCalendarScreen />
   if (path === "/wanted") return <LiveWantedScreen />
@@ -306,7 +309,8 @@ function RouteContent({ path }: { path: string }) {
 
 function isRouteActive(path: string, href: string) {
   if (href === "/") return path === "/"
-  if (href === "/media") return path === "/media" || path.startsWith("/media/")
+  if (href === "/media") return path === "/media" || path.startsWith("/media/movies/")
+  if (href === "/media/series") return path === href || path.startsWith("/media/series/")
   if (href === "/files") return path === "/files" || path.startsWith("/files/")
   if (href === "/sources/indexers") return path === href || path.startsWith("/sources/indexers/")
   return path === href

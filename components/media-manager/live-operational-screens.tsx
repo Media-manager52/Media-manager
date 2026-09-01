@@ -29,6 +29,7 @@ import {
   SearchCheck,
   ShieldCheck,
   SlidersHorizontal,
+  Tv,
   X,
 } from "lucide-react"
 
@@ -75,19 +76,19 @@ import {
 } from "@/lib/media-manager-api"
 import { cn } from "@/lib/utils"
 import {
-  buildMovieLibraryRecords,
-  filterMovieLibraryRecords,
-  initialMovieFilters,
+  buildMediaLibraryRecords,
+  filterMediaLibraryRecords,
+  initialMediaFilters,
   uniqueValues,
-  type MovieLibraryFilters,
-  type MovieLibraryRecord,
-  type MovieLibrarySummary,
-} from "@/lib/movie-library"
+  type MediaLibraryFilters,
+  type MediaLibraryRecord,
+  type MediaLibrarySummary,
+} from "@/lib/media-library"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
 import { InlineNotice, KeyValue, MetricCard, Panel, StatusChip } from "./ui"
 
-export { buildMovieLibraryRecords, filterMovieLibraryRecords } from "@/lib/movie-library"
-export type { MovieLibraryFilters, MovieLibraryRecord } from "@/lib/movie-library"
+export { buildMediaLibraryRecords, filterMediaLibraryRecords } from "@/lib/media-library"
+export type { MediaLibraryFilters, MediaLibraryRecord } from "@/lib/media-library"
 
 type Tone = "good" | "info" | "warn" | "bad" | "neutral"
 
@@ -212,15 +213,18 @@ export function LiveOperationalDashboardScreen() {
   </div>
 }
 
-export const movieLibraryLoader = async (signal: AbortSignal) => {
+async function loadMediaLibrary(kind: "movie" | "series", signal: AbortSignal) {
   const [media, files, wanted, workflows] = await Promise.all([
     loadCatalogMedia(signal),
     loadManagedFiles(signal),
     loadWanted(signal),
     loadWorkflows(false, signal),
   ])
-  return buildMovieLibraryRecords(media, files, wanted, workflows)
+  return buildMediaLibraryRecords(kind, media, files, wanted, workflows)
 }
+
+export const movieLibraryLoader = (signal: AbortSignal) => loadMediaLibrary("movie", signal)
+export const seriesLibraryLoader = (signal: AbortSignal) => loadMediaLibrary("series", signal)
 
 function resolutionLabel(value: string) {
   return value.toLocaleLowerCase() === "2160p" ? "4K" : value
@@ -231,7 +235,8 @@ function compactValues(values: string[], limit = 6) {
   return `${values.slice(0, limit).join(", ")} +${values.length - limit}`
 }
 
-function movieAvailability(item: MovieLibraryRecord) {
+function mediaAvailability(item: MediaLibraryRecord) {
+  if (item.kind === "series" && item.available && item.missing) return { label: "Partially available", tone: "text-[#e1ad63]", dot: "bg-[#d99a4e]" }
   if (item.available && item.upgradable) return { label: "Available · upgrade wanted", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
   if (item.available) return { label: "Available", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
   if (item.missing) return { label: "Missing", tone: "text-[#e89b65]", dot: "bg-[#df8752]" }
@@ -239,16 +244,23 @@ function movieAvailability(item: MovieLibraryRecord) {
   return { label: "Cataloged", tone: "text-[#929dac]", dot: "bg-[#667085]" }
 }
 
-export function LiveLibraryScreen() {
-  const [filters, setFilters] = React.useState<MovieLibraryFilters>(initialMovieFilters)
+const libraryCopy = {
+  movie: { title: "Movies", all: "All Movies", singular: "movie", plural: "movies", add: "Add Movie" },
+  series: { title: "TV Shows", all: "All TV Shows", singular: "TV show", plural: "TV shows", add: "Add TV Show" },
+} as const
+
+export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie" | "series" }) {
+  const copy = libraryCopy[mediaKind]
+  const loader = mediaKind === "movie" ? movieLibraryLoader : seriesLibraryLoader
+  const [filters, setFilters] = React.useState<MediaLibraryFilters>(initialMediaFilters)
   const [view, setView] = React.useState<"grid" | "list">("grid")
   const [moreOpen, setMoreOpen] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [selectedID, setSelectedID] = React.useState<string | null | undefined>(undefined)
   const [detailTab, setDetailTab] = React.useState("overview")
-  const { data, error, refresh } = useLiveData(movieLibraryLoader)
+  const { data, error, refresh } = useLiveData(loader)
   const records = React.useMemo(() => data ?? [], [data])
-  const filtered = React.useMemo(() => filterMovieLibraryRecords(records, filters), [records, filters])
+  const filtered = React.useMemo(() => filterMediaLibraryRecords(records, filters), [records, filters])
   const facets = React.useMemo(() => ({
     quality: uniqueValues(records.flatMap((item) => item.profiles)),
     resolution: uniqueValues(records.flatMap((item) => item.resolutions)),
@@ -270,19 +282,19 @@ export function LiveLibraryScreen() {
   const requestedSelection = selectedID === undefined ? filtered[0] : records.find((item) => item.id === selectedID)
   const selected = selectedID === null ? null : requestedSelection && filtered.some((item) => item.id === requestedSelection.id) ? requestedSelection : filtered[0] ?? null
 
-  function setFilter<K extends keyof MovieLibraryFilters>(key: K, value: MovieLibraryFilters[K]) {
+  function setFilter<K extends keyof MediaLibraryFilters>(key: K, value: MediaLibraryFilters[K]) {
     setFilters((current) => ({ ...current, [key]: value }))
     setPage(1)
     setDetailTab("overview")
   }
 
-  function selectMovie(id: string) {
+  function selectMedia(id: string) {
     setSelectedID(id)
     setDetailTab("overview")
   }
 
-  const summaryItems: Array<{ key: MovieLibrarySummary; label: string; count: number }> = [
-    { key: "all", label: "All Movies", count: counts.all },
+  const summaryItems: Array<{ key: MediaLibrarySummary; label: string; count: number }> = [
+    { key: "all", label: copy.all, count: counts.all },
     { key: "available", label: "Available", count: counts.available },
     { key: "missing", label: "Missing", count: counts.missing },
     { key: "monitoring", label: "Monitoring", count: counts.monitoring },
@@ -290,34 +302,34 @@ export function LiveLibraryScreen() {
   ]
 
   return <div className={cn("mm-library-root grid h-full min-h-0 bg-[#080b12]", selected && "xl:grid-cols-[minmax(0,1fr)_245px]")}>
-    <section className="flex min-h-0 min-w-0 flex-col px-3 pb-12 pt-3 sm:px-4 sm:pb-3 sm:pt-3" aria-labelledby="movie-library-title">
+    <section className="flex min-h-0 min-w-0 flex-col px-3 pb-12 pt-3 sm:px-4 sm:pb-3 sm:pt-3" aria-labelledby={`${mediaKind}-library-title`}>
       <div className="mb-2 flex min-h-8 items-center gap-2">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <h1 id="movie-library-title" className="text-[18px] font-[800] tracking-[-0.025em] text-[#f4f6fa]">Movies</h1>
-            <span className="text-[10px] font-semibold text-[#929dac]" aria-label={`${records.length} movies`}>{records.length}</span>
+            <h1 id={`${mediaKind}-library-title`} className="text-[18px] font-[800] tracking-[-0.025em] text-[#f4f6fa]">{copy.title}</h1>
+            <span className="text-[10px] font-semibold text-[#929dac]" aria-label={`${records.length} ${records.length === 1 ? copy.singular : copy.plural}`}>{records.length}</span>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" aria-label="Refresh movies" onClick={refresh}><RefreshCw /></Button>
+          <Button variant="ghost" size="icon-sm" aria-label={`Refresh ${copy.plural}`} onClick={refresh}><RefreshCw /></Button>
           <div className="flex rounded-md border border-[#202a39] bg-[#0e141e] p-0.5" aria-label="Library view">
             <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")} className={cn("grid size-7 place-items-center rounded-[4px] text-[#7e8998] outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]", view === "grid" && "bg-[#25203a] text-[#bca7ff]")}><Grid2X2 className="size-3.5" /></button>
             <button type="button" aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")} className={cn("grid size-7 place-items-center rounded-[4px] text-[#7e8998] outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]", view === "list" && "bg-[#25203a] text-[#bca7ff]")}><List className="size-3.5" /></button>
           </div>
-          <Button asChild size="sm" className="h-8 bg-[#7c3aed] px-2.5 text-white hover:bg-[#6d2fd4]"><Link href="/discover"><Plus /> Add Movie</Link></Button>
+          <Button asChild size="sm" className="h-8 bg-[#7c3aed] px-2.5 text-white hover:bg-[#6d2fd4]"><Link href="/discover"><Plus /> {copy.add}</Link></Button>
         </div>
       </div>
 
       {error ? <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-[#5c3339] bg-[#211419] px-3 py-2 text-[10px] text-[#f1a6a6]" role="alert"><span>{error}</span><button type="button" className="font-bold underline underline-offset-2" onClick={refresh}>Retry</button></div> : null}
 
       <div className="relative mb-2 shrink-0">
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin" aria-label="Movie filters">
-          <label className="relative block w-[140px] shrink-0"><span className="sr-only">Search movies</span><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#8d99aa]" /><Input value={filters.query} onChange={(event) => setFilter("query", event.target.value)} placeholder="Search movies" className="h-8 border-[#202a39] bg-[#0e141e] pl-8 text-[11px] shadow-none placeholder:text-[#8d99aa] focus-visible:border-[#7c3aed] focus-visible:ring-[#7c3aed]/20" /></label>
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin" aria-label={`${copy.title} filters`}>
+          <label className="relative block w-[140px] shrink-0"><span className="sr-only">Search {copy.plural}</span><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#8d99aa]" /><Input value={filters.query} onChange={(event) => setFilter("query", event.target.value)} placeholder={`Search ${copy.plural}`} className="h-8 border-[#202a39] bg-[#0e141e] pl-8 text-[11px] shadow-none placeholder:text-[#8d99aa] focus-visible:border-[#7c3aed] focus-visible:ring-[#7c3aed]/20" /></label>
           <LibrarySelect label="Quality" value={filters.quality} onChange={(value) => setFilter("quality", value)} options={facets.quality} className="w-[82px]" />
           <LibrarySelect label="Resolution" value={filters.resolution} onChange={(value) => setFilter("resolution", value)} options={facets.resolution} className="w-[82px]" />
           <LibrarySelect label="Audio" value={filters.audio} onChange={(value) => setFilter("audio", value)} options={facets.audio} className="w-[76px]" />
           <LibrarySelect label="Language" value={filters.language} onChange={(value) => setFilter("language", value)} options={facets.language} className="w-[84px]" />
-          <LibrarySelect label="Availability" value={filters.availability} onChange={(value) => setFilter("availability", value as MovieLibrarySummary)} options={["available", "missing", "monitoring", "upgradable"]} className="w-[96px]" />
+          <LibrarySelect label="Availability" value={filters.availability} onChange={(value) => setFilter("availability", value as MediaLibrarySummary)} options={["available", "missing", "monitoring", "upgradable"]} className="w-[96px]" />
           <LibrarySelect label="Root Folder" value={filters.root} onChange={(value) => setFilter("root", value)} options={facets.root} className="w-[96px]" />
           <Button type="button" variant="outline" size="sm" aria-expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)} className="h-8 shrink-0 border-[#202a39] bg-[#0e141e] px-2 text-[11px] text-[#aab3bf] shadow-none hover:bg-[#141c28]"><SlidersHorizontal /> More Filters{filters.plexConfirmedOnly || filters.managedOnly ? <span className="size-1.5 rounded-full bg-[#7c3aed]" aria-label="Additional filters active" /> : null}</Button>
         </div>
@@ -327,35 +339,35 @@ export function LiveLibraryScreen() {
         </div> : null}
       </div>
 
-      <div className="mb-2 flex shrink-0 gap-1.5 overflow-x-auto pb-0.5 scrollbar-none sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0" aria-label="Movie summaries">
+      <div className="mb-2 flex shrink-0 gap-1.5 overflow-x-auto pb-0.5 scrollbar-none sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0" aria-label={`${copy.title} summaries`}>
         {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("w-[88px] shrink-0 rounded-md border border-[#202a39] bg-[#0e141e] px-1.5 py-1.5 text-left outline-none transition hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c3aed] sm:w-auto sm:min-w-0 sm:px-2", filters.summary === item.key && "border-[#6d3add] bg-[#171428]")}><span className="block truncate text-[10px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">{item.label}</span><span className={cn("mt-0.5 block text-[16px] font-[800] leading-none text-[#f4f6fa]", filters.summary === item.key && "text-[#c6b5ff]")}>{item.count}</span></button>)}
       </div>
 
-      <div className="mb-1 flex shrink-0 items-center justify-between text-[10px] text-[#929dac]" aria-live="polite"><span>{filtered.length} {filtered.length === 1 ? "movie" : "movies"}</span><span>Title order</span></div>
+      <div className="mb-1 flex shrink-0 items-center justify-between text-[10px] text-[#929dac]" aria-live="polite"><span>{filtered.length} {filtered.length === 1 ? copy.singular : copy.plural}</span><span>Title order</span></div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pr-0.5 scrollbar-thin">
-        {!data && !error ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-[#202a39] bg-[#0e141e] text-[10px] text-[#929dac]" role="status">Loading the live movie catalog…</div>
-          : visible.length === 0 ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-dashed border-[#283447] bg-[#0e141e]"><div className="px-6 text-center"><Film className="mx-auto size-6 text-[#596579]" /><div className="mt-2 text-[11px] font-bold text-[#f4f6fa]">{records.length === 0 ? "Your movie catalog is empty" : "No movies matched"}</div><div className="mt-1 text-[10px] text-[#9ba5b2]">{records.length === 0 ? "Use Add Movie to create a real catalog entry." : "Change or clear the active filters."}</div></div></div>
+        {!data && !error ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-[#202a39] bg-[#0e141e] text-[10px] text-[#929dac]" role="status">Loading the live {copy.title.toLocaleLowerCase()} catalog…</div>
+          : visible.length === 0 ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-dashed border-[#283447] bg-[#0e141e]"><div className="px-6 text-center">{mediaKind === "movie" ? <Film className="mx-auto size-6 text-[#596579]" /> : <Tv className="mx-auto size-6 text-[#596579]" />}<div className="mt-2 text-[11px] font-bold text-[#f4f6fa]">{records.length === 0 ? `Your ${copy.singular} catalog is empty` : `No ${copy.plural} matched`}</div><div className="mt-1 text-[10px] text-[#9ba5b2]">{records.length === 0 ? `Use ${copy.add} to create a real catalog entry.` : "Change or clear the active filters."}</div></div></div>
           : view === "grid" ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {visible.map((item) => <MovieLibraryCard key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMovie} />)}
+            {visible.map((item) => <MediaLibraryCard key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMedia} />)}
           </div> : <div className="overflow-hidden rounded-md border border-[#202a39] bg-[#0e141e]">
-            {visible.map((item) => <MovieLibraryRow key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMovie} />)}
+            {visible.map((item) => <MediaLibraryRow key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMedia} />)}
           </div>}
       </div>
 
-      <div className="sticky bottom-0 z-10 mt-2 flex h-9 shrink-0 items-center justify-between border-t border-[#202a39] bg-[#080b12]/95 pt-2 backdrop-blur-sm" aria-label="Movie pagination">
-        <span className="text-[10px] text-[#929dac]">{filtered.length ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)} of ${filtered.length}` : "0 movies"}</span>
+      <div className="sticky bottom-0 z-10 mt-2 flex h-9 shrink-0 items-center justify-between border-t border-[#202a39] bg-[#080b12]/95 pt-2 backdrop-blur-sm" aria-label={`${copy.title} pagination`}>
+        <span className="text-[10px] text-[#929dac]">{filtered.length ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)} of ${filtered.length}` : `0 ${copy.plural}`}</span>
         <div className="flex items-center gap-1"><Button type="button" variant="ghost" size="icon-xs" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => setPage(Math.max(1, currentPage - 1))}><ChevronLeft /></Button><span className="min-w-14 text-center text-[10px] font-semibold text-[#aeb7c3]">{currentPage} / {pageCount}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Next page" disabled={currentPage >= pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))}><ChevronRight /></Button></div>
       </div>
     </section>
 
     {selected ? <>
-      {selectedID !== undefined ? <button type="button" aria-label="Close movie details" onClick={() => setSelectedID(null)} className="fixed inset-0 z-40 bg-black/60 xl:hidden" /> : null}
-      <MovieInspector key={selected.id} item={selected} tab={detailTab} auto={selectedID === undefined} onTabChange={setDetailTab} onClose={() => setSelectedID(null)} onRefresh={refresh} />
+      {selectedID !== undefined ? <button type="button" aria-label={`Close ${copy.singular} details`} onClick={() => setSelectedID(null)} className="fixed inset-0 z-40 bg-black/60 xl:hidden" /> : null}
+      <MediaInspector key={selected.id} item={selected} tab={detailTab} auto={selectedID === undefined} onTabChange={setDetailTab} onClose={() => setSelectedID(null)} onRefresh={refresh} />
     </> : null}
 
     <nav className="fixed inset-x-0 bottom-0 z-30 flex h-12 items-center justify-around border-t border-[#202a39] bg-[#0e141e] px-3 md:hidden" aria-label="Mobile navigation">
-      <Link href="/media" aria-current="page" className="flex flex-col items-center gap-0.5 text-[10px] font-bold text-[#bca7ff]"><Library className="size-4" />Library</Link>
+      <Link href={mediaKind === "movie" ? "/media" : "/media/series"} aria-current="page" className="flex flex-col items-center gap-0.5 text-[10px] font-bold text-[#bca7ff]"><Library className="size-4" />Library</Link>
       <Link href="/discover" className="flex flex-col items-center gap-0.5 text-[10px] font-semibold text-[#929dac]"><Plus className="size-4" />Add</Link>
       <Link href="/activity/queue" className="flex flex-col items-center gap-0.5 text-[10px] font-semibold text-[#929dac]"><Activity className="size-4" />Activity</Link>
     </nav>
@@ -366,38 +378,39 @@ function LibrarySelect({ label, value, options, onChange, className }: { label: 
   return <label className="shrink-0"><span className="sr-only">{label}</span><NativeSelect size="sm" value={value} onChange={(event) => onChange(event.target.value)} className={cn("h-8 border-[#202a39] bg-[#0e141e] px-2 pr-6 text-[11px] text-[#aab3bf] shadow-none focus-visible:border-[#7c3aed] focus-visible:ring-[#7c3aed]/20", className)} aria-label={label}><NativeSelectOption value="">{label}</NativeSelectOption>{options.map((option) => <NativeSelectOption key={option} value={option}>{pretty(option)}</NativeSelectOption>)}</NativeSelect></label>
 }
 
-export function MovieLibraryCard({ item, selected, onSelect }: { item: MovieLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
-  const availability = movieAvailability(item)
+export function MediaLibraryCard({ item, selected, onSelect }: { item: MediaLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
+  const availability = mediaAvailability(item)
   const labels = uniqueValues([...item.resolutions.map(resolutionLabel), ...item.dynamicRanges])
   return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("group flex min-w-0 overflow-hidden rounded-[6px] border border-[#202a39] bg-[#0e141e] text-left outline-none transition hover:border-[#3a4658] focus-visible:ring-2 focus-visible:ring-[#7c3aed] sm:block", selected && "border-[#7c3aed] ring-1 ring-[#7c3aed]/45")}>
-    <div className="relative h-[94px] w-[70px] shrink-0 overflow-hidden border-r border-[#202a39] bg-[#111925] sm:h-auto sm:w-auto sm:border-b sm:border-r-0 sm:aspect-[2/3]"><MetadataArtwork src={item.metadata?.poster_url} fallback="/media/movie-placeholder.svg" alt="" width={300} height={450} className="h-full w-full object-cover" /><div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-[#080b12]/90 px-1 py-0.5 text-[9px] font-extrabold uppercase text-[#f4f6fa]">{label}</span>)}</div></div>
-    <div className="min-w-0 flex-1 p-1"><div className="truncate text-[11px] font-[750] leading-tight text-[#f4f6fa]">{item.title}</div><div className="text-[10px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-0.5 flex items-center gap-1.5 text-[10px] font-semibold", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.label}</span></div></div>
+    <div className="relative h-[94px] w-[70px] shrink-0 overflow-hidden border-r border-[#202a39] bg-[#111925] sm:h-auto sm:w-auto sm:border-b sm:border-r-0 sm:aspect-[2/3]"><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={300} height={450} className="h-full w-full object-cover" /><div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-[#080b12]/90 px-1 py-0.5 text-[9px] font-extrabold uppercase text-[#f4f6fa]">{label}</span>)}</div></div>
+    <div className="min-w-0 flex-1 p-1"><div className="truncate text-[11px] font-[750] leading-tight text-[#f4f6fa]">{item.title}</div><div className="text-[10px] text-[#929dac]">{item.year ?? "Year unknown"}{item.kind === "series" && item.metadata?.season_count ? ` · ${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : ""}</div><div className={cn("mt-0.5 flex items-center gap-1.5 text-[10px] font-semibold", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.label}</span></div></div>
   </button>
 }
 
-function MovieLibraryRow({ item, selected, onSelect }: { item: MovieLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
-  const availability = movieAvailability(item)
-  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("flex w-full items-center gap-3 border-b border-[#202a39] px-3 py-2 text-left outline-none last:border-0 hover:bg-[#111925] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7c3aed]", selected && "bg-[#171428]")}><MetadataArtwork src={item.metadata?.poster_url} fallback="/media/movie-placeholder.svg" alt="" width={72} height={96} className="h-12 w-9 rounded-[3px] border border-[#283447] object-cover" /><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-bold text-[#f4f6fa]">{item.title} <span className="font-normal text-[#9ba5b2]">{item.year ? `(${item.year})` : ""}</span></div><div className="mt-1 truncate text-[10px] text-[#929dac]">{item.profiles.join(" · ") || "No managed quality profile"}</div></div><div className={cn("hidden items-center gap-1.5 text-[10px] font-semibold sm:flex", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div><ChevronRight className="size-3.5 text-[#8792a1]" /></button>
+function MediaLibraryRow({ item, selected, onSelect }: { item: MediaLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
+  const availability = mediaAvailability(item)
+  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("flex w-full items-center gap-3 border-b border-[#202a39] px-3 py-2 text-left outline-none last:border-0 hover:bg-[#111925] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7c3aed]", selected && "bg-[#171428]")}><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={72} height={96} className="h-12 w-9 rounded-[3px] border border-[#283447] object-cover" /><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-bold text-[#f4f6fa]">{item.title} <span className="font-normal text-[#9ba5b2]">{item.year ? `(${item.year})` : ""}</span></div><div className="mt-1 truncate text-[10px] text-[#929dac]">{item.profiles.join(" · ") || "No managed quality profile"}</div></div><div className={cn("hidden items-center gap-1.5 text-[10px] font-semibold sm:flex", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div><ChevronRight className="size-3.5 text-[#8792a1]" /></button>
 }
 
-export function MovieInspector({ item, tab, auto, onTabChange, onClose, onRefresh }: { item: MovieLibraryRecord; tab: string; auto: boolean; onTabChange: (tab: string) => void; onClose: () => void; onRefresh?: () => void }) {
-  const availability = movieAvailability(item)
+export function MediaInspector({ item, tab, auto, onTabChange, onClose, onRefresh }: { item: MediaLibraryRecord; tab: string; auto: boolean; onTabChange: (tab: string) => void; onClose: () => void; onRefresh?: () => void }) {
+  const availability = mediaAvailability(item)
   const currentFile = [...item.files].sort((left, right) => right.generation - left.generation).find((file) => file.state === "current") ?? item.files[0]
   const qualityProfile = currentFile?.quality_profile ?? item.wanted[0]?.target_profile ?? "Not assigned"
+  const canRefreshMetadata = item.identities.some((identity) => identity.state === "verified" && (identity.namespace === "tmdb" || item.kind === "series" && identity.namespace === "tvdb"))
   const [refreshing, setRefreshing] = React.useState(false)
   async function refreshMetadata() {
     setRefreshing(true)
-    try { const result = await refreshMediaMetadata(item.id); const direct = Object.entries(result.provider_states).filter(([, state]) => state === "direct" || state === "via_simkl").map(([provider]) => provider.toUpperCase()); toast.success(direct.length ? `${direct.join(", ")} metadata refreshed` : "TMDB metadata refreshed through Seerr"); onRefresh?.() }
+    try { const result = await refreshMediaMetadata(item.id); const direct = Object.entries(result.provider_states).filter(([, state]) => state === "direct" || state === "via_simkl").map(([provider]) => provider.toUpperCase()); toast.success(direct.length ? `${direct.join(", ")} metadata refreshed` : "Metadata refreshed through the configured fallback"); onRefresh?.() }
     catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not refresh metadata") }
     finally { setRefreshing(false) }
   }
   return <aside aria-label={`Details for ${item.title}`} className={cn("fixed inset-0 z-50 min-h-0 flex-col overflow-hidden border-l border-[#202a39] bg-[#0e141e] sm:bottom-0 sm:left-auto sm:top-[60px] sm:w-[330px] xl:static xl:z-auto xl:flex xl:h-full xl:w-auto", auto ? "hidden" : "flex")}>
-    <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#202a39] px-3"><span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#aab3bf]">Movie details</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Close details" onClick={onClose}><X /></Button></div>
+    <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#202a39] px-3"><span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#aab3bf]">{item.kind === "movie" ? "Movie" : "TV show"} details</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Close details" onClick={onClose}><X /></Button></div>
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
       <div className="border-b border-[#202a39] p-3">
-        <div className="flex gap-3 xl:block"><MetadataArtwork src={item.metadata?.poster_url} fallback="/media/movie-placeholder.svg" alt={`${item.title} poster`} width={300} height={450} className="aspect-[2/3] w-[86px] shrink-0 rounded-[5px] border border-[#283447] object-cover xl:w-full" /><div className="min-w-0 pt-1 xl:pt-3"><h2 className="text-[15px] font-[800] leading-tight tracking-[-0.02em] text-[#f4f6fa]">{item.title}</h2><div className="mt-1 text-[10px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-2 flex items-center gap-1.5 text-[10px] font-bold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div></div></div>
-        <Button asChild size="sm" className="mt-3 h-8 w-full bg-[#7c3aed] text-white hover:bg-[#6d2fd4]"><Link href={`/media/movies/${item.id}`}><Film /> Open movie details</Link></Button>
-        <Button type="button" variant="outline" size="sm" className="mt-2 h-8 w-full" disabled={refreshing || !item.identities.some((identity) => identity.namespace === "tmdb" && identity.state === "verified")} onClick={() => void refreshMetadata()}><RefreshCw className={cn(refreshing && "animate-spin")} /> Refresh metadata</Button>
+        <div className="flex gap-3 xl:block"><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt={`${item.title} poster`} width={300} height={450} className="aspect-[2/3] w-[86px] shrink-0 rounded-[5px] border border-[#283447] object-cover xl:w-full" /><div className="min-w-0 pt-1 xl:pt-3"><h2 className="text-[15px] font-[800] leading-tight tracking-[-0.02em] text-[#f4f6fa]">{item.title}</h2><div className="mt-1 text-[10px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-2 flex items-center gap-1.5 text-[10px] font-bold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div></div></div>
+        <Button asChild size="sm" className="mt-3 h-8 w-full bg-[#7c3aed] text-white hover:bg-[#6d2fd4]"><Link href={item.kind === "movie" ? `/media/movies/${item.id}` : `/media/series/${item.id}`}>{item.kind === "movie" ? <Film /> : <Tv />} Open {item.kind === "movie" ? "movie" : "TV show"} details</Link></Button>
+        <Button type="button" variant="outline" size="sm" className="mt-2 h-8 w-full" disabled={refreshing || !canRefreshMetadata} onClick={() => void refreshMetadata()}><RefreshCw className={cn(refreshing && "animate-spin")} /> Refresh metadata</Button>
       </div>
 
       <Tabs value={tab} onValueChange={onTabChange} className="gap-0">
@@ -409,7 +422,11 @@ export function MovieInspector({ item, tab, auto, onTabChange, onClose, onRefres
           {item.metadata?.ratings.length ? <div className="mb-2 grid grid-cols-2 gap-1.5">{item.metadata.ratings.map((rating) => <div key={rating.source} title={rating.provenance} className="rounded-[4px] border border-[#202a39] bg-[#111925] px-2 py-1.5"><div className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">{rating.source}</div><div className="mt-0.5 text-[11px] font-extrabold text-[#f4f6fa]">{rating.value.toFixed(1)} <span className="text-[9px] font-normal text-[#929dac]">/ 10</span></div>{rating.votes > 0 ? <div className="text-[9px] text-[#929dac]">{rating.votes.toLocaleString()} votes</div> : null}</div>)}</div> : null}
           {item.metadata?.tagline ? <p className="mb-2 text-[10px] italic text-[#aab3bf]">{item.metadata.tagline}</p> : null}
           {item.metadata?.runtime_minutes ? <InspectorRow label="Runtime" value={`${item.metadata.runtime_minutes} minutes`} /> : null}
-          {item.metadata?.release_date ? <InspectorRow label="Release date" value={item.metadata.release_date} /> : null}
+          {item.metadata?.release_date ? <InspectorRow label={item.kind === "movie" ? "Release date" : "First air date"} value={item.metadata.release_date} /> : null}
+          {item.kind === "series" && item.metadata?.end_date ? <InspectorRow label="End date" value={item.metadata.end_date} /> : null}
+          {item.kind === "series" && item.metadata?.season_count ? <InspectorRow label="Seasons" value={String(item.metadata.season_count)} /> : null}
+          {item.kind === "series" && item.metadata?.episode_count ? <InspectorRow label="Episodes" value={String(item.metadata.episode_count)} /> : null}
+          {item.kind === "series" && item.metadata?.networks.length ? <InspectorRow label="Networks" value={compactValues(item.metadata.networks.map((network) => network.name))} /> : null}
           {item.metadata?.certification ? <InspectorRow label="Certification" value={item.metadata.certification} /> : null}
           {item.metadata?.genres.length ? <InspectorRow label="Genres" value={compactValues(item.metadata.genres)} /> : null}
           <InspectorRow label="Availability" value={availability.label} />
