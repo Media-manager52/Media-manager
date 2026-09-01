@@ -67,7 +67,7 @@ var allowedTransitions = map[State]map[State]struct{}{
 	StatePublishing:        set(StatePlexScanning, StateNeedsAttention),
 	StatePlexScanning:      set(StatePlexConfirmed, StateNeedsAttention),
 	StateNeedsAttention:    set(StateWaiting, StateSearching, StateCandidateSelected, StateSubmitting, StateVerifying, StatePublishing, StatePlexScanning, StateCancelled),
-	StateHeld:              set(StateCandidateSelected, StateWaiting, StateCancelled),
+	StateHeld:              set(StateSearching, StateCandidateSelected, StateWaiting, StateCancelled),
 	StateBlocked:           set(StateWaiting, StateCancelled),
 	StateQuarantined:       set(StateVerifying, StateCancelled),
 }

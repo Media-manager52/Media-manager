@@ -319,7 +319,7 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	if state == workflows.StateSearching {
 		return transaction.Commit(ctx)
 	}
-	if state != workflows.StateMonitored && state != workflows.StateWaiting && state != workflows.StateNeedsAttention {
+	if state != workflows.StateMonitored && state != workflows.StateWaiting && state != workflows.StateNeedsAttention && state != workflows.StateHeld {
 		return errors.New("workflow cannot be searched from its current state")
 	}
 	var indexerAvailable bool

@@ -236,6 +236,22 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || len(tasks) != 1 || tasks[0].EventType != "workflow.search_requested" || tasks[0].Pending != 2 || tasks[0].Due != 2 {
 		t.Fatalf("task read model=%+v err=%v", tasks, err)
 	}
+	seasonTwoWorkflow, err = store.TransitionWorkflow(ctx, seasonTwoWorkflow.ID, seasonTwoWorkflow.Revision, workflows.StateSearching, "exercise owner retry from held", "test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seasonTwoWorkflow, err = store.TransitionWorkflow(ctx, seasonTwoWorkflow.ID, seasonTwoWorkflow.Revision, workflows.StateHeld, "no eligible release", "test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestWorkflowSearch(ctx, seasonTwoWorkflow.ID, "", time.Now().UTC()); err != nil {
+		t.Fatalf("owner retry from held: %v", err)
+	}
+	seasonTwoWorkflow, err = store.GetWorkflow(ctx, seasonTwoWorkflow.ID)
+	if err != nil || seasonTwoWorkflow.State != workflows.StateSearching {
+		t.Fatalf("held retry workflow=%+v err=%v", seasonTwoWorkflow, err)
+	}
+	assertWorkflowIntent(t, ctx, store, seasonTwoWorkflow.ID, "season:02", 3, 1)
 	candidates, err := store.ListReleaseCandidates(ctx, 100)
 	if err != nil || len(candidates) != 0 {
 		t.Fatalf("release read model before search worker: items=%d err=%v", len(candidates), err)
