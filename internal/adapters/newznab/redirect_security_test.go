@@ -139,16 +139,10 @@ func TestGetNZBRedirectValidatesAndPinsEveryHopWithoutProxyOrReuse(t *testing.T)
 		}
 		switch request.URL.Path {
 		case "/first":
-			writer.Header().Set("Location", "/second?ticket=two")
+			writer.Header().Set("Location", "https://two.test/final?ticket=two")
 			writer.WriteHeader(http.StatusTemporaryRedirect)
-		case "/second":
-			if request.URL.Query().Get("ticket") != "two" {
-				t.Error("relative redirect query was not replaced")
-			}
-			writer.Header().Set("Location", "https://two.test/final?ticket=three")
-			writer.WriteHeader(http.StatusPermanentRedirect)
 		case "/final":
-			if request.URL.Query().Get("ticket") != "three" {
+			if request.URL.Query().Get("ticket") != "two" {
 				t.Error("final redirect query was not preserved")
 			}
 			_, _ = writer.Write([]byte(redirectTestNZB))
@@ -203,10 +197,10 @@ func TestGetNZBRedirectValidatesAndPinsEveryHopWithoutProxyOrReuse(t *testing.T)
 	lock.Lock()
 	oneResolutions, twoResolutions := resolved["one.test"], resolved["two.test"]
 	lock.Unlock()
-	if oneResolutions != 2 || twoResolutions != 1 {
+	if oneResolutions != 1 || twoResolutions != 1 {
 		t.Fatalf("per-hop resolutions one=%d two=%d", oneResolutions, twoResolutions)
 	}
-	if dials.Load() != 3 || requests.Load() != 3 {
+	if dials.Load() != 2 || requests.Load() != 2 {
 		t.Fatalf("dials=%d requests=%d", dials.Load(), requests.Load())
 	}
 	if proxyCrossOriginCalls.Load() != 0 {
@@ -425,19 +419,146 @@ func TestCrossOriginRedirectTargetRejectsUnsafeURLFormsBeforeDNS(t *testing.T) {
 	}
 }
 
-func TestGetNZBManualRedirectCountIsBounded(t *testing.T) {
+func TestGetNZBAllowsExactlyTwoRedirects(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		step := requests.Add(1)
-		writer.Header().Set("Location", "/redirect/"+big.NewInt(int64(step)).String())
+		requests.Add(1)
+		switch request.URL.Path {
+		case "/":
+			writer.Header().Set("Location", "/first")
+			writer.WriteHeader(http.StatusFound)
+		case "/first":
+			writer.Header().Set("Location", "/final")
+			writer.WriteHeader(http.StatusTemporaryRedirect)
+		case "/final":
+			_, _ = writer.Write([]byte(redirectTestNZB))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	client, _ := newRedirectTestClient(t, "two-redirects", server.URL, nil, nil)
+	body, err := client.GetNZB(context.Background(), "native-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != redirectTestNZB {
+		t.Fatalf("body=%d bytes", len(body))
+	}
+	if requests.Load() != 3 {
+		t.Fatalf("requests=%d want=3", requests.Load())
+	}
+}
+
+func TestGetNZBRejectsThirdRedirectBeforeFollowing(t *testing.T) {
+	var requests atomic.Int32
+	var rejectedTargetRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		switch request.URL.Path {
+		case "/":
+			writer.Header().Set("Location", "/first")
+		case "/first":
+			writer.Header().Set("Location", "/second")
+		case "/second":
+			writer.Header().Set("Location", "/must-not-follow")
+		case "/must-not-follow":
+			rejectedTargetRequests.Add(1)
+			_, _ = writer.Write([]byte(redirectTestNZB))
+			return
+		default:
+			http.NotFound(writer, request)
+			return
+		}
 		writer.WriteHeader(http.StatusFound)
 	}))
 	defer server.Close()
-	client, _ := newRedirectTestClient(t, "bounded", server.URL, nil, nil)
+	client, _ := newRedirectTestClient(t, "third-redirect", server.URL, nil, nil)
 	_, err := client.GetNZB(context.Background(), "native-id")
 	assertSafeCode(t, err, "newznab_too_many_redirects")
-	if requests.Load() != maxRedirects+1 {
-		t.Fatalf("requests=%d want=%d", requests.Load(), maxRedirects+1)
+	if requests.Load() != 3 {
+		t.Fatalf("requests=%d want=3", requests.Load())
+	}
+	if rejectedTargetRequests.Load() != 0 {
+		t.Fatalf("rejected redirect target requests=%d want=0", rejectedTargetRequests.Load())
+	}
+}
+
+func TestGetNZBGuardRunsImmediatelyBeforeEveryRedirectRequest(t *testing.T) {
+	var guards atomic.Int32
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestNumber := requests.Add(1)
+		if guardNumber := guards.Load(); guardNumber != requestNumber {
+			t.Errorf("request %d observed after %d guards", requestNumber, guardNumber)
+		}
+		switch request.URL.Path {
+		case "/":
+			writer.Header().Set("Location", "/first")
+			writer.WriteHeader(http.StatusFound)
+		case "/first":
+			writer.Header().Set("Location", "/final")
+			writer.WriteHeader(http.StatusTemporaryRedirect)
+		case "/final":
+			_, _ = writer.Write([]byte(redirectTestNZB))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	client, scheduler := newRedirectTestClient(t, "guard-every-request", server.URL, nil, nil)
+	body, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error {
+		guards.Add(1)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != redirectTestNZB {
+		t.Fatalf("body=%d bytes", len(body))
+	}
+	if guards.Load() != 3 || requests.Load() != 3 {
+		t.Fatalf("guards=%d requests=%d want=3 each", guards.Load(), requests.Load())
+	}
+	if scheduler.Snapshot("guard-every-request").LastOutcome != indexers.OutcomeSuccess {
+		t.Fatalf("scheduler outcome=%q", scheduler.Snapshot("guard-every-request").LastOutcome)
+	}
+}
+
+func TestGetNZBGuardFailurePreventsRedirectRequest(t *testing.T) {
+	guardFailure := errors.New("workflow revision or selected candidate changed")
+	var guards atomic.Int32
+	var initialRequests atomic.Int32
+	var redirectedRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/":
+			initialRequests.Add(1)
+			writer.Header().Set("Location", "/blocked")
+			writer.WriteHeader(http.StatusFound)
+		case "/blocked":
+			redirectedRequests.Add(1)
+			_, _ = writer.Write([]byte(redirectTestNZB))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	client, scheduler := newRedirectTestClient(t, "guard-rejects-redirect", server.URL, nil, nil)
+	_, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error {
+		if guards.Add(1) == 2 {
+			return guardFailure
+		}
+		return nil
+	})
+	if !errors.Is(err, guardFailure) {
+		t.Fatalf("guard error=%v", err)
+	}
+	if guards.Load() != 2 || initialRequests.Load() != 1 || redirectedRequests.Load() != 0 {
+		t.Fatalf("guards=%d initial_requests=%d redirected_requests=%d", guards.Load(), initialRequests.Load(), redirectedRequests.Load())
+	}
+	if scheduler.Snapshot("guard-rejects-redirect").LastOutcome != indexers.OutcomeCancelled {
+		t.Fatalf("scheduler outcome=%q", scheduler.Snapshot("guard-rejects-redirect").LastOutcome)
 	}
 }
 

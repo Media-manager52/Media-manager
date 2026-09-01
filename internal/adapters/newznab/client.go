@@ -25,7 +25,7 @@ import (
 const (
 	defaultResponseLimit = int64(16 << 20)
 	defaultNZBLimit      = int64(128 << 20)
-	maxRedirects         = 3
+	maxRedirects         = 2
 	maxRedirectAddresses = 16
 	redirectDrainLimit   = int64(8 << 10)
 	maxNZBFiles          = 10_000
@@ -425,13 +425,6 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 			permit.Close()
 		}
 	}()
-	if guard != nil {
-		if err := guard(ctx); err != nil {
-			recorded = true
-			_ = permit.Record(context.Background(), indexers.OutcomeCancelled, nil)
-			return nil, err
-		}
-	}
 	requestCtx, cancel := context.WithTimeout(ctx, client.config.Timeout)
 	defer cancel()
 
@@ -443,7 +436,23 @@ func (client *Client) requestGuarded(ctx context.Context, workload indexers.Work
 		_ = permit.Record(context.Background(), indexers.OutcomeSystemFailure, nil)
 		return nil, classified("newznab_request_build_failed", errors.New("could not construct Newznab request"))
 	}
-	response, closeResponseTransport, redirected, err := client.doWithManualRedirects(requestCtx, req, allowCrossOriginRedirect)
+	var guardFailure error
+	requestGuard := guard
+	if guard != nil {
+		requestGuard = func(guardCtx context.Context) error {
+			if err := guard(guardCtx); err != nil {
+				guardFailure = err
+				return err
+			}
+			return nil
+		}
+	}
+	response, closeResponseTransport, redirected, err := client.doWithManualRedirects(requestCtx, req, allowCrossOriginRedirect, requestGuard)
+	if guardFailure != nil {
+		recorded = true
+		_ = permit.Record(context.Background(), indexers.OutcomeCancelled, nil)
+		return nil, guardFailure
+	}
 	if err != nil {
 		recorded = true
 		_ = permit.Record(context.Background(), indexers.OutcomeSystemFailure, nil)
@@ -648,7 +657,7 @@ func isRedirectStatus(status int) bool {
 	}
 }
 
-func (client *Client) doWithManualRedirects(ctx context.Context, initial *http.Request, allowCrossOrigin bool) (*http.Response, func(), bool, error) {
+func (client *Client) doWithManualRedirects(ctx context.Context, initial *http.Request, allowCrossOrigin bool, guard func(context.Context) error) (*http.Response, func(), bool, error) {
 	if initial == nil || initial.URL == nil {
 		return nil, func() {}, false, ErrUnsafeRedirect
 	}
@@ -678,6 +687,12 @@ func (client *Client) doWithManualRedirects(ctx context.Context, initial *http.R
 			}
 			requestClient = &http.Client{Transport: transport, CheckRedirect: rejectAutomaticRedirect}
 			closeTransport = transport.CloseIdleConnections
+		}
+		if guard != nil {
+			if guardErr := guard(ctx); guardErr != nil {
+				closeTransport()
+				return nil, func() {}, redirectCount > 0, guardErr
+			}
 		}
 		response, requestErr := requestClient.Do(request)
 		if requestErr != nil {
