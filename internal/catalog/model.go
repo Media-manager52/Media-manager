@@ -54,9 +54,25 @@ type MetadataSource struct {
 }
 
 type MetadataRating struct {
-	Source string  `json:"source"`
-	Value  float64 `json:"value"`
-	Votes  int64   `json:"votes"`
+	Source     string  `json:"source"`
+	Value      float64 `json:"value"`
+	Votes      int64   `json:"votes"`
+	Provenance string  `json:"provenance,omitempty"`
+}
+
+type MetadataCompany struct {
+	Name    string `json:"name"`
+	Country string `json:"country,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	Source  string `json:"source"`
+}
+
+type MetadataCredit struct {
+	Name       string `json:"name"`
+	Role       string `json:"role"`
+	Character  string `json:"character,omitempty"`
+	ProfileURL string `json:"profile_url,omitempty"`
+	Source     string `json:"source"`
 }
 
 type MetadataEvent struct {
@@ -74,15 +90,24 @@ type MetadataEvent struct {
 type MediaMetadata struct {
 	OriginalTitle    string            `json:"original_title,omitempty"`
 	Overview         string            `json:"overview,omitempty"`
+	Tagline          string            `json:"tagline,omitempty"`
 	OriginalLanguage string            `json:"original_language,omitempty"`
 	Format           string            `json:"format,omitempty"`
 	Status           string            `json:"status,omitempty"`
+	ReleaseDate      string            `json:"release_date,omitempty"`
+	EndDate          string            `json:"end_date,omitempty"`
+	Certification    string            `json:"certification,omitempty"`
 	RuntimeMinutes   *uint16           `json:"runtime_minutes,omitempty"`
+	SeasonCount      *uint16           `json:"season_count,omitempty"`
+	EpisodeCount     *uint32           `json:"episode_count,omitempty"`
 	PosterURL        string            `json:"poster_url,omitempty"`
 	BackdropURL      string            `json:"backdrop_url,omitempty"`
 	Genres           []string          `json:"genres"`
+	Keywords         []string          `json:"keywords"`
 	Countries        []string          `json:"countries"`
 	Networks         []MetadataNetwork `json:"networks"`
+	Companies        []MetadataCompany `json:"companies"`
+	Credits          []MetadataCredit  `json:"credits"`
 	Aliases          []MetadataAlias   `json:"aliases"`
 	Sources          []MetadataSource  `json:"sources"`
 	Ratings          []MetadataRating  `json:"ratings"`
@@ -118,6 +143,7 @@ var metadataSourceHosts = map[string]map[string]bool{
 	"tmdb":  {"www.themoviedb.org": true, "themoviedb.org": true},
 	"tvdb":  {"thetvdb.com": true, "www.thetvdb.com": true},
 	"simkl": {"simkl.com": true, "www.simkl.com": true},
+	"imdb":  {"imdb.com": true, "www.imdb.com": true},
 }
 
 func NormalizeMetadata(input *MediaMetadata, now time.Time) (*MediaMetadata, error) {
@@ -127,18 +153,27 @@ func NormalizeMetadata(input *MediaMetadata, now time.Time) (*MediaMetadata, err
 	result := *input
 	result.OriginalTitle = boundedText(result.OriginalTitle, 500)
 	result.Overview = boundedText(result.Overview, 20_000)
+	result.Tagline = boundedText(result.Tagline, 1_000)
 	result.OriginalLanguage = boundedText(result.OriginalLanguage, 32)
 	result.Format = boundedText(result.Format, 100)
 	result.Status = boundedText(result.Status, 100)
+	result.Certification = boundedText(result.Certification, 32)
+	if result.ReleaseDate != "" && !validDate(result.ReleaseDate) || result.EndDate != "" && !validDate(result.EndDate) {
+		return nil, ErrInvalidMetadata
+	}
 	if result.RuntimeMinutes != nil && (*result.RuntimeMinutes == 0 || *result.RuntimeMinutes > 1_440) {
+		return nil, ErrInvalidMetadata
+	}
+	if result.SeasonCount != nil && (*result.SeasonCount == 0 || *result.SeasonCount > 10_000) || result.EpisodeCount != nil && (*result.EpisodeCount == 0 || *result.EpisodeCount > 1_000_000) {
 		return nil, ErrInvalidMetadata
 	}
 	if !validArtworkURL(result.PosterURL) || !validArtworkURL(result.BackdropURL) {
 		return nil, ErrInvalidMetadata
 	}
 	result.Genres = canonicalStrings(result.Genres, 100, 100)
+	result.Keywords = canonicalStrings(result.Keywords, 200, 100)
 	result.Countries = canonicalStrings(result.Countries, 50, 32)
-	if len(input.Genres) > 100 || len(input.Countries) > 50 || len(input.Networks) > 50 || len(input.Aliases) > 100 || len(input.Sources) > 20 || len(input.Ratings) > 10 || len(input.Events) > 200 {
+	if len(input.Genres) > 100 || len(input.Keywords) > 200 || len(input.Countries) > 50 || len(input.Networks) > 50 || len(input.Companies) > 100 || len(input.Credits) > 100 || len(input.Aliases) > 100 || len(input.Sources) > 20 || len(input.Ratings) > 10 || len(input.Events) > 200 {
 		return nil, ErrInvalidMetadata
 	}
 	result.Networks = make([]MetadataNetwork, 0, len(input.Networks))
@@ -154,6 +189,34 @@ func NormalizeMetadata(input *MediaMetadata, now time.Time) (*MediaMetadata, err
 		}
 		seenNetworks[key] = struct{}{}
 		result.Networks = append(result.Networks, network)
+	}
+	result.Companies = make([]MetadataCompany, 0, len(input.Companies))
+	seenCompanies := map[string]struct{}{}
+	for _, company := range input.Companies {
+		company.Name, company.Country, company.Kind, company.Source = boundedText(company.Name, 200), boundedText(company.Country, 32), boundedText(company.Kind, 100), normalizedProvider(company.Source)
+		if company.Name == "" || company.Source == "" {
+			continue
+		}
+		key := strings.ToLower(company.Name + "\x00" + company.Country + "\x00" + company.Kind + "\x00" + company.Source)
+		if _, duplicate := seenCompanies[key]; duplicate {
+			continue
+		}
+		seenCompanies[key] = struct{}{}
+		result.Companies = append(result.Companies, company)
+	}
+	result.Credits = make([]MetadataCredit, 0, len(input.Credits))
+	seenCredits := map[string]struct{}{}
+	for _, credit := range input.Credits {
+		credit.Name, credit.Role, credit.Character, credit.Source = boundedText(credit.Name, 200), boundedText(credit.Role, 100), boundedText(credit.Character, 500), normalizedProvider(credit.Source)
+		if credit.Name == "" || credit.Role == "" || credit.Source == "" || !validArtworkURL(credit.ProfileURL) {
+			continue
+		}
+		key := strings.ToLower(credit.Name + "\x00" + credit.Role + "\x00" + credit.Character + "\x00" + credit.Source)
+		if _, duplicate := seenCredits[key]; duplicate {
+			continue
+		}
+		seenCredits[key] = struct{}{}
+		result.Credits = append(result.Credits, credit)
 	}
 	result.Aliases = make([]MetadataAlias, 0, len(input.Aliases))
 	seenAliases := map[string]struct{}{}
@@ -190,6 +253,7 @@ func NormalizeMetadata(input *MediaMetadata, now time.Time) (*MediaMetadata, err
 	seenRatings := map[string]struct{}{}
 	for _, rating := range input.Ratings {
 		rating.Source = normalizedProvider(rating.Source)
+		rating.Provenance = boundedText(rating.Provenance, 200)
 		if rating.Source == "" || rating.Value < 0 || rating.Value > 10 || rating.Votes < 0 {
 			continue
 		}

@@ -14,7 +14,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/acquisition"
-	gmdadapter "github.com/media-manager/media-manager/internal/adapters/gmd"
+	metadataproviders "github.com/media-manager/media-manager/internal/adapters/metadataproviders"
 	seerradapter "github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/adoptionexec"
 	"github.com/media-manager/media-manager/internal/backups"
@@ -125,15 +125,45 @@ func run() error {
 			return err
 		}
 	}
-	var gmdClient *gmdadapter.Client
-	gmdURL := strings.TrimSpace(os.Getenv("GMD_BASE_URL"))
-	if gmdURL != "" {
-		gmdClient, err = gmdadapter.New(gmdadapter.Config{BaseURL: gmdURL, AllowHTTP: strings.EqualFold(os.Getenv("GMD_ALLOW_HTTP"), "true")}, nil)
+	var tmdbClient *metadataproviders.TMDBClient
+	if token := optionalSecret("TMDB_ACCESS_TOKEN"); token != "" {
+		tmdbClient, err = metadataproviders.NewTMDB(metadataproviders.TMDBConfig{AccessToken: token}, nil)
 		if err != nil {
 			return err
 		}
 	}
-	metadataService := &metadataservice.Service{GMD: gmdClient}
+	var tvdbClient *metadataproviders.TVDBClient
+	tvdbKey, tvdbPIN := optionalSecret("TVDB_API_KEY"), optionalSecret("TVDB_SUBSCRIBER_PIN")
+	if tvdbPIN != "" && tvdbKey == "" {
+		return errors.New("TVDB_SUBSCRIBER_PIN requires TVDB_API_KEY")
+	}
+	if tvdbKey != "" {
+		tvdbClient, err = metadataproviders.NewTVDB(metadataproviders.TVDBConfig{APIKey: tvdbKey, SubscriberPIN: tvdbPIN}, nil)
+		if err != nil {
+			return err
+		}
+	}
+	var simklClient *metadataproviders.SimklClient
+	if clientID := optionalSecret("SIMKL_CLIENT_ID"); clientID != "" {
+		simklClient, err = metadataproviders.NewSimkl(metadataproviders.SimklConfig{ClientID: clientID, AppName: "Media Manager", AppVersion: version}, nil)
+		if err != nil {
+			return err
+		}
+	}
+	metadataService := &metadataservice.Service{TMDB: tmdbClient, TVDB: tvdbClient, Simkl: simklClient}
+	metadataProviderStates := map[string]string{"tmdb": "not_configured", "tvdb": "not_configured", "simkl": "not_configured", "imdb": "identity_only"}
+	if seerrEnabled {
+		metadataProviderStates["tmdb"] = "seerr_fallback"
+	}
+	if tmdbClient != nil {
+		metadataProviderStates["tmdb"] = "direct_configured"
+	}
+	if tvdbClient != nil {
+		metadataProviderStates["tvdb"] = "direct_configured"
+	}
+	if simklClient != nil {
+		metadataProviderStates["simkl"], metadataProviderStates["imdb"] = "direct_configured", "via_simkl_when_available"
+	}
 	scheduler := indexers.NewScheduler(4, store)
 	resolveSecret := func(reference string) (string, error) { return requiredSecret(reference) }
 	backupDirectory := strings.TrimSpace(os.Getenv("BACKUP_DIRECTORY"))
@@ -142,7 +172,7 @@ func run() error {
 	}
 	backupConfigured := optionalSecret(backups.KeyReference) != ""
 	commissionService := &commissioning.NewznabService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
-	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, MetadataProvider: seerrClient, MetadataEnricher: metadataService, GMDMetadataEnabled: gmdClient != nil, CommissionNewznab: commissionService.Commission, BackupConfigured: backupConfigured, BackupDirectory: backupDirectory}, store)
+	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, BackupConfigured: backupConfigured, BackupDirectory: backupDirectory}, store)
 	if err != nil {
 		return err
 	}

@@ -28,17 +28,17 @@ import (
 )
 
 type Config struct {
-	OwnerToken         string
-	SeerrEnabled       bool
-	SeerrWebhookSecret string
-	SeerrInstanceID    string
-	Version            string
-	MetadataProvider   *seerr.Client
-	MetadataEnricher   *metadataservice.Service
-	GMDMetadataEnabled bool
-	CommissionNewznab  func(context.Context, uuid.UUID) (postgres.Integration, error)
-	BackupConfigured   bool
-	BackupDirectory    string
+	OwnerToken             string
+	SeerrEnabled           bool
+	SeerrWebhookSecret     string
+	SeerrInstanceID        string
+	Version                string
+	MetadataProvider       *seerr.Client
+	MetadataEnricher       *metadataservice.Service
+	MetadataProviderStates map[string]string
+	CommissionNewznab      func(context.Context, uuid.UUID) (postgres.Integration, error)
+	BackupConfigured       bool
+	BackupDirectory        string
 }
 
 type Server struct {
@@ -817,7 +817,7 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 		value := uint16(parsed.Year())
 		year = &value
 	}
-	response := map[string]any{"kind": mediaKind, "title": title, "year": year, "identities": identities, "tmdb_id": tmdbID, "metadata": enriched.Metadata, "enrichment_state": enriched.EnrichmentState}
+	response := map[string]any{"kind": mediaKind, "title": title, "year": year, "identities": identities, "tmdb_id": tmdbID, "metadata": enriched.Metadata, "enrichment_state": enriched.EnrichmentState, "provider_states": enriched.ProviderStates}
 	if rawSeason := request.URL.Query().Get("season"); rawSeason != "" {
 		if kind != "tv" {
 			writeError(writer, http.StatusBadRequest, "invalid_season", "season metadata is available only for TV")
@@ -909,7 +909,7 @@ func (server *Server) refreshMediaMetadata(writer http.ResponseWriter, request *
 		writeError(writer, http.StatusInternalServerError, "metadata_persistence_failed", "metadata could not be persisted")
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{"media": updated, "enrichment_state": enriched.EnrichmentState}})
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{"media": updated, "enrichment_state": enriched.EnrichmentState, "provider_states": enriched.ProviderStates}})
 }
 
 func identityNamespacePresent(identities []catalog.ExternalIdentity, namespace string) bool {
@@ -971,7 +971,7 @@ func (server *Server) systemInfo(writer http.ResponseWriter, request *http.Reque
 		"browser_auth":             "gateway_basic_auth",
 		"api_auth":                 "server_injected_owner_bearer",
 		"seerr_webhook_enabled":    server.config.SeerrEnabled,
-		"gmd_metadata_enabled":     server.config.GMDMetadataEnabled,
+		"metadata_providers":       server.config.MetadataProviderStates,
 		"altmount_source_policy":   "read_only",
 		"publication_type":         "plex_safe_symlink",
 		"upgrade_replacement_gate": "plex_path_and_identity_confirmation",

@@ -9,62 +9,80 @@ import (
 	"strings"
 	"time"
 
-	"github.com/media-manager/media-manager/internal/adapters/gmd"
+	metadataproviders "github.com/media-manager/media-manager/internal/adapters/metadataproviders"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/catalog"
 )
 
 var imagePath = regexp.MustCompile(`^/[A-Za-z0-9._/-]{1,500}$`)
 
-type GMDLookup interface {
-	Lookup(context.Context, string, []catalog.ExternalIdentity) (gmd.Detail, bool, error)
-}
-
 type Service struct {
-	GMD GMDLookup
+	TMDB  metadataproviders.Lookup
+	TVDB  metadataproviders.Lookup
+	Simkl metadataproviders.Lookup
 }
 
 type Result struct {
-	Metadata        *catalog.MediaMetadata
-	Identities      []catalog.ExternalIdentity
-	EnrichmentState string
+	Metadata        *catalog.MediaMetadata     `json:"metadata"`
+	Identities      []catalog.ExternalIdentity `json:"identities"`
+	EnrichmentState string                     `json:"enrichment_state"`
+	ProviderStates  map[string]string          `json:"provider_states"`
 }
 
 func (service *Service) Build(ctx context.Context, kind catalog.MediaKind, tmdbID int64, value seerr.Metadata, identities []catalog.ExternalIdentity, now time.Time) (Result, error) {
 	if tmdbID <= 0 || value.ID != 0 && value.ID != tmdbID {
 		return Result{}, catalog.ErrInvalidMetadata
 	}
-	metadata := fromTMDB(kind, tmdbID, value, now)
-	result := Result{Metadata: metadata, Identities: append([]catalog.ExternalIdentity(nil), identities...), EnrichmentState: "tmdb_only"}
-	if kind != catalog.KindSeries {
-		normalized, err := catalog.NormalizeMetadata(metadata, now)
-		result.Metadata = normalized
-		return result, err
+	target := fromTMDB(kind, tmdbID, value, now)
+	result := Result{Metadata: target, Identities: append([]catalog.ExternalIdentity(nil), identities...), EnrichmentState: "tmdb_via_seerr", ProviderStates: map[string]string{"tmdb": "seerr_fallback", "tvdb": "not_configured", "simkl": "not_configured", "imdb": "identity_only"}}
+	configured := []struct {
+		name   string
+		lookup metadataproviders.Lookup
+	}{{"tmdb", nil}, {"tvdb", nil}, {"simkl", nil}}
+	if service != nil {
+		configured[0].lookup, configured[1].lookup, configured[2].lookup = service.TMDB, service.TVDB, service.Simkl
 	}
-	if service == nil || service.GMD == nil {
-		result.EnrichmentState = "gmd_not_configured"
-		normalized, err := catalog.NormalizeMetadata(metadata, now)
-		result.Metadata = normalized
-		return result, err
+	direct := 0
+	for _, provider := range configured {
+		if provider.lookup == nil {
+			continue
+		}
+		contribution, err := provider.lookup.Lookup(ctx, kind, result.Identities, now)
+		if err != nil {
+			switch err {
+			case metadataproviders.ErrIdentityUnavailable:
+				result.ProviderStates[provider.name] = "identity_unavailable"
+			case metadataproviders.ErrIdentityConflict:
+				result.ProviderStates[provider.name] = "identity_conflict"
+			default:
+				result.ProviderStates[provider.name] = "unavailable"
+			}
+			continue
+		}
+		if contribution.Metadata == nil || identitiesConflict(result.Identities, contribution.Identities) {
+			result.ProviderStates[provider.name] = "identity_conflict"
+			continue
+		}
+		if provider.name == "tmdb" {
+			mergeMetadata(contribution.Metadata, target, true)
+			target = contribution.Metadata
+		} else {
+			mergeMetadata(target, contribution.Metadata, true)
+		}
+		result.Identities = mergeIdentities(result.Identities, contribution.Identities)
+		result.ProviderStates[provider.name] = "direct"
+		direct++
 	}
-	title := strings.TrimSpace(value.Name)
-	detail, matched, err := service.GMD.Lookup(ctx, title, identities)
-	if err != nil {
-		result.EnrichmentState = "gmd_unavailable"
-		normalized, normalizeErr := catalog.NormalizeMetadata(metadata, now)
-		result.Metadata = normalized
-		return result, normalizeErr
+	addIdentitySources(target, result.Identities)
+	if result.ProviderStates["simkl"] == "direct" && hasRating(target.Ratings, "imdb") {
+		result.ProviderStates["imdb"] = "via_simkl"
+	} else if verifiedIdentity(result.Identities, "imdb") == "" {
+		result.ProviderStates["imdb"] = "identity_unavailable"
 	}
-	if !matched {
-		result.EnrichmentState = "gmd_no_exact_identity_match"
-		normalized, normalizeErr := catalog.NormalizeMetadata(metadata, now)
-		result.Metadata = normalized
-		return result, normalizeErr
+	if direct > 0 {
+		result.EnrichmentState = "direct_provider_enriched"
 	}
-	mergeGMD(metadata, detail)
-	result.Identities = mergeIdentities(result.Identities, detail.ExternalIDs)
-	result.EnrichmentState = "gmd_exact_identity_match"
-	normalized, err := catalog.NormalizeMetadata(metadata, now)
+	normalized, err := catalog.NormalizeMetadata(target, now)
 	result.Metadata = normalized
 	return result, err
 }
@@ -80,32 +98,13 @@ func fromTMDB(kind catalog.MediaKind, tmdbID int64, value seerr.Metadata, now ti
 			}
 		}
 	}
-	originalTitle := value.OriginalTitle
+	originalTitle, releaseDate, format, pathKind := value.OriginalTitle, value.ReleaseDate, "Movie", "movie"
 	if kind == catalog.KindSeries {
-		originalTitle = value.OriginalName
+		originalTitle, releaseDate, format, pathKind = value.OriginalName, value.FirstAirDate, "TV Series", "tv"
 	}
 	metadata := &catalog.MediaMetadata{
-		OriginalTitle:    originalTitle,
-		Overview:         value.Overview,
-		OriginalLanguage: value.OriginalLanguage,
-		Format:           map[catalog.MediaKind]string{catalog.KindMovie: "Movie", catalog.KindSeries: "TV Series"}[kind],
-		Status:           value.Status,
-		RuntimeMinutes:   runtime,
-		PosterURL:        tmdbImage("w500", value.PosterPath),
-		BackdropURL:      tmdbImage("w780", value.BackdropPath),
-		Genres:           make([]string, 0, len(value.Genres)),
-		Countries:        []string{},
-		Networks:         []catalog.MetadataNetwork{},
-		Aliases:          []catalog.MetadataAlias{},
-		Sources: []catalog.MetadataSource{{
-			Provider:   "tmdb",
-			ProviderID: strconv.FormatInt(tmdbID, 10),
-			URL:        tmdbURL(kind, tmdbID),
-			Role:       "primary descriptive metadata",
-		}},
-		Ratings:    []catalog.MetadataRating{},
-		Events:     []catalog.MetadataEvent{},
-		ObservedAt: now.UTC(),
+		OriginalTitle: originalTitle, Overview: value.Overview, OriginalLanguage: value.OriginalLanguage, Format: format, Status: value.Status, ReleaseDate: normalizedDate(releaseDate), RuntimeMinutes: runtime,
+		PosterURL: tmdbImage("w500", value.PosterPath), BackdropURL: tmdbImage("w780", value.BackdropPath), Genres: []string{}, Keywords: []string{}, Countries: []string{}, Networks: []catalog.MetadataNetwork{}, Companies: []catalog.MetadataCompany{}, Credits: []catalog.MetadataCredit{}, Aliases: []catalog.MetadataAlias{}, Sources: []catalog.MetadataSource{{Provider: "tmdb", ProviderID: strconv.FormatInt(tmdbID, 10), URL: fmt.Sprintf("https://www.themoviedb.org/%s/%d", pathKind, tmdbID), Role: "primary descriptive metadata through Seerr"}}, Ratings: []catalog.MetadataRating{}, Events: []catalog.MetadataEvent{}, ObservedAt: now.UTC(),
 	}
 	for _, genre := range value.Genres {
 		metadata.Genres = append(metadata.Genres, genre.Name)
@@ -124,97 +123,64 @@ func fromTMDB(kind catalog.MediaKind, tmdbID int64, value seerr.Metadata, now ti
 		metadata.Aliases = append(metadata.Aliases, catalog.MetadataAlias{Name: originalTitle, Language: value.OriginalLanguage, Source: "tmdb"})
 	}
 	if value.VoteCount > 0 && value.VoteAverage >= 0 && value.VoteAverage <= 10 {
-		metadata.Ratings = append(metadata.Ratings, catalog.MetadataRating{Source: "tmdb", Value: value.VoteAverage, Votes: value.VoteCount})
+		metadata.Ratings = append(metadata.Ratings, catalog.MetadataRating{Source: "tmdb", Value: value.VoteAverage, Votes: value.VoteCount, Provenance: "TMDB response through Seerr"})
 	}
 	return metadata
 }
 
-func mergeGMD(target *catalog.MediaMetadata, detail gmd.Detail) {
-	if target.OriginalTitle == "" {
-		target.OriginalTitle = detail.Title.OriginalName
+func mergeMetadata(target, incoming *catalog.MediaMetadata, supplement bool) {
+	if incoming == nil {
+		return
 	}
-	if target.Overview == "" {
-		target.Overview = detail.Title.Overview
-	}
-	if target.OriginalLanguage == "" {
-		target.OriginalLanguage = detail.Title.Language
-	}
-	if detail.Title.Format != "" {
-		target.Format = detail.Title.Format
-	}
-	if target.Status == "" {
-		target.Status = detail.Title.Status
-	}
-	if target.RuntimeMinutes == nil {
-		target.RuntimeMinutes = detail.Title.RuntimeMinutes
-	}
-	if target.PosterURL == "" {
-		target.PosterURL = detail.Title.PosterURL
-	}
-	if target.BackdropURL == "" {
-		target.BackdropURL = detail.Title.BackdropURL
-	}
-	target.Genres = append(target.Genres, detail.Genres...)
-	target.Countries = append(target.Countries, detail.Countries...)
-	for _, network := range detail.Networks {
-		target.Networks = append(target.Networks, catalog.MetadataNetwork{Name: network.Name, Country: network.Country, Kind: network.Type, Source: network.Source})
-	}
-	for _, alias := range detail.Aliases {
-		target.Aliases = append(target.Aliases, catalog.MetadataAlias{Name: alias.Name, Language: alias.Language, Source: alias.Source})
-	}
-	for _, identity := range detail.ExternalIDs {
-		role := "identity evidence"
-		if identity.Source == "tvdb" {
-			role = "supplementary TV metadata"
-		} else if identity.Source == "simkl" {
-			role = "schedule evidence"
-		} else {
-			continue
-		}
-		target.Sources = append(target.Sources, catalog.MetadataSource{Provider: identity.Source, ProviderID: identity.ID, URL: identity.URL, Role: role})
-	}
-	evidenceSources := map[string][]string{}
-	for _, evidence := range detail.Evidence {
-		if strings.TrimSpace(evidence.Source) != "" {
-			evidenceSources[detail.EventID] = append(evidenceSources[detail.EventID], evidence.Source)
+	set := func(current *string, value string) {
+		if value != "" && (!supplement || *current == "") {
+			*current = value
 		}
 	}
-	for _, event := range detail.Events {
-		sources := evidenceSources[event.ID]
-		if len(sources) == 0 {
-			sources = []string{"gmd"}
-		}
-		target.Events = append(target.Events, catalog.MetadataEvent{Type: event.Type, Date: event.Date, SeasonNumber: optionalEventNumber(event.SeasonNumber), EpisodeNumber: optionalEventNumber(event.EpisodeNumber), Country: event.Country, Network: event.Network, Confidence: event.Confidence, DateConflict: event.DateConflict == 1, Sources: sources})
+	set(&target.OriginalTitle, incoming.OriginalTitle)
+	set(&target.Overview, incoming.Overview)
+	set(&target.Tagline, incoming.Tagline)
+	set(&target.OriginalLanguage, incoming.OriginalLanguage)
+	set(&target.Format, incoming.Format)
+	set(&target.Status, incoming.Status)
+	set(&target.ReleaseDate, incoming.ReleaseDate)
+	set(&target.EndDate, incoming.EndDate)
+	set(&target.Certification, incoming.Certification)
+	set(&target.PosterURL, incoming.PosterURL)
+	set(&target.BackdropURL, incoming.BackdropURL)
+	if incoming.RuntimeMinutes != nil && (!supplement || target.RuntimeMinutes == nil) {
+		target.RuntimeMinutes = incoming.RuntimeMinutes
 	}
+	if incoming.SeasonCount != nil && (!supplement || target.SeasonCount == nil) {
+		target.SeasonCount = incoming.SeasonCount
+	}
+	if incoming.EpisodeCount != nil && (!supplement || target.EpisodeCount == nil) {
+		target.EpisodeCount = incoming.EpisodeCount
+	}
+	target.Genres = capped(append(target.Genres, incoming.Genres...), 100)
+	target.Keywords = capped(append(target.Keywords, incoming.Keywords...), 200)
+	target.Countries = capped(append(target.Countries, incoming.Countries...), 50)
+	target.Networks = capped(append(target.Networks, incoming.Networks...), 50)
+	target.Companies = capped(append(target.Companies, incoming.Companies...), 100)
+	target.Credits = capped(append(target.Credits, incoming.Credits...), 100)
+	target.Aliases = capped(append(target.Aliases, incoming.Aliases...), 100)
+	target.Sources = capped(append(target.Sources, incoming.Sources...), 20)
+	target.Ratings = capped(append(target.Ratings, incoming.Ratings...), 10)
+	target.Events = capped(append(target.Events, incoming.Events...), 200)
 }
 
-func optionalEventNumber(value int32) *uint16 {
-	if value < 0 || value > 65_535 {
-		return nil
+func mergeIdentities(existing, incoming []catalog.ExternalIdentity) []catalog.ExternalIdentity {
+	seen := map[string]string{}
+	for _, value := range existing {
+		seen[strings.ToLower(value.Namespace)] = value.Value
 	}
-	converted := uint16(value)
-	return &converted
-}
-
-func mergeIdentities(existing []catalog.ExternalIdentity, values []gmd.ExternalID) []catalog.ExternalIdentity {
-	byNamespace := map[string]string{}
-	for _, identity := range existing {
-		byNamespace[identity.Namespace] = identity.Value
-	}
-	for _, identity := range values {
-		namespace := strings.ToLower(strings.TrimSpace(identity.Source))
-		value := strings.TrimSpace(identity.ID)
-		if namespace != "tmdb" && namespace != "tvdb" && namespace != "simkl" || value == "" {
+	for _, value := range incoming {
+		namespace := strings.ToLower(strings.TrimSpace(value.Namespace))
+		if namespace == "" || value.Value == "" || seen[namespace] != "" {
 			continue
 		}
-		if previous, present := byNamespace[namespace]; present {
-			if previous != value {
-				continue
-			}
-			continue
-		}
-		byNamespace[namespace] = value
-		existing = append(existing, catalog.ExternalIdentity{Namespace: namespace, Value: value, State: catalog.IdentityVerified, Source: "gmd_identity"})
+		seen[namespace] = value.Value
+		existing = append(existing, value)
 	}
 	sort.Slice(existing, func(i, j int) bool {
 		return fmt.Sprintf("%s:%s", existing[i].Namespace, existing[i].Value) < fmt.Sprintf("%s:%s", existing[j].Namespace, existing[j].Value)
@@ -222,17 +188,72 @@ func mergeIdentities(existing []catalog.ExternalIdentity, values []gmd.ExternalI
 	return existing
 }
 
+func addIdentitySources(metadata *catalog.MediaMetadata, identities []catalog.ExternalIdentity) {
+	for _, identity := range identities {
+		if identity.State != catalog.IdentityVerified || identity.Namespace != "imdb" || hasSource(metadata.Sources, "imdb", identity.Value) {
+			continue
+		}
+		metadata.Sources = append(metadata.Sources, catalog.MetadataSource{Provider: "imdb", ProviderID: identity.Value, URL: "https://www.imdb.com/title/" + identity.Value + "/", Role: "verified title identity; direct IMDb metadata not configured"})
+	}
+}
+
+func hasSource(values []catalog.MetadataSource, provider, id string) bool {
+	for _, value := range values {
+		if value.Provider == provider && value.ProviderID == id {
+			return true
+		}
+	}
+	return false
+}
+func hasRating(values []catalog.MetadataRating, source string) bool {
+	for _, value := range values {
+		if value.Source == source {
+			return true
+		}
+	}
+	return false
+}
+func verifiedIdentity(values []catalog.ExternalIdentity, namespace string) string {
+	for _, value := range values {
+		if value.State == catalog.IdentityVerified && value.Namespace == namespace {
+			return value.Value
+		}
+	}
+	return ""
+}
+func identitiesConflict(existing, incoming []catalog.ExternalIdentity) bool {
+	known := map[string]string{}
+	for _, value := range existing {
+		if value.State == catalog.IdentityVerified {
+			known[value.Namespace] = value.Value
+		}
+	}
+	for _, value := range incoming {
+		if previous := known[value.Namespace]; previous != "" && previous != value.Value {
+			return true
+		}
+	}
+	return false
+}
+func capped[T any](values []T, maximum int) []T {
+	if len(values) > maximum {
+		return values[:maximum]
+	}
+	return values
+}
 func tmdbImage(size, path string) string {
 	if !imagePath.MatchString(path) {
 		return ""
 	}
 	return "https://image.tmdb.org/t/p/" + size + path
 }
-
-func tmdbURL(kind catalog.MediaKind, id int64) string {
-	mediaType := "movie"
-	if kind == catalog.KindSeries {
-		mediaType = "tv"
+func normalizedDate(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 10 {
+		value = value[:10]
 	}
-	return fmt.Sprintf("https://www.themoviedb.org/%s/%d", mediaType, id)
+	if _, err := time.Parse("2006-01-02", value); err == nil {
+		return value
+	}
+	return ""
 }
