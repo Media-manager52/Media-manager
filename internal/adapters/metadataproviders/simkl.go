@@ -148,6 +148,12 @@ func (client *SimklClient) resolve(ctx context.Context, kind catalog.MediaKind, 
 		return "", "", "", ErrProviderUnavailable
 	}
 	location, err := url.Parse(response.Header.Get("Location"))
+	if err == nil && location.Scheme == "" && location.Host != "" {
+		// Simkl's documented redirect endpoint currently returns a network-path
+		// reference. Pin its scheme to HTTPS before applying the normal strict
+		// origin and path checks; path-only relative redirects remain rejected.
+		location.Scheme = "https"
+	}
 	if err != nil || location.Scheme != "https" || location.User != nil || location.RawQuery != "" || location.Fragment != "" || location.Port() != "" && location.Port() != "443" || !strings.EqualFold(location.Hostname(), "simkl.com") {
 		return "", "", "", ErrProviderUnavailable
 	}

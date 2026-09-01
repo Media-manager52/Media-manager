@@ -82,7 +82,7 @@ func TestSimklManualResolutionPreservesProvenanceAndDoesNotLeakClientID(t *testi
 			if request.URL.Query().Get("tmdb") != "42" || request.URL.Query().Get("type") != "movie" || request.URL.Query().Get("client_id") != secret {
 				t.Fatal("exact redirect resolution missing")
 			}
-			writer.Header().Set("Location", "https://simkl.com/movies/99/example")
+			writer.Header().Set("Location", "//simkl.com/movies/99/example")
 			writer.WriteHeader(http.StatusMovedPermanently)
 		case "/movies/99":
 			writer.Header().Set("Content-Type", "application/json")
@@ -125,6 +125,16 @@ func TestProviderClientsRejectAutomaticRedirectsAndUnsafeConfiguration(t *testin
 	}
 	if _, err := NewTVDB(TVDBConfig{APIKey: "key", BaseURL: "http://example.test"}, nil); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("plain HTTP accepted: %v", err)
+	}
+	unsafeSimkl := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Location", "//private.example/movies/99/example")
+		writer.WriteHeader(http.StatusMovedPermanently)
+	}))
+	defer unsafeSimkl.Close()
+	simkl, _ := NewSimkl(SimklConfig{ClientID: "client", BaseURL: unsafeSimkl.URL, AllowHTTP: true}, unsafeSimkl.Client().Transport)
+	_, err = simkl.Lookup(context.Background(), catalog.KindMovie, []catalog.ExternalIdentity{verified("tmdb", "42")}, time.Now())
+	if !errors.Is(err, ErrProviderUnavailable) {
+		t.Fatalf("cross-origin Simkl redirect was accepted: %v", err)
 	}
 }
 
