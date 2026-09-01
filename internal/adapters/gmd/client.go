@@ -85,12 +85,12 @@ type Event struct {
 	ID            string  `json:"id"`
 	Type          string  `json:"type"`
 	Date          string  `json:"date"`
-	SeasonNumber  *uint16 `json:"season_number"`
-	EpisodeNumber *uint16 `json:"episode_number"`
+	SeasonNumber  int32   `json:"season_number"`
+	EpisodeNumber int32   `json:"episode_number"`
 	Country       string  `json:"country"`
 	Network       string  `json:"network"`
 	Confidence    float64 `json:"confidence"`
-	DateConflict  bool    `json:"date_conflict"`
+	DateConflict  int8    `json:"date_conflict"`
 }
 
 type Detail struct {

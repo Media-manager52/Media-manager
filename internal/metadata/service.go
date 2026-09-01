@@ -184,8 +184,16 @@ func mergeGMD(target *catalog.MediaMetadata, detail gmd.Detail) {
 		if len(sources) == 0 {
 			sources = []string{"gmd"}
 		}
-		target.Events = append(target.Events, catalog.MetadataEvent{Type: event.Type, Date: event.Date, SeasonNumber: event.SeasonNumber, EpisodeNumber: event.EpisodeNumber, Country: event.Country, Network: event.Network, Confidence: event.Confidence, DateConflict: event.DateConflict, Sources: sources})
+		target.Events = append(target.Events, catalog.MetadataEvent{Type: event.Type, Date: event.Date, SeasonNumber: optionalEventNumber(event.SeasonNumber), EpisodeNumber: optionalEventNumber(event.EpisodeNumber), Country: event.Country, Network: event.Network, Confidence: event.Confidence, DateConflict: event.DateConflict == 1, Sources: sources})
 	}
+}
+
+func optionalEventNumber(value int32) *uint16 {
+	if value < 0 || value > 65_535 {
+		return nil
+	}
+	converted := uint16(value)
+	return &converted
 }
 
 func mergeIdentities(existing []catalog.ExternalIdentity, values []gmd.ExternalID) []catalog.ExternalIdentity {

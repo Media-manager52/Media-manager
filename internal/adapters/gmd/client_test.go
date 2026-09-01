@@ -28,7 +28,7 @@ func TestLookupRequiresExactHardIdentity(t *testing.T) {
 		case "/api/v1/titles/title_wrong000":
 			_, _ = writer.Write([]byte(`{"title":{"name":"The Paper"},"external_ids":[{"source":"tmdb","id":"999"}]}`))
 		case "/api/v1/titles/title_exact000":
-			_, _ = writer.Write([]byte(`{"title":{"name":"The Paper","overview":"Real overview"},"external_ids":[{"source":"tmdb","id":"253941"},{"source":"tvdb","id":"449872"},{"source":"simkl","id":"2459135"}]}`))
+			_, _ = writer.Write([]byte(`{"title":{"name":"The Paper","overview":"Real overview"},"external_ids":[{"source":"tmdb","id":"253941"},{"source":"tvdb","id":"449872"},{"source":"simkl","id":"2459135"}],"events":[{"id":"event_one","type":"series_premiere","date":"2026-09-01","season_number":-1,"episode_number":-1,"date_conflict":0,"confidence":0.8}]}`))
 		default:
 			t.Fatalf("unexpected request: %s", request.URL.Path)
 		}
@@ -39,7 +39,7 @@ func TestLookupRequiresExactHardIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	detail, matched, err := client.Lookup(context.Background(), "The Paper", []catalog.ExternalIdentity{verified("tmdb", "253941")})
-	if err != nil || !matched || detail.Title.Overview != "Real overview" {
+	if err != nil || !matched || detail.Title.Overview != "Real overview" || len(detail.Events) != 1 || detail.Events[0].SeasonNumber != -1 || detail.Events[0].DateConflict != 0 {
 		t.Fatalf("detail=%+v matched=%v err=%v", detail, matched, err)
 	}
 
