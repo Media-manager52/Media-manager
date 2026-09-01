@@ -9,6 +9,7 @@ import (
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
+	"github.com/media-manager/media-manager/internal/subtitles"
 )
 
 func TestBuildRequestUsesOnlyCommissionedMovieParameters(t *testing.T) {
@@ -31,6 +32,32 @@ func TestBuildRequestUsesOnlyCommissionedMovieParameters(t *testing.T) {
 	want := []newznab.Param{{Name: "q", Value: "Klaus"}, {Name: "imdbid", Value: "4729430"}, {Name: "tmdbid", Value: "508965"}}
 	if !reflect.DeepEqual(request.Params, want) {
 		t.Fatalf("params=%#v, want %#v", request.Params, want)
+	}
+}
+
+func TestRequiredSubtitleEvidenceOutranksUnknownWithoutRejectingUnknown(t *testing.T) {
+	t.Parallel()
+	rules := appendSubtitleRules(nil, subtitles.Policy{Required: []string{"da"}})
+	known := releases.Observation{ID: uuid.NewV7(), Facts: []releases.Fact{{Name: "subtitle_languages", Values: []string{"da"}, State: releases.FactObserved}}}
+	unknown := releases.Observation{ID: uuid.NewV7()}
+
+	knownEvaluation, err := releases.Evaluate(known, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownEvaluation, err := releases.Evaluate(unknown, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if knownEvaluation.Verdict != releases.VerdictEligible || knownEvaluation.Score != requiredSubtitleEvidenceWeight {
+		t.Fatalf("known evaluation=%+v", knownEvaluation)
+	}
+	if unknownEvaluation.Verdict != releases.VerdictEligible || unknownEvaluation.Score != 0 {
+		t.Fatalf("unknown evidence was not neutral: %+v", unknownEvaluation)
+	}
+	ranked := releases.Rank([]releases.Observation{unknown, known}, []releases.Evaluation{unknownEvaluation, knownEvaluation})
+	if len(ranked) != 2 || ranked[0].ObservationID != known.ID {
+		t.Fatalf("positive required subtitle evidence was not ranked first: %+v", ranked)
 	}
 }
 

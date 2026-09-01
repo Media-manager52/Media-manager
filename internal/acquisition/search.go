@@ -45,6 +45,8 @@ type indexerConfig struct {
 	BudgetWindow      int64                  `json:"budget_window_seconds"`
 }
 
+const requiredSubtitleEvidenceWeight = 100_000
+
 func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxEvent) error {
 	search, err := service.Store.LoadSearchContext(ctx, event.AggregateID)
 	if err != nil {
@@ -74,12 +76,7 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 	if err != nil {
 		return err
 	}
-	for _, language := range subtitlePolicy.Required {
-		rules = append(rules, releases.Rule{Name: "Required subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RuleRequired, Unknown: releases.UnknownAllow})
-	}
-	for _, language := range subtitlePolicy.Preferred {
-		rules = append(rules, releases.Rule{Name: "Preferred subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: 250, Unknown: releases.UnknownAllow})
-	}
+	rules = appendSubtitleRules(rules, subtitlePolicy)
 	if strings.HasPrefix(search.Variant, "season:") {
 		season := seasonNumber(search.Variant)
 		if season < 0 {
@@ -153,6 +150,19 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 	fingerprint := sha256.Sum256([]byte(search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)))
 	_, err = service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, time.Now().UTC())
 	return err
+}
+
+func appendSubtitleRules(rules []releases.Rule, policy subtitles.Policy) []releases.Rule {
+	for _, language := range policy.Required {
+		rules = append(rules,
+			releases.Rule{Name: "Required subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RuleRequired, Unknown: releases.UnknownAllow},
+			releases.Rule{Name: "Prefer verified required subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: requiredSubtitleEvidenceWeight, Unknown: releases.UnknownAllow},
+		)
+	}
+	for _, language := range policy.Preferred {
+		rules = append(rules, releases.Rule{Name: "Preferred subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: 250, Unknown: releases.UnknownAllow})
+	}
+	return rules
 }
 
 func applyWorkflowExclusions(observation releases.Observation, evaluation releases.Evaluation, search postgres.SearchContext) releases.Evaluation {
