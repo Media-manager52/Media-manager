@@ -195,7 +195,7 @@ export function MediaManagerApp({ path }: { path: string }) {
         <SidebarHeader className="h-[60px] justify-center border-b border-[#202a39] px-3 py-0">
           <Link href="/" className="flex items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]">
             <div className="grid size-8 place-items-center rounded-[6px] bg-[#7c3aed] text-[10px] font-black tracking-[-0.08em] text-white">MM</div>
-            <div className="min-w-0"><div className="truncate text-[11px] font-extrabold text-[#f4f6fa]">Media Manager</div><div className="mt-0.5 truncate text-[8px] text-[#758192]">Owner console</div></div>
+            <div className="min-w-0"><div className="truncate text-[11px] font-extrabold text-[#f4f6fa]">Media Manager</div><div className="mt-0.5 truncate text-[10px] text-[#929dac]">Owner console</div></div>
           </Link>
         </SidebarHeader>
         <SidebarContent className="gap-0 px-1.5 py-2 scrollbar-thin">
@@ -204,7 +204,7 @@ export function MediaManagerApp({ path }: { path: string }) {
             const open = openGroups.has(group.label) || groupActive
             return (
             <SidebarGroup key={group.label} className="py-0.5">
-              <SidebarGroupLabel asChild className="h-7 px-2 text-[8px] font-extrabold uppercase tracking-[0.14em] text-[#758192] hover:bg-[#111925] hover:text-[#c2c8d0]">
+              <SidebarGroupLabel asChild className="h-7 px-2 text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#929dac] hover:bg-[#111925] hover:text-[#c2c8d0]">
                 <button type="button" aria-expanded={open} onClick={() => setOpenGroups((current) => { const next = new Set(current); if (next.has(group.label)) next.delete(group.label); else next.add(group.label); return next })}><span>{group.label}</span><ChevronDown className={cn("ml-auto size-3 transition-transform", !open && "-rotate-90", groupActive && "text-[#9f7aea]")} /></button>
               </SidebarGroupLabel>
               {open ? <SidebarGroupContent>
@@ -214,7 +214,7 @@ export function MediaManagerApp({ path }: { path: string }) {
                     const Icon = item.icon
                     return (
                       <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={active} tooltip={item.label} className="h-7 rounded-[5px] px-2 text-[9.5px] text-[#9ba5b2] data-[active=true]:bg-[#211b36] data-[active=true]:font-bold data-[active=true]:text-white hover:bg-[#111925] hover:text-white">
+                        <SidebarMenuButton asChild isActive={active} tooltip={item.label} className="h-7 rounded-[5px] px-2 text-[11px] text-[#aab3bf] data-[active=true]:bg-[#211b36] data-[active=true]:font-bold data-[active=true]:text-white hover:bg-[#111925] hover:text-white">
                           <Link href={item.href}><Icon className={cn("size-3.5", active && "text-[#a98cf5]")} /><span>{item.label}</span></Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -228,7 +228,7 @@ export function MediaManagerApp({ path }: { path: string }) {
         <SidebarFooter className="border-t border-[#202a39] p-2">
           <Link href="/system/health" className="flex items-center gap-2 rounded-[5px] p-2 transition hover:bg-[#111925] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]">
             <span className={cn("size-2 rounded-full", serviceStatus.ready === undefined ? "bg-[#697586]" : serviceStatus.ready ? "bg-[#54c48e]" : "bg-[#d99a4e]")} />
-            <div className="min-w-0"><div className="truncate text-[8.5px] font-bold text-[#dbe1e8]">{serviceStatus.ready === undefined ? "Checking service" : serviceStatus.ready ? "Service healthy" : "Service attention"}</div><div className="mt-0.5 truncate text-[7.5px] text-[#707b89]">{serviceStatus.version ? `Version ${serviceStatus.version}` : "Health & version"}</div></div>
+            <div className="min-w-0"><div className="truncate text-[10px] font-bold text-[#dbe1e8]">{serviceStatus.ready === undefined ? "Checking service" : serviceStatus.ready ? "Service healthy" : "Service attention"}</div><div className="mt-0.5 truncate text-[9px] text-[#929dac]">{serviceStatus.version ? `Version ${serviceStatus.version}` : "Health & version"}</div></div>
           </Link>
         </SidebarFooter>
         <SidebarRail />
@@ -237,8 +237,8 @@ export function MediaManagerApp({ path }: { path: string }) {
       <SidebarInset className="min-w-0 bg-transparent">
         <div className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-3 border-b border-[#202a39] bg-[#080b12]/95 px-3 backdrop-blur-md sm:px-4">
           <SidebarTrigger className="md:hidden" />
-          <button onClick={() => setCommandOpen(true)} className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[6px] border border-[#202a39] bg-[#0e141e] px-3 text-left text-[9px] text-[#818c9b] transition hover:border-[#344155] sm:max-w-[360px]">
-            <Search className="size-3.5 shrink-0" /><span className="truncate">Navigate Media Manager…</span><kbd className="ml-auto hidden rounded-[4px] border border-[#283447] bg-[#111925] px-1.5 py-0.5 text-[7px] text-[#aeb6c1] sm:inline">Ctrl K</kbd>
+          <button onClick={() => setCommandOpen(true)} className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[6px] border border-[#202a39] bg-[#0e141e] px-3 text-left text-[11px] text-[#9ba5b2] transition hover:border-[#344155] sm:max-w-[360px]">
+            <Search className="size-3.5 shrink-0" /><span className="truncate">Navigate Media Manager…</span><kbd className="ml-auto hidden rounded-[4px] border border-[#283447] bg-[#111925] px-1.5 py-0.5 text-[9px] text-[#aeb6c1] sm:inline">Ctrl K</kbd>
           </button>
           <div className="ml-auto flex items-center gap-2">
             <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label="Notifications" onClick={() => toast.info("Workflow attention appears on the overview")}><Bell /></Button></TooltipTrigger><TooltipContent>Notifications</TooltipContent></Tooltip>
