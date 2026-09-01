@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/languages"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
 )
@@ -242,7 +244,19 @@ func canonicalQualityProfile(profile QualityProfile) (QualityProfile, error) {
 	if err != nil {
 		return QualityProfile{}, err
 	}
-	profile.Policy = canonical
+	profile.Policy, err = canonicalizeOriginalLanguageRouting(canonical)
+	if err != nil {
+		return QualityProfile{}, err
+	}
+	var routing struct {
+		Languages []string `json:"original_language_routing"`
+	}
+	if err := json.Unmarshal(profile.Policy, &routing); err != nil {
+		return QualityProfile{}, errors.New("quality profile policy is invalid")
+	}
+	if profile.Default && len(routing.Languages) > 0 {
+		return QualityProfile{}, errors.New("an original-language routing profile cannot be the default fallback")
+	}
 	var wrapped struct {
 		Rules []releases.Rule `json:"rules"`
 	}
@@ -260,6 +274,36 @@ func canonicalQualityProfile(profile QualityProfile) (QualityProfile, error) {
 	}
 	profile.Name = strings.TrimSpace(profile.Name)
 	return profile, nil
+}
+
+func canonicalizeOriginalLanguageRouting(policy json.RawMessage) (json.RawMessage, error) {
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(policy, &document); err != nil {
+		return nil, errors.New("quality profile policy is invalid")
+	}
+	raw, exists := document["original_language_routing"]
+	if !exists {
+		return policy, nil
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil || len(values) > 32 {
+		return nil, errors.New("quality profile has invalid original-language routing")
+	}
+	seen := make(map[string]bool, len(values))
+	canonical := make([]string, 0, len(values))
+	for _, value := range values {
+		language, reliable := languages.Canonical(value)
+		if !reliable {
+			return nil, errors.New("quality profile has an unreliable original-language routing tag")
+		}
+		if !seen[language] {
+			seen[language] = true
+			canonical = append(canonical, language)
+		}
+	}
+	sort.Strings(canonical)
+	document["original_language_routing"], _ = json.Marshal(canonical)
+	return json.Marshal(document)
 }
 
 func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityProfile) (QualityProfile, error) {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/languages"
 )
 
 type SeerrEpisode struct {
@@ -54,6 +55,7 @@ var (
 	ErrSeerrSnapshotDrift         = errors.New("Seerr episode snapshot changed while its workflow was active")
 	ErrSeerrSnapshotConflict      = errors.New("Seerr snapshot changed without a newer update cursor")
 	ErrAdoptionMonitoringReserved = errors.New("reviewed adoption monitoring owns this scope until Plex verification finishes")
+	ErrProfileRoutingAmbiguous    = errors.New("multiple quality profiles match the original language")
 )
 
 func (store *Store) UpsertSeerrSnapshot(ctx context.Context, intake SeerrIntake) (bool, error) {
@@ -114,9 +116,8 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 	} else if err != nil {
 		return IntakeResult{}, err
 	}
-	if err := transaction.QueryRow(ctx, `SELECT id::text FROM quality_profiles WHERE media_kind=$1 AND is_default AND enabled ORDER BY id LIMIT 1`, intake.Kind).Scan(&profileText); errors.Is(err, pgx.ErrNoRows) {
-		return IntakeResult{}, ErrDefaultsMissing
-	} else if err != nil {
+	profileText, err = selectSeerrQualityProfile(ctx, transaction, intake.Kind, intake.Metadata)
+	if err != nil {
 		return IntakeResult{}, err
 	}
 	if err := transaction.QueryRow(ctx, `SELECT id::text FROM integration_instances WHERE kind='altmount' AND is_default AND enabled ORDER BY id LIMIT 1`).Scan(&clientText); errors.Is(err, pgx.ErrNoRows) {
@@ -323,6 +324,60 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		return IntakeResult{}, err
 	}
 	return result, nil
+}
+
+func selectSeerrQualityProfile(ctx context.Context, transaction pgx.Tx, kind catalog.MediaKind, metadata *catalog.MediaMetadata) (string, error) {
+	originalLanguage := ""
+	if metadata != nil {
+		originalLanguage, _ = languages.Canonical(metadata.OriginalLanguage)
+	}
+	rows, err := transaction.Query(ctx, `SELECT id::text,is_default,policy FROM quality_profiles WHERE media_kind=$1 AND enabled ORDER BY is_default DESC,name,id`, kind)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	defaultProfile := ""
+	matches := make([]string, 0, 1)
+	for rows.Next() {
+		var id string
+		var isDefault bool
+		var policy json.RawMessage
+		if err := rows.Scan(&id, &isDefault, &policy); err != nil {
+			return "", err
+		}
+		if isDefault {
+			defaultProfile = id
+		}
+		if originalLanguage == "" {
+			continue
+		}
+		var routing struct {
+			Languages []string `json:"original_language_routing"`
+		}
+		if err := json.Unmarshal(policy, &routing); err != nil {
+			return "", errors.New("quality profile policy is invalid")
+		}
+		for _, value := range routing.Languages {
+			canonical, reliable := languages.Canonical(value)
+			if reliable && canonical == originalLanguage {
+				matches = append(matches, id)
+				break
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(matches) > 1 {
+		return "", ErrProfileRoutingAmbiguous
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if defaultProfile == "" {
+		return "", ErrDefaultsMissing
+	}
+	return defaultProfile, nil
 }
 
 func seerrPreRetrievalState(state string) bool {

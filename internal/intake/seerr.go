@@ -181,6 +181,8 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "adopted current files require the owner-confirmed replacement workflow in Media Manager")
 	} else if errors.Is(err, postgres.ErrAdoptionMonitoringReserved) {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "reviewed adoption monitoring is waiting for Plex verification")
+	} else if errors.Is(err, postgres.ErrProfileRoutingAmbiguous) {
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", "multiple enabled quality profiles route this original language")
 	} else if err != nil {
 		return err
 	}
