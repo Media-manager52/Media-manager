@@ -179,6 +179,90 @@ test("desktop and mobile layout contracts remain explicit in the focused screen"
   assert.match(screen, /md:hidden" aria-label="Mobile navigation"/);
 });
 
+test("catalog loader returns only complete bounded pagination results", async (t) => {
+  const { loadCatalogMedia } = await vite.ssrLoadModule("/lib/media-manager-api.ts");
+  const response = (data) => new Response(JSON.stringify({ data }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const catalogItems = (offset, count) => Array.from({ length: count }, (_, index) => ({
+    id: `catalog-${offset + index}`,
+    kind: "movie",
+    title: `Catalog Movie ${offset + index}`,
+    identities: [],
+  }));
+  const withFetch = async (fetchImplementation, action) => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchImplementation;
+    try {
+      return await action();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  };
+
+  await t.test("stops after a catalog smaller than one page", async () => {
+    const controller = new AbortController();
+    const requested = [];
+    const loaded = await withFetch(async (input, init) => {
+      requested.push(String(input));
+      assert.equal(init.signal, controller.signal);
+      return response(catalogItems(0, 3));
+    }, () => loadCatalogMedia(controller.signal));
+
+    assert.equal(loaded.length, 3);
+    assert.deepEqual(requested, ["/api/v1/media?limit=200&offset=0"]);
+  });
+
+  await t.test("loads multiple pages with exact offsets and no duplicates", async () => {
+    const controller = new AbortController();
+    const records = catalogItems(0, 450);
+    const offsets = [];
+    const loaded = await withFetch(async (input, init) => {
+      const requestURL = new URL(String(input), "http://media-manager.test");
+      assert.equal(requestURL.pathname, "/api/v1/media");
+      assert.equal(requestURL.searchParams.get("limit"), "200");
+      assert.equal(init.signal, controller.signal);
+      const offset = Number(requestURL.searchParams.get("offset"));
+      offsets.push(offset);
+      return response(records.slice(offset, offset + 200));
+    }, () => loadCatalogMedia(controller.signal));
+
+    assert.deepEqual(offsets, [0, 200, 400]);
+    assert.equal(loaded.length, 450);
+    assert.equal(new Set(loaded.map((item) => item.id)).size, 450);
+    assert.deepEqual(loaded.map((item) => item.id), records.map((item) => item.id));
+  });
+
+  await t.test("abort rejects instead of returning the first partial page", async () => {
+    const controller = new AbortController();
+    let requests = 0;
+    await withFetch(async (_input, init) => {
+      requests += 1;
+      assert.equal(init.signal, controller.signal);
+      if (requests === 1) {
+        controller.abort();
+        return response(catalogItems(0, 200));
+      }
+      throw new DOMException("The operation was aborted", "AbortError");
+    }, async () => {
+      await assert.rejects(loadCatalogMedia(controller.signal), { name: "AbortError" });
+    });
+    assert.equal(requests, 2);
+  });
+
+  await t.test("safety bound rejects instead of returning a truncated catalog", async () => {
+    const offsets = [];
+    await withFetch(async (input) => {
+      const requestURL = new URL(String(input), "http://media-manager.test");
+      const offset = Number(requestURL.searchParams.get("offset"));
+      offsets.push(offset);
+      return response(catalogItems(offset, 200));
+    }, async () => {
+      await assert.rejects(loadCatalogMedia(), /safe 10000-record load limit/);
+    });
+    assert.equal(offsets.length, 50);
+    assert.equal(offsets.at(-1), 9800);
+  });
+});
+
 test("movie library loader makes only the four expected same-origin API reads", async () => {
   const requested = [];
   const originalFetch = globalThis.fetch;
@@ -201,7 +285,7 @@ test("movie library loader makes only the four expected same-origin API reads", 
     assert.equal(records.length, 2);
     assert.deepEqual(requested.sort(), [
       "/api/v1/files?limit=300",
-      "/api/v1/media?limit=500",
+      "/api/v1/media?limit=200&offset=0",
       "/api/v1/wanted?limit=300",
       "/api/v1/workflows?limit=300&active=false",
     ]);

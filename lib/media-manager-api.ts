@@ -92,7 +92,19 @@ export async function loadMedia(signal?: AbortSignal): Promise<MediaRecord[]> {
   }))
 }
 
-export const loadCatalogMedia = async (signal?: AbortSignal) => await requestJSON<APIMedia[] | null>("/api/v1/media?limit=500", { signal }) ?? []
+const catalogPageSize = 200
+const catalogMaxPages = 50
+
+export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]> {
+  const catalog: APIMedia[] = []
+  for (let page = 0; page < catalogMaxPages; page += 1) {
+    const offset = page * catalogPageSize
+    const batch = await requestJSON<APIMedia[] | null>(`/api/v1/media?limit=${catalogPageSize}&offset=${offset}`, { signal }) ?? []
+    catalog.push(...batch)
+    if (batch.length < catalogPageSize) return catalog
+  }
+  throw new Error(`Media catalog exceeded the safe ${catalogPageSize * catalogMaxPages}-record load limit`)
+}
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []
 export const loadIntegrations = async (signal?: AbortSignal) => await requestJSON<APIIntegration[] | null>("/api/v1/settings/integrations", { signal }) ?? []
