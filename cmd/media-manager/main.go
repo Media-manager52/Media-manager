@@ -186,6 +186,7 @@ func run() error {
 	mediaInfoProbe := mediainfo.NewProbe()
 	altMountReconciler := &acquisition.AltMountReconcileService{Store: store, ResolveSecret: resolveSecret, MediaInfoProbe: mediaInfoProbe}
 	handlers["altmount.reconcile_requested"] = altMountReconciler.Handle
+	handlers["altmount.output_reverify_requested"] = altMountReconciler.HandleRetainedOutputReverification
 	publicationService := &publication.Service{Store: store}
 	handlers["library.publish_requested"] = publicationService.Handle
 	handlers["library.displaced_remove_requested"] = publicationService.HandleDisplacedRemoval

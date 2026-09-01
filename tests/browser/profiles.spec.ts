@@ -89,3 +89,74 @@ test("owner can persist and reload canonical original-language routing", async (
   await expect(page.getByLabel("Original-language routing")).toHaveValue("da")
   expect(unexpected).toEqual([])
 })
+
+test("owner can queue one exact retained-output reverification", async ({ page }) => {
+  const unexpected: string[] = []
+  const workflowID = "22222222-2222-4222-8222-222222222222"
+  const jobID = "33333333-3333-4333-8333-333333333333"
+  let canReverify = true
+  let submitted: Record<string, unknown> | undefined
+
+  await page.route("**/*", async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.origin !== baseURL) {
+      unexpected.push(`${request.method()} ${url.origin}${url.pathname}`)
+      await route.abort("blockedbyclient")
+      return
+    }
+    if (!url.pathname.startsWith("/api/v1/")) {
+      await route.continue()
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/settings/quality-profiles") {
+      await route.fulfill({ status: 200, json: { data: [] } })
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/acquisition-verifications" && url.search === "?limit=100") {
+      await route.fulfill({ status: 200, json: { data: [{
+        id: "44444444-4444-4444-8444-444444444444",
+        workflow_id: workflowID,
+        altmount_job_id: jobID,
+        candidate_id: "55555555-5555-4555-8555-555555555555",
+        media_title: "Retained Season",
+        release_title: "Retained.Season.S02.2160p.WEB-DL",
+        attempt_generation: 2,
+        status: "unverified",
+        required_languages: ["da"],
+        preferred_languages: [],
+        observed_languages: [],
+        evidence: {},
+        failure_reasons: ["bounded media-info inspection failed"],
+        retry_state: "exhausted",
+        can_reverify: canReverify,
+        created_at: "2026-09-01T20:00:00Z",
+      }] } })
+      return
+    }
+    if (request.method() === "POST" && url.pathname === `/api/v1/workflows/${workflowID}/reverify-retained-output`) {
+      submitted = request.postDataJSON() as Record<string, unknown>
+      canReverify = false
+      await route.fulfill({ status: 202, json: { data: { status: "reverification_queued", workflow_id: workflowID, job_id: jobID } } })
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/system/info") {
+      await route.fulfill({ status: 200, json: { data: { version: "browser-test" } } })
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/system/health") {
+      await route.fulfill({ status: 200, json: { data: { database_state: "ready", schema_version: 30, expected_schema: 30 } } })
+      return
+    }
+    unexpected.push(`${request.method()} ${url.pathname}${url.search}`)
+    await route.fulfill({ status: 501, json: { error: { message: "Unexpected local test request" } } })
+  })
+
+  page.on("dialog", (dialog) => void dialog.accept())
+  await page.goto("/settings/profiles")
+  await page.getByRole("button", { name: "Reverify output" }).click()
+
+  await expect.poll(() => submitted).toEqual({ job_id: jobID })
+  await expect(page.getByRole("button", { name: "Reverify output" })).toHaveCount(0)
+  expect(unexpected).toEqual([])
+})

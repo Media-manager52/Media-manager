@@ -99,6 +99,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/search", server.requireOwner(server.searchWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/recover-altmount-submission", server.requireOwner(server.recoverAltMountSubmission))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconcile-altmount", server.requireOwner(server.reconcileAltMount))
+	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reverify-retained-output", server.requireOwner(server.reverifyRetainedOutput))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/cancel", server.requireOwner(server.cancelWorkflow))
 	server.mux.HandleFunc("GET /api/v1/activity", server.requireOwner(server.listActivity))
 	server.mux.HandleFunc("GET /api/v1/files", server.requireOwner(server.listManagedFiles))
@@ -1327,6 +1328,34 @@ func (server *Server) reconcileAltMount(writer http.ResponseWriter, request *htt
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "reconciliation_queued", "id": id.String()}})
+}
+
+func (server *Server) reverifyRetainedOutput(writer http.ResponseWriter, request *http.Request) {
+	workflowID, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
+		return
+	}
+	var input struct {
+		JobID string `json:"job_id"`
+	}
+	if err := decodeJSON(request, &input, 8<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	jobID, err := uuid.Parse(input.JobID)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_job_id", "AltMount job ID is invalid")
+		return
+	}
+	if err := server.store.RequestRetainedSubtitleReverification(request.Context(), workflowID, jobID, time.Now().UTC()); errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "retained subtitle verification was not found")
+		return
+	} else if err != nil {
+		writeError(writer, http.StatusConflict, "reverification_failed", "retained output cannot be reverified safely")
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "reverification_queued", "workflow_id": workflowID.String(), "job_id": jobID.String()}})
 }
 
 func (server *Server) cancelWorkflow(writer http.ResponseWriter, request *http.Request) {

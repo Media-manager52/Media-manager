@@ -168,6 +168,50 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 	return errors.New("unhandled AltMount phase")
 }
 
+func (service *AltMountReconcileService) HandleRetainedOutputReverification(ctx context.Context, event postgres.OutboxEvent) error {
+	var payload struct {
+		WorkflowID string `json:"workflow_id"`
+		JobID      string `json:"job_id"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+	workflowID, err := uuid.Parse(payload.WorkflowID)
+	if err != nil || workflowID != event.AggregateID {
+		return errors.New("retained-output reverification has no valid workflow")
+	}
+	jobID, err := uuid.Parse(payload.JobID)
+	if err != nil {
+		return errors.New("retained-output reverification has no valid AltMount job")
+	}
+	job, err := service.Store.LoadAltMountJob(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if job.Workflow.ID != workflowID || job.Workflow.Revision != event.AggregateRevision || job.Workflow.State != workflows.StateVerifying || job.CurrentAttemptID == nil || *job.CurrentAttemptID != jobID || job.CandidateID == (uuid.UUID{}) {
+		return nil
+	}
+	retained, err := service.Store.LoadRetainedSubtitleOutput(ctx, workflowID, jobID)
+	if errors.Is(err, postgres.ErrConcurrentModification) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	selected := retained.Selected
+	if retained.MediaKind == catalog.KindMovie {
+		selected = selectedMovieAssets(retained.Assets)
+	}
+	allAssets := subtitleAssets(retained.Assets)
+	var config altMountConfig
+	if err := json.Unmarshal(job.Client.Config, &config); err != nil {
+		return err
+	}
+	authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, retained.RootRelative)
+	verification := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, retained.Policy, service.MediaInfoProbe, rootErr)
+	return service.Store.CompleteRetainedSubtitleReverification(ctx, job, event.AggregateRevision, retained.InventoryID, verification, time.Now().UTC())
+}
+
 func inspectSubtitleRequirements(ctx context.Context, authorizedRoot string, selected, inventory []subtitles.Asset, policy subtitles.Policy, probe subtitles.Probe, inspectionErr error) subtitles.Verification {
 	if inspectionErr == nil {
 		verification, err := subtitles.Verify(ctx, authorizedRoot, selected, inventory, policy, probe)

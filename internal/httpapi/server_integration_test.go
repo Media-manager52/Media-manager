@@ -32,6 +32,20 @@ func TestCreateMovieAndSeriesThroughOwnerAPI(t *testing.T) {
 	testServer := httptest.NewServer(server.Handler())
 	defer testServer.Close()
 
+	unauthorizedReverify, err := http.NewRequest(http.MethodPost, testServer.URL+"/api/v1/workflows/22222222-2222-4222-8222-222222222222/reverify-retained-output", strings.NewReader(`{"job_id":"33333333-3333-4333-8333-333333333333"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthorizedReverify.Header.Set("Content-Type", "application/json")
+	unauthorizedReverifyResponse, err := http.DefaultClient.Do(unauthorizedReverify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthorizedReverifyResponse.Body.Close()
+	if unauthorizedReverifyResponse.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthorized reverify status=%d, want %d", unauthorizedReverifyResponse.StatusCode, http.StatusUnauthorized)
+	}
+
 	moviePayload := map[string]any{
 		"kind":               "movie",
 		"title":              "HTTP Integration Movie",

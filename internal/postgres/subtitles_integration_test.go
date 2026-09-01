@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -14,8 +15,10 @@ import (
 	plexadapter "github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/mediainfo"
+	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
+	"github.com/media-manager/media-manager/internal/workflows"
 )
 
 func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *testing.T) {
@@ -286,8 +289,122 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 		t.Fatalf("records=%d exclusions=%d unverified publications=%d", records, exclusions, activeVersions)
 	}
 	review, err := store.ListSubtitleVerifications(ctx, 10)
-	if err != nil || len(review) != 2 || review[0].Status != "unverified" {
+	if err != nil || len(review) != 2 || review[0].Status != "unverified" || !review[0].CanReverify || !review[1].CanReverify {
 		t.Fatalf("owner review=%+v err=%v", review, err)
+	}
+	if err := store.RequestRetainedSubtitleReverification(ctx, workflowID, firstJob.JobID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestRetainedSubtitleReverification(ctx, workflowID, firstJob.JobID, time.Now().UTC()); !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("duplicate retained-output request error=%v", err)
+	}
+	requestedJob, err := store.LoadAltMountJob(ctx, firstJob.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requestedCandidate string
+	if err := store.Pool.QueryRow(ctx, `SELECT selected_release_id::text FROM workflows WHERE id=$1`, workflowID.String()).Scan(&requestedCandidate); err != nil {
+		t.Fatal(err)
+	}
+	if requestedJob.Workflow.State != workflows.StateVerifying || requestedJob.CurrentAttemptID == nil || *requestedJob.CurrentAttemptID != firstJob.JobID || requestedCandidate != firstJob.CandidateID.String() {
+		t.Fatalf("retained exact job was not selected: %+v", requestedJob)
+	}
+	retained, err := store.LoadRetainedSubtitleOutput(ctx, workflowID, firstJob.JobID)
+	if err != nil || retained.InventoryID != firstInventory || retained.MediaKind != catalog.KindMovie || len(retained.Assets) != 2 || len(retained.Policy.Required) != 1 || retained.Policy.Required[0] != "da" || len(retained.Policy.Preferred) != 0 {
+		t.Fatalf("retained output=%+v err=%v", retained, err)
+	}
+	reverified := subtitles.Verification{
+		SchemaVersion: 1, Status: "verified", RequiredLanguages: []string{"da"}, PreferredLanguages: []string{}, ObservedLanguages: []string{"da"},
+		Videos:     []subtitles.VideoEvidence{{AssetID: firstAssets[0], RelativePath: "Movie.mkv", MediaInfo: mediainfo.Evidence{SchemaVersion: 1, ContainerNames: []string{"matroska"}, VideoTracks: []mediainfo.Track{{Index: 0, Codec: "hevc", Width: 1920, Height: 1080}}, AudioTracks: []mediainfo.Track{}, SubtitleTracks: []mediainfo.Track{{Index: 1, Codec: "subrip", Language: "dan", CanonicalLanguage: "da"}}, Facts: map[string]any{"subtitle_languages": []string{"da"}}}, ObservedLanguages: []string{"da"}}},
+		Companions: []subtitles.Companion{{VideoAssetID: firstAssets[0], SubtitleAssetID: firstAssets[1], RelativePath: "Movie.da.srt", Language: "da", RawLanguage: "da"}}, FailureReasons: []string{},
+	}
+	if err := store.CompleteRetainedSubtitleReverification(ctx, requestedJob, requestedJob.Workflow.Revision, firstInventory, reverified, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var reverifiedStatus, reverifiedRetry, reverifiedWorkflowState, reverifiedJobState, preservedOldState string
+	var publicationEvents, requestAudits, retainedExclusions int
+	if err := store.Pool.QueryRow(ctx, `SELECT verification.status,verification.retry_state,workflow.state,job.state
+		FROM subtitle_verifications verification JOIN workflows workflow ON workflow.id=verification.workflow_id JOIN altmount_jobs job ON job.id=verification.altmount_job_id
+		WHERE verification.id=$1`, firstRecord.ID.String()).Scan(&reverifiedStatus, &reverifiedRetry, &reverifiedWorkflowState, &reverifiedJobState); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT state FROM library_link_versions WHERE id=$1`, oldVersionID.String()).Scan(&preservedOldState); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='library.publish_requested' AND completed_at IS NULL),
+		(SELECT count(*) FROM audit_events WHERE aggregate_id=$2 AND action='subtitle.output_reverification_requested'),
+		(SELECT count(*) FROM workflow_release_exclusions WHERE workflow_id=$1)`, workflowID.String(), firstRecord.ID.String()).Scan(&publicationEvents, &requestAudits, &retainedExclusions); err != nil {
+		t.Fatal(err)
+	}
+	if reverifiedStatus != "verified" || reverifiedRetry != "succeeded" || reverifiedWorkflowState != "verifying" || reverifiedJobState != "import_complete" || preservedOldState != "current" || publicationEvents != 1 || requestAudits != 1 || retainedExclusions != 3 {
+		t.Fatalf("reverified status=%q retry=%q workflow=%q job=%q old=%q publication=%d audits=%d exclusions=%d", reverifiedStatus, reverifiedRetry, reverifiedWorkflowState, reverifiedJobState, preservedOldState, publicationEvents, requestAudits, retainedExclusions)
+	}
+	publicationContext, err := store.LoadPublicationContext(ctx, workflowID, firstJob.JobID)
+	if err != nil || len(publicationContext.Assets) != 1 || len(publicationContext.Assets[0].Companions) != 1 {
+		t.Fatalf("reverified publication context=%+v err=%v", publicationContext, err)
+	}
+
+	seriesRoot, err := store.CreateLibraryRoot(ctx, LibraryRoot{MediaKind: catalog.KindSeries, Name: "Series", DestinationRoot: "/libraries/tv", PlexVisibleRoot: "/libraries/tv", SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: &plex.ID, PlexLibraryID: "2", Default: true, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seriesProfile, err := store.CreateQualityProfile(ctx, QualityProfile{MediaKind: catalog.KindSeries, Name: "Series Danish", Policy: policy, UpgradesEnabled: true, Default: true, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seriesMedia, err := catalog.New(catalog.KindSeries, "Retained Pack", &year, []catalog.ExternalIdentity{{Namespace: "tvdb", Value: "7654324", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seriesWorkflows, err := store.CreateManualMedia(ctx, seriesMedia, seriesRoot.ID, seriesProfile.ID, altMount.ID, []ManualSeason{{Number: 2, Monitored: true, PreferSeasonPack: true, Episodes: []ManualEpisode{{Number: 1, ProviderID: "tvdb:765432401", Title: "First"}, {Number: 2, ProviderID: "tvdb:765432402", Title: "Second"}}}}, false, "test")
+	if err != nil || len(seriesWorkflows) != 1 {
+		t.Fatalf("series workflow=%+v err=%v", seriesWorkflows, err)
+	}
+	seriesJob, seriesInventory, seriesAssets := seedSubtitleAttempt(t, ctx, store, seriesWorkflows[0].ID, altMount.ID, indexer.ID, 2, "retained-pack")
+	if _, err := store.Pool.Exec(ctx, `UPDATE altmount_output_assets SET relative_path=CASE id WHEN $2 THEN 'Retained.Pack.S02E01-E02.mkv' ELSE 'Retained.Pack.S02E01-E02.da.srt' END,media_kind='series' WHERE inventory_id=$1`, seriesInventory.String(), seriesAssets[0].String()); err != nil {
+		t.Fatal(err)
+	}
+	expectationID, seriesIdentity, season, expectedEpisodes, err := store.PackExpectation(ctx, seriesWorkflows[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packAssets := []packs.ObservedAsset{{ID: seriesAssets[0], RelativePath: "Retained.Pack.S02E01-E02.mkv", Size: 1000}, {ID: seriesAssets[1], RelativePath: "Retained.Pack.S02E01-E02.da.srt", Size: 100}}
+	report := packs.Evaluate(seriesIdentity, season, expectedEpisodes, packAssets)
+	if !report.Publishable() {
+		t.Fatalf("series pack report=%+v", report)
+	}
+	if err := store.PersistPackEvaluation(ctx, expectationID, seriesInventory, report, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	seriesFailure := subtitles.Verification{SchemaVersion: 1, Status: "unverified", RequiredLanguages: []string{"da"}, PreferredLanguages: []string{"da"}, ObservedLanguages: []string{}, Videos: []subtitles.VideoEvidence{}, Companions: []subtitles.Companion{}, FailureReasons: []string{"bounded media-info inspection failed"}}
+	if _, err := store.RecordSubtitleVerification(ctx, seriesJob, seriesInventory, seriesFailure, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestRetainedSubtitleReverification(ctx, seriesWorkflows[0].ID, seriesJob.JobID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	seriesJob, err = store.LoadAltMountJob(ctx, seriesJob.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retainedSeries, err := store.LoadRetainedSubtitleOutput(ctx, seriesWorkflows[0].ID, seriesJob.JobID)
+	if err != nil || retainedSeries.MediaKind != catalog.KindSeries || len(retainedSeries.Assets) != 2 || len(retainedSeries.Selected) != 1 || retainedSeries.Selected[0].ID != seriesAssets[0] {
+		t.Fatalf("retained series=%+v err=%v", retainedSeries, err)
+	}
+	if err := store.CompleteRetainedSubtitleReverification(ctx, seriesJob, seriesJob.Workflow.Revision, seriesInventory, seriesFailure, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var failedSeriesState, failedSeriesAttention string
+	var failedSeriesPublicationEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT state,attention_code FROM workflows WHERE id=$1`, seriesWorkflows[0].ID.String()).Scan(&failedSeriesState, &failedSeriesAttention); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='library.publish_requested'`, seriesWorkflows[0].ID.String()).Scan(&failedSeriesPublicationEvents); err != nil {
+		t.Fatal(err)
+	}
+	if failedSeriesState != "needs_attention" || failedSeriesAttention != "subtitle_requirements_unverified" || failedSeriesPublicationEvents != 0 {
+		t.Fatalf("failed series state=%q attention=%q publication=%d", failedSeriesState, failedSeriesAttention, failedSeriesPublicationEvents)
 	}
 
 	boundedMedia, err := catalog.New(catalog.KindMovie, "Bounded Package Dedupe", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654323", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
@@ -366,7 +483,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err := store.CompleteImport(ctx, verifiedJob, true, "subtitle requirements verified", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	publicationContext, err := store.LoadPublicationContext(ctx, verifiedJob.Workflow.ID, verifiedJob.JobID)
+	publicationContext, err = store.LoadPublicationContext(ctx, verifiedJob.Workflow.ID, verifiedJob.JobID)
 	if err != nil || len(publicationContext.Assets) != 1 || len(publicationContext.Assets[0].Companions) != 1 || publicationContext.Assets[0].Companions[0].AssetID != verifiedAssets[1] {
 		t.Fatalf("publication companions=%+v err=%v", publicationContext.Assets, err)
 	}

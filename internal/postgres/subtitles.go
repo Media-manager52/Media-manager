@@ -30,6 +30,7 @@ type SubtitleVerificationRecord struct {
 	Evidence           json.RawMessage `json:"evidence"`
 	FailureReasons     json.RawMessage `json:"failure_reasons"`
 	RetryState         string          `json:"retry_state"`
+	CanReverify        bool            `json:"can_reverify"`
 	CreatedAt          time.Time       `json:"created_at"`
 }
 
@@ -203,8 +204,20 @@ func (store *Store) ListSubtitleVerifications(ctx context.Context, limit int) ([
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT verification.id::text,verification.workflow_id::text,verification.altmount_job_id::text,verification.candidate_id::text,media.title,candidate.title,verification.attempt_generation,verification.status,verification.required_languages,verification.preferred_languages,verification.observed_languages,verification.evidence,verification.failure_reasons,verification.retry_state,verification.created_at
-		FROM subtitle_verifications verification JOIN workflows workflow ON workflow.id=verification.workflow_id JOIN media_items media ON media.id=workflow.media_id JOIN release_candidates candidate ON candidate.id=verification.candidate_id ORDER BY verification.created_at DESC LIMIT $1`, limit)
+	rows, err := store.Pool.Query(ctx, `SELECT verification.id::text,verification.workflow_id::text,verification.altmount_job_id::text,verification.candidate_id::text,media.title,candidate.title,verification.attempt_generation,verification.status,verification.required_languages,verification.preferred_languages,verification.observed_languages,verification.evidence,verification.failure_reasons,verification.retry_state,
+		verification.status='unverified' AND workflow.state='needs_attention' AND workflow.attention_code='subtitle_requirements_unverified' AND job.state='needs_attention' AND job.error_code='subtitle_requirements_unverified' AND job.attempt_generation BETWEEN 1 AND 2
+		AND (SELECT count(*) FROM altmount_jobs workflow_job WHERE workflow_job.workflow_id=workflow.id) <= 2
+		AND EXISTS(SELECT 1 FROM altmount_output_inventories inventory JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id WHERE inventory.id=verification.inventory_id AND inventory.job_id=job.id)
+		AND (media.kind<>'series' OR EXISTS(
+			SELECT 1 FROM pack_expectation_sets expectation
+			JOIN pack_evaluations evaluation ON evaluation.expectation_id=expectation.id AND evaluation.inventory_id=verification.inventory_id AND evaluation.evaluator_version=2 AND evaluation.verdict='verified'
+			JOIN pack_content_groups content_group ON content_group.evaluation_id=evaluation.id
+			JOIN pack_group_assets group_asset ON group_asset.group_id=content_group.id
+			WHERE expectation.workflow_id=workflow.id
+		))
+		AND NOT EXISTS(SELECT 1 FROM library_link_versions WHERE workflow_id=workflow.id AND altmount_job_id=job.id)
+		AND NOT EXISTS(SELECT 1 FROM audit_events WHERE action='subtitle.output_reverification_requested' AND aggregate_type='subtitle_verification' AND aggregate_id=verification.id),verification.created_at
+		FROM subtitle_verifications verification JOIN workflows workflow ON workflow.id=verification.workflow_id JOIN altmount_jobs job ON job.id=verification.altmount_job_id JOIN media_items media ON media.id=workflow.media_id JOIN release_candidates candidate ON candidate.id=verification.candidate_id ORDER BY verification.created_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +227,7 @@ func (store *Store) ListSubtitleVerifications(ctx context.Context, limit int) ([
 		var item SubtitleVerificationRecord
 		var idText, workflowText, jobText, candidateText string
 		var evidence, reasons []byte
-		if err := rows.Scan(&idText, &workflowText, &jobText, &candidateText, &item.MediaTitle, &item.ReleaseTitle, &item.AttemptGeneration, &item.Status, &item.RequiredLanguages, &item.PreferredLanguages, &item.ObservedLanguages, &evidence, &reasons, &item.RetryState, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&idText, &workflowText, &jobText, &candidateText, &item.MediaTitle, &item.ReleaseTitle, &item.AttemptGeneration, &item.Status, &item.RequiredLanguages, &item.PreferredLanguages, &item.ObservedLanguages, &evidence, &reasons, &item.RetryState, &item.CanReverify, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)
