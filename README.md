@@ -30,7 +30,7 @@ The first production path is deliberately narrow: **Seerr + Media Manager + Newz
    docker compose up -d --build
    ```
 
-5. Open the HTTPS address configured in Cosmo Cloud and sign in with `OWNER_USERNAME` and the password used to create `OWNER_PASSWORD_HASH`. On the Docker host itself, the loopback origin is `http://127.0.0.1:8080`.
+5. Open the HTTPS address configured in Cosmos and sign in with `OWNER_USERNAME` and the password used to create `OWNER_PASSWORD_HASH`. On the Docker host itself, use the loopback origin configured by `MEDIA_MANAGER_PORT` (port 8080 by default).
 
 Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, UI, and Caddy use isolated private networks; only the authenticated API also joins the external integrations network. No service port except the loopback gateway is published. Caddy proxies `/api/*` and injects the owner credential only after its own owner login. Do not change `MEDIA_MANAGER_BIND` to a LAN address unless another authenticated TLS proxy protects that listener.
 
@@ -149,9 +149,12 @@ TVDB is preferred for series naming when verified; TMDB is the fallback. Movies 
 npm run lint
 npm run typecheck
 npm test
+npm run test:browser
 GOFLAGS=-mod=readonly go vet ./cmd/... ./internal/...
 GOFLAGS=-mod=readonly go test -count=1 -race ./cmd/... ./internal/...
 ```
+
+The browser suite uses local API fixtures, blocks unexpected network access, and checks the library at desktop and mobile sizes with Playwright and axe. GitLab CI runs the frontend, browser, and PostgreSQL-backed Go verification jobs for branches, tags, and merge requests.
 
 The release workflow also applies all migrations to a disposable PostgreSQL 18 service and builds both container targets. Before promoting to the main server, run one complete live movie and one complete live season-pack workflow against the dev Plex, AltMount, Seerr, and real indexers.
 
