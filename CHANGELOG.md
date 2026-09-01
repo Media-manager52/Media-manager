@@ -8,6 +8,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Added
 
+- A concise repository code map and local movie-library benchmark for developer and AI-assisted maintenance.
 - Owner-only live screens for library, workflows, wanted media, files, sources, settings, health, audit history, adoption review, and release evidence.
 - Seerr discovery and intake with exact provider identities and immutable TV-season expectations.
 - Provider-aware Newznab commissioning, conservative persisted budgets, request pacing, exact release selection, and Prowlarr backup import.
@@ -23,6 +24,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Changed
 
+- Movie-library assembly now indexes related files, wanted items, and workflows once and reuses precomputed search text, avoiding quadratic work as the catalog grows.
 - Catalog loading now retrieves every API page in bounded 200-record batches instead of silently presenting a truncated library.
 - Library contrast, typography, responsive sizing, and inspector readability were improved without changing the approved composition.
 - Newznab search requests now honor each commissioned provider's supported dialect and independently persisted query/grab budget.

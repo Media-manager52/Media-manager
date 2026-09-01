@@ -111,6 +111,48 @@ test("builds and filters movies only from persisted API fields", async () => {
   }
 });
 
+test("joins every related record at the supported catalog bound", async () => {
+  const { buildMovieLibraryRecords, filterMovieLibraryRecords } = await vite.ssrLoadModule("/lib/movie-library.ts");
+  const count = 10_000;
+  const largeMedia = Array.from({ length: count }, (_, index) => ({
+    id: `media-${index}`,
+    kind: "movie",
+    title: `Movie ${String(index).padStart(5, "0")}`,
+    year: 2000 + (index % 25),
+    identities: [{ namespace: "tmdb", value: String(index), state: "verified" }],
+  }));
+  const largeFiles = largeMedia.map((item, index) => ({
+    ...files[0],
+    id: `file-${index}`,
+    media_id: item.id,
+  }));
+  const largeWanted = largeMedia.map((item, index) => ({
+    ...wanted[0],
+    workflow_id: `wanted-${index}`,
+    media_id: item.id,
+  }));
+  const largeWorkflows = largeMedia.map((item, index) => ({
+    ...workflows[0],
+    id: `workflow-${index}`,
+    media_id: item.id,
+  }));
+
+  const records = buildMovieLibraryRecords(largeMedia, largeFiles, largeWanted, largeWorkflows);
+
+  assert.equal(records.length, count);
+  assert.equal(new Set(records.map((item) => item.id)).size, count);
+  for (const index of [0, Math.floor(count / 2), count - 1]) {
+    const record = records.find((item) => item.id === `media-${index}`);
+    assert.equal(record.files[0].id, `file-${index}`);
+    assert.equal(record.wanted[0].workflow_id, `wanted-${index}`);
+    assert.equal(record.workflows[0].id, `workflow-${index}`);
+  }
+  assert.deepEqual(
+    filterMovieLibraryRecords(records, { ...baseFilters, query: "tmdb 9374" }).map((item) => item.id),
+    ["media-9374"],
+  );
+});
+
 test("movie card is a native keyboard control with truthful selection and status", async () => {
   const { buildMovieLibraryRecords, MovieLibraryCard } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
   const [record] = buildMovieLibraryRecords(media, files, wanted, workflows);

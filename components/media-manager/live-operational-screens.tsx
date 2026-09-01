@@ -66,21 +66,28 @@ import {
   setNotificationDestinationEnabled,
   uploadImportListSnapshot,
   type APIActivity,
-  type APIIdentity,
-  type APIManagedFile,
-  type APIMedia,
   type APIReleaseCandidate,
   type APISourceStatus,
   type APISystemHealth,
   type APISystemInfo,
   type APITasks,
   type APIImportList,
-  type APIWantedItem,
-  type APIWorkflow,
 } from "@/lib/media-manager-api"
 import { cn } from "@/lib/utils"
+import {
+  buildMovieLibraryRecords,
+  filterMovieLibraryRecords,
+  initialMovieFilters,
+  uniqueValues,
+  type MovieLibraryFilters,
+  type MovieLibraryRecord,
+  type MovieLibrarySummary,
+} from "@/lib/movie-library"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
 import { InlineNotice, KeyValue, MetricCard, Panel, StatusChip } from "./ui"
+
+export { buildMovieLibraryRecords, filterMovieLibraryRecords } from "@/lib/movie-library"
+export type { MovieLibraryFilters, MovieLibraryRecord } from "@/lib/movie-library"
 
 type Tone = "good" | "info" | "warn" | "bad" | "neutral"
 
@@ -203,140 +210,6 @@ export function LiveOperationalDashboardScreen() {
       </div>
     </> : null}
   </div>
-}
-
-type MovieLibrarySummary = "all" | "available" | "missing" | "monitoring" | "upgradable"
-
-export type MovieLibraryFilters = {
-  query: string
-  summary: MovieLibrarySummary
-  quality: string
-  resolution: string
-  audio: string
-  language: string
-  availability: MovieLibrarySummary
-  root: string
-  plexConfirmedOnly: boolean
-  managedOnly: boolean
-}
-
-export type MovieLibraryRecord = {
-  id: string
-  title: string
-  year?: number
-  identities: APIIdentity[]
-  metadata?: APIMedia["metadata"]
-  files: APIManagedFile[]
-  wanted: APIWantedItem[]
-  workflows: APIWorkflow[]
-  profiles: string[]
-  roots: string[]
-  resolutions: string[]
-  audioCodecs: string[]
-  languages: string[]
-  dynamicRanges: string[]
-  available: boolean
-  missing: boolean
-  monitoring: boolean
-  upgradable: boolean
-}
-
-const initialMovieFilters: MovieLibraryFilters = {
-  query: "",
-  summary: "all",
-  quality: "",
-  resolution: "",
-  audio: "",
-  language: "",
-  availability: "all",
-  root: "",
-  plexConfirmedOnly: false,
-  managedOnly: false,
-}
-
-function factValues(file: APIManagedFile, key: string) {
-  const nested = file.quality_evidence.facts
-  const facts = nested && typeof nested === "object" && !Array.isArray(nested)
-    ? nested as Record<string, unknown>
-    : file.quality_evidence
-  const value = facts[key]
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.trim() !== "")
-  if (typeof value === "string" && value.trim()) return [value]
-  if (typeof value === "number") return [String(value)]
-  return []
-}
-
-function uniqueValues(values: string[]) {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right))
-}
-
-export function buildMovieLibraryRecords(media: APIMedia[], files: APIManagedFile[], wanted: APIWantedItem[], workflows: APIWorkflow[]) {
-  return media
-    .filter((item) => item.kind === "movie")
-    .map<MovieLibraryRecord>((item) => {
-      const itemFiles = files.filter((file) => file.media_id === item.id)
-      const itemWanted = wanted.filter((entry) => entry.media_id === item.id)
-      const itemWorkflows = workflows.filter((workflow) => workflow.media_id === item.id)
-      return {
-        id: item.id,
-        title: item.title,
-        year: item.year,
-        identities: item.identities ?? [],
-        metadata: item.metadata,
-        files: itemFiles,
-        wanted: itemWanted,
-        workflows: itemWorkflows,
-        profiles: uniqueValues([
-          ...itemFiles.map((file) => file.quality_profile),
-          ...itemWanted.map((entry) => entry.target_profile),
-        ]),
-        roots: uniqueValues(itemFiles.map((file) => file.root_name)),
-        resolutions: uniqueValues(itemFiles.flatMap((file) => factValues(file, "resolution"))),
-        audioCodecs: uniqueValues(itemFiles.flatMap((file) => factValues(file, "audio_codecs"))),
-        languages: uniqueValues(itemFiles.flatMap((file) => [
-          ...factValues(file, "audio_languages"),
-          ...factValues(file, "subtitle_languages"),
-        ])),
-        dynamicRanges: uniqueValues(itemFiles.flatMap((file) => [
-          ...factValues(file, "dynamic_range"),
-          ...factValues(file, "hdr_format"),
-        ])),
-        available: itemFiles.some((file) => file.state === "current" && file.plex_confirmed),
-        missing: itemWanted.some((entry) => entry.gap === "missing"),
-        monitoring: itemWorkflows.some((workflow) => workflow.state === "monitored"),
-        upgradable: itemWanted.some((entry) => entry.gap === "upgrade"),
-      }
-    })
-    .sort((left, right) => left.title.localeCompare(right.title) || (left.year ?? 0) - (right.year ?? 0))
-}
-
-function matchesMovieSummary(item: MovieLibraryRecord, summary: MovieLibrarySummary) {
-  if (summary === "available") return item.available
-  if (summary === "missing") return item.missing
-  if (summary === "monitoring") return item.monitoring
-  if (summary === "upgradable") return item.upgradable
-  return true
-}
-
-export function filterMovieLibraryRecords(items: MovieLibraryRecord[], filters: MovieLibraryFilters) {
-  const query = filters.query.trim().toLocaleLowerCase()
-  return items.filter((item) => {
-    const searchable = [
-      item.title,
-      item.year ? String(item.year) : "",
-      ...item.identities.flatMap((identity) => [identity.namespace, identity.value, `${identity.namespace} ${identity.value}`]),
-    ].join(" ").toLocaleLowerCase()
-    return (!query || searchable.includes(query))
-      && matchesMovieSummary(item, filters.summary)
-      && matchesMovieSummary(item, filters.availability)
-      && (!filters.quality || item.profiles.includes(filters.quality))
-      && (!filters.resolution || item.resolutions.includes(filters.resolution))
-      && (!filters.audio || item.audioCodecs.includes(filters.audio))
-      && (!filters.language || item.languages.includes(filters.language))
-      && (!filters.root || item.roots.includes(filters.root))
-      && (!filters.plexConfirmedOnly || item.files.some((file) => file.plex_confirmed))
-      && (!filters.managedOnly || item.files.length > 0)
-  })
 }
 
 export const movieLibraryLoader = async (signal: AbortSignal) => {
