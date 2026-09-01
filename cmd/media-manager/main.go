@@ -14,6 +14,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/acquisition"
+	gmdadapter "github.com/media-manager/media-manager/internal/adapters/gmd"
 	seerradapter "github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/adoptionexec"
 	"github.com/media-manager/media-manager/internal/backups"
@@ -22,6 +23,7 @@ import (
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/intake"
 	"github.com/media-manager/media-manager/internal/mediainfo"
+	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/notifications"
 	"github.com/media-manager/media-manager/internal/platform"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -123,6 +125,15 @@ func run() error {
 			return err
 		}
 	}
+	var gmdClient *gmdadapter.Client
+	gmdURL := strings.TrimSpace(os.Getenv("GMD_BASE_URL"))
+	if gmdURL != "" {
+		gmdClient, err = gmdadapter.New(gmdadapter.Config{BaseURL: gmdURL, AllowHTTP: strings.EqualFold(os.Getenv("GMD_ALLOW_HTTP"), "true")}, nil)
+		if err != nil {
+			return err
+		}
+	}
+	metadataService := &metadataservice.Service{GMD: gmdClient}
 	scheduler := indexers.NewScheduler(4, store)
 	resolveSecret := func(reference string) (string, error) { return requiredSecret(reference) }
 	backupDirectory := strings.TrimSpace(os.Getenv("BACKUP_DIRECTORY"))
@@ -131,7 +142,7 @@ func run() error {
 	}
 	backupConfigured := optionalSecret(backups.KeyReference) != ""
 	commissionService := &commissioning.NewznabService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
-	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, MetadataProvider: seerrClient, CommissionNewznab: commissionService.Commission, BackupConfigured: backupConfigured, BackupDirectory: backupDirectory}, store)
+	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, MetadataProvider: seerrClient, MetadataEnricher: metadataService, GMDMetadataEnabled: gmdClient != nil, CommissionNewznab: commissionService.Commission, BackupConfigured: backupConfigured, BackupDirectory: backupDirectory}, store)
 	if err != nil {
 		return err
 	}
@@ -169,7 +180,7 @@ func run() error {
 	backupService := &backups.Service{Store: store, Directory: backupDirectory, ResolveSecret: resolveSecret}
 	handlers["backup.create_requested"] = backupService.Handle
 	if seerrEnabled {
-		service := &intake.SeerrService{Client: seerrClient, Store: store, InstanceID: seerrInstance}
+		service := &intake.SeerrService{Client: seerrClient, Store: store, InstanceID: seerrInstance, MetadataEnricher: metadataService}
 		handlers["seerr.reconcile"] = service.Handle
 	}
 	worker := &platform.Worker{Store: store, Owner: workerOwner(), Handlers: handlers}

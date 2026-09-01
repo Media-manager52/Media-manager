@@ -108,12 +108,24 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	movie.Metadata, err = catalog.NormalizeMetadata(&catalog.MediaMetadata{Overview: "Persisted overview", PosterURL: "https://image.tmdb.org/t/p/w500/movie.jpg", Genres: []string{"Drama"}, Sources: []catalog.MetadataSource{{Provider: "tmdb", ProviderID: "123456", URL: "https://www.themoviedb.org/movie/123456", Role: "primary descriptive metadata"}}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
 	movieWorkflows, err := store.CreateManualMedia(ctx, movie, movieRoot, movieProfile, movieClient, nil, true, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(movieWorkflows) != 1 {
 		t.Fatalf("movie workflows=%d, want 1", len(movieWorkflows))
+	}
+	persistedMovie, err := store.GetMedia(ctx, movie.ID)
+	if err != nil || persistedMovie.Metadata == nil || persistedMovie.Metadata.Overview != "Persisted overview" {
+		t.Fatalf("persisted movie metadata=%+v err=%v", persistedMovie.Metadata, err)
+	}
+	refreshedMovie, err := store.RefreshMediaMetadata(ctx, movie.ID, &catalog.MediaMetadata{Overview: "Refreshed overview", Sources: []catalog.MetadataSource{{Provider: "tmdb", ProviderID: "123456", URL: "https://www.themoviedb.org/movie/123456", Role: "primary descriptive metadata"}}}, nil, "test", time.Now().UTC())
+	if err != nil || refreshedMovie.Metadata == nil || refreshedMovie.Metadata.Overview != "Refreshed overview" || refreshedMovie.Revision <= movie.Revision {
+		t.Fatalf("refreshed movie=%+v err=%v", refreshedMovie, err)
 	}
 	assertWorkflowIntent(t, ctx, store, movieWorkflows[0].ID, "default", 0, 1)
 	configuredList, err := store.CreateImportList(ctx, ImportList{Name: "IMDb owner export", Provider: "imdb_export", Enabled: true, MovieRootID: &movieRoot, MovieQualityProfileID: &movieProfile}, time.Now().UTC())

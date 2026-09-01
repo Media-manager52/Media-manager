@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
@@ -63,6 +62,7 @@ import {
   loadTasks,
   loadWanted,
   loadWorkflows,
+  refreshMediaMetadata,
   setNotificationDestinationEnabled,
   uploadImportListSnapshot,
   type APIActivity,
@@ -79,6 +79,7 @@ import {
   type APIWorkflow,
 } from "@/lib/media-manager-api"
 import { cn } from "@/lib/utils"
+import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
 import { InlineNotice, KeyValue, MetricCard, Panel, StatusChip } from "./ui"
 
 type Tone = "good" | "info" | "warn" | "bad" | "neutral"
@@ -224,6 +225,7 @@ export type MovieLibraryRecord = {
   title: string
   year?: number
   identities: APIIdentity[]
+  metadata?: APIMedia["metadata"]
   files: APIManagedFile[]
   wanted: APIWantedItem[]
   workflows: APIWorkflow[]
@@ -280,6 +282,7 @@ export function buildMovieLibraryRecords(media: APIMedia[], files: APIManagedFil
         title: item.title,
         year: item.year,
         identities: item.identities ?? [],
+        metadata: item.metadata,
         files: itemFiles,
         wanted: itemWanted,
         workflows: itemWorkflows,
@@ -475,7 +478,7 @@ export function LiveLibraryScreen() {
 
     {selected ? <>
       {selectedID !== undefined ? <button type="button" aria-label="Close movie details" onClick={() => setSelectedID(null)} className="fixed inset-0 z-40 bg-black/60 xl:hidden" /> : null}
-      <MovieInspector key={selected.id} item={selected} tab={detailTab} auto={selectedID === undefined} onTabChange={setDetailTab} onClose={() => setSelectedID(null)} />
+      <MovieInspector key={selected.id} item={selected} tab={detailTab} auto={selectedID === undefined} onTabChange={setDetailTab} onClose={() => setSelectedID(null)} onRefresh={refresh} />
     </> : null}
 
     <nav className="fixed inset-x-0 bottom-0 z-30 flex h-12 items-center justify-around border-t border-[#202a39] bg-[#0e141e] px-3 md:hidden" aria-label="Mobile navigation">
@@ -494,26 +497,34 @@ export function MovieLibraryCard({ item, selected, onSelect }: { item: MovieLibr
   const availability = movieAvailability(item)
   const labels = uniqueValues([...item.resolutions.map(resolutionLabel), ...item.dynamicRanges])
   return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("group flex min-w-0 overflow-hidden rounded-[6px] border border-[#202a39] bg-[#0e141e] text-left outline-none transition hover:border-[#3a4658] focus-visible:ring-2 focus-visible:ring-[#7c3aed] sm:block", selected && "border-[#7c3aed] ring-1 ring-[#7c3aed]/45")}>
-    <div className="relative h-[94px] w-[70px] shrink-0 overflow-hidden border-r border-[#202a39] bg-[#111925] sm:h-auto sm:w-auto sm:border-b sm:border-r-0 sm:aspect-[2/3]"><Image src="/media/movie-placeholder.svg" alt="" width={300} height={450} className="h-full w-full object-cover" /><div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-[#080b12]/90 px-1 py-0.5 text-[7px] font-extrabold uppercase text-[#f4f6fa]">{label}</span>)}</div></div>
+    <div className="relative h-[94px] w-[70px] shrink-0 overflow-hidden border-r border-[#202a39] bg-[#111925] sm:h-auto sm:w-auto sm:border-b sm:border-r-0 sm:aspect-[2/3]"><MetadataArtwork src={item.metadata?.poster_url} fallback="/media/movie-placeholder.svg" alt="" width={300} height={450} className="h-full w-full object-cover" /><div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-[#080b12]/90 px-1 py-0.5 text-[7px] font-extrabold uppercase text-[#f4f6fa]">{label}</span>)}</div></div>
     <div className="min-w-0 flex-1 p-1"><div className="truncate text-[10px] font-[750] leading-tight text-[#f4f6fa]">{item.title}</div><div className="text-[8.5px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-0.5 flex items-center gap-1.5 text-[8px] font-semibold", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.label}</span></div></div>
   </button>
 }
 
 function MovieLibraryRow({ item, selected, onSelect }: { item: MovieLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
   const availability = movieAvailability(item)
-  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("flex w-full items-center gap-3 border-b border-[#202a39] px-3 py-2 text-left outline-none last:border-0 hover:bg-[#111925] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7c3aed]", selected && "bg-[#171428]")}><Image src="/media/movie-placeholder.svg" alt="" width={72} height={96} className="h-12 w-9 rounded-[3px] border border-[#283447] object-cover" /><div className="min-w-0 flex-1"><div className="truncate text-[10px] font-bold text-[#f4f6fa]">{item.title} <span className="font-normal text-[#7f8a99]">{item.year ? `(${item.year})` : ""}</span></div><div className="mt-1 truncate text-[8.5px] text-[#929dac]">{item.profiles.join(" · ") || "No managed quality profile"}</div></div><div className={cn("hidden items-center gap-1.5 text-[8.5px] font-semibold sm:flex", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div><ChevronRight className="size-3.5 text-[#687486]" /></button>
+  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("flex w-full items-center gap-3 border-b border-[#202a39] px-3 py-2 text-left outline-none last:border-0 hover:bg-[#111925] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7c3aed]", selected && "bg-[#171428]")}><MetadataArtwork src={item.metadata?.poster_url} fallback="/media/movie-placeholder.svg" alt="" width={72} height={96} className="h-12 w-9 rounded-[3px] border border-[#283447] object-cover" /><div className="min-w-0 flex-1"><div className="truncate text-[10px] font-bold text-[#f4f6fa]">{item.title} <span className="font-normal text-[#7f8a99]">{item.year ? `(${item.year})` : ""}</span></div><div className="mt-1 truncate text-[8.5px] text-[#929dac]">{item.profiles.join(" · ") || "No managed quality profile"}</div></div><div className={cn("hidden items-center gap-1.5 text-[8.5px] font-semibold sm:flex", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div><ChevronRight className="size-3.5 text-[#687486]" /></button>
 }
 
-export function MovieInspector({ item, tab, auto, onTabChange, onClose }: { item: MovieLibraryRecord; tab: string; auto: boolean; onTabChange: (tab: string) => void; onClose: () => void }) {
+export function MovieInspector({ item, tab, auto, onTabChange, onClose, onRefresh }: { item: MovieLibraryRecord; tab: string; auto: boolean; onTabChange: (tab: string) => void; onClose: () => void; onRefresh?: () => void }) {
   const availability = movieAvailability(item)
   const currentFile = [...item.files].sort((left, right) => right.generation - left.generation).find((file) => file.state === "current") ?? item.files[0]
   const qualityProfile = currentFile?.quality_profile ?? item.wanted[0]?.target_profile ?? "Not assigned"
+  const [refreshing, setRefreshing] = React.useState(false)
+  async function refreshMetadata() {
+    setRefreshing(true)
+    try { const result = await refreshMediaMetadata(item.id); toast.success(result.enrichment_state === "gmd_exact_identity_match" ? "TMDB, TVDB, and GMD metadata refreshed" : "TMDB metadata refreshed"); onRefresh?.() }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not refresh metadata") }
+    finally { setRefreshing(false) }
+  }
   return <aside aria-label={`Details for ${item.title}`} className={cn("fixed inset-0 z-50 min-h-0 flex-col overflow-hidden border-l border-[#202a39] bg-[#0e141e] sm:bottom-0 sm:left-auto sm:top-[60px] sm:w-[330px] xl:static xl:z-auto xl:flex xl:h-full xl:w-auto", auto ? "hidden" : "flex")}>
     <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#202a39] px-3"><span className="text-[9px] font-extrabold uppercase tracking-[0.12em] text-[#929dac]">Movie details</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Close details" onClick={onClose}><X /></Button></div>
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
       <div className="border-b border-[#202a39] p-3">
-        <div className="flex gap-3 xl:block"><Image src="/media/movie-placeholder.svg" alt="" width={300} height={450} className="aspect-[2/3] w-[86px] shrink-0 rounded-[5px] border border-[#283447] object-cover xl:w-full" /><div className="min-w-0 pt-1 xl:pt-3"><h2 className="text-[15px] font-[800] leading-tight tracking-[-0.02em] text-[#f4f6fa]">{item.title}</h2><div className="mt-1 text-[9px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-2 flex items-center gap-1.5 text-[8.5px] font-bold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div></div></div>
+        <div className="flex gap-3 xl:block"><MetadataArtwork src={item.metadata?.poster_url} fallback="/media/movie-placeholder.svg" alt={`${item.title} poster`} width={300} height={450} className="aspect-[2/3] w-[86px] shrink-0 rounded-[5px] border border-[#283447] object-cover xl:w-full" /><div className="min-w-0 pt-1 xl:pt-3"><h2 className="text-[15px] font-[800] leading-tight tracking-[-0.02em] text-[#f4f6fa]">{item.title}</h2><div className="mt-1 text-[9px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-2 flex items-center gap-1.5 text-[8.5px] font-bold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div></div></div>
         <Button asChild size="sm" className="mt-3 h-8 w-full bg-[#7c3aed] text-white hover:bg-[#6d2fd4]"><Link href={`/media/movies/${item.id}`}><Film /> Open movie details</Link></Button>
+        <Button type="button" variant="outline" size="sm" className="mt-2 h-8 w-full" disabled={refreshing || !item.identities.some((identity) => identity.namespace === "tmdb" && identity.state === "verified")} onClick={() => void refreshMetadata()}><RefreshCw className={cn(refreshing && "animate-spin")} /> Refresh metadata</Button>
       </div>
 
       <Tabs value={tab} onValueChange={onTabChange} className="gap-0">
@@ -521,6 +532,10 @@ export function MovieInspector({ item, tab, auto, onTabChange, onClose }: { item
           {(["overview", "files", "metadata", "history"] as const).map((value) => <TabsTrigger key={value} value={value} className="h-9 px-1 text-[8px] capitalize text-[#8792a1] after:bg-[#7c3aed] data-[state=active]:text-[#f4f6fa]">{value}</TabsTrigger>)}
         </TabsList>
         <TabsContent value="overview" className="p-3">
+          {item.metadata?.overview ? <p className="mb-3 text-[9px] leading-4 text-[#a8b1bd]">{item.metadata.overview}</p> : null}
+          {item.metadata?.ratings[0] ? <InspectorRow label={`${item.metadata.ratings[0].source.toUpperCase()} rating`} value={`${item.metadata.ratings[0].value.toFixed(1)} · ${item.metadata.ratings[0].votes.toLocaleString()} votes`} /> : null}
+          {item.metadata?.runtime_minutes ? <InspectorRow label="Runtime" value={`${item.metadata.runtime_minutes} minutes`} /> : null}
+          {item.metadata?.genres.length ? <InspectorRow label="Genres" value={compactValues(item.metadata.genres)} /> : null}
           <InspectorRow label="Availability" value={availability.label} />
           <InspectorRow label="Quality profile" value={qualityProfile} />
           <InspectorRow label="Resolution" value={item.resolutions.map(resolutionLabel).join(", ") || "Unknown"} />
@@ -534,6 +549,7 @@ export function MovieInspector({ item, tab, auto, onTabChange, onClose }: { item
           {item.files.length === 0 ? <InspectorEmpty>No managed files are recorded.</InspectorEmpty> : null}
         </TabsContent>
         <TabsContent value="metadata" className="space-y-2 p-3">
+          {item.metadata?.sources.map((source) => <div key={`${source.provider}:${source.provider_id}:${source.role}`} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="text-[8px] font-bold uppercase tracking-[0.08em]"><MetadataSourceLink source={source} /></div><div className="mt-1 text-[8px] text-[#cfd5dd]">{source.role}</div></div>)}
           {item.identities.map((identity) => <div key={`${identity.namespace}:${identity.value}`} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="text-[8px] font-bold uppercase tracking-[0.08em] text-[#8d98a7]">{identity.namespace}</div><div className="mt-1 break-all font-mono text-[8.5px] text-[#e4e8ed]">{identity.value}</div>{identity.state ? <div className="mt-1 text-[7.5px] text-[#748091]">{pretty(identity.state)}</div> : null}</div>)}
           {item.identities.length === 0 ? <InspectorEmpty>No provider identities are recorded.</InspectorEmpty> : null}
         </TabsContent>
@@ -764,7 +780,7 @@ export function LiveSystemInfoScreen({ mode }: { mode: "media-management" | "sec
 export function LiveMetadataSettingsScreen() {
   const { data, error, refresh } = useLiveData(systemInfoLoader)
   if (!data && !error) return <LoadingPanel label="Loading metadata-provider state…" />
-  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Discovery provider" value="Seerr" note={data.seerr_webhook_enabled ? "Configured for live owner lookups" : "Not configured in the running service"} tone={data.seerr_webhook_enabled ? "info" : "neutral"} icon={SearchCheck} /><MetricCard label="Verified identities" value="TMDB · TVDB · IMDb" note="Returned only after a detail lookup" icon={ShieldCheck} /><MetricCard label="TV snapshots" value="Per season" note="Exact episodes are fetched before workflow creation" icon={ListChecks} /></div><Panel title="Metadata and artwork" subtitle="Provider status is reported without synthetic connectivity claims." action={<RefreshButton onClick={refresh} />}><KeyValue label="Discovery source" value="Seerr metadata proxy" /><KeyValue label="Runtime configuration" value={data.seerr_webhook_enabled ? "Configured" : "Unavailable"} /><KeyValue label="Identity provenance" value="seerr_metadata" /><KeyValue label="Artwork persistence" value="Not implemented" /><InlineNotice tone="info" title="Lookup behavior">Search and detail calls occur only after an owner action. Media Manager stores verified identity and exact requested-season snapshots when the item is added; search result previews are not silently cataloged.</InlineNotice></Panel></> : null}</div>
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="TMDB through Seerr" value={data.seerr_webhook_enabled ? "Configured" : "Unavailable"} note="Primary movie and TV description, artwork, genres, runtime, and rating" tone={data.seerr_webhook_enabled ? "info" : "neutral"} icon={SearchCheck} /><MetricCard label="GMD enrichment" value={data.gmd_metadata_enabled ? "Configured" : "Unavailable"} note="Exact-ID TVDB metadata and Simkl schedule evidence" tone={data.gmd_metadata_enabled ? "info" : "neutral"} icon={ShieldCheck} /><MetricCard label="TV snapshots" value="Per season" note="Exact episodes remain separate acquisition expectations" icon={ListChecks} /></div><Panel title="Metadata and artwork" subtitle="Provider roles and persistence are reported without synthetic connectivity claims." action={<RefreshButton onClick={refresh} />}><KeyValue label="Primary descriptive source" value="TMDB through Seerr" /><KeyValue label="TV supplementary source" value={data.gmd_metadata_enabled ? "TheTVDB through read-only GMD" : "Not configured"} /><KeyValue label="Schedule evidence" value={data.gmd_metadata_enabled ? "Simkl through read-only GMD" : "Not configured"} /><KeyValue label="Merge gate" value="Exact TMDB, TVDB, or IMDb identity" /><KeyValue label="Stored fields" value="Overview, artwork, original language/title, format, status, runtime, genres, countries, networks, aliases, ratings, events, and provider roles" /><InlineNotice tone="info" title="Owner-triggered and bounded">Search, detail, and refresh calls occur only after an owner action or during an approved Seerr intake. GMD lookup inspects at most 12 bounded candidates and never accepts title-only matching. Simkl contributes premiere/finale schedule evidence rather than replacing TMDB or TVDB descriptions.</InlineNotice></Panel></> : null}</div>
 }
 
 export function LiveNotificationsScreen() {

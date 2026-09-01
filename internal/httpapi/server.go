@@ -21,6 +21,7 @@ import (
 	"github.com/media-manager/media-manager/internal/backups"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/importlists"
+	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/prowlarrbackup"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -33,6 +34,8 @@ type Config struct {
 	SeerrInstanceID    string
 	Version            string
 	MetadataProvider   *seerr.Client
+	MetadataEnricher   *metadataservice.Service
+	GMDMetadataEnabled bool
 	CommissionNewznab  func(context.Context, uuid.UUID) (postgres.Integration, error)
 	BackupConfigured   bool
 	BackupDirectory    string
@@ -88,6 +91,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/media", server.requireOwner(server.createMedia))
 	server.mux.HandleFunc("GET /api/v1/media/{id}", server.requireOwner(server.getMedia))
 	server.mux.HandleFunc("GET /api/v1/media/{id}/detail", server.requireOwner(server.getMediaDetail))
+	server.mux.HandleFunc("POST /api/v1/media/{id}/metadata/refresh", server.requireOwner(server.refreshMediaMetadata))
 	server.mux.HandleFunc("DELETE /api/v1/media/{id}", server.requireOwner(server.recycleMedia))
 	server.mux.HandleFunc("POST /api/v1/media/{id}/workflows", server.requireOwner(server.createMediaWorkflow))
 	server.mux.HandleFunc("GET /api/v1/workflows", server.requireOwner(server.listWorkflows))
@@ -798,12 +802,22 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 	if strings.TrimSpace(metadata.ExternalIDs.IMDbID) != "" {
 		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: metadata.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: "seerr_metadata"})
 	}
+	enricher := server.config.MetadataEnricher
+	if enricher == nil {
+		enricher = &metadataservice.Service{}
+	}
+	enriched, err := enricher.Build(request.Context(), mediaKind, tmdbID, metadata, identities, time.Now().UTC())
+	if err != nil {
+		writeError(writer, http.StatusBadGateway, "metadata_error", "metadata response could not be normalized safely")
+		return
+	}
+	identities = enriched.Identities
 	var year *uint16
 	if parsed, parseErr := time.Parse("2006-01-02", date); parseErr == nil && parsed.Year() >= 1800 && parsed.Year() <= 9999 {
 		value := uint16(parsed.Year())
 		year = &value
 	}
-	response := map[string]any{"kind": mediaKind, "title": title, "year": year, "identities": identities, "tmdb_id": tmdbID}
+	response := map[string]any{"kind": mediaKind, "title": title, "year": year, "identities": identities, "tmdb_id": tmdbID, "metadata": enriched.Metadata, "enrichment_state": enriched.EnrichmentState}
 	if rawSeason := request.URL.Query().Get("season"); rawSeason != "" {
 		if kind != "tv" {
 			writeError(writer, http.StatusBadRequest, "invalid_season", "season metadata is available only for TV")
@@ -829,6 +843,82 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 		response["season"] = map[string]any{"number": details.SeasonNumber, "episodes": episodes}
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: response})
+}
+
+func (server *Server) refreshMediaMetadata(writer http.ResponseWriter, request *http.Request) {
+	if server.config.MetadataProvider == nil {
+		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", "Seerr metadata discovery is not configured")
+		return
+	}
+	mediaID, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "media ID is invalid")
+		return
+	}
+	item, err := server.store.GetMedia(request.Context(), mediaID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "media was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load media")
+		return
+	}
+	var tmdbID int64
+	for _, identity := range item.Identities {
+		if identity.Namespace == "tmdb" && identity.State == catalog.IdentityVerified {
+			tmdbID, _ = strconv.ParseInt(identity.Value, 10, 64)
+			break
+		}
+	}
+	if tmdbID <= 0 {
+		writeError(writer, http.StatusUnprocessableEntity, "tmdb_identity_required", "metadata refresh requires a verified TMDB identity")
+		return
+	}
+	providerKind := "movie"
+	if item.Kind == catalog.KindSeries {
+		providerKind = "tv"
+	}
+	providerMetadata, err := server.config.MetadataProvider.Metadata(request.Context(), providerKind, tmdbID)
+	if err != nil {
+		writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr metadata lookup failed")
+		return
+	}
+	identities := append([]catalog.ExternalIdentity(nil), item.Identities...)
+	if providerMetadata.ExternalIDs.TVDBID != nil && *providerMetadata.ExternalIDs.TVDBID > 0 && !identityNamespacePresent(identities, "tvdb") {
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*providerMetadata.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"})
+	}
+	if strings.TrimSpace(providerMetadata.ExternalIDs.IMDbID) != "" && !identityNamespacePresent(identities, "imdb") {
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: providerMetadata.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: "seerr_metadata"})
+	}
+	enricher := server.config.MetadataEnricher
+	if enricher == nil {
+		enricher = &metadataservice.Service{}
+	}
+	enriched, err := enricher.Build(request.Context(), item.Kind, tmdbID, providerMetadata, identities, time.Now().UTC())
+	if err != nil {
+		writeError(writer, http.StatusBadGateway, "metadata_error", "metadata response could not be normalized safely")
+		return
+	}
+	updated, err := server.store.RefreshMediaMetadata(request.Context(), item.ID, enriched.Metadata, enriched.Identities, "owner", time.Now().UTC())
+	if errors.Is(err, postgres.ErrIdentityNeedsAttention) {
+		writeError(writer, http.StatusConflict, "identity_conflict", "provider identities conflict with the existing catalog")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "metadata_persistence_failed", "metadata could not be persisted")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{"media": updated, "enrichment_state": enriched.EnrichmentState}})
+}
+
+func identityNamespacePresent(identities []catalog.ExternalIdentity, namespace string) bool {
+	for _, identity := range identities {
+		if identity.Namespace == namespace {
+			return true
+		}
+	}
+	return false
 }
 
 func (server *Server) getMediaDetail(writer http.ResponseWriter, request *http.Request) {
@@ -881,6 +971,7 @@ func (server *Server) systemInfo(writer http.ResponseWriter, request *http.Reque
 		"browser_auth":             "gateway_basic_auth",
 		"api_auth":                 "server_injected_owner_bearer",
 		"seerr_webhook_enabled":    server.config.SeerrEnabled,
+		"gmd_metadata_enabled":     server.config.GMDMetadataEnabled,
 		"altmount_source_policy":   "read_only",
 		"publication_type":         "plex_safe_symlink",
 		"upgrade_replacement_gate": "plex_path_and_identity_confirmation",
@@ -1296,6 +1387,7 @@ func (server *Server) createMedia(writer http.ResponseWriter, request *http.Requ
 		Title             string                     `json:"title"`
 		Year              *uint16                    `json:"year"`
 		Identities        []catalog.ExternalIdentity `json:"identities"`
+		Metadata          *catalog.MediaMetadata     `json:"metadata"`
 		RootID            string                     `json:"root_id"`
 		QualityProfileID  string                     `json:"quality_profile_id"`
 		DownloadClientID  string                     `json:"download_client_id"`
@@ -1328,6 +1420,11 @@ func (server *Server) createMedia(writer http.ResponseWriter, request *http.Requ
 	item, err := catalog.New(input.Kind, input.Title, input.Year, input.Identities, now)
 	if err != nil {
 		writeError(writer, http.StatusUnprocessableEntity, "invalid_media", err.Error())
+		return
+	}
+	item.Metadata, err = catalog.NormalizeMetadata(input.Metadata, now)
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_metadata", "metadata is outside the supported bounds")
 		return
 	}
 	if item.Year == nil || !hasPublicationIdentity(item) {

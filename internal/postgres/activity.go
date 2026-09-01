@@ -47,6 +47,10 @@ func (store *Store) GetMedia(ctx context.Context, id uuid.UUID) (catalog.MediaIt
 		item.Year = &converted
 	}
 	item.Identities, err = store.identities(ctx, item.ID)
+	if err != nil {
+		return catalog.MediaItem{}, err
+	}
+	item.Metadata, err = store.metadata(ctx, item.ID)
 	return item, err
 }
 

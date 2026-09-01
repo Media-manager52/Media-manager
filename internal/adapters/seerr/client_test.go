@@ -61,3 +61,25 @@ func TestSearchUsesBoundedEncodedQuery(t *testing.T) {
 		t.Fatalf("short query accepted: %v", err)
 	}
 }
+
+func TestMetadataParsesRichTMDBFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/tv/42" {
+			t.Fatalf("unexpected metadata path: %s", request.URL.Path)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"id":42,"name":"Series","originalName":"Original","overview":"Overview","originalLanguage":"da","firstAirDate":"2026-09-01","status":"Returning Series","episodeRunTime":[45],"posterPath":"/poster.jpg","backdropPath":"/backdrop.jpg","voteAverage":8.2,"voteCount":100,"genres":[{"id":18,"name":"Drama"}],"originCountry":["DK"],"networks":[{"id":1,"name":"DR","originCountry":"DK"}],"externalIds":{"tvdbId":77,"imdbId":"tt1234567"}}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, APIKey: "secret", AllowHTTP: true}, server.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := client.Metadata(context.Background(), "tv", 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.OriginalName != "Original" || metadata.Overview != "Overview" || metadata.OriginalLanguage != "da" || len(metadata.EpisodeRunTime) != 1 || metadata.EpisodeRunTime[0] != 45 || len(metadata.Genres) != 1 || metadata.Networks[0].Name != "DR" || metadata.VoteCount != 100 {
+		t.Fatalf("rich metadata was not decoded: %+v", metadata)
+	}
+}

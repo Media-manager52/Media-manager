@@ -88,6 +88,8 @@ maps those paths into the read-only `/mnt/altmount` mount.
 
 Integration secrets are referenced by environment-variable name. Put those values in `.env.integrations`, which is loaded only into the API container. An AltMount secret is JSON such as `{"username":"owner","password":"..."}`; Newznab references contain an API key; a Plex reference contains its token or `{"token":"..."}`. Never commit `.env` or `.env.integrations`.
 
+Optional richer TV metadata can come from a separately operated Global Media Discovery instance. Set `GMD_BASE_URL` to its read-only API origin and enable `GMD_ALLOW_HTTP` only for the Docker-host-local address shown in `.env.example`. Media Manager never receives GMD provider credentials: an owner-triggered lookup searches the local catalog, loads at most 12 bounded detail candidates, and accepts enrichment only when a verified TMDB, TVDB, or IMDb identity matches exactly. TMDB remains the primary descriptive source through Seerr; TheTVDB supplements TV fields; Simkl contributes identity and premiere/finale schedule evidence.
+
 Newznab records are always staged disabled. In Connections, **Validate & enable** performs only authenticated CAPS and one random negative search, spaced by at least three seconds through the same persisted rate limiter used by normal work. It enables the indexer only when both checks pass. After changing `.env.integrations`, reload those variables with `docker compose up -d --force-recreate api`; `docker compose restart` does not reload environment files.
 
 ## Manual season-pack add

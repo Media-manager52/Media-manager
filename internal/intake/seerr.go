@@ -13,13 +13,15 @@ import (
 
 	seerradapter "github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/catalog"
+	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
 type SeerrService struct {
-	Client     *seerradapter.Client
-	Store      *postgres.Store
-	InstanceID string
+	Client           *seerradapter.Client
+	Store            *postgres.Store
+	InstanceID       string
+	MetadataEnricher *metadataservice.Service
 }
 
 func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEvent) error {
@@ -98,6 +100,16 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		if metadata.ExternalIDs.IMDbID != "" && !hasIdentity(intake.Identities, "imdb") {
 			intake.Identities = append(intake.Identities, catalog.ExternalIdentity{Namespace: "imdb", Value: metadata.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: "seerr_metadata"})
 		}
+		enricher := service.MetadataEnricher
+		if enricher == nil {
+			enricher = &metadataservice.Service{}
+		}
+		enriched, enrichErr := enricher.Build(ctx, intake.Kind, *request.Media.TMDBID, metadata, intake.Identities, time.Now().UTC())
+		if enrichErr != nil {
+			return enrichErr
+		}
+		intake.Metadata = enriched.Metadata
+		intake.Identities = enriched.Identities
 		if intake.Kind == catalog.KindSeries {
 			for seasonIndex := range intake.Seasons {
 				details, detailsErr := service.Client.SeasonMetadata(ctx, *request.Media.TMDBID, intake.Seasons[seasonIndex].Number)

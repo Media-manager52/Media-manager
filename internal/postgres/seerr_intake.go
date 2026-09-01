@@ -35,6 +35,7 @@ type SeerrIntake struct {
 	Title        string
 	Year         *uint16
 	Identities   []catalog.ExternalIdentity
+	Metadata     *catalog.MediaMetadata
 	Seasons      []SeerrSeason
 	PayloadHash  []byte
 	DeliveryID   uuid.UUID
@@ -186,6 +187,14 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 	var mediaLock int
 	if err := transaction.QueryRow(ctx, `SELECT 1 FROM media_items WHERE id=$1 FOR UPDATE`, result.MediaID.String()).Scan(&mediaLock); err != nil {
 		return IntakeResult{}, err
+	}
+	if err := persistMetadata(ctx, transaction, result.MediaID, intake.Metadata, now); err != nil {
+		return IntakeResult{}, err
+	}
+	if intake.Metadata != nil && !result.Created {
+		if _, err := transaction.Exec(ctx, `UPDATE media_items SET revision=revision+1,updated_at=$2 WHERE id=$1`, result.MediaID.String(), now.UTC()); err != nil {
+			return IntakeResult{}, err
+		}
 	}
 
 	variants := []struct {

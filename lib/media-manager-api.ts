@@ -5,7 +5,13 @@ import type { MediaRecord } from "@/lib/media-manager-data"
 export const liveMode = process.env.NEXT_PUBLIC_MEDIA_MANAGER_MODE === "live"
 
 export type APIIdentity = { namespace: string; value: string; state?: "verified" | "candidate" | "rejected"; source?: string }
-export type APIMedia = { id: string; kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[] }
+export type APIMetadataAlias = { name: string; language?: string; source: string }
+export type APIMetadataNetwork = { name: string; country?: string; kind?: string; source: string }
+export type APIMetadataSource = { provider: string; provider_id?: string; url?: string; role: string }
+export type APIMetadataRating = { source: string; value: number; votes: number }
+export type APIMetadataEvent = { type: string; date: string; season_number?: number; episode_number?: number; country?: string; network?: string; confidence?: number; date_conflict: boolean; sources: string[] }
+export type APIMediaMetadata = { original_title?: string; overview?: string; original_language?: string; format?: string; status?: string; runtime_minutes?: number; poster_url?: string; backdrop_url?: string; genres: string[]; countries: string[]; networks: APIMetadataNetwork[]; aliases: APIMetadataAlias[]; sources: APIMetadataSource[]; ratings: APIMetadataRating[]; events: APIMetadataEvent[]; observed_at: string }
+export type APIMedia = { id: string; kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; metadata?: APIMediaMetadata }
 export type APIWorkflow = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number; attention_code?: string; attention_detail?: string; adopted_replacement_confirmation_required: boolean; terminal_at?: string; created_at: string; updated_at: string }
 export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string; created_at: string; updated_at: string }
 export type APILibraryRoot = { id: string; media_kind: "movie" | "series"; name: string; destination_root: string; plex_visible_root: string; source_visible_root: string; plex_instance_id?: string; plex_library_id?: string; is_default: boolean; enabled: boolean }
@@ -30,11 +36,11 @@ export type APIMediaDetail = { media: APIMedia; workflows: APIWorkflow[]; season
 export type APIWantedItem = { workflow_id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; gap: "missing" | "upgrade"; current_state: string; target_profile: string; upgrades_enabled: boolean; attention_detail?: string; updated_at: string }
 export type APITaskStatus = { event_type: string; pending: number; due: number; retrying: number; completed: number; highest_attempts: number; oldest_due_at?: string; latest_at: string }
 export type APITasks = { event_types: APITaskStatus[]; recurring: Array<{ name: string; schedule: string; automatic: boolean }> }
-export type APISystemInfo = { version: string; owner_only: boolean; browser_auth: string; api_auth: string; seerr_webhook_enabled: boolean; altmount_source_policy: string; publication_type: string; upgrade_replacement_gate: string; recycle_retention_days: number; public_edge_owner: string; machine_api_keys: boolean; api_prefix: string; checked_at: string }
+export type APISystemInfo = { version: string; owner_only: boolean; browser_auth: string; api_auth: string; seerr_webhook_enabled: boolean; gmd_metadata_enabled: boolean; altmount_source_policy: string; publication_type: string; upgrade_replacement_gate: string; recycle_retention_days: number; public_edge_owner: string; machine_api_keys: boolean; api_prefix: string; checked_at: string }
 export type APIDiscoverySearchResult = { id: number; mediaType: "movie" | "tv"; title?: string; name?: string; releaseDate?: string; firstAirDate?: string; overview?: string; posterPath?: string }
 export type APIDiscoverySearchPage = { page: number; totalPages: number; totalResults: number; results: APIDiscoverySearchResult[] }
 export type APIDiscoverySeason = { number: number; episodes: Array<{ number: number; provider_id: string; title: string; air_date: string }> }
-export type APIDiscoveryDetail = { kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; tmdb_id: number; season?: APIDiscoverySeason }
+export type APIDiscoveryDetail = { kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; tmdb_id: number; metadata?: APIMediaMetadata; enrichment_state: "tmdb_only" | "gmd_not_configured" | "gmd_unavailable" | "gmd_no_exact_identity_match" | "gmd_exact_identity_match"; season?: APIDiscoverySeason }
 export type APIReleaseBlock = { id: string; scope: "native_release" | "pack_release"; indexer_instance_id?: string; indexer_name?: string; media_id?: string; media_title?: string; variant?: string; native_key?: string; release_title: string; reason: string; expires_at?: string; created_at: string; created_by: string }
 export type APIAdoptionItem = { id: string; batch_id: string; original_relative: string; proposed_relative?: string; media_id?: string; root_id?: string; quality_profile_id?: string; variant?: string; monitoring_enabled?: boolean; search_immediately?: boolean; recognized_companions: string[]; unknown_companions: string[]; review_state: "pending" | "approved" | "rejected" | "needs_attention"; execution_state: string }
 export type APIAdoptionBatch = { id: string; source_root: string; media_kind: "movie" | "series"; default_root_id: string; default_quality_profile_id: string; monitoring_enabled: boolean; search_immediately: boolean; replacement_search_authorized: boolean; state: string; created_at: string; approved_at?: string; completed_at?: string; pending_items: number; approved_items: number; rejected_items: number; attention_items: number; items?: APIAdoptionItem[] }
@@ -120,7 +126,8 @@ export type CreateMediaInput = {
   kind: "movie" | "series"
   title: string
   year?: number
-  identities: Array<APIIdentity & { state: "verified"; source: "manual" | "seerr_metadata" }>
+  identities: Array<APIIdentity & { state: "verified"; source: string }>
+  metadata?: APIMediaMetadata
   search_immediately: boolean
   root_id?: string
   quality_profile_id?: string
@@ -129,6 +136,7 @@ export type CreateMediaInput = {
 }
 
 export const createMedia = (input: CreateMediaInput) => requestJSON<{ media: APIMedia; workflows: APIWorkflow[] }>("/api/v1/media", { method: "POST", body: JSON.stringify(input) })
+export const refreshMediaMetadata = (id: string) => requestJSON<{ media: APIMedia; enrichment_state: APIDiscoveryDetail["enrichment_state"] }>(`/api/v1/media/${encodeURIComponent(id)}/metadata/refresh`, { method: "POST" })
 export const recycleMedia = (id: string) => requestJSON<APIRecycleEntry[]>(`/api/v1/media/${encodeURIComponent(id)}`, { method: "DELETE" })
 export const restoreRecycle = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/restore`, { method: "POST" })
 export const restoreAdoptedFiles = (id: string, confirmation: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/restore-adopted`, { method: "POST", body: JSON.stringify({ confirmation }) })

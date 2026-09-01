@@ -60,13 +60,41 @@ type ExternalIDs struct {
 	IMDbID string `json:"imdbId"`
 	TVDBID *int64 `json:"tvdbId"`
 }
+type Genre struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+type Country struct {
+	Code string `json:"iso_3166_1"`
+	Name string `json:"name"`
+}
+type Network struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	OriginCountry string `json:"originCountry"`
+}
 type Metadata struct {
-	ID           int64       `json:"id"`
-	Title        string      `json:"title"`
-	Name         string      `json:"name"`
-	ReleaseDate  string      `json:"releaseDate"`
-	FirstAirDate string      `json:"firstAirDate"`
-	ExternalIDs  ExternalIDs `json:"externalIds"`
+	ID                  int64       `json:"id"`
+	Title               string      `json:"title"`
+	Name                string      `json:"name"`
+	OriginalTitle       string      `json:"originalTitle"`
+	OriginalName        string      `json:"originalName"`
+	Overview            string      `json:"overview"`
+	OriginalLanguage    string      `json:"originalLanguage"`
+	ReleaseDate         string      `json:"releaseDate"`
+	FirstAirDate        string      `json:"firstAirDate"`
+	Status              string      `json:"status"`
+	Runtime             *uint16     `json:"runtime"`
+	EpisodeRunTime      []uint16    `json:"episodeRunTime"`
+	PosterPath          string      `json:"posterPath"`
+	BackdropPath        string      `json:"backdropPath"`
+	VoteAverage         float64     `json:"voteAverage"`
+	VoteCount           int64       `json:"voteCount"`
+	Genres              []Genre     `json:"genres"`
+	ProductionCountries []Country   `json:"productionCountries"`
+	OriginCountry       []string    `json:"originCountry"`
+	Networks            []Network   `json:"networks"`
+	ExternalIDs         ExternalIDs `json:"externalIds"`
 }
 type EpisodeMetadata struct {
 	ID            int64  `json:"id"`

@@ -46,6 +46,10 @@ services:
       SEERR_INSTANCE_ID: ${SEERR_INSTANCE_ID:-}
       SEERR_WEBHOOK_SECRET: ${SEERR_WEBHOOK_SECRET:-}
       SEERR_ALLOW_HTTP: ${SEERR_ALLOW_HTTP:-false}
+      GMD_BASE_URL: ${GMD_BASE_URL:-}
+      GMD_ALLOW_HTTP: ${GMD_ALLOW_HTTP:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env.integrations
     volumes:

@@ -113,6 +113,9 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 			return nil, err
 		}
 	}
+	if err := persistMetadata(ctx, transaction, item.ID, item.Metadata, item.CreatedAt); err != nil {
+		return nil, err
+	}
 	created := make([]workflows.Workflow, 0, max(1, len(seasons)))
 	if item.Kind == catalog.KindMovie {
 		workflow := workflows.NewWithClient(item.ID, rootID, profileID, clientID, item.CreatedAt)

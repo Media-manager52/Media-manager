@@ -63,6 +63,9 @@ func (store *Store) CreateMediaWorkflow(ctx context.Context, item catalog.MediaI
 			return err
 		}
 	}
+	if err := persistMetadata(ctx, transaction, item.ID, item.Metadata, item.CreatedAt); err != nil {
+		return err
+	}
 	var clientID any
 	if workflow.DownloadClientID != (uuid.UUID{}) {
 		clientID = workflow.DownloadClientID.String()
@@ -111,6 +114,10 @@ func (store *Store) ListMedia(ctx context.Context, limit, offset int) ([]catalog
 			return nil, err
 		}
 		item.Identities = identities
+		item.Metadata, err = store.metadata(ctx, item.ID)
+		if err != nil {
+			return nil, err
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()

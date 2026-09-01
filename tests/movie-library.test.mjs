@@ -29,7 +29,7 @@ const secondID = "22222222-2222-4222-8222-222222222222";
 const firstFileID = "33333333-3333-4333-8333-333333333333";
 
 const media = [
-  { id: firstID, kind: "movie", title: "First Local Movie", year: 2024, identities: [{ namespace: "tmdb", value: "101", state: "verified" }] },
+  { id: firstID, kind: "movie", title: "First Local Movie", year: 2024, identities: [{ namespace: "tmdb", value: "101", state: "verified" }], metadata: { original_title: "First Original", overview: "First persisted overview", original_language: "en", format: "Movie", status: "Released", runtime_minutes: 98, poster_url: "https://image.tmdb.org/t/p/w500/first.jpg", genres: ["Drama"], countries: ["DK"], networks: [], aliases: [], sources: [{ provider: "tmdb", provider_id: "101", url: "https://www.themoviedb.org/movie/101", role: "primary descriptive metadata" }], ratings: [{ source: "tmdb", value: 8.1, votes: 200 }], events: [], observed_at: "2026-09-01T00:00:00Z" } },
   { id: secondID, kind: "movie", title: "Second Local Movie", year: 2022, identities: [{ namespace: "imdb", value: "tt0000202", state: "verified" }] },
   { id: "44444444-4444-4444-8444-444444444444", kind: "series", title: "Local Series", year: 2020, identities: [] },
 ];
@@ -88,6 +88,7 @@ test("builds and filters movies only from persisted API fields", async () => {
   assert.deepEqual(records[0].languages, ["da", "en"]);
   assert.equal(records[0].available, true);
   assert.equal(records[0].upgradable, true);
+  assert.equal(records[0].metadata.overview, "First persisted overview");
   assert.equal(records[1].missing, true);
   assert.equal(records[1].monitoring, true);
 
@@ -120,6 +121,7 @@ test("movie card is a native keyboard control with truthful selection and status
   assert.match(html, /aria-pressed="true"/);
   assert.match(html, /First Local Movie, 2024\. Available · upgrade wanted/);
   assert.match(html, />1080p</i);
+  assert.match(html, /https:\/\/image\.tmdb\.org\/t\/p\/w500\/first\.jpg/);
 });
 
 test("changing the selected record cannot retain previous inspector data", async () => {
@@ -128,11 +130,16 @@ test("changing the selected record cannot retain previous inspector data", async
   const props = { tab: "files", auto: false, onTabChange() {}, onClose() {} };
   const first = renderToStaticMarkup(React.createElement(MovieInspector, { ...props, item: records[0] }));
   const second = renderToStaticMarkup(React.createElement(MovieInspector, { ...props, item: records[1] }));
+  const firstOverview = renderToStaticMarkup(React.createElement(MovieInspector, { ...props, tab: "overview", item: records[0] }));
+  const firstMetadata = renderToStaticMarkup(React.createElement(MovieInspector, { ...props, tab: "metadata", item: records[0] }));
 
   assert.match(first, /First Local Movie/);
+  assert.match(firstOverview, /First persisted overview/);
+  assert.match(firstMetadata, /https:\/\/www\.themoviedb\.org\/movie\/101/);
   assert.match(first, new RegExp(firstFileID));
   assert.match(second, /Second Local Movie/);
   assert.doesNotMatch(second, /First Local Movie/);
+  assert.doesNotMatch(second, /First persisted overview/);
   assert.doesNotMatch(second, new RegExp(firstFileID));
   for (const tab of ["overview", "files", "metadata", "history"]) assert.match(second, new RegExp(`>${tab}<`, "i"));
 });
