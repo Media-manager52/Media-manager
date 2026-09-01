@@ -1,13 +1,69 @@
 package acquisition
 
 import (
+	"reflect"
 	"testing"
 	"uuid"
 
+	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
 )
+
+func TestBuildRequestUsesOnlyCommissionedMovieParameters(t *testing.T) {
+	year := uint16(2019)
+	search := postgres.SearchContext{Media: catalog.MediaItem{
+		Kind:  catalog.KindMovie,
+		Title: "Klaus",
+		Year:  &year,
+		Identities: []catalog.ExternalIdentity{
+			{Namespace: "imdb", Value: "tt4729430", State: catalog.IdentityVerified},
+			{Namespace: "tmdb", Value: "508965", State: catalog.IdentityVerified},
+			{Namespace: "tvdb", Value: "ignored", State: catalog.IdentityUnverified},
+		},
+	}}
+	config := indexerConfig{SearchDialects: newznab.SearchDialects{Movie: newznab.SearchDialect{Mode: "movie", Params: []string{"q", "imdbid", "tmdbid"}}}, MaximumLimit: 50, Extended: true}
+	request := buildRequest(search, config)
+	if request.Mode != "movie" || request.Limit != 50 || !request.Extended {
+		t.Fatalf("unexpected request: %#v", request)
+	}
+	want := []newznab.Param{{Name: "q", Value: "Klaus"}, {Name: "imdbid", Value: "4729430"}, {Name: "tmdbid", Value: "508965"}}
+	if !reflect.DeepEqual(request.Params, want) {
+		t.Fatalf("params=%#v, want %#v", request.Params, want)
+	}
+}
+
+func TestBuildRequestUsesVerifiedTVPackDialect(t *testing.T) {
+	year := uint16(2025)
+	search := postgres.SearchContext{Variant: "season:1", Media: catalog.MediaItem{
+		Kind:  catalog.KindSeries,
+		Title: "Adolescence",
+		Year:  &year,
+		Identities: []catalog.ExternalIdentity{
+			{Namespace: "tvdb", Value: "451609", State: catalog.IdentityVerified},
+			{Namespace: "tmdb", Value: "249042", State: catalog.IdentityVerified},
+		},
+	}}
+	config := indexerConfig{SearchDialects: newznab.SearchDialects{Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "tvdbid", "season", "year"}}}}
+	request := buildRequest(search, config)
+	want := []newznab.Param{{Name: "q", Value: "Adolescence"}, {Name: "tvdbid", Value: "451609"}, {Name: "season", Value: "1"}, {Name: "year", Value: "2025"}}
+	if request.Mode != "tvsearch" || !reflect.DeepEqual(request.Params, want) {
+		t.Fatalf("request=%#v, want params %#v", request, want)
+	}
+}
+
+func TestBuildRequestGenericFallbackKeepsUnsupportedFieldsInsideQuery(t *testing.T) {
+	year := uint16(2024)
+	movie := buildRequest(postgres.SearchContext{Media: catalog.MediaItem{Kind: catalog.KindMovie, Title: "Example", Year: &year}}, indexerConfig{Mode: "search", ModeVerified: true})
+	if !reflect.DeepEqual(movie.Params, []newznab.Param{{Name: "q", Value: "Example 2024"}}) {
+		t.Fatalf("movie params=%#v", movie.Params)
+	}
+	series := buildRequest(postgres.SearchContext{Variant: "season:3", Media: catalog.MediaItem{Kind: catalog.KindSeries, Title: "Example"}}, indexerConfig{Mode: "search", ModeVerified: true})
+	if !reflect.DeepEqual(series.Params, []newznab.Param{{Name: "q", Value: "Example S03"}}) {
+		t.Fatalf("series params=%#v", series.Params)
+	}
+}
 
 func TestConstrainSeriesMatchRequiresPositiveIdentityOrYear(t *testing.T) {
 	year := uint16(2005)

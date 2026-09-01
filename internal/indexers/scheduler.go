@@ -35,20 +35,28 @@ type Budget struct {
 	MinimumInterval time.Duration `json:"minimum_interval"`
 	FailureBackoff  time.Duration `json:"failure_backoff"`
 	MaximumBackoff  time.Duration `json:"maximum_backoff"`
+	QueryLimit      int           `json:"query_limit"`
+	GrabLimit       int           `json:"grab_limit"`
+	LimitWindow     time.Duration `json:"limit_window"`
 }
 
 type Snapshot struct {
-	IndexerID          string    `json:"indexer_id"`
-	NextAllowedAt      time.Time `json:"next_allowed_at"`
-	CooldownUntil      time.Time `json:"cooldown_until"`
-	ConsecutiveFailure uint32    `json:"consecutive_failure"`
-	LastOutcome        Outcome   `json:"last_outcome"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	IndexerID          string        `json:"indexer_id"`
+	NextAllowedAt      time.Time     `json:"next_allowed_at"`
+	CooldownUntil      time.Time     `json:"cooldown_until"`
+	ConsecutiveFailure uint32        `json:"consecutive_failure"`
+	LastOutcome        Outcome       `json:"last_outcome"`
+	UpdatedAt          time.Time     `json:"updated_at"`
+	MinimumInterval    time.Duration `json:"minimum_interval"`
 }
 
 type SnapshotStore interface {
 	LoadIndexerBudget(context.Context, string) (Snapshot, error)
 	SaveIndexerBudget(context.Context, Snapshot) error
+}
+
+type ReservationStore interface {
+	ReserveIndexerRequest(context.Context, string, string, int, time.Duration, time.Time) (time.Time, error)
 }
 
 type Scheduler struct {
@@ -80,6 +88,11 @@ var (
 	ErrInvalidBudget     = errors.New("invalid indexer budget")
 )
 
+const (
+	ConservativeQueryLimit = 1000
+	ConservativeGrabLimit  = 100
+)
+
 type CooldownError struct {
 	Until time.Time
 }
@@ -87,6 +100,34 @@ type CooldownError struct {
 func (err CooldownError) Error() string      { return "indexer request is deferred by persisted pacing" }
 func (err CooldownError) SafeCode() string   { return "indexer_pacing_deferred" }
 func (err CooldownError) RetryAt() time.Time { return err.Until.UTC() }
+
+type RequestBudgetError struct {
+	Until time.Time
+}
+
+func (err RequestBudgetError) Error() string {
+	return "indexer request is deferred by its rolling request budget"
+}
+func (err RequestBudgetError) SafeCode() string   { return "indexer_budget_deferred" }
+func (err RequestBudgetError) RetryAt() time.Time { return err.Until.UTC() }
+
+func NewznabBudget(minimumIntervalMS int64, queryLimit, grabLimit int, windowSeconds int64) Budget {
+	minimum := time.Duration(minimumIntervalMS) * time.Millisecond
+	if minimum < 3*time.Second {
+		minimum = 3 * time.Second
+	}
+	if queryLimit <= 0 {
+		queryLimit = ConservativeQueryLimit
+	}
+	if grabLimit <= 0 {
+		grabLimit = ConservativeGrabLimit
+	}
+	window := time.Duration(windowSeconds) * time.Second
+	if window <= 0 {
+		window = 24 * time.Hour
+	}
+	return Budget{MinimumInterval: minimum, FailureBackoff: 15 * time.Second, MaximumBackoff: 30 * time.Minute, QueryLimit: queryLimit, GrabLimit: grabLimit, LimitWindow: window}
+}
 
 func NewScheduler(globalLimit int, store SnapshotStore) *Scheduler {
 	if globalLimit < 1 {
@@ -100,7 +141,7 @@ func (scheduler *Scheduler) Configure(indexerID string, budget Budget) error {
 	if indexerID == "" {
 		return ErrIndexerIDRequired
 	}
-	if budget.MinimumInterval < 0 || budget.FailureBackoff <= 0 || budget.MaximumBackoff < budget.FailureBackoff {
+	if budget.MinimumInterval < 0 || budget.FailureBackoff <= 0 || budget.MaximumBackoff < budget.FailureBackoff || budget.QueryLimit < 0 || budget.GrabLimit < 0 || (budget.QueryLimit > 0 || budget.GrabLimit > 0) && budget.LimitWindow <= 0 {
 		return ErrInvalidBudget
 	}
 	scheduler.mu.Lock()
@@ -154,6 +195,25 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		<-lane.gate
 		return nil, CooldownError{Until: notBefore}
 	}
+	lane.mu.RLock()
+	budget := lane.budget
+	lane.mu.RUnlock()
+	limit, family := requestLimit(workload, budget)
+	if limit > 0 && budget.LimitWindow > 0 {
+		if reservations, ok := scheduler.store.(ReservationStore); ok {
+			retryAt, err := reservations.ReserveIndexerRequest(ctx, indexerID, family, limit, budget.LimitWindow, now)
+			if err != nil {
+				<-scheduler.global
+				<-lane.gate
+				return nil, err
+			}
+			if !retryAt.IsZero() {
+				<-scheduler.global
+				<-lane.gate
+				return nil, RequestBudgetError{Until: retryAt}
+			}
+		}
+	}
 	return &Permit{scheduler: scheduler, lane: lane, indexerID: indexerID, workload: workload}, nil
 }
 
@@ -167,6 +227,7 @@ func (permit *Permit) Record(ctx context.Context, outcome Outcome, headers http.
 		snapshot.IndexerID = permit.indexerID
 		snapshot.LastOutcome = outcome
 		snapshot.UpdatedAt = now
+		snapshot.MinimumInterval = budget.MinimumInterval
 		snapshot.NextAllowedAt = now.Add(budget.MinimumInterval)
 		switch outcome {
 		case OutcomeSuccess, OutcomeNoResults:
@@ -196,6 +257,13 @@ func (permit *Permit) Record(ctx context.Context, outcome Outcome, headers http.
 		<-permit.lane.gate
 	})
 	return result
+}
+
+func requestLimit(workload Workload, budget Budget) (int, string) {
+	if workload == WorkloadRetrieval {
+		return budget.GrabLimit, "grab"
+	}
+	return budget.QueryLimit, "query"
 }
 
 func (permit *Permit) Close() { _ = permit.Record(context.Background(), OutcomeCancelled, nil) }

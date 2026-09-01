@@ -30,13 +30,19 @@ type SearchService struct {
 }
 
 type indexerConfig struct {
-	BaseURL           string `json:"base_url"`
-	AllowHTTP         bool   `json:"allow_http"`
-	MinimumIntervalMS int64  `json:"minimum_interval_ms"`
-	Mode              string `json:"mode"`
-	ModeVerified      bool   `json:"mode_verified"`
-	Categories        []int  `json:"categories"`
-	Extended          bool   `json:"extended"`
+	BaseURL           string                 `json:"base_url"`
+	AllowHTTP         bool                   `json:"allow_http"`
+	MinimumIntervalMS int64                  `json:"minimum_interval_ms"`
+	Mode              string                 `json:"mode"`
+	ModeVerified      bool                   `json:"mode_verified"`
+	Categories        []int                  `json:"categories"`
+	Extended          bool                   `json:"extended"`
+	SearchDialects    newznab.SearchDialects `json:"search_dialects"`
+	DefaultLimit      int                    `json:"default_limit"`
+	MaximumLimit      int                    `json:"maximum_limit"`
+	QueryLimit        int                    `json:"query_limit"`
+	GrabLimit         int                    `json:"grab_limit"`
+	BudgetWindow      int64                  `json:"budget_window_seconds"`
 }
 
 func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxEvent) error {
@@ -97,11 +103,8 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 		if err != nil {
 			continue
 		}
-		minimum := time.Duration(config.MinimumIntervalMS) * time.Millisecond
-		if minimum < 3*time.Second {
-			minimum = 3 * time.Second
-		}
-		if err := service.Scheduler.Configure(integration.ID.String(), indexers.Budget{MinimumInterval: minimum, FailureBackoff: 15 * time.Second, MaximumBackoff: 30 * time.Minute}); err != nil {
+		budget := indexers.NewznabBudget(config.MinimumIntervalMS, config.QueryLimit, config.GrabLimit, config.BudgetWindow)
+		if err := service.Scheduler.Configure(integration.ID.String(), budget); err != nil {
 			return err
 		}
 		client, err := newznab.New(newznab.Config{IndexerID: integration.ID.String(), BaseURL: config.BaseURL, APIKey: secret, AllowHTTP: config.AllowHTTP}, service.Scheduler, service.Transport)
@@ -261,31 +264,91 @@ func normalizeIMDbID(value string) (string, bool) {
 }
 
 func buildRequest(search postgres.SearchContext, config indexerConfig) newznab.SearchRequest {
-	mode := "search"
+	dialect := config.SearchDialects.Movie
+	if search.Media.Kind == catalog.KindSeries {
+		dialect = config.SearchDialects.Series
+	}
+	if dialect.Mode == "" {
+		dialect = legacyDialect(config)
+	}
+	mode := dialect.Mode
 	params := []newznab.Param{}
 	season := seasonNumber(search.Variant)
-	if config.ModeVerified && (config.Mode == "movie" || config.Mode == "movie-search" || config.Mode == "tvsearch" || config.Mode == "tv-search" || config.Mode == "search") {
-		mode = config.Mode
-	}
-	if mode == "movie-search" {
-		mode = "movie"
-	}
-	if mode == "tv-search" {
-		mode = "tvsearch"
-	}
 	if search.Media.Kind == catalog.KindSeries && season >= 0 {
 		if mode == "tvsearch" {
-			params = append(params, newznab.Param{Name: "q", Value: search.Media.Title}, newznab.Param{Name: "season", Value: strconv.Itoa(season)})
+			params = appendSupported(params, dialect, "q", search.Media.Title)
+			params = appendIdentity(params, dialect, search.Media, "tvdb", "tvdbid")
+			params = appendIdentity(params, dialect, search.Media, "tmdb", "tmdbid")
+			params = appendIdentity(params, dialect, search.Media, "imdb", "imdbid")
+			params = appendSupported(params, dialect, "season", strconv.Itoa(season))
+			if search.Media.Year != nil {
+				params = appendSupported(params, dialect, "year", strconv.Itoa(int(*search.Media.Year)))
+			}
 		} else {
 			params = append(params, newznab.Param{Name: "q", Value: fmt.Sprintf("%s S%02d", search.Media.Title, season)})
 		}
 	} else {
-		params = append(params, newznab.Param{Name: "q", Value: search.Media.Title})
+		query := search.Media.Title
+		if mode == "search" && search.Media.Year != nil {
+			query = fmt.Sprintf("%s %d", query, *search.Media.Year)
+		}
+		params = appendSupported(params, dialect, "q", query)
+		params = appendIdentity(params, dialect, search.Media, "imdb", "imdbid")
+		params = appendIdentity(params, dialect, search.Media, "tmdb", "tmdbid")
 		if search.Media.Year != nil {
-			params = append(params, newznab.Param{Name: "year", Value: strconv.Itoa(int(*search.Media.Year))})
+			params = appendSupported(params, dialect, "year", strconv.Itoa(int(*search.Media.Year)))
 		}
 	}
-	return newznab.SearchRequest{Mode: mode, Params: params, Categories: config.Categories, Limit: 100, Extended: config.Extended}
+	limit := 100
+	if config.MaximumLimit > 0 && config.MaximumLimit < limit {
+		limit = config.MaximumLimit
+	}
+	return newznab.SearchRequest{Mode: mode, Params: params, Categories: config.Categories, Limit: limit, Extended: config.Extended}
+}
+
+func legacyDialect(config indexerConfig) newznab.SearchDialect {
+	mode := strings.ToLower(strings.TrimSpace(config.Mode))
+	switch mode {
+	case "movie-search":
+		mode = "movie"
+	case "tv-search":
+		mode = "tvsearch"
+	case "movie", "tvsearch", "search":
+	default:
+		mode = "search"
+	}
+	params := []string{"q"}
+	if mode == "movie" {
+		params = append(params, "year")
+	}
+	if mode == "tvsearch" {
+		params = append(params, "season")
+	}
+	return newznab.SearchDialect{Mode: mode, Params: params}
+}
+
+func appendSupported(params []newznab.Param, dialect newznab.SearchDialect, name, value string) []newznab.Param {
+	if value != "" && dialect.Supports(name) {
+		return append(params, newznab.Param{Name: name, Value: value})
+	}
+	return params
+}
+
+func appendIdentity(params []newznab.Param, dialect newznab.SearchDialect, media catalog.MediaItem, namespace, parameter string) []newznab.Param {
+	if !dialect.Supports(parameter) {
+		return params
+	}
+	for _, identity := range media.Identities {
+		if identity.State != catalog.IdentityVerified || !strings.EqualFold(identity.Namespace, namespace) {
+			continue
+		}
+		value := strings.TrimSpace(identity.Value)
+		if namespace == "imdb" {
+			value = strings.TrimPrefix(strings.ToLower(value), "tt")
+		}
+		return appendSupported(params, dialect, parameter, value)
+	}
+	return params
 }
 
 func parseRules(policy json.RawMessage) ([]releases.Rule, error) {

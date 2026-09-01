@@ -199,7 +199,7 @@ func readCandidates(ctx context.Context, db *sql.DB, table string, columns map[s
 		var settings any
 		if err := json.Unmarshal([]byte(settingsText), &settings); err != nil {
 			candidate.AttentionDetail = "Prowlarr settings could not be decoded"
-			candidate.SanitizedConfig = defaultSanitizedConfig("", nil)
+			candidate.SanitizedConfig = defaultSanitizedConfig("", nil, 0, 0, 0)
 			result = append(result, candidate)
 			continue
 		}
@@ -207,11 +207,17 @@ func readCandidates(ctx context.Context, db *sql.DB, table string, columns map[s
 		apiPath := firstString(settings, "apipath")
 		candidate.APIKey = firstString(settings, "apikey")
 		candidate.Categories = firstIntegers(settings, "categories")
+		queryLimit := firstPositiveInteger(settings, "querylimit")
+		grabLimit := firstPositiveInteger(settings, "grablimit")
+		budgetWindowSeconds := int64(24 * 60 * 60)
+		if firstNonNegativeInteger(settings, "limitsunit") == 1 {
+			budgetWindowSeconds = 60 * 60
+		}
 		candidate.BaseURL, err = normalizeEndpoint(base, apiPath)
 		if err != nil {
 			candidate.AttentionDetail = "A safe Newznab API endpoint was not found"
 		}
-		candidate.SanitizedConfig = defaultSanitizedConfig(candidate.BaseURL, candidate.Categories)
+		candidate.SanitizedConfig = defaultSanitizedConfig(candidate.BaseURL, candidate.Categories, queryLimit, grabLimit, budgetWindowSeconds)
 		looksNewznab := strings.Contains(strings.ToLower(implementation+" "+contract), "newznab")
 		if candidate.AttentionDetail == "" && looksNewznab && candidate.APIKey != "" {
 			candidate.ReviewState = "pending"
@@ -224,12 +230,23 @@ func readCandidates(ctx context.Context, db *sql.DB, table string, columns map[s
 	return result, rows.Err()
 }
 
-func defaultSanitizedConfig(endpoint string, categories []int) json.RawMessage {
+func defaultSanitizedConfig(endpoint string, categories []int, queryLimit, grabLimit int, budgetWindowSeconds int64) json.RawMessage {
 	allowHTTP := false
 	if parsed, err := url.Parse(endpoint); err == nil {
 		allowHTTP = parsed.Scheme == "http"
 	}
-	value, _ := json.Marshal(map[string]any{"base_url": endpoint, "allow_http": allowHTTP, "minimum_interval_ms": 3000, "mode": "search", "mode_verified": false, "categories": append([]int(nil), categories...), "extended": true})
+	config := map[string]any{"base_url": endpoint, "allow_http": allowHTTP, "minimum_interval_ms": 3000, "mode": "search", "mode_verified": false, "categories": append([]int(nil), categories...), "extended": true}
+	if queryLimit > 0 {
+		config["query_limit"] = queryLimit
+	}
+	if grabLimit > 0 {
+		config["grab_limit"] = grabLimit
+	}
+	if queryLimit > 0 || grabLimit > 0 {
+		config["budget_window_seconds"] = budgetWindowSeconds
+		config["budget_source"] = "prowlarr_backup"
+	}
+	value, _ := json.Marshal(config)
 	return value
 }
 
@@ -326,6 +343,58 @@ func firstIntegers(value any, wanted string) []int {
 	visit(value)
 	sort.Ints(result)
 	return compactIntegers(result)
+}
+
+func firstPositiveInteger(value any, wanted string) int {
+	result := firstNonNegativeInteger(value, wanted)
+	if result <= 0 {
+		return 0
+	}
+	return result
+}
+
+func firstNonNegativeInteger(value any, wanted string) int {
+	wanted = normalizeKey(wanted)
+	var visit func(any) (int, bool)
+	visit = func(current any) (int, bool) {
+		switch typed := current.(type) {
+		case map[string]any:
+			keys := make([]string, 0, len(typed))
+			for key := range typed {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				if normalizeKey(key) != wanted {
+					continue
+				}
+				switch scalar := typed[key].(type) {
+				case float64:
+					if scalar >= 0 && scalar <= 1_000_000 && scalar == float64(int(scalar)) {
+						return int(scalar), true
+					}
+				case json.Number:
+					if parsed, err := strconv.Atoi(scalar.String()); err == nil && parsed >= 0 && parsed <= 1_000_000 {
+						return parsed, true
+					}
+				}
+			}
+			for _, key := range keys {
+				if found, ok := visit(typed[key]); ok {
+					return found, true
+				}
+			}
+		case []any:
+			for _, item := range typed {
+				if found, ok := visit(item); ok {
+					return found, true
+				}
+			}
+		}
+		return 0, false
+	}
+	result, _ := visit(value)
+	return result
 }
 
 func collectIntegers(value any, result *[]int) {

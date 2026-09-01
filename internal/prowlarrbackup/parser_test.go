@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestParseProwlarrBackup(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE Indexers (Name TEXT, Implementation TEXT, ConfigContract TEXT, Settings TEXT, Enable INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO Indexers VALUES (?,?,?,?,?)`, "Treasure Maps", "Newznab", "NewznabSettings", `{"baseUrl":"https://example.test","apiPath":"/api","apiKey":"secret-value","categories":[2000,5000]}`, 1); err != nil {
+	if _, err := db.Exec(`INSERT INTO Indexers VALUES (?,?,?,?,?)`, "Treasure Maps", "Newznab", "NewznabSettings", `{"baseUrl":"https://example.test","apiPath":"/api","apiKey":"secret-value","categories":[2000,5000],"baseSettings":{"queryLimit":5000,"grabLimit":175,"limitsUnit":0}}`, 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO Indexers VALUES (?,?,?,?,?)`, "Torrent only", "Cardigann", "TorznabSettings", `{"baseUrl":"https://torrent.example","apiPath":"/api","apiKey":"torrent-secret"}`, 1); err != nil {
@@ -59,6 +60,13 @@ func TestParseProwlarrBackup(t *testing.T) {
 	}
 	if usable.BaseURL != "https://example.test/api" || usable.APIKey != "secret-value" || usable.ReviewState != "pending" || len(usable.Categories) != 2 {
 		t.Fatalf("unexpected usable candidate: %#v", usable)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(usable.SanitizedConfig, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config["query_limit"] != float64(5000) || config["grab_limit"] != float64(175) || config["budget_window_seconds"] != float64(86400) || config["budget_source"] != "prowlarr_backup" {
+		t.Fatalf("budget config=%#v", config)
 	}
 	for _, candidate := range result.Candidates {
 		if candidate.Name == "Torrent only" && candidate.ReviewState == "pending" {

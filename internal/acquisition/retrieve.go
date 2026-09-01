@@ -105,11 +105,8 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err != nil {
 		return err
 	}
-	minimum := time.Duration(indexerConfiguration.MinimumIntervalMS) * time.Millisecond
-	if minimum < 3*time.Second {
-		minimum = 3 * time.Second
-	}
-	if err := service.Scheduler.Configure(retrieval.Indexer.ID.String(), indexers.Budget{MinimumInterval: minimum, FailureBackoff: 15 * time.Second, MaximumBackoff: 30 * time.Minute}); err != nil {
+	budget := indexers.NewznabBudget(indexerConfiguration.MinimumIntervalMS, indexerConfiguration.QueryLimit, indexerConfiguration.GrabLimit, indexerConfiguration.BudgetWindow)
+	if err := service.Scheduler.Configure(retrieval.Indexer.ID.String(), budget); err != nil {
 		return err
 	}
 	indexerClient, err := newznab.New(newznab.Config{IndexerID: retrieval.Indexer.ID.String(), BaseURL: indexerConfiguration.BaseURL, APIKey: apiKey, AllowHTTP: indexerConfiguration.AllowHTTP}, service.Scheduler, service.Transport)

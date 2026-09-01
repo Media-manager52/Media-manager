@@ -79,8 +79,19 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CompleteNewznabCommission(ctx, indexer.ID, newznab.CapsSnapshot{ServerVersion: "test", BodyHash: "test-caps"}, time.Now().UTC()); err != nil {
+	dialects := newznab.SearchDialects{Movie: newznab.SearchDialect{Mode: "movie", Params: []string{"q", "imdbid"}}, Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "tvdbid", "season"}}}
+	if _, err := store.CompleteNewznabCommission(ctx, indexer.ID, newznab.CapsSnapshot{ServerVersion: "test", BodyHash: "test-caps", DefaultLimit: 100, MaximumLimit: 100}, dialects, time.Now().UTC()); err != nil {
 		t.Fatal(err)
+	}
+	budgetNow := time.Now().UTC()
+	if retryAt, err := store.ReserveIndexerRequest(ctx, indexer.ID.String(), "query", 1, time.Hour, budgetNow); err != nil || !retryAt.IsZero() {
+		t.Fatalf("first request reservation retry=%v err=%v", retryAt, err)
+	}
+	if retryAt, err := store.ReserveIndexerRequest(ctx, indexer.ID.String(), "query", 1, time.Hour, budgetNow); err != nil || retryAt.Sub(budgetNow.Add(time.Hour)) < -time.Millisecond || retryAt.Sub(budgetNow.Add(time.Hour)) > time.Millisecond {
+		t.Fatalf("spent query budget retry=%v err=%v", retryAt, err)
+	}
+	if retryAt, err := store.ReserveIndexerRequest(ctx, indexer.ID.String(), "grab", 1, time.Hour, budgetNow); err != nil || !retryAt.IsZero() {
+		t.Fatalf("independent grab reservation retry=%v err=%v", retryAt, err)
 	}
 	for _, kind := range []catalog.MediaKind{catalog.KindMovie, catalog.KindSeries} {
 		rootName, destination, libraryID := "Movies", "/libraries/movies", "1"

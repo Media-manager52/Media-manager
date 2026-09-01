@@ -123,6 +123,8 @@ TVDB is preferred for series naming when verified; TMDB is the fallback. Movies 
 
 - One in-flight request per indexer; persisted pacing, `Retry-After`, and bounded backoff apply to normal work and the Indexer Lab.
 - Repeated Newznab attributes retain their original order and values.
+- Commissioning snapshots each provider's advertised movie and TV search dialect. Runtime searches send only supported parameters, prefer verified external identities, normalize IMDb IDs to their numeric Newznab form, and retain general search as a capability-backed fallback.
+- Every Newznab call reserves a durable per-provider rolling budget before network I/O. Prowlarr-imported query/grab limits are preserved; otherwise the conservative fallback is 1,000 queries and 100 grabs per 24 hours, in addition to the three-second minimum interval and one-in-flight lane.
 - Ambiguous AltMount upload results are reconciled by a unique filename and are never blindly resubmitted.
 - AltMount output is read-only. Media Manager publishes only contained symlinks.
 - A season pack remains one AltMount job and one immutable expectation set.
