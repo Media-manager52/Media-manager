@@ -64,6 +64,9 @@ func TestBuildUsesTMDBPrimaryAndGMDForExactSupplement(t *testing.T) {
 	if !hasIdentity(result.Identities, "simkl", "88") || !hasSource(result.Metadata.Sources, "tvdb", "supplementary TV metadata") || !hasSource(result.Metadata.Sources, "simkl", "schedule evidence") {
 		t.Fatalf("provider evidence missing: identities=%+v sources=%+v", result.Identities, result.Metadata.Sources)
 	}
+	if len(result.Metadata.Sources) != 3 {
+		t.Fatalf("provider sources were duplicated: %+v", result.Metadata.Sources)
+	}
 }
 
 func TestBuildNeverUsesGMDForMovieOrFailedMatch(t *testing.T) {

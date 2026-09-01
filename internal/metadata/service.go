@@ -168,7 +168,7 @@ func mergeGMD(target *catalog.MediaMetadata, detail gmd.Detail) {
 			role = "supplementary TV metadata"
 		} else if identity.Source == "simkl" {
 			role = "schedule evidence"
-		} else if identity.Source != "tmdb" {
+		} else {
 			continue
 		}
 		target.Sources = append(target.Sources, catalog.MetadataSource{Provider: identity.Source, ProviderID: identity.ID, URL: identity.URL, Role: role})
