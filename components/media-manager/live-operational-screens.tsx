@@ -749,12 +749,30 @@ function sourceEndpoint(item: APISourceStatus) {
   return typeof endpoint === "string" ? endpoint : "—"
 }
 
+function indexerDialect(item: APISourceStatus, kind: "movie" | "series") {
+  const dialects = item.config.search_dialects
+  if (!dialects || typeof dialects !== "object" || Array.isArray(dialects)) return item.config.mode_verified === true ? String(item.config.mode ?? "search") : "Not verified"
+  const dialect = (dialects as Record<string, unknown>)[kind]
+  if (!dialect || typeof dialect !== "object" || Array.isArray(dialect)) return "Not verified"
+  const mode = (dialect as Record<string, unknown>).mode
+  return typeof mode === "string" && mode ? mode : "Not verified"
+}
+
+function indexerRequestBudget(item: APISourceStatus) {
+  const query = typeof item.config.query_limit === "number" ? item.config.query_limit : undefined
+  const grab = typeof item.config.grab_limit === "number" ? item.config.grab_limit : undefined
+  const window = typeof item.config.budget_window_seconds === "number" ? item.config.budget_window_seconds : undefined
+  if (!query || !grab || !window) return "Not commissioned"
+  const windowLabel = window === 86400 ? "24h" : window === 3600 ? "1h" : `${window}s`
+  return `${query.toLocaleString()} queries · ${grab.toLocaleString()} grabs / ${windowLabel}`
+}
+
 export function LiveIndexerDetailScreen({ indexerId }: { indexerId: string }) {
   const { data, error, refresh } = useLiveData(sourcesLoader)
   const item = data?.find((source) => source.id === indexerId && source.kind === "newznab")
   if (!data && !error) return <LoadingPanel label="Loading indexer state…" />
   if (data && !item) return <ErrorNotice error="The Newznab indexer was not found." />
-  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{item ? <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Configuration" value={pretty(item.configuration_state)} note="Enabled only after commissioning" tone={item.configuration_state === "configured" ? "info" : "warn"} icon={Globe2} /><MetricCard label="Minimum interval" value={item.minimum_interval_ms ? `${item.minimum_interval_ms} ms` : "Not observed"} note="One in-flight request per indexer" icon={Gauge} /><MetricCard label="Latest outcome" value={item.last_outcome ? pretty(item.last_outcome) : "None"} note={item.budget_updated_at ? timeAgo(item.budget_updated_at) : "No runtime request recorded"} tone={item.last_outcome === "auth_failed" || item.last_outcome === "system_failure" ? "warn" : "neutral"} icon={Activity} /></div><div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]"><Panel title={item.name} subtitle="Persisted Newznab configuration. Secrets remain environment references."><KeyValue label="Endpoint" value={<span className="break-all font-mono">{sourceEndpoint(item)}</span>} /><KeyValue label="Secret reference" value={<span className="font-mono">{item.secret_ref ?? "—"}</span>} /><KeyValue label="Default" value={item.is_default ? "Yes" : "No"} /><KeyValue label="Commissioned mode" value={item.config.mode_verified === true ? String(item.config.mode ?? "search") : "Not verified"} /></Panel><Panel title="Pacing state" action={<RefreshButton onClick={refresh} />}><KeyValue label="Next allowed" value={item.next_allowed_at ? new Date(item.next_allowed_at).toLocaleString() : "No persisted delay"} /><KeyValue label="Cooldown" value={item.cooldown_until ? new Date(item.cooldown_until).toLocaleString() : "None"} /><KeyValue label="Consecutive failures" value={String(item.consecutive_failure)} /><InlineNotice tone="info" title="No automatic test">Opening this screen never contacts the indexer. Commissioning remains the only owner-triggered diagnostic path.</InlineNotice></Panel></div></> : null}</div>
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{item ? <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Configuration" value={pretty(item.configuration_state)} note="Enabled only after commissioning" tone={item.configuration_state === "configured" ? "info" : "warn"} icon={Globe2} /><MetricCard label="Minimum interval" value={item.minimum_interval_ms ? `${item.minimum_interval_ms} ms` : "Not observed"} note="One in-flight request per indexer" icon={Gauge} /><MetricCard label="Latest outcome" value={item.last_outcome ? pretty(item.last_outcome) : "None"} note={item.budget_updated_at ? timeAgo(item.budget_updated_at) : "No runtime request recorded"} tone={item.last_outcome === "auth_failed" || item.last_outcome === "system_failure" ? "warn" : "neutral"} icon={Activity} /></div><div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]"><Panel title={item.name} subtitle="Persisted Newznab configuration. Secrets remain environment references."><KeyValue label="Endpoint" value={<span className="break-all font-mono">{sourceEndpoint(item)}</span>} /><KeyValue label="Secret reference" value={<span className="font-mono">{item.secret_ref ?? "—"}</span>} /><KeyValue label="Default" value={item.is_default ? "Yes" : "No"} /><KeyValue label="Movie search" value={indexerDialect(item, "movie")} /><KeyValue label="TV search" value={indexerDialect(item, "series")} /><KeyValue label="Request ceiling" value={indexerRequestBudget(item)} /></Panel><Panel title="Pacing state" action={<RefreshButton onClick={refresh} />}><KeyValue label="Next allowed" value={item.next_allowed_at ? new Date(item.next_allowed_at).toLocaleString() : "No persisted delay"} /><KeyValue label="Cooldown" value={item.cooldown_until ? new Date(item.cooldown_until).toLocaleString() : "None"} /><KeyValue label="Consecutive failures" value={String(item.consecutive_failure)} /><InlineNotice tone="info" title="No automatic test">Opening this screen never contacts the indexer. Commissioning remains the only owner-triggered diagnostic path.</InlineNotice></Panel></div></> : null}</div>
 }
 
 export function LiveComponentHealthScreen() {
