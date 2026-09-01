@@ -69,7 +69,7 @@ screens.
 | Manual movie and exact-season requests | Real | Catalog, identities, root/profile/client overrides, season monitoring, immutable episode expectations, and workflows are transactionally persisted. |
 | Metadata discovery and identity verification | Partial | Owner-triggered Seerr search/detail APIs return only movie/TV results. Configured direct TMDB, TheTVDB, and Simkl clients perform bounded exact-ID enrichment, reject redirect/identity drift, strip all Simkl redirect queries before validation/persistence, and persist rich provider-separated metadata plus provenance. IMDb identity is exact; rating evidence through Simkl is labeled as indirect and no IMDb scraping exists. Series and movie refreshes have been live-tested with existing verified identities; TheTVDB remains neutral when an exact movie identity is unavailable. Per-item owner refresh is real and audited; automated Seerr intake uses the same merge path. Licensed direct IMDb access, search pagination, artwork locks, and bulk refresh review remain. |
 | Seerr reconciliation | Real | Webhook deduplication, five-minute polling, provenance, configuration retry, and revocation reconciliation are persisted. Management/status UI is missing. |
-| Newznab commissioning | Partial | A disabled instance is paced at at least three seconds, fetches CAPS, requires generic search, and performs one random negative query before enablement. The approved multi-phase lab and detailed evidence are not implemented. |
+| Newznab commissioning | Partial | A disabled instance is paced at at least three seconds, fetches CAPS, requires a usable movie/TV dialect, and performs one random negative query before enablement. A separate developer-only bounded lab has now semantically verified the real movie and complete-season request shapes for all nine enabled standard providers; it is intentionally not a production dependency or live UI feature. Persisting owner-reviewed semantic conformance for future providers remains missing; raw lab evidence must never be imported. |
 | Newznab runtime pacing | Real | Per-indexer single-flight lanes, a global bound, persisted next-allowed/cooldown state, `Retry-After`, and bounded backoff wrap supported indexer requests. |
 | Release search/evidence/policy | Partial UI | Search runs, raw observations, normalized evidence, decisions, and selection are persisted and now have bounded read screens. Raw provenance, comparison detail, and pagination remain incomplete. |
 | Narrow release blocklist | Real | Owner blocks originate from persisted candidates; native blocks bind indexer plus native GUID and pack blocks bind media plus season variant plus exact title. Matching observations remain visible but are rejected before ranking. |
@@ -113,8 +113,9 @@ for smoke testing without explicit approval.
   security headers.
 - Baseline verification passed: ESLint, TypeScript, UI build/tests, Go formatting,
   vet and race tests, PostgreSQL lifecycle tests, and Compose validation. All nine
-  enabled Newznab endpoints passed live CAPS plus one paced random negative TV
-  query using their advertised dialect; OldBoys remained disabled and uncontacted.
+  enabled Newznab endpoints passed live CAPS, one paced random negative TV query,
+  and a separate bounded semantic check of Media Manager's real extended movie
+  and complete-season request shapes. OldBoys remained disabled and uncontacted.
 - The live UI artifact is dependency-separated from the development concept
   fixtures; an automated artifact scan verifies that fixture records are absent.
 

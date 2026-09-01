@@ -92,6 +92,11 @@ Media Manager owns metadata enrichment directly. Optional dedicated `TMDB_ACCESS
 
 Newznab records are always staged disabled. In Connections, **Validate & enable** performs only authenticated CAPS and one random negative search, spaced by at least three seconds through the same persisted rate limiter used by normal work. It enables the indexer only when both checks pass. After changing `.env.integrations`, reload those variables with `docker compose up -d --force-recreate api`; `docker compose restart` does not reload environment files.
 
+The developer-only provider-onboarding procedure and the currently verified
+movie/complete-season dialects are recorded in
+[`docs/INDEXER_CONFORMANCE.md`](docs/INDEXER_CONFORMANCE.md). The lab is never a
+runtime dependency and its raw evidence is not imported into Media Manager.
+
 ## Manual season-pack add
 
 `POST /api/v1/media` accepts defaults or per-item overrides. A series request includes the exact episode snapshot that must be present before publishing:
