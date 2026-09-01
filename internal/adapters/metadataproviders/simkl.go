@@ -154,7 +154,12 @@ func (client *SimklClient) resolve(ctx context.Context, kind catalog.MediaKind, 
 		// origin and path checks; path-only relative redirects remain rejected.
 		location.Scheme = "https"
 	}
-	if err != nil || location.Scheme != "https" || location.User != nil || location.RawQuery != "" || location.Fragment != "" || location.Port() != "" && location.Port() != "443" || !strings.EqualFold(location.Hostname(), "simkl.com") {
+	// The provider currently echoes API parameters on the human-facing target.
+	// Media Manager never follows this redirect and deliberately discards every
+	// query parameter before validating or persisting the public item link.
+	location.RawQuery = ""
+	location.ForceQuery = false
+	if err != nil || location.Scheme != "https" || location.User != nil || location.Fragment != "" || location.Port() != "" && location.Port() != "443" || !strings.EqualFold(location.Hostname(), "simkl.com") {
 		return "", "", "", ErrProviderUnavailable
 	}
 	match := simklPath.FindStringSubmatch(location.EscapedPath())

@@ -82,7 +82,7 @@ func TestSimklManualResolutionPreservesProvenanceAndDoesNotLeakClientID(t *testi
 			if request.URL.Query().Get("tmdb") != "42" || request.URL.Query().Get("type") != "movie" || request.URL.Query().Get("client_id") != secret {
 				t.Fatal("exact redirect resolution missing")
 			}
-			writer.Header().Set("Location", "//simkl.com/movies/99/example")
+			writer.Header().Set("Location", "//simkl.com/movies/99/example?client_id=must-not-persist&ticket=discarded")
 			writer.WriteHeader(http.StatusMovedPermanently)
 		case "/movies/99":
 			writer.Header().Set("Content-Type", "application/json")
