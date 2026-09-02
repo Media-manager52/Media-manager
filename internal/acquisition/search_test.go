@@ -61,6 +61,34 @@ func TestRequiredSubtitleEvidenceOutranksUnknownWithoutRejectingUnknown(t *testi
 	}
 }
 
+func TestUpgradeBaselineRequiresStrictImprovement(t *testing.T) {
+	t.Parallel()
+	indexerID := uuid.NewV7()
+	current := releases.Observation{ID: uuid.NewV7(), IndexerID: indexerID, NativeGUID: "current", Title: "Movie.1080p"}
+	baseline := releases.Evaluation{ObservationID: current.ID, Verdict: releases.VerdictEligible, Score: 40000}
+
+	exact := applyUpgradeBaseline(current, releases.Evaluation{ObservationID: current.ID, Verdict: releases.VerdictEligible, Score: 40000}, &current, &baseline)
+	if exact.Verdict != releases.VerdictRejected {
+		t.Fatalf("exact current release remained eligible: %+v", exact)
+	}
+	equalObservation := releases.Observation{ID: uuid.NewV7(), IndexerID: uuid.NewV7(), NativeGUID: "equal"}
+	equal := applyUpgradeBaseline(equalObservation, releases.Evaluation{ObservationID: equalObservation.ID, Verdict: releases.VerdictEligible, Score: 40000}, &current, &baseline)
+	if equal.Verdict != releases.VerdictRejected {
+		t.Fatalf("equal-quality replacement remained eligible: %+v", equal)
+	}
+	betterObservation := releases.Observation{ID: uuid.NewV7(), IndexerID: uuid.NewV7(), NativeGUID: "better"}
+	better := applyUpgradeBaseline(betterObservation, releases.Evaluation{ObservationID: betterObservation.ID, Verdict: releases.VerdictEligible, Score: 50000}, &current, &baseline)
+	if better.Verdict != releases.VerdictEligible {
+		t.Fatalf("strictly better release was rejected: %+v", better)
+	}
+
+	currentFailsNewRequirement := releases.Evaluation{ObservationID: current.ID, Verdict: releases.VerdictRejected, Score: 50000}
+	newlyCompliant := applyUpgradeBaseline(betterObservation, releases.Evaluation{ObservationID: betterObservation.ID, Verdict: releases.VerdictEligible, Score: 100}, &current, &currentFailsNewRequirement)
+	if newlyCompliant.Verdict != releases.VerdictEligible {
+		t.Fatalf("candidate satisfying a requirement the current release fails was rejected: %+v", newlyCompliant)
+	}
+}
+
 func TestBuildRequestUsesVerifiedTVPackDialect(t *testing.T) {
 	year := uint16(2025)
 	search := postgres.SearchContext{Variant: "season:1", Media: catalog.MediaItem{

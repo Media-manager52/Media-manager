@@ -489,6 +489,10 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='seerr.status_sync_requested'`, replacementWorkflow.ID.String()).Scan(&statusSyncEvents); err != nil || statusSyncEvents != 1 {
 		t.Fatalf("Plex confirmation Seerr status events=%d err=%v", statusSyncEvents, err)
 	}
+	upgradeSearch, err := store.LoadSearchContext(ctx, replacementWorkflow.ID)
+	if err != nil || upgradeSearch.CurrentRelease == nil || upgradeSearch.CurrentRelease.NativeGUID != "replacement-guid" || upgradeSearch.CurrentRelease.IndexerID != indexer.ID {
+		t.Fatalf("current managed release upgrade baseline=%+v err=%v", upgradeSearch.CurrentRelease, err)
+	}
 	recycleEntries, err := store.ListRecycleEntries(ctx, 10)
 	if err != nil || len(recycleEntries) != 1 {
 		t.Fatalf("adopted recycle entries=%+v err=%v", recycleEntries, err)

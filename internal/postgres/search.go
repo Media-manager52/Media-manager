@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 	"uuid"
 
@@ -17,15 +18,16 @@ import (
 )
 
 type SearchContext struct {
-	Workflow      workflows.Workflow
-	Variant       string
-	Media         catalog.MediaItem
-	PolicyVersion uint64
-	Policy        json.RawMessage
-	Indexers      []Integration
-	Blocks        []ReleaseBlock
-	Exclusions    []WorkflowReleaseExclusion
-	SubtitleRetry bool
+	Workflow       workflows.Workflow
+	Variant        string
+	Media          catalog.MediaItem
+	PolicyVersion  uint64
+	Policy         json.RawMessage
+	CurrentRelease *releases.Observation
+	Indexers       []Integration
+	Blocks         []ReleaseBlock
+	Exclusions     []WorkflowReleaseExclusion
+	SubtitleRetry  bool
 }
 
 type WorkflowReleaseExclusion struct {
@@ -93,6 +95,37 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	if err != nil {
 		return SearchContext{}, err
 	}
+	var currentObservation releases.Observation
+	var currentObservationText, currentIndexerText, currentWorkflowText string
+	var currentFacts []byte
+	err = store.Pool.QueryRow(ctx, `SELECT observation.id::text,observation.indexer_instance_id::text,observation.native_guid,observation.title,observation.normalized_facts,current_workflow.id::text
+		FROM library_link_versions version
+		JOIN workflows current_workflow ON current_workflow.id=version.workflow_id
+		JOIN release_candidates candidate ON candidate.id=current_workflow.selected_release_id
+		JOIN release_observations observation ON observation.id=candidate.observation_id
+		WHERE current_workflow.media_id=$1 AND current_workflow.variant=$2 AND version.state='current'
+		ORDER BY version.verified_at DESC,version.id LIMIT 1`, result.Media.ID.String(), result.Variant).Scan(&currentObservationText, &currentIndexerText, &currentObservation.NativeGUID, &currentObservation.Title, &currentFacts, &currentWorkflowText)
+	if err == nil {
+		currentObservation.ID, _ = uuid.Parse(currentObservationText)
+		currentObservation.IndexerID, _ = uuid.Parse(currentIndexerText)
+		if err := json.Unmarshal(currentFacts, &currentObservation.Facts); err != nil {
+			var legacyEmpty map[string]any
+			if objectErr := json.Unmarshal(currentFacts, &legacyEmpty); objectErr != nil || len(legacyEmpty) != 0 {
+				return SearchContext{}, err
+			}
+		}
+		var observedLanguages []string
+		languageErr := store.Pool.QueryRow(ctx, `SELECT observed_languages FROM subtitle_verifications WHERE workflow_id=$1 AND status='verified' ORDER BY attempt_generation DESC LIMIT 1`, currentWorkflowText).Scan(&observedLanguages)
+		if languageErr != nil && !errors.Is(languageErr, pgx.ErrNoRows) {
+			return SearchContext{}, languageErr
+		}
+		if len(observedLanguages) > 0 {
+			currentObservation.Facts = upsertReleaseFact(currentObservation.Facts, releases.Fact{Name: "subtitle_languages", Values: observedLanguages, State: releases.FactObserved})
+		}
+		result.CurrentRelease = &currentObservation
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return SearchContext{}, err
+	}
 	all, err := store.ListIntegrations(ctx)
 	if err != nil {
 		return SearchContext{}, err
@@ -131,6 +164,17 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 		return SearchContext{}, err
 	}
 	return result, nil
+}
+
+func upsertReleaseFact(facts []releases.Fact, replacement releases.Fact) []releases.Fact {
+	result := append([]releases.Fact(nil), facts...)
+	for index := range result {
+		if strings.EqualFold(strings.TrimSpace(result[index].Name), replacement.Name) {
+			result[index] = replacement
+			return result
+		}
+	}
+	return append(result, replacement)
 }
 
 func (store *Store) PersistSearch(ctx context.Context, search SearchContext, queryFingerprint []byte, evaluated []EvaluatedObservation, now time.Time) (workflows.Workflow, error) {

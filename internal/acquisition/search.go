@@ -88,6 +88,14 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 			{Name: "Prefer complete season pack", Fact: "release_scope", AllowedValues: []string{"season_pack"}, Kind: releases.RulePreferred, Weight: 10000, Unknown: releases.UnknownAllow},
 		}, rules...)
 	}
+	var currentEvaluation *releases.Evaluation
+	if search.CurrentRelease != nil {
+		evaluatedCurrent, evaluateErr := releases.Evaluate(*search.CurrentRelease, rules)
+		if evaluateErr != nil {
+			return evaluateErr
+		}
+		currentEvaluation = &evaluatedCurrent
+	}
 	var evaluated []postgres.EvaluatedObservation
 	successfulIndexers := 0
 	var earliestDeferral error
@@ -138,6 +146,7 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 			evaluation = constrainMediaMatch(observation, evaluation, search.Media)
 			evaluation = applyReleaseBlocks(observation, evaluation, search)
 			evaluation = applyWorkflowExclusions(observation, evaluation, search)
+			evaluation = applyUpgradeBaseline(observation, evaluation, search.CurrentRelease, currentEvaluation)
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
 		}
 	}
@@ -150,6 +159,22 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 	fingerprint := sha256.Sum256([]byte(search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)))
 	_, err = service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, time.Now().UTC())
 	return err
+}
+
+func applyUpgradeBaseline(observation releases.Observation, evaluation releases.Evaluation, current *releases.Observation, baseline *releases.Evaluation) releases.Evaluation {
+	if current == nil || baseline == nil {
+		return evaluation
+	}
+	if observation.IndexerID == current.IndexerID && observation.NativeGUID == current.NativeGUID {
+		evaluation.Verdict = releases.VerdictRejected
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "current_release", Decision: releases.DecisionFail, Reason: "candidate is the exact release currently published"})
+		return evaluation
+	}
+	if evaluation.Verdict == releases.VerdictEligible && baseline.Verdict == releases.VerdictEligible && evaluation.Score <= baseline.Score {
+		evaluation.Verdict = releases.VerdictRejected
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "quality_score", Decision: releases.DecisionFail, Reason: "candidate does not improve the current publication under this quality profile"})
+	}
+	return evaluation
 }
 
 func appendSubtitleRules(rules []releases.Rule, policy subtitles.Policy) []releases.Rule {
