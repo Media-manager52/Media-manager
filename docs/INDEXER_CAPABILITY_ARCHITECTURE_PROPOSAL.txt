@@ -1,0 +1,1671 @@
+MEDIA MANAGER INDEXER CAPABILITY ARCHITECTURE PROPOSAL
+
+Status: Proposed design only; not implemented
+Scope: Profile-backed Newznab search foundation
+
+The revised design remains deliberately small: one shared secure and paced
+Newznab client, one immutable versioned capability profile per configured
+indexer instance, a tiny audited registry of provider contracts, a pure typed
+request planner, operation-scoped runtime status, and immutable release
+evidence. It does not introduce a plugin framework, scripting language, rules
+DSL, or a separate client for every provider.
+
+
+1. FINAL MINIMAL COMPONENT DIAGRAM
+
+Owner configuration
+  endpoint / secret reference / movie categories / series categories / budgets
+                              |
+                              v
+Immutable active instance profile -----> Audited provider-contract registry
+  claims / verification / recipes          Go validators and builders only
+                              \             /
+                               v           v
+                          Pure request planner
+                    exact recipe + current category set
+                               |
+                               v
+                    Shared secure Newznab client
+                               |
+               +---------------+----------------+
+               |                                |
+       Instance scheduler                Operation status
+  lane / pacing / quota / cooldown   recipe-specific availability
+               |                                |
+               +---------------+----------------+
+                               |
+                               v
+                  Immutable release observations
+                               |
+                release_candidate_observations
+                               |
+                               v
+                    Derived candidate evidence view
+                               |
+                               v
+                       Existing evaluator
+                               |
+                               v
+             Selection -> guarded NZB retrieval -> existing
+             AltMount / inspection / publication / Plex lifecycle
+
+Provider contracts never bypass the shared client, scheduler, workflow guard,
+redirect protections, response bounds, parser, or secret-handling rules.
+
+
+2. OWNERSHIP BOUNDARIES
+
+Integration configuration owns:
+
+- Canonical base endpoint and non-secret endpoint options.
+- Secret-reference name and authentication selection.
+- Enabled state and the existing explicit allow-HTTP policy.
+- Owner-selected movie category IDs.
+- Owner-selected series category IDs.
+- Minimum request interval, rolling query allowance, rolling grab allowance,
+  and rolling budget window.
+
+It does not own learned CAPS data, request recipes, operational cooldown
+history, or executable provider behavior.
+
+Immutable capability profile owns:
+
+- The sanitized CAPS snapshot and its advertised/omitted/unknown claims.
+- Controlled verification results.
+- Exact typed request recipes.
+- CAPS-advertised response limits and verified per-request maximums.
+- Offset and pagination behavior.
+- Recognized, semantically usable attribute mappings.
+- Retrieval method selection and provider-contract references.
+- Sanitized commissioning evidence summaries.
+
+It does not contain scheduler budgets, live cooldowns, credentials, arbitrary
+URL templates, executable expressions, or the full inventory of raw attribute
+names seen at runtime.
+
+Provider-contract registry owns:
+
+- Small reviewed Go functions for proven unusual behavior.
+- Native identity extraction.
+- Provider-specific endpoint construction where genuinely required.
+- Download-locator validation.
+- Provider-specific authentication placement where standard Newznab cannot be
+  used.
+- Provider-specific response interpretation and recognized semantic mappings.
+
+It does not own instance permissions, selected categories, quota state,
+operational health, or verification claims. A profile may select only a known,
+versioned contract. It cannot supply executable patterns or URL templates.
+
+Scheduler state owns:
+
+- The single shared request lane for an indexer instance.
+- Instance-wide concurrency and minimum interval enforcement.
+- Query and grab reservations against rolling budgets.
+- Provider-wide failure backoff.
+- Quota cooldown and Retry-After state.
+
+It does not decide permanent capability support and does not treat an invalid
+individual result as an instance failure.
+
+Operation status owns:
+
+- Mutable current availability for one operation or recipe.
+- The last safe outcome code.
+- Operation-local retry timing.
+- Consecutive operation-local failures.
+- Last success and failure times.
+
+It is not capability history, does not contain response bodies or credentials,
+and does not duplicate scheduler budgets.
+
+Release observations own:
+
+- Immutable, sanitized provider evidence.
+- Source and operation kind.
+- Exact indexer-specific release identity.
+- Raw fields, parser version, normalized facts, and bounded parse problems.
+- The profile and recipe used to obtain the evidence where applicable.
+
+They do not own capability decisions, mutable health summaries, or workflow
+success.
+
+Lifecycle records own:
+
+- ffprobe and subtitle-sidecar facts.
+- Publication-generation evidence.
+- Exact Plex verification evidence.
+
+These facts are not rewritten into provider observations.
+
+Category ownership is intentionally simple:
+
+    type NewznabCategorySelection struct {
+        Movie  []int `json:"movie_category_ids"`
+        Series []int `json:"series_category_ids"`
+    }
+
+A recipe normally references selected_movie or selected_series rather than
+copying IDs into the immutable profile. When the owner edits a category set:
+
+- No profile revision is needed when every selected ID exists in the active
+  CAPS category tree and belongs to the expected media family.
+- Only recipes referring to the edited set are revalidated.
+- An unknown or wrong-family category makes only those recipes temporarily
+  unplannable until corrected or revalidated.
+- Unrelated media recipes and retrieval capability remain valid.
+- A new profile revision is needed only if verified evidence proves that one
+  recipe requires a fixed category combination.
+
+
+3. PROPOSED TYPED GO MODEL
+
+The following structures describe the shape, not implementation code.
+
+    type ClaimState string
+
+    const (
+        ClaimAdvertised ClaimState = "advertised"
+        ClaimOmitted    ClaimState = "omitted"
+        ClaimUnknown    ClaimState = "unknown"
+    )
+
+    type VerificationState string
+
+    const (
+        VerificationUntested             VerificationState = "untested"
+        VerificationVerified             VerificationState = "verified"
+        VerificationUnsupported          VerificationState = "unsupported"
+        VerificationPermissionRestricted VerificationState = "permission_restricted"
+        VerificationContradicted         VerificationState = "contradicted"
+    )
+
+    type CapabilityAssessment struct {
+        CAPSClaim     ClaimState        `json:"caps_claim"`
+        ProviderClaim ClaimState        `json:"provider_claim"`
+        Verification VerificationState `json:"verification"`
+        EvidenceKeys []string          `json:"evidence_keys,omitempty"`
+    }
+
+    type Operation string
+
+    const (
+        OperationCAPS     Operation = "caps"
+        OperationSearch   Operation = "search"
+        OperationDetails  Operation = "details"
+        OperationNFO      Operation = "nfo"
+        OperationFileList Operation = "file_list"
+        OperationFeed     Operation = "feed"
+        OperationRetrieve Operation = "retrieve"
+    )
+
+    type MediaScope string
+
+    const (
+        MediaMovie   MediaScope = "movie"
+        MediaSeries  MediaScope = "series"
+        MediaSeason  MediaScope = "season"
+        MediaEpisode MediaScope = "episode"
+    )
+
+    type NewznabMode string
+
+    const (
+        ModeSearch   NewznabMode = "search"
+        ModeMovie    NewznabMode = "movie"
+        ModeTVSearch NewznabMode = "tvsearch"
+    )
+
+    type QueryStyle string
+
+    const (
+        QueryTitleOnly         QueryStyle = "title"
+        QueryTitleYear         QueryStyle = "title_year"
+        QueryTitleSeasonToken  QueryStyle = "title_season_token"
+        QueryTitleEpisodeToken QueryStyle = "title_episode_token"
+    )
+
+    type InternalInput string
+
+    const (
+        InputTitle    InternalInput = "title"
+        InputYear     InternalInput = "year"
+        InputIMDbID   InternalInput = "imdb_id"
+        InputTMDbID   InternalInput = "tmdb_id"
+        InputTVDbID   InternalInput = "tvdb_id"
+        InputTVMazeID InternalInput = "tvmaze_id"
+        InputSeason   InternalInput = "season"
+        InputEpisode  InternalInput = "episode"
+    )
+
+    type WireParameter string
+
+    const (
+        ParamQuery    WireParameter = "q"
+        ParamYear     WireParameter = "year"
+        ParamIMDbID   WireParameter = "imdbid"
+        ParamTMDbID   WireParameter = "tmdbid"
+        ParamTVDbID   WireParameter = "tvdbid"
+        ParamTVMazeID WireParameter = "tvmazeid"
+        ParamSeason   WireParameter = "season"
+        ParamEpisode  WireParameter = "ep"
+        ParamExtended WireParameter = "extended"
+    )
+
+    type ValueSource string
+
+    const (
+        ValueQueryText    ValueSource = "query_text"
+        ValueYearNumber   ValueSource = "year_number"
+        ValueIMDbNumeric  ValueSource = "imdb_numeric"
+        ValueTMDbNumeric  ValueSource = "tmdb_numeric"
+        ValueTVDbNumeric  ValueSource = "tvdb_numeric"
+        ValueTVMazeNumeric ValueSource = "tvmaze_numeric"
+        ValueSeasonNumber ValueSource = "season_number"
+        ValueEpisodeNumber ValueSource = "episode_number"
+    )
+
+    type WireBinding struct {
+        Parameter WireParameter `json:"parameter"`
+        ValueFrom ValueSource   `json:"value_from"`
+    }
+
+    type FixedWireValue string
+
+    const FixedOne FixedWireValue = "1"
+
+    type FixedParameter struct {
+        Parameter WireParameter `json:"parameter"`
+        Value     FixedWireValue `json:"value"`
+    }
+
+    type CategorySetRef string
+
+    const (
+        CategoryNone           CategorySetRef = "none"
+        CategorySelectedMovie  CategorySetRef = "selected_movie"
+        CategorySelectedSeries CategorySetRef = "selected_series"
+        CategoryVerifiedFixed  CategorySetRef = "verified_fixed"
+    )
+
+    type CategoryBinding struct {
+        Set      CategorySetRef `json:"set"`
+        Required bool           `json:"required"`
+        FixedIDs []int          `json:"fixed_ids,omitempty"`
+    }
+
+    type OutputFormat string
+
+    const (
+        OutputXML  OutputFormat = "xml"
+        OutputJSON OutputFormat = "json"
+    )
+
+    type PaginationMode string
+
+    const (
+        PaginationNone          PaginationMode = "none"
+        PaginationNewznabOffset PaginationMode = "newznab_offset"
+    )
+
+    type PaginationCompletion string
+
+    const (
+        PaginationShortPage          PaginationCompletion = "short_page"
+        PaginationTotalOrShortPage   PaginationCompletion = "response_total_or_short_page"
+    )
+
+    type PaginationSpec struct {
+        Mode          PaginationMode       `json:"mode"`
+        InitialOffset int                  `json:"initial_offset"`
+        Completion    PaginationCompletion `json:"completion"`
+    }
+
+    type FallbackTrigger string
+
+    const (
+        FallbackZeroRawResults          FallbackTrigger = "zero_raw_results"
+        FallbackNoPlausibleIdentityScope FallbackTrigger = "no_plausible_identity_scope"
+        FallbackRecipeContradiction     FallbackTrigger = "deterministic_recipe_contradiction"
+    )
+
+    type RequestRecipe struct {
+        Key                string               `json:"key"`
+        Assessment         CapabilityAssessment `json:"assessment"`
+        Operation          Operation            `json:"operation"`
+        MediaScope         MediaScope           `json:"media_scope"`
+        Mode               NewznabMode          `json:"mode"`
+        QueryStyle         QueryStyle           `json:"query_style"`
+        RequiredInputs     []InternalInput      `json:"required_inputs"`
+        Bindings           []WireBinding        `json:"bindings"`
+        FixedParameters    []FixedParameter     `json:"fixed_parameters,omitempty"`
+        ExcludedParameters []WireParameter      `json:"excluded_parameters,omitempty"`
+        Categories         CategoryBinding      `json:"categories"`
+        Output             OutputFormat         `json:"output"`
+        MaximumLimit       int                  `json:"maximum_limit"`
+        Pagination         PaginationSpec       `json:"pagination"`
+        Priority           uint8                `json:"priority"`
+        PermittedAfter     []FallbackTrigger    `json:"permitted_after,omitempty"`
+    }
+
+The shared client, rather than the recipe, emits structural parameters such as
+t, cat, o, limit, offset, and the configured authentication parameter. This
+prevents a stored profile from changing transport or credential behavior.
+
+Profile validation rejects:
+
+- Unknown enum values or provider-contract references.
+- Duplicate parameters or collisions between bindings and fixed values.
+- Required inputs that are not consumed by the declared query construction.
+- Category references incompatible with the media scope.
+- Fixed category IDs unless CategoryVerifiedFixed is selected.
+- A request maximum above the CAPS or controlled-verification bound.
+- JSON output unless explicitly verified.
+- More than one primary and one fallback recipe for the same scope initially.
+- Any fallback trigger outside the three approved triggers.
+
+The remaining profile structures are:
+
+    type ProviderContractRef struct {
+        Key     string `json:"key"`
+        Version uint16 `json:"version"`
+    }
+
+    type CAPSSearchClaim struct {
+        Mode                 NewznabMode    `json:"mode"`
+        Available            bool           `json:"available"`
+        RecognizedParameters []WireParameter `json:"recognized_parameters,omitempty"`
+    }
+
+    type CAPSRecord struct {
+        Assessment    CapabilityAssessment `json:"assessment"`
+        BodySHA256    string               `json:"body_sha256"`
+        ObservedAt    time.Time            `json:"observed_at"`
+        ServerTitle   string               `json:"server_title,omitempty"`
+        ServerVersion string               `json:"server_version,omitempty"`
+        DefaultLimit  int                  `json:"default_limit,omitempty"`
+        MaximumLimit  int                  `json:"maximum_limit,omitempty"`
+        Categories    []newznab.Category   `json:"categories,omitempty"`
+        SearchClaims  []CAPSSearchClaim    `json:"search_claims,omitempty"`
+    }
+
+    type OperationCapability struct {
+        Operation  Operation             `json:"operation"`
+        Assessment CapabilityAssessment  `json:"assessment"`
+        Contract   *ProviderContractRef   `json:"contract,omitempty"`
+    }
+
+    type NativeIdentityMethod string
+
+    const (
+        NativeIdentityGUID            NativeIdentityMethod = "native_guid"
+        NativeIdentityDetailsContract NativeIdentityMethod = "details_permalink_contract"
+    )
+
+    type NativeIdentityCapability struct {
+        Assessment CapabilityAssessment `json:"assessment"`
+        Method     NativeIdentityMethod `json:"method"`
+        Contract   *ProviderContractRef `json:"contract,omitempty"`
+    }
+
+    type AdvertisedLocatorCapability struct {
+        Assessment CapabilityAssessment `json:"assessment"`
+        Validator  ProviderContractRef  `json:"validator"`
+    }
+
+    type DirectDownloadCapability struct {
+        Assessment CapabilityAssessment `json:"assessment"`
+        Contract   ProviderContractRef  `json:"contract"`
+    }
+
+    type RetrievalMethod string
+
+    const (
+        RetrievalStandardGet       RetrievalMethod = "standard_get"
+        RetrievalAdvertisedLocator RetrievalMethod = "advertised_locator"
+        RetrievalProviderDirect    RetrievalMethod = "provider_direct"
+    )
+
+    type RetrievalProfile struct {
+        NativeIdentity     NativeIdentityCapability      `json:"native_identity"`
+        StandardGet        CapabilityAssessment          `json:"standard_get"`
+        AdvertisedLocator  *AdvertisedLocatorCapability  `json:"advertised_locator,omitempty"`
+        DirectDownload     *DirectDownloadCapability     `json:"direct_download,omitempty"`
+        PreferredMethod    RetrievalMethod               `json:"preferred_method"`
+    }
+
+    type CommissionEvidence struct {
+        Key                    string    `json:"key"`
+        Kind                   string    `json:"kind"`
+        ObservedAt             time.Time `json:"observed_at"`
+        BodySHA256             string    `json:"body_sha256"`
+        SafeOutcome            string    `json:"safe_outcome"`
+        RawResultCount         int       `json:"raw_result_count,omitempty"`
+        PlausibleIdentityCount int       `json:"plausible_identity_count,omitempty"`
+    }
+
+    type CapabilityProfile struct {
+        SchemaVersion    uint16                  `json:"schema_version"`
+        CAPS             CAPSRecord              `json:"caps"`
+        SearchRecipes    []RequestRecipe         `json:"search_recipes"`
+        Operations       []OperationCapability   `json:"operations"`
+        Retrieval        RetrievalProfile        `json:"retrieval"`
+        SemanticMappings []string                `json:"semantic_mappings,omitempty"`
+        Evidence         []CommissionEvidence    `json:"evidence,omitempty"`
+    }
+
+Profile ID, instance ID, revision, lifecycle state, and timestamps belong in
+relational columns rather than inside the document. Scheduler budgets are not
+part of the profile.
+
+
+4. MINIMUM DATABASE MODEL
+
+The first milestone adds only these durable structures.
+
+indexer_capability_profiles
+
+- id UUID primary key.
+- indexer_instance_id UUID foreign key.
+- revision integer, monotonically increasing per instance.
+- schema_version integer.
+- state: draft, active, superseded, or invalidated.
+- endpoint_config_sha256 bytea, containing no credential-derived material.
+- profile jsonb containing the validated immutable typed profile.
+- created_at timestamptz.
+- activated_at timestamptz nullable.
+- invalidated_at timestamptz nullable.
+- invalidation_reason safe text nullable.
+- Unique index on indexer_instance_id and revision.
+- Partial unique index allowing only one active profile per instance.
+- An update guard prevents mutation of an active immutable profile document and
+  endpoint digest; lifecycle fields may change only through explicit transitions.
+
+The endpoint configuration digest covers scheme, normalized hostname,
+effective port, base path, allow-HTTP selection, authentication mechanism, and
+provider-contract key/version. It excludes the secret value, any secret
+fingerprint, owner category selection, and scheduler budget settings.
+
+indexer_operation_status
+
+- indexer_instance_id UUID foreign key.
+- operation_key text.
+- recipe_key text, with an empty value for operation-wide status.
+- availability: unknown, ready, deferred, or degraded.
+- last_outcome safe text.
+- last_failure_scope: none, instance, operation, or item.
+- safe_code text.
+- consecutive_failures integer.
+- retry_at timestamptz nullable.
+- last_success_at timestamptz nullable.
+- last_failure_at timestamptz nullable.
+- updated_at timestamptz.
+- Primary key on instance, operation, and recipe.
+
+The integration configuration gains movie_category_ids and
+series_category_ids. Existing pacing and budget fields remain where they are.
+
+The later enrichment milestone, not the first milestone, adds:
+
+release_candidate_observations
+
+- candidate_id UUID foreign key.
+- observation_id UUID foreign key.
+- attached_at timestamptz.
+- Primary key on candidate_id and observation_id.
+
+At that time release_observations gains:
+
+- source_kind text.
+- capability_profile_id UUID nullable.
+- recipe_key text nullable.
+
+The existing candidate observation_id may remain temporarily as the primary or
+latest search observation for compatibility. The join becomes authoritative
+for the complete evidence set. A later search-run evolution may record the
+profile ID, recipe key, and bounded redacted result summary per indexer. No raw
+request log table is introduced.
+
+
+5. CANDIDATE-TO-MULTIPLE-OBSERVATIONS MODEL
+
+Each search result, DETAILS response, NFO response, file-list response, or
+provider-specific enrichment result is an immutable observation. It is attached
+to a candidate only after exact release identity has been established. Evidence
+that fails identity validation remains operation evidence and is not merged
+into the candidate.
+
+The minimal cross-record evidence reference is:
+
+    type EvidenceRecordKind string
+
+    const (
+        EvidenceReleaseObservation    EvidenceRecordKind = "release_observation"
+        EvidenceMediaInspection       EvidenceRecordKind = "media_inspection"
+        EvidenceSubtitleVerification  EvidenceRecordKind = "subtitle_verification"
+        EvidencePlexVerification      EvidenceRecordKind = "plex_verification"
+    )
+
+    type EvidenceSourceKind string
+
+    const (
+        SourceSearchAttribute   EvidenceSourceKind = "search_attribute"
+        SourceDetailsAttribute  EvidenceSourceKind = "details_attribute"
+        SourceNFO               EvidenceSourceKind = "nfo"
+        SourceFileList          EvidenceSourceKind = "file_list"
+        SourceProviderField     EvidenceSourceKind = "provider_field"
+        SourceReleaseTitle      EvidenceSourceKind = "release_title"
+        SourceFFprobe           EvidenceSourceKind = "ffprobe"
+        SourceSubtitleSidecar   EvidenceSourceKind = "subtitle_sidecar"
+        SourcePlex              EvidenceSourceKind = "plex"
+    )
+
+    type EvidenceReference struct {
+        RecordKind       EvidenceRecordKind `json:"record_kind"`
+        RecordID         uuid.UUID          `json:"record_id"`
+        SourceKind       EvidenceSourceKind `json:"source_kind"`
+        RawFieldOrdinals []int              `json:"raw_field_ordinals,omitempty"`
+    }
+
+    type CandidateFact struct {
+        Name     string              `json:"name"`
+        Values   []string            `json:"values,omitempty"`
+        State    releases.FactState  `json:"state"`
+        Evidence []EvidenceReference `json:"evidence,omitempty"`
+    }
+
+    type CandidateEvidenceView struct {
+        CandidateID uuid.UUID       `json:"candidate_id"`
+        Facts       []CandidateFact `json:"facts"`
+        Problems    []string        `json:"problems,omitempty"`
+    }
+
+The evaluator receives a derived merged view built as follows:
+
+1. Load all observations joined to the exact candidate.
+2. Normalize each observation independently with its recorded parser and
+   semantic-mapping version.
+3. Convert observation-local raw-field ordinals into absolute evidence
+   references carrying that observation ID.
+4. Missing evidence creates no negative claim.
+5. Equal canonical values merge and retain every source reference.
+6. Conflicting single-valued facts become conflicting; the newest observation
+   does not silently win.
+7. Positive multi-valued facts, such as languages, form a union with provenance.
+   Missing language metadata never means a language is absent.
+8. Release-title inference may supplement but never overwrite an explicit
+   provider fact.
+9. Malformed or identity-mismatched evidence stays auditable but is excluded
+   from the candidate view.
+10. Post-download facts control lifecycle verification but do not rewrite the
+    provider evidence history.
+11. A decision stores the merge/parser version and the evidence references that
+    supported it; no confidence-scoring graph is introduced.
+
+
+6. FAILURE SCOPE AND FALLBACK BEHAVIOR
+
+Instance-wide failures:
+
+- Authentication failure affecting the instance.
+- HTTP 429, quota exhaustion, or Retry-After.
+- Provider-wide transport or repeated server failure.
+- Connection timeout, DNS failure, or TLS failure.
+
+These consume the normal pacing/budget reservation and may update the existing
+instance-wide backoff. They do not cause an immediate fallback request.
+
+Operation- or recipe-specific failures:
+
+- A deterministic unsupported-operation or invalid-parameter response.
+- A permission restriction for only one optional operation or account-plan
+  feature.
+- A syntactically malformed XML document for one operation.
+- A well-formed but wrong DETAILS or NFO envelope.
+- A semantic identity mismatch.
+- Repeated controlled contradiction of one recipe.
+- Rejection by one provider-specific locator contract.
+
+These consume the shared instance request lane and minimum interval but update
+only the relevant operation/recipe status. They do not create unrelated global
+search backoff. A syntactically malformed XML document invalidates the entire
+operation response; it is not salvaged with a permissive parser and does not by
+itself prove permanent unsupported status.
+
+Item-specific failures:
+
+- A missing GUID or title on one otherwise isolated item.
+- Malformed, conflicting, or unusable attributes on one item in a well-formed
+  response.
+- One item lacking a plausible requested identity.
+- One selected NZB being malformed while the retrieval operation itself
+  completed securely.
+
+The item and its bounded problems are preserved or rejected as appropriate,
+while other valid items remain usable. One bad item does not damage instance or
+operation health.
+
+The smallest scheduler/client result change is:
+
+    type FailureScope string
+
+    const (
+        FailureNone      FailureScope = "none"
+        FailureInstance  FailureScope = "instance"
+        FailureOperation FailureScope = "operation"
+        FailureItem      FailureScope = "item"
+    )
+
+    type RequestResult struct {
+        Outcome    indexers.Outcome
+        Scope      FailureScope
+        Operation  Operation
+        RecipeKey  string
+        SafeCode   string
+        RetryAfter time.Duration
+    }
+
+The existing Acquire behavior remains. RecordResult always advances the shared
+minimum interval and accounts for the request. Only FailureInstance changes
+the instance-wide cooldown/backoff. Operation failures update
+indexer_operation_status. A compatibility wrapper can retain the old Record
+call while callers are migrated.
+
+Only one verified fallback request may be made initially, and only when:
+
+- The primary request returns zero raw results.
+- Raw results exist but none plausibly matches the requested identity and media
+  scope before quality-policy filtering.
+- The primary recipe receives a deterministic recipe contradiction.
+
+Fallback is not triggered by a timeout, quota, authentication failure, provider
+server failure, malformed XML document, or rejection by quality, Danish
+language, blocklist, or upgrade policy. The fallback separately passes the
+workflow guard and scheduler pacing.
+
+
+7. TWO COMPLETE EXAMPLE PROFILES
+
+Example A: exact IMDb movie search and exact TVDb season search
+
+Owner configuration, outside the profile:
+
+    movie_category_ids: [2000, 2040]
+    series_category_ids: [5000, 5040]
+    minimum_interval/query_limit/grab_limit/window: existing scheduler fields
+
+Immutable profile summary:
+
+    schema_version: 1
+    caps:
+      server_title: Provider A
+      default_limit: 50
+      maximum_limit: 100
+      categories:
+        - 2000 Movies
+        - 2040 Movies/HD
+        - 5000 TV
+        - 5040 TV/HD
+      search_claims:
+        - mode: movie
+          claim: advertised
+          parameters: [q, imdbid, extended]
+        - mode: tvsearch
+          claim: advertised
+          parameters: [q, tvdbid, season, extended]
+        - mode: search
+          claim: advertised
+          parameters: [q]
+
+    search_recipes:
+      - key: movie-imdb-q-v1
+        assessment:
+          caps_claim: advertised
+          provider_claim: unknown
+          verification: verified
+        operation: search
+        media_scope: movie
+        mode: movie
+        query_style: title
+        required_inputs: [title, imdb_id]
+        bindings:
+          - q <- query_text
+          - imdbid <- imdb_numeric
+        fixed_parameters:
+          - extended = 1
+        excluded_parameters:
+          - year
+          - tmdbid
+          - tvdbid
+          - tvmazeid
+        categories:
+          set: selected_movie
+          required: true
+        output: xml
+        maximum_limit: 100
+        pagination:
+          mode: newznab_offset
+          initial_offset: 0
+          completion: response_total_or_short_page
+        priority: 0
+
+      - key: movie-title-year-fallback-v1
+        assessment:
+          caps_claim: advertised
+          provider_claim: unknown
+          verification: verified
+        operation: search
+        media_scope: movie
+        mode: search
+        query_style: title_year
+        required_inputs: [title, year]
+        bindings:
+          - q <- query_text
+        fixed_parameters: []
+        excluded_parameters:
+          - year
+          - imdbid
+          - tmdbid
+          - tvdbid
+          - tvmazeid
+          - extended
+        categories:
+          set: selected_movie
+          required: true
+        output: xml
+        maximum_limit: 100
+        pagination:
+          mode: newznab_offset
+          initial_offset: 0
+          completion: response_total_or_short_page
+        priority: 1
+        permitted_after:
+          - zero_raw_results
+          - no_plausible_identity_scope
+          - deterministic_recipe_contradiction
+
+      - key: season-tvdb-q-v1
+        assessment:
+          caps_claim: advertised
+          provider_claim: unknown
+          verification: verified
+        operation: search
+        media_scope: season
+        mode: tvsearch
+        query_style: title
+        required_inputs: [title, tvdb_id, season]
+        bindings:
+          - q <- query_text
+          - tvdbid <- tvdb_numeric
+          - season <- season_number
+        fixed_parameters:
+          - extended = 1
+        excluded_parameters:
+          - year
+          - imdbid
+          - tmdbid
+          - tvmazeid
+          - ep
+        categories:
+          set: selected_series
+          required: true
+        output: xml
+        maximum_limit: 100
+        pagination:
+          mode: newznab_offset
+          initial_offset: 0
+          completion: response_total_or_short_page
+        priority: 0
+
+      - key: season-title-token-fallback-v1
+        assessment:
+          caps_claim: advertised
+          provider_claim: unknown
+          verification: verified
+        operation: search
+        media_scope: season
+        mode: search
+        query_style: title_season_token
+        required_inputs: [title, season]
+        bindings:
+          - q <- query_text
+        fixed_parameters: []
+        excluded_parameters:
+          - season
+          - ep
+          - imdbid
+          - tmdbid
+          - tvdbid
+          - tvmazeid
+          - extended
+        categories:
+          set: selected_series
+          required: true
+        output: xml
+        maximum_limit: 100
+        pagination:
+          mode: newznab_offset
+          initial_offset: 0
+          completion: response_total_or_short_page
+        priority: 1
+        permitted_after:
+          - zero_raw_results
+          - no_plausible_identity_scope
+          - deterministic_recipe_contradiction
+
+    operations:
+      - details:
+          caps_claim: advertised
+          provider_claim: advertised
+          verification: contradicted
+      - nfo:
+          caps_claim: omitted
+          provider_claim: unknown
+          verification: untested
+      - file_list:
+          caps_claim: unknown
+          provider_claim: unknown
+          verification: untested
+      - feed:
+          caps_claim: omitted
+          provider_claim: unknown
+          verification: untested
+
+    retrieval:
+      native_identity:
+        method: details_permalink_contract
+        contract: provider-a-identity@1
+        verification: verified
+      standard_get:
+        caps_claim: omitted
+        provider_claim: advertised
+        verification: verified
+      advertised_locator: absent
+      direct_download: absent
+      preferred_method: standard_get
+
+Commissioning evidence contains only safe digests, timestamps, bounded counts,
+and outcomes for CAPS, the movie recipe, season recipe, DETAILS contradiction,
+and standard retrieval verification.
+
+Example B: only verified general search
+
+Owner configuration, outside the profile:
+
+    movie_category_ids: [2000]
+    series_category_ids: [5000]
+    minimum_interval/query_limit/grab_limit/window: existing scheduler fields
+
+Immutable profile summary:
+
+    schema_version: 1
+    caps:
+      server_title: Provider B
+      default_limit: 50
+      maximum_limit: 50
+      categories:
+        - 2000 Movies
+        - 5000 TV
+      search_claims:
+        - mode: search
+          claim: advertised
+          parameters: [q]
+        - mode: movie
+          claim: omitted
+        - mode: tvsearch
+          claim: omitted
+
+    search_recipes:
+      - key: general-movie-title-year-v1
+        assessment:
+          caps_claim: advertised
+          provider_claim: unknown
+          verification: verified
+        operation: search
+        media_scope: movie
+        mode: search
+        query_style: title_year
+        required_inputs: [title, year]
+        bindings:
+          - q <- query_text
+        fixed_parameters: []
+        excluded_parameters:
+          - year
+          - imdbid
+          - tmdbid
+          - tvdbid
+          - tvmazeid
+          - extended
+        categories:
+          set: selected_movie
+          required: true
+        output: xml
+        maximum_limit: 50
+        pagination:
+          mode: none
+          initial_offset: 0
+          completion: short_page
+        priority: 0
+
+      - key: general-season-title-token-v1
+        assessment:
+          caps_claim: advertised
+          provider_claim: unknown
+          verification: verified
+        operation: search
+        media_scope: season
+        mode: search
+        query_style: title_season_token
+        required_inputs: [title, season]
+        bindings:
+          - q <- query_text
+        fixed_parameters: []
+        excluded_parameters:
+          - season
+          - ep
+          - imdbid
+          - tmdbid
+          - tvdbid
+          - tvmazeid
+          - extended
+        categories:
+          set: selected_series
+          required: true
+        output: xml
+        maximum_limit: 50
+        pagination:
+          mode: none
+          initial_offset: 0
+          completion: short_page
+        priority: 0
+
+    operations:
+      - details:
+          caps_claim: omitted
+          provider_claim: unknown
+          verification: untested
+      - nfo:
+          caps_claim: advertised
+          provider_claim: advertised
+          verification: permission_restricted
+      - file_list:
+          caps_claim: omitted
+          provider_claim: unknown
+          verification: untested
+      - feed:
+          caps_claim: unknown
+          provider_claim: unknown
+          verification: untested
+
+    retrieval:
+      native_identity:
+        method: native_guid
+        verification: verified
+      standard_get:
+        caps_claim: omitted
+        provider_claim: advertised
+        verification: verified
+      advertised_locator: absent
+      direct_download: absent
+      preferred_method: standard_get
+
+These orthogonal states produce truthful runtime combinations:
+
+- Advertised and verified: capability is usable; operation status may be ready.
+- Advertised but contradicted: immutable claim remains advertised, verification
+  is contradicted, and current operation status is degraded.
+- Omitted but verified: omission remains recorded, verified capability is usable.
+- Permission restricted: claim is preserved and verification records the account
+  restriction; unrelated operations remain usable.
+- Temporarily deferred by quota: immutable capability remains verified while
+  scheduler/operation status records deferred and Retry-After.
+
+
+8. RETRIEVAL RESPONSIBILITY EXAMPLE
+
+Identity extraction and transport are separate capabilities.
+
+For an NZBFinder-like case, an audited provider contract may extract a UUID from
+a validated same-provider details permalink. The resulting native ID is then
+sent through the standard shared Newznab retrieval request using t=get on the
+configured API endpoint. Extracting the UUID does not authorize a provider
+/api/v1/getnzb path or an advertised download URL. Such a locator remains unused
+unless a separate verified capability permits it.
+
+For a DrunkenSlug-like direct-download case, a distinct audited contract may
+accept a proven 40-character item ID and validate a same-origin path such as a
+known /getnzb/<id>.nzb form with the required account marker. The contract must
+enforce exact normalized origin, exact path shape, correct item identity,
+expected account marker, and rejection of unrecognized parameters. Secret
+material exists only in memory. The request still uses the shared client and
+all existing redirect, DNS pinning, TLS, pacing, bounds, guard, and logging
+protections.
+
+The four independent profile statements are therefore:
+
+1. How native identity is extracted.
+2. Whether standard t=get is verified.
+3. Whether an advertised locator is verified by a named validator.
+4. Whether a provider-specific direct-download contract is verified.
+
+All validators and builders are reviewed Go code. A profile contains only a
+known contract key/version and approved-origin constraints; it never contains
+arbitrary regexes, URL templates, or executable logic.
+
+
+9. SAFE MIGRATION AND REVALIDATION PATH
+
+Migration from mode_verified, search_dialects, one shared category array, and
+mutable learned configuration proceeds without claiming unproven support:
+
+1. Add profile and operation-status storage without changing runtime behavior.
+2. Add movie_category_ids and series_category_ids while retaining the legacy
+   category field during compatibility.
+3. Copy the legacy category IDs into both new sets as compatibility candidates
+   and mark them owner-review-required; this is not evidence that both sets are
+   correct.
+4. Convert legacy learned fields into draft profile material only.
+5. Generate draft typed recipes that reproduce the old request builder where
+   possible, but mark verification untested and cite legacy CAPS/learned evidence.
+6. Do not reinterpret mode_verified as semantic verification. It proves only
+   what its old code actually observed.
+7. Keep the legacy runtime path enabled initially.
+8. Characterize old request construction against the typed planner locally,
+   checking exact parameter presence, absence, values, categories, limits, and
+   fallback behavior.
+9. Allow later owner-controlled commissioning to verify and activate a profile.
+10. Cut over one indexer instance at a time only after its active profile can
+    reproduce or safely narrow existing behavior.
+11. Remove legacy fields and code only in a later isolated migration after every
+    configured instance has a safe path.
+12. Do not attach historical observations to candidates heuristically.
+
+Commissioning remains lightweight:
+
+- A positive probe target is supplied/selected by the owner for that run or is
+  found by one bounded commissioning discovery when safely available.
+- No permanent universal fixture catalog is added.
+- Store only sanitized evidence summaries and non-secret body digests.
+- A zero-result positive probe remains unknown and never proves unsupported.
+- Retrieval verification remains separately owner-authorized because it consumes
+  grab allowance.
+
+Revalidation remains bounded:
+
+- No automatic periodic live probing in the first implementation.
+- Revalidation is owner-triggered, configuration-triggered, or proposed after a
+  controlled runtime contradiction.
+- A stale profile remains usable for previously verified recipes unless a
+  safety-relevant configuration change invalidates them.
+- Endpoint origin/base path, authentication mechanism, allow-HTTP policy, or
+  provider-contract change invalidates the affected active profile.
+- Category edits revalidate only recipes using that category set.
+- Credential rotation affects authentication health, not capability history.
+- Successful normal runtime requests may update operation status but never
+  silently rewrite immutable profile history.
+- New harmless raw attributes remain preserved in observations and do not create
+  a profile revision. They stay unused for policy until mapped generically or by
+  a reviewed provider contract.
+
+
+10. EXACT FIRST IMPLEMENTATION MILESTONE
+
+The first milestone establishes only profile-backed search foundations:
+
+1. Add characterization tests for existing request construction and scheduler
+   behavior before changing runtime behavior.
+2. Add the closed typed profile, assessment, request-recipe, and validation
+   structures.
+3. Add a pure request planner that emits one primary request and at most one
+   fallback using only the approved fallback triggers.
+4. Add immutable profile persistence with one active revision per instance.
+5. Add operation/recipe-scoped runtime status and failure-scope recording.
+6. Split owner category configuration into movie and series sets with a safe,
+   review-required compatibility backfill.
+7. Create draft legacy profiles without overclaiming verification.
+8. Teach scheduler result recording to preserve global pacing/accounting while
+   preventing operation- and item-local failures from causing unrelated global
+   backoff.
+9. Prove with local and PostgreSQL tests:
+   - exact parameter inclusion and exclusion;
+   - exact fixed values and identifier normalization;
+   - category-set selection and scoped category invalidation;
+   - request limits and pagination selection;
+   - narrow one-request fallback behavior;
+   - no fallback after operational failures or policy rejection;
+   - scheduler budgets remain outside profile data;
+   - immutable revisions and activation constraints;
+   - safe legacy migration without false verification claims;
+   - operation failure isolation;
+   - absence of credentials and unsafe URLs in profiles, status, errors, events,
+     and logs;
+   - preservation of existing redirect pinning, guard checks, pacing, parsing,
+     selection, and race-safety behavior.
+
+Explicitly deferred until this foundation passes characterization and migration
+tests:
+
+- Runtime commissioning and revalidation against live providers.
+- Automatic periodic capability probes.
+- DETAILS, NFO, file-list, feed, and broad enrichment execution.
+- Candidate-to-multiple-observation join and merged-evidence implementation.
+- JSON response execution.
+- Removal of legacy configuration or runtime code.
+- New provider-specific contracts beyond formally registering already proven
+  behavior needed for migration.
+
+No implementation, database mutation, migration execution, deployment, live
+indexer request, or credential use is part of this proposal document.
+
+
+FINAL ARCHITECTURE AMENDMENT
+
+Status: accepted in principle, not approved for implementation
+
+This amendment is controlling wherever it conflicts with the proposal above.
+It narrows profile schema v1 and the first implementation milestone. It does
+not authorize code, schema, runtime, configuration, commissioning, credential,
+or external-service changes.
+
+
+A. AMENDED MINIMAL SEARCHRECIPE V1
+
+SearchRecipe v1 is closed-world, XML-only, single-page, and limited to movies
+and complete-season searches. Fields absent from the recipe are not emitted.
+There is therefore no ExcludedParameters field, arbitrary fixed-parameter
+system, output-format choice, or pagination choice.
+
+Required inputs are not persisted separately. QuerySpec deterministically
+derives its inputs, and every WireBinding deterministically names one internal
+source. The planner computes the union. A stored RequiredInputs list cannot
+disagree because no such list exists.
+
+    type SearchScope string
+
+    const (
+        SearchScopeMovie          SearchScope = "movie"
+        SearchScopeCompleteSeason SearchScope = "complete_season"
+    )
+
+    type SearchMode string
+
+    const (
+        SearchModeGeneral SearchMode = "search"
+        SearchModeMovie   SearchMode = "movie"
+        SearchModeTV      SearchMode = "tvsearch"
+    )
+
+    type QueryStyle string
+
+    const (
+        QueryNone             QueryStyle = "none"
+        QueryTitle            QueryStyle = "title"
+        QueryTitleYear        QueryStyle = "title_year"
+        QueryTitleSeasonToken QueryStyle = "title_season_token"
+    )
+
+    type QuerySpec struct {
+        Style QueryStyle
+    }
+
+    type WireParameter string
+
+    const (
+        WireQuery    WireParameter = "q"
+        WireIMDbID   WireParameter = "imdbid"
+        WireTMDbID   WireParameter = "tmdbid"
+        WireTVDbID   WireParameter = "tvdbid"
+        WireTVMazeID WireParameter = "tvmazeid"
+        WireYear     WireParameter = "year"
+        WireSeason   WireParameter = "season"
+        WireEpisode  WireParameter = "ep"
+        WireExtended WireParameter = "extended"
+    )
+
+    type BindingSource string
+
+    const (
+        BindingIMDbNumeric   BindingSource = "imdb_numeric"
+        BindingTMDbNumeric   BindingSource = "tmdb_numeric"
+        BindingTVDbNumeric   BindingSource = "tvdb_numeric"
+        BindingTVMazeNumeric BindingSource = "tvmaze_numeric"
+        BindingYearNumber    BindingSource = "year_number"
+        BindingSeasonNumber  BindingSource = "season_number"
+    )
+
+    type WireBinding struct {
+        Parameter WireParameter
+        Source    BindingSource
+    }
+
+    type CategorySetRef string
+
+    const (
+        CategoryNone           CategorySetRef = "none"
+        CategorySelectedMovie  CategorySetRef = "selected_movie"
+        CategorySelectedSeries CategorySetRef = "selected_series"
+        CategoryVerifiedFixed  CategorySetRef = "verified_fixed"
+    )
+
+    type CategorySpec struct {
+        Set      CategorySetRef
+        FixedIDs []int
+    }
+
+    type RecipeRole string
+
+    const (
+        RecipePrimary  RecipeRole = "primary"
+        RecipeFallback RecipeRole = "fallback"
+    )
+
+    type FallbackTrigger string
+
+    const (
+        FallbackZeroRawResults FallbackTrigger =
+            "zero_raw_results"
+        FallbackNoPlausibleIdentityScope FallbackTrigger =
+            "no_plausible_identity_scope"
+        FallbackDeterministicContradiction FallbackTrigger =
+            "deterministic_recipe_contradiction"
+    )
+
+    type VerificationState string
+
+    const (
+        VerificationUntested             VerificationState = "untested"
+        VerificationVerified             VerificationState = "verified"
+        VerificationUnsupported          VerificationState = "unsupported"
+        VerificationPermissionRestricted VerificationState = "permission_restricted"
+        VerificationContradicted         VerificationState = "contradicted"
+    )
+
+    type RecipeVerification struct {
+        State        VerificationState
+        EvidenceKeys []string
+    }
+
+    type SearchRecipe struct {
+        Key           string
+        Scope         SearchScope
+        Mode          SearchMode
+        Query         QuerySpec
+        Bindings      []WireBinding
+        Extended      bool
+        Categories    CategorySpec
+        VerifiedLimit uint16
+        Role          RecipeRole
+        Priority      uint8
+        FallbackOn    []FallbackTrigger
+        Verification  RecipeVerification
+    }
+
+Query requirements are generated by code, not data:
+
+- QueryNone emits no q and consumes no query input.
+- QueryTitle requires title and emits q from the title.
+- QueryTitleYear requires title and year and emits one q constructed by the
+  fixed Media Manager title/year formatter.
+- QueryTitleSeasonToken requires title and season and emits one q constructed
+  by the fixed complete-season formatter.
+- Each binding is required. Its BindingSource identifies the required internal
+  value. A missing or unverified value makes that recipe unsatisfiable.
+
+The only valid v1 binding pairs are fixed in Go:
+
+- imdbid from imdb_numeric;
+- tmdbid from tmdb_numeric;
+- tvdbid from tvdb_numeric;
+- tvmazeid from tvmaze_numeric;
+- year from year_number; and
+- season from season_number.
+
+WireQuery, WireExtended, and WireEpisode are recognized CAPS parameter names but
+are not legal v1 WireBinding targets. QuerySpec exclusively controls q,
+Extended exclusively controls extended, and episode execution is deferred.
+A complete-season recipe must convey season through QueryTitleSeasonToken,
+WireSeason, or both. QueryNone must contain at least one exact identity binding.
+
+The shared client owns structural serialization:
+
+- t comes from Mode;
+- q comes only from QuerySpec;
+- cat comes from Categories plus current owner configuration;
+- limit is the recipe's VerifiedLimit;
+- offset is zero;
+- Extended true emits extended=1, while false omits it;
+- o=xml is always emitted; and
+- authentication comes only from the integration's secret reference.
+
+V1 contains no arbitrary parameter names, values, URL templates, expressions,
+regular expressions, transformations, or executable profile behavior.
+
+Profile validation uses fixed code bounds:
+
+    const (
+        MaxPrimaryRecipesPerScope  = 6
+        MaxFallbackRecipesPerScope = 2
+    )
+
+Lower Priority runs first, and priorities are unique within scope and role.
+The planner filters to verified recipes and selects the highest-priority
+primary whose generated requirements are available. Other primary alternatives
+are not network fallbacks: after one primary executes, no second primary may
+execute. At most one verified, satisfiable fallback executes, and only when its
+FallbackOn contains the primary result's approved trigger.
+
+The planner never falls back after timeout, authentication failure, quota or
+Retry-After, provider/server failure, malformed XML, or rejection by quality,
+Danish-language, blocklist, or upgrade policy. It may fall back only after zero
+raw results, no plausible requested identity/scope match before policy
+filtering, or a deterministic contradiction of the selected primary recipe.
+
+V1 has implicit PaginationNone. It performs exactly one request and does not
+claim pagination support. Migrated recipes and examples above are corrected to
+PaginationNone by this amendment. CAPS limits or a positive identity probe do
+not verify pagination. A later schema may introduce a bounded SearchPage with
+observations and optional parsed offset/total metadata, followed by separate
+page-boundary verification. ParseSearch and Search must first stop discarding
+that response metadata. JSON, episode, and broad-series execution likewise
+require a later schema version.
+
+
+B. CORRECTED CAPS MODE OBSERVATION
+
+CAPS component advertisement is separate from exact recipe verification. An
+exact SearchRecipe contains RecipeVerification and evidence keys only; it must
+not carry CAPSClaim=advertised. CAPS may advertise a mode and individual
+parameters without proving that their exact combination works.
+
+    type CAPSElementState string
+
+    const (
+        CAPSElementAbsent                 CAPSElementState = "absent"
+        CAPSElementPresentAvailable       CAPSElementState = "present_available"
+        CAPSElementPresentUnavailable     CAPSElementState = "present_unavailable"
+        CAPSElementPresentUninterpretable CAPSElementState = "present_uninterpretable"
+    )
+
+    type CAPSModeObservation struct {
+        Mode                     SearchMode
+        ElementState             CAPSElementState
+        AdvertisedParameterNames []string
+        RecognizedParameters     []WireParameter
+    }
+
+AdvertisedParameterNames preserves every bounded, sanitized parameter name in
+source order, including duplicates and unknown names. RecognizedParameters is
+the canonical typed subset understood by Media Manager. Unknown names remain
+immutable evidence and cannot affect planning.
+
+The present parser materializes fixed zero-value search elements and therefore
+cannot distinguish an absent element from present available=no or an
+uninterpretable available value. Characterization and a presence-aware parser
+are prerequisites for recording CAPSElementAbsent. Tests must cover absent,
+present yes, present no, missing/empty/invalid availability, mixed case,
+repeated names, known and unknown names, and all field bounds. Legacy evidence
+that cannot prove presence becomes uninterpretable or unknown, never absent.
+
+For operations that CAPS cannot describe, the CAPS claim is not applicable and
+is omitted rather than reported as omitted. Temporary quota deferral belongs
+only to scheduler/operation state; it does not alter CAPS evidence or recipe
+verification.
+
+
+C. IMMUTABLE PROFILES, PROFILE-SCOPED STATUS, CATEGORIES, AND CONTRACTS
+
+All profile documents are append-only. profile JSON, document_sha256,
+endpoint_config_sha256, instance ID, revision, provider-contract reference, and
+mapping references are immutable immediately after insertion in every state,
+including draft. Correcting a draft inserts a new revision. Only explicit
+lifecycle columns may transition.
+
+Activation locks the integration/profile set and, in one transaction, verifies
+the current endpoint digest, category-review state, contract alignment, and
+document validity; supersedes the previous active profile; and activates the
+selected revision. The partial unique constraint still permits only one active
+profile per instance.
+
+Operation status is scoped to the exact profile that produced it:
+
+    indexer_operation_status (
+        indexer_instance_id   uuid        NOT NULL,
+        capability_profile_id uuid        NOT NULL,
+        operation_key         text        NOT NULL,
+        recipe_key            text        NOT NULL DEFAULT '',
+        availability          text        NOT NULL DEFAULT 'unknown',
+        last_outcome          text,
+        last_failure_scope    text,
+        safe_code             text,
+        consecutive_failures  integer     NOT NULL DEFAULT 0,
+        retry_at              timestamptz,
+        last_success_at       timestamptz,
+        last_failure_at       timestamptz,
+        updated_at            timestamptz NOT NULL,
+
+        PRIMARY KEY (
+            capability_profile_id,
+            operation_key,
+            recipe_key
+        ),
+
+        FOREIGN KEY (
+            indexer_instance_id,
+            capability_profile_id
+        ) REFERENCES indexer_capability_profiles (
+            indexer_instance_id,
+            id
+        )
+    )
+
+indexer_capability_profiles therefore has UNIQUE(indexer_instance_id, id).
+For a recipe status, operation_key is search and recipe_key is its exact key.
+For an operation-wide status, recipe_key is empty. A newly activated profile
+has no inherited status rows; absence reads as unknown. Superseded-profile rows
+remain historical evidence but cannot affect planning under a new profile.
+Instance-wide authentication, quota, transport cooldown, and pacing remain in
+the existing instance scheduler state.
+
+Ordinary selected categories remain integration configuration:
+
+    movie_category_ids
+    series_category_ids
+    category_selection_review_required
+
+Recipes refer to selected_movie or selected_series without copying IDs.
+Editing either ordinary selection does not mutate or revise the profile and
+does not create a capability contradiction. Runtime checks only that each ID is
+present in the active profile's CAPS tree. The owner's assignment to movie or
+series is authoritative. An unusual numeric family may produce a warning, but
+is not rejected for that reason alone. An ID absent from the CAPS tree is a
+configuration error for the affected plan, not evidence that the recipe is
+unsupported.
+
+Legacy shared categories are copied conservatively into both selections only
+to preserve compatibility, with category_selection_review_required=true. The
+owner must explicitly review/confirm the two assignments before that instance
+can activate a profile-backed runtime. The legacy runtime remains authoritative
+in milestone one. CategoryVerifiedFixed is the only recipe form that stores
+exact IDs; changing those IDs requires a new profile revision.
+
+Provider-contract selection is explicitly owner-controlled:
+
+- Integration configuration contains an optional owner-reviewed
+  provider_contract_key.
+- The immutable profile records the exact ProviderContractRef key and version
+  used during controlled verification.
+- Runtime provider behavior is enabled only when the configured key matches the
+  profile key, the exact key/version resolves to registered audited Go code,
+  and that implementation accepts the integration's configured canonical
+  origin: scheme, normalized hostname, and effective port.
+- A failed match configuration-blocks only contract-dependent behavior. An
+  independently verified generic Newznab recipe may remain usable.
+- CAPS content, server title, response headers, response or redirect hostname,
+  attributes, and provider self-identification can never select or activate a
+  contract.
+
+The profile cannot contain provider URL patterns, regexes, templates, scripts,
+or executable validators. The existing hostname-derived legacy retrieval path
+is not converted into profile truth; it must be replaced by this explicit
+owner/profile/registry/origin match before profile-backed retrieval cutover.
+
+Semantic mappings use closed versioned references:
+
+    type MappingKey string
+
+    type MappingRef struct {
+        Key     MappingKey
+        Version uint16
+    }
+
+CapabilityProfile contains []MappingRef, not an ambiguous []string. Only
+registered built-in generic or provider mapping sets are accepted. All mapping
+logic remains reviewed Go code. New unknown raw attributes remain preserved and
+unused; observing them neither activates a mapping nor creates a profile
+revision.
+
+
+D. SCHEDULER, LATER EVIDENCE MERGE, AND ATTEMPT AUDIT
+
+internal/indexers remains protocol-neutral and must not import Newznab profile,
+recipe, operation-status, or PostgreSQL capability types. Its new input is
+limited to generic scheduling information:
+
+    type FailureScope string
+
+    const (
+        FailureScopeNone      FailureScope = "none"
+        FailureScopeInstance  FailureScope = "instance"
+        FailureScopeOperation FailureScope = "operation"
+    )
+
+    type RecordResult struct {
+        Outcome Outcome
+        Scope   FailureScope
+        RetryAt time.Time
+    }
+
+Every request continues to consume its reservation and advance the instance
+minimum interval. Only instance-scoped failure changes the global failure
+counter or cooldown. An operation-scoped result consumes pacing but does not
+back off unrelated work. The higher Newznab search/retrieval layer, which knows
+the capability profile ID and recipe/operation key, records safe operation
+status. This preserves the current dependency direction because the Newznab
+client may import internal/indexers while internal/indexers imports no Newznab
+package.
+
+Item-specific parse or semantic problems never enter scheduler RecordResult.
+They stay in bounded observations or workflow-item problems. A syntactically
+valid response with usable items records scheduling success even when individual
+items are rejected. A syntactically malformed XML document invalidates that
+whole operation response without permissive salvage, but it does not prove
+permanent unsupported status or damage unrelated operations.
+
+The later candidate evidence merger is also narrowed:
+
+- Union multi-valued values only when they are explicit observed values for the
+  same verified semantic fact.
+- Generic provider language, audio language, subtitle language, and title
+  tokens remain distinct facts and are never unioned across meanings.
+- Equal explicit canonical claims coalesce with all evidence references.
+- Conflicting explicit claims remain conflicting; matching one member cannot
+  make the effective fact pass.
+- Title-derived inference may fill an otherwise unknown fact only where the
+  relevant policy permits inference.
+- Inference remains separately auditable but never unions with, overwrites,
+  resolves, or creates a conflict against accepted explicit observations in
+  the effective evaluator view.
+- Post-download and Plex lifecycle facts remain separate verification evidence
+  and continue to control success.
+
+Before any later production profile-backed request cutover, every executed
+primary or fallback attempt must be durably associated with:
+
+- capability profile ID;
+- recipe key;
+- exact canonical non-secret category set used;
+- a credential-free structural request fingerprint;
+- primary or fallback role;
+- safe outcome;
+- raw result count; and
+- plausible identity/scope count.
+
+The structural fingerprint is a versioned hash of the non-secret request shape:
+method, mode, query style, emitted non-authentication parameter names and typed
+transformations, extended flag, XML marker, request limit, and category set. It
+contains no credential, URL, redirect locator, literal title, or identifier
+value. The bounded representation may later extend search_run_indexers or use
+one small child table with at most the executed primary and fallback attempts.
+It is not a generalized HTTP request log.
+
+
+E. FINAL FIRST-MILESTONE FILE AND PACKAGE BOUNDARIES
+
+Milestone one may touch only these focused areas when separately approved.
+
+New files:
+
+- internal/adapters/newznab/profile.go
+  Closed profile/recipe, contract-reference, mapping-reference, and validation
+  types. No HTTP execution or persistence.
+- internal/adapters/newznab/profile_test.go
+  Closed-enum, generated-input, binding-pair, scope, role/count, category,
+  append-only-document validation, XML-only, and single-page invariants.
+- internal/acquisition/search_plan.go
+  A pure planner from media inputs, immutable profile, and current category
+  selections to the existing Newznab SearchRequest. It performs no I/O and is
+  not connected to production search.
+- internal/acquisition/search_plan_test.go
+  Ordered primary alternatives, unavailable-input selection, exact fields,
+  no-query recipes, one approved fallback, and prohibited fallback causes.
+- internal/postgres/indexer_capabilities.go
+  Immutable profile insert/read/activate/supersede operations and
+  profile-scoped operation-status persistence.
+- internal/postgres/indexer_capabilities_test.go
+  Append-only revisions, atomic activation, one active profile, category-review
+  activation gate, contract alignment, and fresh status per profile.
+- internal/postgres/indexer_capabilities_migration_integration_test.go
+  Schema lifecycle, conservative legacy draft creation, split-category
+  review state, and no false promotion of mode_verified.
+- internal/postgres/migrations/0033_indexer_capability_profiles.sql
+  Profile/status tables, split category configuration, explicit review state,
+  and draft-only legacy backfill. It deletes no legacy field or data.
+
+Focused existing files:
+
+- internal/adapters/newznab/parser.go and parser_test.go
+  Characterize and correct CAPS element presence/availability and preserve
+  bounded known plus unknown advertised parameter names.
+- internal/adapters/newznab/capabilities.go and capabilities_test.go
+  Keep the legacy dialect path behaviorally compatible with the corrected CAPS
+  representation; do not promote it into exact verification.
+- internal/indexers/scheduler.go and scheduler_test.go
+  Add only protocol-neutral failure scope/deadline recording. No operation key,
+  recipe key, profile ID, or Newznab import enters this package.
+- internal/adapters/newznab/client.go and client_test.go
+  Pass only generic instance-versus-operation outcomes to the scheduler while
+  preserving all current security, pacing, bounds, parsing, and accounting.
+- internal/postgres/settings.go and integration_test.go
+  Canonicalize the split category fields, review-required state, and optional
+  owner-selected provider-contract key without changing credentials.
+
+Explicitly unchanged in milestone one:
+
+- internal/acquisition/search.go remains the production request path.
+- internal/commissioning/newznab.go and internal/postgres/commission.go retain
+  legacy commissioning behavior.
+- internal/adapters/newznab/retrieval.go retains the legacy production path
+  until a separately approved profile-backed retrieval cutover.
+- No worker, HTTP API, UI, Compose, integration credential, or live service is
+  changed.
+- No DETAILS, NFO, file-list, feed, JSON, pagination, episode, broad-series,
+  candidate multi-observation, or runtime-attempt persistence is implemented.
+- No live commissioning, automatic probing, production profile-backed request,
+  external request, legacy-code deletion, or database migration execution occurs.
+
+The milestone ends after characterization tests, simplified closed XML profile
+types, immutable profile persistence, profile-revision-scoped operation status,
+pure primary/optional-fallback planning, split category configuration with an
+unresolved-review gate, generic scheduler failure isolation, and unverified
+draft legacy profiles all pass their focused, PostgreSQL lifecycle, and full Go
+race gates. It does not make the new planner authoritative.
