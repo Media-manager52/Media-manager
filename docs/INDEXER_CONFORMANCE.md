@@ -32,14 +32,17 @@ runtime allowlists therefore remain unchanged.
 ## Observed download locators
 
 NZBFinder search results advertise a same-origin `/api/v1/getnzb` locator whose
-`id` value is the release UUID with a `.nzb` suffix. That locator is not
-interchangeable with the generic `t=get` request shape. Media Manager retains
-only the exact sanitized origin, path, and release ID, then adds the configured
-credential in memory immediately before retrieval. Local adapter tests verify
-the request shape and reject mismatched origins, paths, IDs, ports, duplicate
-parameters, and additional query parameters. The DRI `media-manager` profile
-did not retrieve an NZB, so the provider response remains live-workflow evidence
-rather than a conformance-lab grab.
+`id` value is the release UUID with a `.nzb` suffix. abNZB, altHUB, msgnews,
+NinjaCentral, and Nzb.life advertise a same-origin `/getnzb` path containing the
+exact 32-character release ID and a numeric account identifier; DrunkenSlug uses
+the same path family with a 40-character ID. Those locators are not assumed to
+be interchangeable with the generic `t=get` request shape. Media Manager
+retains only each verified sanitized origin, path, and release identity, then
+adds the configured credential in memory immediately before retrieval. Local
+adapter tests verify the request shapes and reject mismatched origins, paths,
+IDs, ports, duplicate parameters, and additional query parameters. The DRI
+`media-manager` profile did not retrieve an NZB, so the provider responses
+remain live-workflow evidence rather than conformance-lab grabs.
 
 OldBoys remains disabled and was not contacted. Its bearer/filter interface is
 not standard Newznab and must not be enabled through the generic adapter.

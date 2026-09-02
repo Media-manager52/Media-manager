@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/media-manager/media-manager/internal/indexers"
+	"github.com/media-manager/media-manager/internal/releases"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -355,6 +356,54 @@ func TestNZBFinderAdvertisedDownloadRejectsUnverifiedLocators(t *testing.T) {
 	wrongOrigin := "advertised:https://nzbfinder.ws:444/api/v1/getnzb?id=" + releaseID + ".nzb"
 	if _, advertised, err := advertisedDownloadTarget(wrongOrigin, native, "https://nzbfinder.ws/api", "secret"); !advertised || err == nil {
 		t.Fatal("wrong-origin advertised NZBFinder locator was not rejected")
+	}
+}
+
+func TestObservedSameOriginPathDownloadLocatorsAreReconstructedInMemory(t *testing.T) {
+	t.Parallel()
+	const releaseID = "2064db7970379fcd33484c55071467ef"
+	const apiKey = "test-provider-key"
+	for _, test := range []struct {
+		name string
+		host string
+	}{
+		{name: "abNZB", host: "abnzb.com"},
+		{name: "altHUB", host: "api.althub.co.za"},
+		{name: "msgnews", host: "msgnews.live"},
+		{name: "NinjaCentral", host: "ninjacentral.co.za"},
+		{name: "Nzb.life", host: "api.nzb.life"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			advertisedURL := "https://" + test.host + "/getnzb/" + releaseID + ".nzb&i=219&r=" + apiKey
+			sanitized := SanitizeObservationWithCredential(releases.Observation{DownloadURL: advertisedURL}, apiKey)
+			locatorReference := DownloadLocatorReference(sanitized.DownloadURL, releaseID)
+			if !strings.HasPrefix(locatorReference, advertisedLocatorPrefix) || strings.Contains(locatorReference, apiKey) {
+				t.Fatal("verified locator was not retained without its credential")
+			}
+			target, advertised, err := advertisedDownloadTarget(locatorReference, releaseID, "https://"+test.host+"/api", apiKey)
+			if err != nil || !advertised {
+				t.Fatalf("advertised target=%v err=%v", advertised, err)
+			}
+			if target.Host != test.host || target.Path != "/getnzb/"+releaseID+".nzb&i=219&r="+apiKey || target.RawQuery != "" {
+				t.Fatal("provider path locator was not reconstructed exactly")
+			}
+		})
+	}
+}
+
+func TestSameOriginPathDownloadLocatorRejectsMismatchAndExtraParameters(t *testing.T) {
+	t.Parallel()
+	const releaseID = "2064db7970379fcd33484c55071467ef"
+	fallback := "native:" + releaseID
+	for _, unsafe := range []string{
+		"https://msgnews.live/getnzb/ffffffffffffffffffffffffffffffff.nzb&i=219",
+		"https://msgnews.live/getnzb/" + releaseID + ".nzb&i=219?ticket=unexpected",
+		"https://msgnews.live:444/getnzb/" + releaseID + ".nzb&i=219",
+		"https://other.example/getnzb/" + releaseID + ".nzb&i=219",
+	} {
+		if got := DownloadLocatorReference(unsafe, releaseID); got != fallback {
+			t.Fatal("unverified same-origin path locator was retained")
+		}
 	}
 }
 
