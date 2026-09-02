@@ -1,7 +1,7 @@
 # Media Manager implementation status
 
 Audited on 2026-08-30 and updated on 2026-09-02 against the live Docker build at
-API commit `f0ed626`, schema 31, the Go route registry, PostgreSQL
+API commit `1a4d53f`, schema 32, the Go route registry, PostgreSQL
 migrations/store methods, and the React route switch. This document describes
 implemented behavior, not the development fixture's claims.
 
@@ -20,9 +20,9 @@ source as visual references, but they are not imported into the Docker UI graph.
 Unmapped routes render `LiveUnavailableScreen` and cannot fall through to fixture
 screens.
 
-## Unreleased schema-32 delta
+## Deployed schema-32 recovery milestone
 
-Development source now models acquisition rounds separately from lifetime
+The deployed source now models acquisition rounds separately from lifetime
 attempts. Each round has two durable submission slots; release-attributable
 failures atomically record exact release and canonical package exclusions, while
 infrastructure failures retain and reconcile the same AltMount job. After round
@@ -32,8 +32,10 @@ round opening. The activity queue exposes round slots, lifetime attempts,
 retained bytes, partial/complete discovery evidence, same-job reconciliation,
 the exact ready candidate/provider evidence, and the owner action. Schema 32
 also snapshots the complete set of current link versions before upgrade
-selection and submission. This source delta is not yet included in the live
-schema-31 route table and evidence below.
+selection and submission. GitLab pipeline 26 passed the frontend, Chromium, and
+PostgreSQL 18 backend gates before only the Media Manager API and UI were
+recreated. Local liveness, readiness, gateway reachability, schema, outbox, and
+running-commit checks then passed without initiating media work.
 
 ## UI route audit
 
