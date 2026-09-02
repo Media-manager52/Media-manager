@@ -23,6 +23,68 @@ func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, 
 	return function(request)
 }
 
+func TestSearchEncodesExactXMLWireRequest(t *testing.T) {
+	t.Parallel()
+	const apiKey = "characterization-api-key"
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Scheme != "https" || request.URL.Host != "indexer.invalid" || request.URL.Path != "/api" {
+			t.Fatalf("unexpected request target: %s %s://%s%s", request.Method, request.URL.Scheme, request.URL.Host, request.URL.Path)
+		}
+		if accept := request.Header.Get("Accept"); !strings.Contains(accept, "application/xml") {
+			t.Fatalf("Accept=%q, want XML", accept)
+		}
+		query := request.URL.Query()
+		want := map[string]string{
+			"apikey":   apiKey,
+			"o":        "xml",
+			"t":        "tvsearch",
+			"q":        "Example Show",
+			"tvdbid":   "12345",
+			"season":   "2",
+			"cat":      "5000,5040",
+			"limit":    "100",
+			"offset":   "200",
+			"extended": "1",
+		}
+		if len(query) != len(want) {
+			t.Fatalf("query keys=%v, want %d exact keys", queryKeys(query), len(want))
+		}
+		for name, value := range want {
+			if values := query[name]; len(values) != 1 || values[0] != value {
+				t.Fatalf("query[%q]=%v, want [%q]", name, values, value)
+			}
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`<rss><channel></channel></rss>`)),
+			Request:    request,
+		}, nil
+	})
+	scheduler := indexers.NewScheduler(1, nil)
+	if err := scheduler.Configure("wire-request", indexers.Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{IndexerID: "wire-request", BaseURL: "https://indexer.invalid/api", APIKey: apiKey}, scheduler, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observations, err := client.Search(context.Background(), SearchRequest{
+		Mode:       "tvsearch",
+		Params:     []Param{{Name: "q", Value: "Example Show"}, {Name: "tvdbid", Value: "12345"}, {Name: "season", Value: "2"}},
+		Categories: []int{5000, 5040},
+		Limit:      100,
+		Offset:     200,
+		Extended:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observations) != 0 {
+		t.Fatalf("observations=%d, want 0", len(observations))
+	}
+}
+
 func TestGetNZBGuardedDefersPacingBeforeGuardAndProviderRequest(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

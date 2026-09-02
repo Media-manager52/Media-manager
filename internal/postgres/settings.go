@@ -1,10 +1,11 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"net"
 	"net/url"
 	"path/filepath"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/languages"
 	"github.com/media-manager/media-manager/internal/releases"
@@ -84,12 +86,29 @@ func (store *Store) CreateIntegration(ctx context.Context, integration Integrati
 		if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "newznab:"+newznabURL); err != nil {
 			return Integration{}, err
 		}
-		var exists bool
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances WHERE kind='newznab' AND config->>'base_url'=$1)`, newznabURL).Scan(&exists); err != nil {
+		exists, err := transaction.Query(ctx, `SELECT COALESCE(config->>'base_url',''),COALESCE(config->'allow_http','false'::jsonb)='true'::jsonb FROM integration_instances WHERE kind='newznab'`)
+		if err != nil {
 			return Integration{}, err
 		}
-		if exists {
-			return Integration{}, fmt.Errorf("%w: %s", ErrDuplicateIndexerURL, newznabURL)
+		duplicate := false
+		for exists.Next() {
+			var configuredEndpoint string
+			var allowHTTP bool
+			if err := exists.Scan(&configuredEndpoint, &allowHTTP); err != nil {
+				exists.Close()
+				return Integration{}, err
+			}
+			canonicalEndpoint, err := canonicalNewznabEndpoint(configuredEndpoint, allowHTTP)
+			if err == nil && canonicalEndpoint == newznabURL {
+				duplicate = true
+			}
+		}
+		exists.Close()
+		if err := exists.Err(); err != nil {
+			return Integration{}, err
+		}
+		if duplicate {
+			return Integration{}, ErrDuplicateIndexerURL
 		}
 	}
 	if integration.Default {
@@ -106,26 +125,131 @@ func (store *Store) CreateIntegration(ctx context.Context, integration Integrati
 
 func canonicalNewznabConfig(config json.RawMessage, preserveVerified bool) (json.RawMessage, string, error) {
 	var values map[string]any
-	if err := json.Unmarshal(config, &values); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(config))
+	decoder.UseNumber()
+	if err := decoder.Decode(&values); err != nil {
 		return nil, "", errors.New("invalid Newznab configuration")
 	}
 	endpoint, _ := values["base_url"].(string)
-	parsed, err := url.Parse(strings.TrimSpace(endpoint))
 	allowHTTP, _ := values["allow_http"].(bool)
-	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Scheme != "https" && !(allowHTTP && parsed.Scheme == "http")) {
-		return nil, "", errors.New("invalid Newznab endpoint")
+	canonical, err := canonicalNewznabEndpoint(endpoint, allowHTTP)
+	if err != nil {
+		return nil, "", err
 	}
-	parsed.Path = strings.TrimSuffix(parsed.Path, "/")
-	canonical := parsed.String()
 	values["base_url"] = canonical
 	if !preserveVerified {
 		values["mode_verified"] = false
+	}
+	legacyCategories := []any{}
+	_, movieConfigured := values["movie_category_ids"]
+	_, seriesConfigured := values["series_category_ids"]
+	reviewedSelection, reviewedSelectionConfigured := values["category_selection_review_required"].(bool)
+	if !movieConfigured || !seriesConfigured {
+		if configured, exists := values["categories"]; exists {
+			legacyCategories, err = newznabCategorySet(configured)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+	}
+	for _, key := range []string{"movie_category_ids", "series_category_ids"} {
+		categories := legacyCategories
+		if configured, exists := values[key]; exists {
+			categories, err = newznabCategorySet(configured)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+		values[key] = categories
+	}
+	values["category_selection_review_required"] = !(movieConfigured && seriesConfigured && reviewedSelectionConfigured && !reviewedSelection)
+	if configured, exists := values["provider_contract_key"]; exists {
+		key, ok := configured.(string)
+		key = strings.TrimSpace(key)
+		if !ok {
+			return nil, "", errors.New("invalid Newznab provider contract")
+		}
+		if key == "" {
+			delete(values, "provider_contract_key")
+		} else {
+			if !newznab.ValidProviderContractKey(key) || !newznab.ProviderContractAcceptsEndpoint(newznab.ProviderContractRef{Key: key, Version: 1}, canonical) {
+				return nil, "", errors.New("invalid Newznab provider contract")
+			}
+			values["provider_contract_key"] = key
+		}
 	}
 	encoded, err := json.Marshal(values)
 	if err != nil {
 		return nil, "", err
 	}
 	return encoded, canonical, nil
+}
+
+func canonicalNewznabEndpoint(endpoint string, allowHTTP bool) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("invalid Newznab endpoint")
+	}
+	parsed.Scheme = strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if parsed.Scheme != "https" && !(allowHTTP && parsed.Scheme == "http") {
+		return "", errors.New("invalid Newznab endpoint")
+	}
+	hostname := strings.TrimRight(strings.ToLower(parsed.Hostname()), ".")
+	if hostname == "" {
+		return "", errors.New("invalid Newznab endpoint")
+	}
+	for _, character := range hostname {
+		if character <= 0x20 || character >= 0x7f {
+			return "", errors.New("invalid Newznab endpoint")
+		}
+	}
+	port := parsed.Port()
+	if port != "" {
+		numeric, parseErr := strconv.ParseUint(port, 10, 16)
+		if parseErr != nil || numeric == 0 {
+			return "", errors.New("invalid Newznab endpoint")
+		}
+		port = strconv.FormatUint(numeric, 10)
+	}
+	if parsed.Scheme == "https" && port == "443" || parsed.Scheme == "http" && port == "80" {
+		port = ""
+	}
+	if port != "" {
+		parsed.Host = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		parsed.Host = "[" + hostname + "]"
+	} else {
+		parsed.Host = hostname
+	}
+	parsed.Path = strings.TrimSuffix(parsed.Path, "/")
+	return parsed.String(), nil
+}
+
+func newznabCategorySet(value any) ([]any, error) {
+	categories, ok := value.([]any)
+	if !ok || len(categories) > 128 {
+		return nil, errors.New("invalid Newznab category set")
+	}
+	numeric := make([]int, 0, len(categories))
+	for _, item := range categories {
+		number, ok := item.(json.Number)
+		parsed, parseErr := strconv.ParseInt(string(number), 10, 64)
+		if !ok || parseErr != nil || parsed <= 0 || strconv.IntSize == 32 && parsed > 1<<31-1 {
+			return nil, errors.New("invalid Newznab category set")
+		}
+		numeric = append(numeric, int(parsed))
+	}
+	sort.Ints(numeric)
+	result := make([]any, 0, len(numeric))
+	previous := 0
+	for _, category := range numeric {
+		if category == previous {
+			continue
+		}
+		result = append(result, category)
+		previous = category
+	}
+	return result, nil
 }
 
 func (store *Store) ListIntegrations(ctx context.Context) ([]Integration, error) {

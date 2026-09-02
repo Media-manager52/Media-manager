@@ -19,19 +19,27 @@ func TestBuildRequestUsesOnlyCommissionedMovieParameters(t *testing.T) {
 		Title: "Klaus",
 		Year:  &year,
 		Identities: []catalog.ExternalIdentity{
-			{Namespace: "imdb", Value: "tt4729430", State: catalog.IdentityVerified},
-			{Namespace: "tmdb", Value: "508965", State: catalog.IdentityVerified},
+			{Namespace: "imdb", Value: " TT4729430 ", State: catalog.IdentityVerified},
+			{Namespace: "tmdb", Value: " 508965 ", State: catalog.IdentityVerified},
 			{Namespace: "tvdb", Value: "ignored", State: catalog.IdentityUnverified},
 		},
 	}}
-	config := indexerConfig{SearchDialects: newznab.SearchDialects{Movie: newznab.SearchDialect{Mode: "movie", Params: []string{"q", "imdbid", "tmdbid"}}}, MaximumLimit: 50, Extended: true}
-	request := buildRequest(search, config)
-	if request.Mode != "movie" || request.Limit != 50 || !request.Extended {
-		t.Fatalf("unexpected request: %#v", request)
+	config := indexerConfig{
+		Categories:     []int{2000, 2040},
+		Extended:       true,
+		MaximumLimit:   50,
+		SearchDialects: newznab.SearchDialects{Movie: newznab.SearchDialect{Mode: "movie", Params: []string{"q", "imdbid", "tmdbid", "tvdbid", "year"}}},
 	}
-	want := []newznab.Param{{Name: "q", Value: "Klaus"}, {Name: "imdbid", Value: "4729430"}, {Name: "tmdbid", Value: "508965"}}
-	if !reflect.DeepEqual(request.Params, want) {
-		t.Fatalf("params=%#v, want %#v", request.Params, want)
+	request := buildRequest(search, config)
+	want := newznab.SearchRequest{
+		Mode:       "movie",
+		Params:     []newznab.Param{{Name: "q", Value: "Klaus"}, {Name: "imdbid", Value: "4729430"}, {Name: "tmdbid", Value: "508965"}, {Name: "year", Value: "2019"}},
+		Categories: []int{2000, 2040},
+		Limit:      50,
+		Extended:   true,
+	}
+	if !reflect.DeepEqual(request, want) {
+		t.Fatalf("request=%#v, want %#v", request, want)
 	}
 }
 
@@ -96,15 +104,53 @@ func TestBuildRequestUsesVerifiedTVPackDialect(t *testing.T) {
 		Title: "Adolescence",
 		Year:  &year,
 		Identities: []catalog.ExternalIdentity{
-			{Namespace: "tvdb", Value: "451609", State: catalog.IdentityVerified},
-			{Namespace: "tmdb", Value: "249042", State: catalog.IdentityVerified},
+			{Namespace: "tvdb", Value: " 451609 ", State: catalog.IdentityVerified},
+			{Namespace: "tmdb", Value: " 249042 ", State: catalog.IdentityVerified},
+			{Namespace: "imdb", Value: " TT13024830 ", State: catalog.IdentityVerified},
 		},
 	}}
-	config := indexerConfig{SearchDialects: newznab.SearchDialects{Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "tvdbid", "season", "year"}}}}
+	config := indexerConfig{
+		Categories:     []int{5000, 5040},
+		Extended:       true,
+		MaximumLimit:   250,
+		SearchDialects: newznab.SearchDialects{Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "tvdbid", "tmdbid", "imdbid", "season", "year", "ep"}}},
+	}
 	request := buildRequest(search, config)
-	want := []newznab.Param{{Name: "q", Value: "Adolescence"}, {Name: "tvdbid", Value: "451609"}, {Name: "season", Value: "1"}, {Name: "year", Value: "2025"}}
-	if request.Mode != "tvsearch" || !reflect.DeepEqual(request.Params, want) {
-		t.Fatalf("request=%#v, want params %#v", request, want)
+	want := newznab.SearchRequest{
+		Mode:       "tvsearch",
+		Params:     []newznab.Param{{Name: "q", Value: "Adolescence"}, {Name: "tvdbid", Value: "451609"}, {Name: "tmdbid", Value: "249042"}, {Name: "imdbid", Value: "13024830"}, {Name: "season", Value: "1"}, {Name: "year", Value: "2025"}},
+		Categories: []int{5000, 5040},
+		Limit:      100,
+		Extended:   true,
+	}
+	if !reflect.DeepEqual(request, want) {
+		t.Fatalf("request=%#v, want %#v", request, want)
+	}
+}
+
+func TestBuildRequestLimitBoundaries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		maximum int
+		want    int
+	}{
+		{name: "not advertised", maximum: 0, want: 100},
+		{name: "below client ceiling", maximum: 50, want: 50},
+		{name: "at client ceiling", maximum: 100, want: 100},
+		{name: "above client ceiling", maximum: 250, want: 100},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			request := buildRequest(
+				postgres.SearchContext{Media: catalog.MediaItem{Kind: catalog.KindMovie, Title: "Example"}},
+				indexerConfig{MaximumLimit: test.maximum, SearchDialects: newznab.SearchDialects{Movie: newznab.SearchDialect{Mode: "movie", Params: []string{"q"}}}},
+			)
+			if request.Limit != test.want {
+				t.Fatalf("limit=%d, want %d", request.Limit, test.want)
+			}
+		})
 	}
 }
 

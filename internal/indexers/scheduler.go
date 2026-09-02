@@ -32,6 +32,25 @@ const (
 	OutcomeCancelled     Outcome = "cancelled"
 )
 
+// FailureScope controls whether a failed request may back off the whole
+// indexer. Operation-specific status remains the responsibility of the caller;
+// the scheduler needs only enough scope to avoid penalizing unrelated work.
+type FailureScope string
+
+const (
+	FailureScopeNone      FailureScope = "none"
+	FailureScopeInstance  FailureScope = "instance"
+	FailureScopeOperation FailureScope = "operation"
+)
+
+// RecordResult contains only protocol-neutral scheduling information. RetryAt
+// is used as an explicit instance-wide rate-limit deadline when applicable.
+type RecordResult struct {
+	Outcome Outcome
+	Scope   FailureScope
+	RetryAt time.Time
+}
+
 type Budget struct {
 	MinimumInterval time.Duration `json:"minimum_interval"`
 	FailureBackoff  time.Duration `json:"failure_backoff"`
@@ -87,6 +106,7 @@ type Permit struct {
 var (
 	ErrIndexerIDRequired = errors.New("indexer ID is required")
 	ErrInvalidBudget     = errors.New("invalid indexer budget")
+	ErrInvalidResult     = errors.New("invalid indexer scheduling result")
 )
 
 const (
@@ -218,46 +238,105 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 	return &Permit{scheduler: scheduler, lane: lane, indexerID: indexerID, workload: workload}, nil
 }
 
+// Record is the compatibility path for existing callers. Its behavior remains
+// instance-scoped for every failure and continues to understand Retry-After.
 func (permit *Permit) Record(ctx context.Context, outcome Outcome, headers http.Header) error {
-	var result error
+	scope := FailureScopeNone
+	if failureOutcome(outcome) {
+		scope = FailureScopeInstance
+	}
+	return permit.recordResult(ctx, RecordResult{Outcome: outcome, Scope: scope}, headers.Get("Retry-After"))
+}
+
+// RecordResult records a protocol-neutral result. Every result consumes the
+// request and advances minimum pacing, but only an instance-scoped failure may
+// change the shared failure count or cooldown.
+func (permit *Permit) RecordResult(ctx context.Context, result RecordResult) error {
+	if !validRecordResult(result) {
+		recordErr := permit.recordResult(ctx, RecordResult{Outcome: OutcomeSystemFailure, Scope: FailureScopeInstance}, "")
+		return errors.Join(ErrInvalidResult, recordErr)
+	}
+	return permit.recordResult(ctx, result, "")
+}
+
+func validRecordResult(result RecordResult) bool {
+	switch result.Outcome {
+	case OutcomeSuccess, OutcomeNoResults, OutcomeCancelled:
+		return result.Scope == FailureScopeNone && result.RetryAt.IsZero()
+	case OutcomeRateLimited:
+		return result.Scope == FailureScopeInstance
+	case OutcomeAuthFailed:
+		return result.Scope == FailureScopeInstance && result.RetryAt.IsZero()
+	case OutcomeSystemFailure:
+		return (result.Scope == FailureScopeInstance || result.Scope == FailureScopeOperation) && result.RetryAt.IsZero()
+	default:
+		return false
+	}
+}
+
+func (permit *Permit) recordResult(ctx context.Context, result RecordResult, retryAfter string) error {
+	var recordErr error
 	permit.once.Do(func() {
 		now := permit.scheduler.now().UTC()
 		permit.lane.mu.Lock()
 		snapshot := permit.lane.snapshot
 		budget := permit.lane.budget
 		snapshot.IndexerID = permit.indexerID
-		snapshot.LastOutcome = outcome
+		if result.Scope != FailureScopeOperation {
+			snapshot.LastOutcome = result.Outcome
+		}
 		snapshot.UpdatedAt = now
 		snapshot.MinimumInterval = budget.MinimumInterval
 		snapshot.NextAllowedAt = now.Add(budget.MinimumInterval)
-		switch outcome {
+		switch result.Outcome {
 		case OutcomeSuccess, OutcomeNoResults:
 			snapshot.ConsecutiveFailure = 0
 		case OutcomeRateLimited:
-			snapshot.ConsecutiveFailure++
-			if deadline, ok := ParseRetryAfter(headers.Get("Retry-After"), now); ok && deadline.After(snapshot.CooldownUntil) {
-				snapshot.CooldownUntil = deadline
-			} else {
-				snapshot.CooldownUntil = now.Add(backoff(permit.indexerID, snapshot.ConsecutiveFailure, budget))
+			if result.Scope == FailureScopeInstance {
+				snapshot.ConsecutiveFailure++
+				deadline := result.RetryAt.UTC()
+				if retryAfter != "" {
+					if parsed, ok := ParseRetryAfter(retryAfter, now); ok {
+						deadline = parsed
+					}
+				}
+				if !deadline.IsZero() && deadline.After(snapshot.CooldownUntil) {
+					snapshot.CooldownUntil = deadline
+				} else {
+					snapshot.CooldownUntil = now.Add(backoff(permit.indexerID, snapshot.ConsecutiveFailure, budget))
+				}
 			}
 		case OutcomeSystemFailure:
-			snapshot.ConsecutiveFailure++
-			snapshot.CooldownUntil = now.Add(backoff(permit.indexerID, snapshot.ConsecutiveFailure, budget))
+			if result.Scope == FailureScopeInstance {
+				snapshot.ConsecutiveFailure++
+				snapshot.CooldownUntil = now.Add(backoff(permit.indexerID, snapshot.ConsecutiveFailure, budget))
+			}
 		case OutcomeAuthFailed:
-			snapshot.ConsecutiveFailure++
-			snapshot.CooldownUntil = now.Add(budget.MaximumBackoff)
+			if result.Scope == FailureScopeInstance {
+				snapshot.ConsecutiveFailure++
+				snapshot.CooldownUntil = now.Add(budget.MaximumBackoff)
+			}
 		case OutcomeCancelled:
 			// A cancelled request still consumes the normal minimum interval.
 		}
 		permit.lane.snapshot = snapshot
 		permit.lane.mu.Unlock()
 		if permit.scheduler.store != nil {
-			result = permit.scheduler.store.SaveIndexerBudget(ctx, snapshot)
+			recordErr = permit.scheduler.store.SaveIndexerBudget(ctx, snapshot)
 		}
 		<-permit.scheduler.global
 		<-permit.lane.gate
 	})
-	return result
+	return recordErr
+}
+
+func failureOutcome(outcome Outcome) bool {
+	switch outcome {
+	case OutcomeRateLimited, OutcomeAuthFailed, OutcomeSystemFailure:
+		return true
+	default:
+		return false
+	}
 }
 
 func requestLimit(workload Workload, budget Budget) (int, string) {

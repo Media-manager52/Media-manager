@@ -38,16 +38,22 @@ type Category struct {
 }
 
 type CapsSnapshot struct {
-	ServerTitle           string             `json:"server_title"`
-	ServerVersion         string             `json:"server_version"`
-	DefaultLimit          int                `json:"default_limit"`
-	MaximumLimit          int                `json:"maximum_limit"`
-	RegistrationAvailable bool               `json:"registration_available"`
-	RegistrationOpen      bool               `json:"registration_open"`
-	Searches              []SearchCapability `json:"searches"`
-	Categories            []Category         `json:"categories"`
-	ObservedAt            time.Time          `json:"observed_at"`
-	BodyHash              string             `json:"body_hash"`
+	ServerTitle           string                `json:"server_title"`
+	ServerVersion         string                `json:"server_version"`
+	DefaultLimit          int                   `json:"default_limit"`
+	MaximumLimit          int                   `json:"maximum_limit"`
+	RegistrationAvailable bool                  `json:"registration_available"`
+	RegistrationOpen      bool                  `json:"registration_open"`
+	Searches              []SearchCapability    `json:"searches"`
+	ModeObservations      []CAPSModeObservation `json:"mode_observations"`
+	Categories            []Category            `json:"categories"`
+	ObservedAt            time.Time             `json:"observed_at"`
+	BodyHash              string                `json:"body_hash"`
+}
+
+type capsSearchXML struct {
+	Available       string `xml:"available,attr"`
+	SupportedParams string `xml:"supportedParams,attr"`
 }
 
 type capCategoryXML struct {
@@ -334,10 +340,6 @@ func canonicalSeasonNumber(value string) (string, bool) {
 }
 
 func ParseCaps(body []byte, observedAt time.Time) (CapsSnapshot, error) {
-	type searchXML struct {
-		Available       string `xml:"available,attr"`
-		SupportedParams string `xml:"supportedParams,attr"`
-	}
 	var document struct {
 		XMLName xml.Name `xml:"caps"`
 		Server  struct {
@@ -353,11 +355,11 @@ func ParseCaps(body []byte, observedAt time.Time) (CapsSnapshot, error) {
 			Open      string `xml:"open,attr"`
 		} `xml:"registration"`
 		Searching struct {
-			Search searchXML `xml:"search"`
-			TV     searchXML `xml:"tv-search"`
-			Movie  searchXML `xml:"movie-search"`
-			Audio  searchXML `xml:"audio-search"`
-			Book   searchXML `xml:"book-search"`
+			Search *capsSearchXML `xml:"search"`
+			TV     *capsSearchXML `xml:"tv-search"`
+			Movie  *capsSearchXML `xml:"movie-search"`
+			Audio  *capsSearchXML `xml:"audio-search"`
+			Book   *capsSearchXML `xml:"book-search"`
 		} `xml:"searching"`
 		Categories []capCategoryXML `xml:"categories>category"`
 	}
@@ -370,15 +372,94 @@ func ParseCaps(body []byte, observedAt time.Time) (CapsSnapshot, error) {
 	result := CapsSnapshot{ServerTitle: document.Server.Title, ServerVersion: document.Server.Version, DefaultLimit: document.Limits.Default, MaximumLimit: document.Limits.Max, RegistrationAvailable: yes(document.Registration.Available), RegistrationOpen: yes(document.Registration.Open), ObservedAt: observedAt.UTC(), BodyHash: hex.EncodeToString(hash[:])}
 	for _, entry := range []struct {
 		name  string
-		value searchXML
+		value *capsSearchXML
 	}{{"search", document.Searching.Search}, {"tv-search", document.Searching.TV}, {"movie-search", document.Searching.Movie}, {"audio-search", document.Searching.Audio}, {"book-search", document.Searching.Book}} {
-		params := splitParams(entry.value.SupportedParams)
-		result.Searches = append(result.Searches, SearchCapability{Mode: entry.name, Available: yes(entry.value.Available), Params: params, State: CapabilityAdvertised})
+		legacy := capsSearchXML{}
+		if entry.value != nil {
+			legacy = *entry.value
+		}
+		params := splitParams(legacy.SupportedParams)
+		result.Searches = append(result.Searches, SearchCapability{Mode: entry.name, Available: yes(legacy.Available), Params: params, State: CapabilityAdvertised})
+	}
+	result.ModeObservations = []CAPSModeObservation{
+		capsModeObservation(SearchModeGeneral, document.Searching.Search),
+		capsModeObservation(SearchModeMovie, document.Searching.Movie),
+		capsModeObservation(SearchModeTV, document.Searching.TV),
 	}
 	for _, category := range document.Categories {
 		result.Categories = append(result.Categories, convertCategory(category))
 	}
 	return result, nil
+}
+
+func capsModeObservation(mode SearchMode, element *capsSearchXML) CAPSModeObservation {
+	observation := CAPSModeObservation{Mode: mode, ElementState: CAPSElementAbsent}
+	if element == nil {
+		return observation
+	}
+	observation.ElementState = capsElementState(element.Available)
+	advertised := boundedCAPSParameterNames(element.SupportedParams)
+	observation.AdvertisedParameterNames = advertised
+	observation.RecognizedParameters = recognizedCAPSParameters(advertised)
+	return observation
+}
+
+func capsElementState(value string) CAPSElementState {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "yes", "true", "1":
+		return CAPSElementPresentAvailable
+	case "no", "false", "0":
+		return CAPSElementPresentUnavailable
+	default:
+		return CAPSElementPresentUninterpretable
+	}
+}
+
+func boundedCAPSParameterNames(value string) []string {
+	parts := strings.SplitN(value, ",", maxCAPSParameterNames+1)
+	result := make([]string, 0, min(len(parts), maxCAPSParameterNames))
+	for index, part := range parts {
+		if index == maxCAPSParameterNames {
+			break
+		}
+		name := strings.TrimSpace(SanitizeProviderValue(part))
+		if name == "" {
+			continue
+		}
+		if !advertisedParameterNamePattern.MatchString(name) {
+			continue
+		}
+		result = append(result, name)
+	}
+	return result
+}
+
+func recognizedCAPSParameters(advertised []string) []WireParameter {
+	known := map[string]WireParameter{
+		"q":        WireQuery,
+		"imdbid":   WireIMDbID,
+		"tmdbid":   WireTMDbID,
+		"tvdbid":   WireTVDbID,
+		"tvmazeid": WireTVMazeID,
+		"year":     WireYear,
+		"season":   WireSeason,
+		"ep":       WireEpisode,
+		"extended": WireExtended,
+	}
+	seen := make(map[WireParameter]struct{}, len(known))
+	result := make([]WireParameter, 0, len(known))
+	for _, name := range advertised {
+		parameter, recognized := known[strings.ToLower(name)]
+		if !recognized {
+			continue
+		}
+		if _, duplicate := seen[parameter]; duplicate {
+			continue
+		}
+		seen[parameter] = struct{}{}
+		result = append(result, parameter)
+	}
+	return result
 }
 
 func convertCategory(input capCategoryXML) Category {

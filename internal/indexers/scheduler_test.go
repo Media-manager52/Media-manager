@@ -75,12 +75,52 @@ func TestSchedulerAllowsOnlyOneInflightPerIndexer(t *testing.T) {
 	}
 }
 
-func TestRateLimitDoesNotBecomeUnsupportedAndHonorsRetryAfter(t *testing.T) {
+func TestSuccessfulOutcomesResetFailuresAndAdvanceMinimumInterval(t *testing.T) {
+	t.Parallel()
+	for _, outcome := range []Outcome{OutcomeSuccess, OutcomeNoResults} {
+		outcome := outcome
+		t.Run(string(outcome), func(t *testing.T) {
+			t.Parallel()
+			now := time.Unix(100, 0).UTC()
+			minimum := 3 * time.Second
+			scheduler := NewScheduler(1, nil)
+			scheduler.now = func() time.Time { return now }
+			if err := scheduler.Configure("reset-"+string(outcome), Budget{MinimumInterval: minimum, FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+				t.Fatal(err)
+			}
+			lane := scheduler.getLane("reset-" + string(outcome))
+			lane.mu.Lock()
+			lane.loaded = true
+			lane.snapshot = Snapshot{IndexerID: "reset-" + string(outcome), ConsecutiveFailure: 3, LastOutcome: OutcomeSystemFailure}
+			lane.mu.Unlock()
+
+			permit, err := scheduler.Acquire(context.Background(), "reset-"+string(outcome), WorkloadInteractive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := permit.Record(context.Background(), outcome, nil); err != nil {
+				t.Fatal(err)
+			}
+			snapshot := scheduler.Snapshot("reset-" + string(outcome))
+			if snapshot.ConsecutiveFailure != 0 || snapshot.LastOutcome != outcome {
+				t.Fatalf("outcome did not reset failures: %#v", snapshot)
+			}
+			if snapshot.NextAllowedAt != now.Add(minimum) {
+				t.Fatalf("next allowed=%s want %s", snapshot.NextAllowedAt, now.Add(minimum))
+			}
+		})
+	}
+}
+
+func TestRateLimitHonorsRetryAfter(t *testing.T) {
+	now := time.Unix(200, 0).UTC()
+	minimum := 3 * time.Second
 	scheduler := NewScheduler(1, nil)
-	if err := scheduler.Configure("one", Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+	scheduler.now = func() time.Time { return now }
+	if err := scheduler.Configure("rate-limited", Budget{MinimumInterval: minimum, FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
 		t.Fatal(err)
 	}
-	permit, err := scheduler.Acquire(context.Background(), "one", WorkloadCommissioning)
+	permit, err := scheduler.Acquire(context.Background(), "rate-limited", WorkloadCommissioning)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,10 +129,216 @@ func TestRateLimitDoesNotBecomeUnsupportedAndHonorsRetryAfter(t *testing.T) {
 	if err := permit.Record(context.Background(), OutcomeRateLimited, headers); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := scheduler.Snapshot("one")
-	if snapshot.LastOutcome != OutcomeRateLimited || time.Until(snapshot.CooldownUntil) < 29*time.Second {
-		t.Fatalf("unexpected snapshot: %#v", snapshot)
+	snapshot := scheduler.Snapshot("rate-limited")
+	if snapshot.LastOutcome != OutcomeRateLimited || snapshot.ConsecutiveFailure != 1 {
+		t.Fatalf("unexpected rate-limit outcome: %#v", snapshot)
 	}
+	if snapshot.NextAllowedAt != now.Add(minimum) || snapshot.CooldownUntil != now.Add(30*time.Second) {
+		t.Fatalf("unexpected rate-limit pacing: %#v", snapshot)
+	}
+}
+
+func TestAuthenticationAndSystemFailuresBackOffInstance(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		outcome Outcome
+		until   func(time.Time, string, Budget) time.Time
+	}{
+		{
+			name:    "authentication",
+			outcome: OutcomeAuthFailed,
+			until: func(now time.Time, _ string, budget Budget) time.Time {
+				return now.Add(budget.MaximumBackoff)
+			},
+		},
+		{
+			name:    "system",
+			outcome: OutcomeSystemFailure,
+			until: func(now time.Time, indexerID string, budget Budget) time.Time {
+				return now.Add(backoff(indexerID, 1, budget))
+			},
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			now := time.Unix(300, 0).UTC()
+			indexerID := "failure-" + test.name
+			budget := Budget{MinimumInterval: 3 * time.Second, FailureBackoff: 10 * time.Second, MaximumBackoff: time.Minute}
+			scheduler := NewScheduler(1, nil)
+			scheduler.now = func() time.Time { return now }
+			if err := scheduler.Configure(indexerID, budget); err != nil {
+				t.Fatal(err)
+			}
+			permit, err := scheduler.Acquire(context.Background(), indexerID, WorkloadInteractive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := permit.Record(context.Background(), test.outcome, nil); err != nil {
+				t.Fatal(err)
+			}
+			snapshot := scheduler.Snapshot(indexerID)
+			if snapshot.LastOutcome != test.outcome || snapshot.ConsecutiveFailure != 1 {
+				t.Fatalf("unexpected failure outcome: %#v", snapshot)
+			}
+			if snapshot.CooldownUntil != test.until(now, indexerID, budget) {
+				t.Fatalf("cooldown=%s want %s", snapshot.CooldownUntil, test.until(now, indexerID, budget))
+			}
+		})
+	}
+}
+
+func TestRecordResultInstanceFailuresRetainGlobalBackoff(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		outcome Outcome
+		retryAt func(time.Time) time.Time
+		want    func(time.Time, string, Budget) time.Time
+	}{
+		{name: "rate limit", outcome: OutcomeRateLimited, retryAt: func(now time.Time) time.Time { return now.Add(45 * time.Second) }, want: func(now time.Time, _ string, _ Budget) time.Time { return now.Add(45 * time.Second) }},
+		{name: "authentication", outcome: OutcomeAuthFailed, want: func(now time.Time, _ string, budget Budget) time.Time { return now.Add(budget.MaximumBackoff) }},
+		{name: "system", outcome: OutcomeSystemFailure, want: func(now time.Time, indexerID string, budget Budget) time.Time {
+			return now.Add(backoff(indexerID, 1, budget))
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			now := time.Unix(350, 0).UTC()
+			minimum := 3 * time.Second
+			budget := Budget{MinimumInterval: minimum, FailureBackoff: time.Second, MaximumBackoff: time.Minute}
+			indexerID := "scoped-instance-" + test.name
+			scheduler := NewScheduler(1, nil)
+			scheduler.now = func() time.Time { return now }
+			if err := scheduler.Configure(indexerID, budget); err != nil {
+				t.Fatal(err)
+			}
+			permit, err := scheduler.Acquire(context.Background(), indexerID, WorkloadInteractive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var retryAt time.Time
+			if test.retryAt != nil {
+				retryAt = test.retryAt(now)
+			}
+			if err := permit.RecordResult(context.Background(), RecordResult{Outcome: test.outcome, Scope: FailureScopeInstance, RetryAt: retryAt}); err != nil {
+				t.Fatal(err)
+			}
+			snapshot := scheduler.Snapshot(indexerID)
+			if snapshot.LastOutcome != test.outcome || snapshot.ConsecutiveFailure != 1 {
+				t.Fatalf("unexpected instance failure outcome: %#v", snapshot)
+			}
+			if snapshot.NextAllowedAt != now.Add(minimum) || snapshot.CooldownUntil != test.want(now, indexerID, budget) {
+				t.Fatalf("unexpected instance pacing: %#v", snapshot)
+			}
+		})
+	}
+}
+
+func TestRecordResultOperationFailureDoesNotBackOffInstance(t *testing.T) {
+	now := time.Unix(375, 0).UTC()
+	minimum := 3 * time.Second
+	priorCooldown := now.Add(-time.Minute)
+	indexerID := "scoped-operation-system"
+	scheduler := NewScheduler(1, nil)
+	scheduler.now = func() time.Time { return now }
+	if err := scheduler.Configure(indexerID, Budget{MinimumInterval: minimum, FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	lane := scheduler.getLane(indexerID)
+	lane.mu.Lock()
+	lane.loaded = true
+	lane.snapshot = Snapshot{IndexerID: indexerID, ConsecutiveFailure: 2, CooldownUntil: priorCooldown, LastOutcome: OutcomeSuccess}
+	lane.mu.Unlock()
+
+	permit, err := scheduler.Acquire(context.Background(), indexerID, WorkloadInteractive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := permit.RecordResult(context.Background(), RecordResult{Outcome: OutcomeSystemFailure, Scope: FailureScopeOperation}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := scheduler.Snapshot(indexerID)
+	if snapshot.LastOutcome != OutcomeSuccess || snapshot.ConsecutiveFailure != 2 {
+		t.Fatalf("operation failure changed instance-wide health: %#v", snapshot)
+	}
+	if snapshot.CooldownUntil != priorCooldown {
+		t.Fatalf("operation failure changed global cooldown: got %s want %s", snapshot.CooldownUntil, priorCooldown)
+	}
+	if snapshot.NextAllowedAt != now.Add(minimum) {
+		t.Fatalf("operation failure did not advance minimum pacing: got %s want %s", snapshot.NextAllowedAt, now.Add(minimum))
+	}
+}
+
+func TestRecordResultRejectsInvalidScopeClassificationConservatively(t *testing.T) {
+	t.Parallel()
+	for _, result := range []RecordResult{
+		{Outcome: OutcomeRateLimited, Scope: FailureScopeOperation},
+		{Outcome: OutcomeAuthFailed, Scope: FailureScopeOperation},
+		{Outcome: OutcomeSuccess, Scope: FailureScopeInstance},
+		{Outcome: Outcome("unknown"), Scope: FailureScopeNone},
+	} {
+		result := result
+		t.Run(string(result.Outcome)+"-"+string(result.Scope), func(t *testing.T) {
+			t.Parallel()
+			now := time.Unix(390, 0).UTC()
+			indexerID := "invalid-result-" + string(result.Outcome) + "-" + string(result.Scope)
+			scheduler := NewScheduler(1, nil)
+			scheduler.now = func() time.Time { return now }
+			budget := Budget{MinimumInterval: 2 * time.Second, FailureBackoff: time.Second, MaximumBackoff: time.Minute}
+			if err := scheduler.Configure(indexerID, budget); err != nil {
+				t.Fatal(err)
+			}
+			permit, err := scheduler.Acquire(context.Background(), indexerID, WorkloadInteractive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := permit.RecordResult(context.Background(), result); !errors.Is(err, ErrInvalidResult) {
+				t.Fatalf("invalid result error=%v", err)
+			}
+			snapshot := scheduler.Snapshot(indexerID)
+			if snapshot.LastOutcome != OutcomeSystemFailure || snapshot.ConsecutiveFailure != 1 || snapshot.NextAllowedAt != now.Add(budget.MinimumInterval) || !snapshot.CooldownUntil.After(now) {
+				t.Fatalf("invalid result was not conservatively accounted: %#v", snapshot)
+			}
+			permit, err = scheduler.Acquire(context.Background(), indexerID, WorkloadInteractive)
+			var deferred CooldownError
+			if !errors.As(err, &deferred) {
+				if permit != nil {
+					permit.Close()
+				}
+				t.Fatalf("invalid result did not release and defer its lane: %v", err)
+			}
+		})
+	}
+}
+
+func TestMinimumIntervalDefersNextRequest(t *testing.T) {
+	now := time.Unix(400, 0).UTC()
+	minimum := 5 * time.Second
+	scheduler := NewScheduler(1, nil)
+	scheduler.now = func() time.Time { return now }
+	if err := scheduler.Configure("minimum", Budget{MinimumInterval: minimum, FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	permit, err := scheduler.Acquire(context.Background(), "minimum", WorkloadInteractive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := permit.Record(context.Background(), OutcomeSuccess, nil); err != nil {
+		t.Fatal(err)
+	}
+	_, err = scheduler.Acquire(context.Background(), "minimum", WorkloadInteractive)
+	var deferred CooldownError
+	if !errors.As(err, &deferred) || deferred.RetryAt() != now.Add(minimum) {
+		t.Fatalf("minimum interval error=%v retry=%s", err, deferred.RetryAt())
+	}
+	now = now.Add(minimum)
+	permit, err = scheduler.Acquire(context.Background(), "minimum", WorkloadInteractive)
+	if err != nil {
+		t.Fatalf("request remained deferred after minimum interval: %v", err)
+	}
+	permit.Close()
 }
 
 func TestPersistedCooldownDefersWithoutHoldingSchedulerSlots(t *testing.T) {

@@ -3,6 +3,8 @@ package newznab
 import (
 	"errors"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,6 +194,96 @@ func TestParseCapsPreservesDuplicateAdvertisedParams(t *testing.T) {
 	}
 	if len(caps.Searches[1].Params) != 5 || caps.Searches[1].Params[1] != "tvdbid" || caps.Searches[1].Params[2] != "tvdbid" {
 		t.Fatalf("duplicate params lost: %#v", caps.Searches[1].Params)
+	}
+}
+
+func TestParseCapsDistinguishesSearchElementPresenceAndAvailability(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		search          string
+		wantState       CAPSElementState
+		legacyAvailable bool
+	}{
+		{name: "absent", wantState: CAPSElementAbsent},
+		{name: "available yes", search: `<search available=" YeS "/>`, wantState: CAPSElementPresentAvailable, legacyAvailable: true},
+		{name: "available no", search: `<search available=" NO "/>`, wantState: CAPSElementPresentUnavailable},
+		{name: "availability missing", search: `<search/>`, wantState: CAPSElementPresentUninterpretable},
+		{name: "availability empty", search: `<search available=" "/>`, wantState: CAPSElementPresentUninterpretable},
+		{name: "availability invalid", search: `<search available="sometimes"/>`, wantState: CAPSElementPresentUninterpretable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			snapshot, err := ParseCaps([]byte(`<caps><searching>`+test.search+`</searching></caps>`), time.Unix(1, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantLegacy := []SearchCapability{
+				{Mode: "search", Available: test.legacyAvailable, Params: []string{}, State: CapabilityAdvertised},
+				{Mode: "tv-search", Params: []string{}, State: CapabilityAdvertised},
+				{Mode: "movie-search", Params: []string{}, State: CapabilityAdvertised},
+				{Mode: "audio-search", Params: []string{}, State: CapabilityAdvertised},
+				{Mode: "book-search", Params: []string{}, State: CapabilityAdvertised},
+			}
+			if !reflect.DeepEqual(snapshot.Searches, wantLegacy) {
+				t.Fatalf("legacy searches changed: %#v, want %#v", snapshot.Searches, wantLegacy)
+			}
+			if len(snapshot.ModeObservations) != 3 || snapshot.ModeObservations[0].Mode != SearchModeGeneral || snapshot.ModeObservations[0].ElementState != test.wantState {
+				t.Fatalf("mode observations=%#v, want general state %q", snapshot.ModeObservations, test.wantState)
+			}
+		})
+	}
+}
+
+func TestParseCapsPreservesBoundedAdvertisedNamesAndRecognizesTypedSubset(t *testing.T) {
+	t.Parallel()
+	body := []byte(`<caps><searching><search available="TrUe" supportedParams="Q, imdbid, future.flag, Q, tvmazeid, EP"/></searching></caps>`)
+	snapshot, err := ParseCaps(body, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAdvertised := []string{"Q", "imdbid", "future.flag", "Q", "tvmazeid", "EP"}
+	wantRecognized := []WireParameter{WireQuery, WireIMDbID, WireTVMazeID, WireEpisode}
+	observation := snapshot.ModeObservations[0]
+	if observation.ElementState != CAPSElementPresentAvailable || !reflect.DeepEqual(observation.AdvertisedParameterNames, wantAdvertised) || !reflect.DeepEqual(observation.RecognizedParameters, wantRecognized) {
+		t.Fatalf("observation=%#v", observation)
+	}
+	if !reflect.DeepEqual(snapshot.Searches[0].Params, wantAdvertised) {
+		t.Fatalf("legacy parameters changed: %#v", snapshot.Searches[0].Params)
+	}
+}
+
+func TestParseCapsBoundsModeParameterEvidence(t *testing.T) {
+	t.Parallel()
+	maximum := make([]string, maxCAPSParameterNames)
+	for index := range maximum {
+		maximum[index] = "future" + strconv.Itoa(index)
+	}
+	tests := []struct {
+		name           string
+		parameters     string
+		wantAdvertised int
+		wantRecognized int
+	}{
+		{name: "maximum count", parameters: strings.Join(maximum, ","), wantAdvertised: maxCAPSParameterNames},
+		{name: "over count", parameters: strings.Join(append(maximum, "overflow"), ","), wantAdvertised: maxCAPSParameterNames},
+		{name: "maximum name length", parameters: "a" + strings.Repeat("b", 63), wantAdvertised: 1},
+		{name: "over name length", parameters: "a" + strings.Repeat("b", 64)},
+		{name: "invalid name preserves valid evidence", parameters: "q,bad parameter", wantAdvertised: 1, wantRecognized: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			snapshot, err := ParseCaps([]byte(`<caps><searching><search available="yes" supportedParams="`+test.parameters+`"/></searching></caps>`), time.Unix(1, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			observation := snapshot.ModeObservations[0]
+			if observation.ElementState != CAPSElementPresentAvailable || len(observation.AdvertisedParameterNames) != test.wantAdvertised || len(observation.RecognizedParameters) != test.wantRecognized {
+				t.Fatalf("observation state=%q advertised=%d recognized=%d", observation.ElementState, len(observation.AdvertisedParameterNames), len(observation.RecognizedParameters))
+			}
+		})
 	}
 }
 
