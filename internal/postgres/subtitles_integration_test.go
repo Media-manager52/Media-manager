@@ -465,7 +465,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 		t.Fatalf("manual reconcile was not idempotent: events=%d", recoveredEvents)
 	}
 
-	infrastructureMedia, err := catalog.New(catalog.KindMovie, "Infrastructure Recovery Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654319", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	infrastructureMedia, err := catalog.New(catalog.KindMovie, "Infrastructure Recovery Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654315", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
