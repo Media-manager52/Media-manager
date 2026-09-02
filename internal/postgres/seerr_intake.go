@@ -250,6 +250,12 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 						if _, updateErr := transaction.Exec(ctx, `UPDATE workflows SET state='cancelled',revision=revision+1,updated_at=$2,terminal_at=$2,attention_code=NULL,attention_detail=NULL WHERE id=$1 AND revision=$3 AND terminal_at IS NULL`, existingText, now.UTC(), existingRevision); updateErr != nil {
 							return IntakeResult{}, updateErr
 						}
+						if _, updateErr := transaction.Exec(ctx, `UPDATE acquisition_rounds SET state='cancelled',closed_at=$2,close_reason='Seerr replaced the exact episode snapshot before retrieval' WHERE workflow_id=$1 AND state='open'`, existingText, now.UTC()); updateErr != nil {
+							return IntakeResult{}, updateErr
+						}
+						if _, updateErr := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1`, existingText, now.UTC()); updateErr != nil {
+							return IntakeResult{}, updateErr
+						}
 						if _, transitionErr := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'cancelled','Seerr replaced the exact episode snapshot before retrieval','seerr',$4) ON CONFLICT DO NOTHING`, existingText, existingRevision+1, existingState, now.UTC()); transitionErr != nil {
 							return IntakeResult{}, transitionErr
 						}
@@ -282,6 +288,9 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		}
 		workflowID := uuid.NewV7()
 		if _, err := transaction.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at) VALUES($1,$2,'monitored',$3,$4,$5,$6,1,$7,$7)`, workflowID.String(), result.MediaID.String(), rootID.String(), profileID.String(), clientID.String(), variant.Name, now.UTC()); err != nil {
+			return IntakeResult{}, err
+		}
+		if err := insertInitialAcquisitionRound(ctx, transaction, workflowID, result.MediaID, profileID, variant.Name, now); err != nil {
 			return IntakeResult{}, err
 		}
 		if variant.Season != nil {
@@ -455,6 +464,14 @@ func (store *Store) ReconcileSeerrRevocation(ctx context.Context, instanceID, re
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE workflows SET state=$2,revision=revision+1,updated_at=$3,terminal_at=$4,attention_code=CASE WHEN $2='needs_attention' THEN 'seerr_request_revoked' ELSE NULL END,attention_detail=CASE WHEN $2='needs_attention' THEN $5 ELSE NULL END WHERE id=$1 AND revision=$6`, item.id, toState, now.UTC(), terminalAt, reason, item.revision); err != nil {
 			return false, err
+		}
+		if toState == "cancelled" {
+			if _, err := transaction.Exec(ctx, `UPDATE acquisition_rounds SET state='cancelled',closed_at=$2,close_reason=$3 WHERE workflow_id=$1 AND state='open'`, item.id, now.UTC(), reason); err != nil {
+				return false, err
+			}
+			if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1`, item.id, now.UTC()); err != nil {
+				return false, err
+			}
 		}
 		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,$4,$5,'seerr',$6)`, item.id, item.revision+1, item.state, toState, reason, now.UTC()); err != nil {
 			return false, err

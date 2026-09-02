@@ -456,7 +456,10 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at) VALUES($1,$2,$3,$4,$5,'replacement-guid','Integration.Movie.2026.REPACK.1080p-GROUP','native:replacement-guid',$6)`, replacementCandidateID.String(), replacementWorkflow.ID.String(), replacementRunID.String(), replacementObservationID.String(), indexer.ID.String(), displacementAt); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,external_queue_id,submission_started_at,submitted_at,last_reconciled_at,revision) VALUES($1,$2,$3,$4,1,'mm-integration-replacement.nzb','import_complete',42,$5,$5,$5,1)`, replacementJobID.String(), replacementWorkflow.ID.String(), replacementCandidateID.String(), altMount.ID.String(), displacementAt); err != nil {
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,external_queue_id,submission_started_at,submitted_at,last_reconciled_at,revision,round_id,round_slot) VALUES($1,$2,$3,$4,1,'mm-integration-replacement.nzb','import_complete',42,$5,$5,$5,1,(SELECT id FROM acquisition_rounds WHERE workflow_id=$2 AND state='open'),1)`, replacementJobID.String(), replacementWorkflow.ID.String(), replacementCandidateID.String(), altMount.ID.String(), displacementAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO workflow_attempted_releases(workflow_id,candidate_id,first_job_id,created_at) VALUES($1,$2,$3,$4)`, replacementWorkflow.ID.String(), replacementCandidateID.String(), replacementJobID.String(), displacementAt); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_output_inventories(id,job_id,generation,root_relative,inventory_digest,observed_at,frozen_at) VALUES($1,$2,1,'replacement',$3,$4,$4)`, replacementInventoryID.String(), replacementJobID.String(), []byte{5}, displacementAt); err != nil {

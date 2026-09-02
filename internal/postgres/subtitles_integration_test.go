@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"uuid"
@@ -27,7 +28,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if databaseURL == "" {
 		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	store := subtitleIntegrationStore(t, ctx, databaseURL)
 	defer store.Close()
@@ -53,6 +54,9 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	}
 	indexerTwo, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Indexer Two", Config: json.RawMessage(`{"base_url":"https://indexer-two.invalid/api"}`), SecretRef: "INDEXER_TWO_KEY"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteNewznabCommission(ctx, indexerTwo.ID, newznab.CapsSnapshot{BodyHash: "test-caps-two", DefaultLimit: 100, MaximumLimit: 100}, searchDialects, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	root, err := store.CreateLibraryRoot(ctx, LibraryRoot{MediaKind: catalog.KindMovie, Name: "Movies", DestinationRoot: "/libraries/movies", PlexVisibleRoot: "/libraries/movies", SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: &plex.ID, PlexLibraryID: "1", Default: true, Enabled: true})
@@ -81,7 +85,47 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err != nil || len(created) != 1 {
 		t.Fatalf("workflow=%+v err=%v", created, err)
 	}
-	workflowID := created[0].ID
+	if _, err := store.TransitionWorkflow(ctx, created[0].ID, created[0].Revision, workflows.StateCancelled, "replace bootstrap workflow with an upgrade fixture", "test", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	oldVersionID := seedCurrentSubtitleVersion(t, ctx, store, media.ID, root.ID, profile.ID, altMount.ID, indexer.ID)
+	baselineGuardWorkflow, err := store.CreateManualWorkflowForExisting(ctx, media, root.ID, profile.ID, altMount.ID, nil, false, "", "test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var upgradeBaseline string
+	if err := store.Pool.QueryRow(ctx, `SELECT upgrade_baseline_link_versions FROM acquisition_rounds WHERE workflow_id=$1 AND state='open'`, baselineGuardWorkflow.ID.String()).Scan(&upgradeBaseline); err != nil || upgradeBaseline != oldVersionID.String() {
+		t.Fatalf("upgrade baseline=%q want=%q err=%v", upgradeBaseline, oldVersionID.String(), err)
+	}
+	baselineGuardRetrieval := seedRetrievalCandidate(t, ctx, store, baselineGuardWorkflow.ID, indexer.ID, "upgrade-baseline-guard")
+	if _, err := store.Pool.Exec(ctx, `UPDATE library_link_versions SET state='displaced' WHERE id=$1`, oldVersionID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginAltMountSubmission(ctx, baselineGuardRetrieval, testNZBPackageIdentity(30), time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "current publication changed") {
+		t.Fatalf("changed publication baseline did not block submission: %v", err)
+	}
+	var baselineGuardJobs int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM altmount_jobs WHERE workflow_id=$1`, baselineGuardWorkflow.ID.String()).Scan(&baselineGuardJobs); err != nil || baselineGuardJobs != 0 {
+		t.Fatalf("changed publication baseline created jobs=%d err=%v", baselineGuardJobs, err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE library_link_versions SET state='current' WHERE id=$1`, oldVersionID.String()); err != nil {
+		t.Fatal(err)
+	}
+	baselineGuardCurrent, err := store.GetWorkflow(ctx, baselineGuardWorkflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.TransitionWorkflow(ctx, baselineGuardCurrent.ID, baselineGuardCurrent.Revision, workflows.StateCancelled, "complete upgrade baseline guard fixture", "test", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	upgradeWorkflow, err := store.CreateManualWorkflowForExisting(ctx, media, root.ID, profile.ID, altMount.ID, nil, false, "", "test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowID := upgradeWorkflow.ID
+	if err := store.Pool.QueryRow(ctx, `SELECT upgrade_baseline_link_versions FROM acquisition_rounds WHERE workflow_id=$1 AND state='open'`, workflowID.String()).Scan(&upgradeBaseline); err != nil || upgradeBaseline != oldVersionID.String() {
+		t.Fatalf("fresh upgrade baseline=%q want=%q err=%v", upgradeBaseline, oldVersionID.String(), err)
+	}
 	retrievalMedia, err := catalog.New(catalog.KindMovie, "Retrieval Failure Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654320", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -104,6 +148,15 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	}
 	if retrievalState != "needs_attention" || retrievalAttention != "release_retrieval_failed" || failureKind != "release_retrieval" || verificationID != nil {
 		t.Fatalf("retrieval failure state=%q attention=%q kind=%q verification=%v", retrievalState, retrievalAttention, failureKind, verificationID)
+	}
+	var retrievalJobs, retrievalAttempts int
+	if err := store.Pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM altmount_jobs WHERE workflow_id=$1),
+		(SELECT count(*) FROM workflow_attempted_releases WHERE workflow_id=$1)`, retrievalWorkflow.ID.String()).Scan(&retrievalJobs, &retrievalAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if retrievalJobs != 0 || retrievalAttempts != 0 {
+		t.Fatalf("retrieval failure consumed jobs=%d attempted identities=%d", retrievalJobs, retrievalAttempts)
 	}
 	retrievalSearch, err := store.LoadSearchContext(ctx, retrievalWorkflow.ID)
 	if err != nil || len(retrievalSearch.Exclusions) != 1 || !retrievalSearch.Exclusions[0].Matches(indexer.ID, "https://indexer.invalid/details/exact-retrieval-guid") || retrievalSearch.Exclusions[0].Matches(indexer.ID, "https://indexer.invalid/details/exact-retrieval-guid-2") || retrievalSearch.Exclusions[0].Matches(uuid.NewV7(), "https://indexer.invalid/details/exact-retrieval-guid") {
@@ -131,24 +184,22 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CompleteImport(ctx, outputFailureJob, false, "season pack is incomplete", time.Now().UTC()); err != nil {
+	if err := store.CompleteReleaseFailure(ctx, outputFailureJob, "output_empty", "completed output contains no usable media", time.Now().UTC()); err != nil {
 		t.Fatal(err)
-	}
-	if err := store.RequestWorkflowSearch(ctx, outputFailureWorkflows[0].ID, "", time.Now().UTC()); err != nil {
-		t.Fatalf("first failed-output retry: %v", err)
 	}
 	var outputWorkflowState, outputJobState, outputFailureKind, excludedNativeKey string
-	var outputSearchEvents int
+	var outputSearchEvents, outputPackageExclusions int
 	if err := store.Pool.QueryRow(ctx, `SELECT workflow.state,job.state,exclusion.failure_kind,exclusion.native_key,
-		(SELECT count(*) FROM outbox_events event WHERE event.aggregate_id=workflow.id AND event.event_type='workflow.search_requested')
+		(SELECT count(*) FROM outbox_events event WHERE event.aggregate_id=workflow.id AND event.event_type='workflow.search_requested'),
+		(SELECT count(*) FROM workflow_package_exclusions package_exclusion WHERE package_exclusion.workflow_id=workflow.id)
 		FROM workflows workflow
-		JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id
+		JOIN altmount_jobs job ON job.workflow_id=workflow.id AND job.id=$2
 		JOIN workflow_release_exclusions exclusion ON exclusion.workflow_id=workflow.id AND exclusion.candidate_id=job.candidate_id
-		WHERE workflow.id=$1`, outputFailureWorkflows[0].ID.String()).Scan(&outputWorkflowState, &outputJobState, &outputFailureKind, &excludedNativeKey, &outputSearchEvents); err != nil {
+		WHERE workflow.id=$1`, outputFailureWorkflows[0].ID.String(), outputFailureIntent.JobID.String()).Scan(&outputWorkflowState, &outputJobState, &outputFailureKind, &excludedNativeKey, &outputSearchEvents, &outputPackageExclusions); err != nil {
 		t.Fatal(err)
 	}
-	if outputWorkflowState != "searching" || outputJobState != "needs_attention" || outputFailureKind != "output_verification" || excludedNativeKey != "output-failure-guid" || outputSearchEvents != 1 {
-		t.Fatalf("failed-output retry workflow=%q job=%q kind=%q native=%q events=%d", outputWorkflowState, outputJobState, outputFailureKind, excludedNativeKey, outputSearchEvents)
+	if outputWorkflowState != "waiting" || outputJobState != "needs_attention" || outputFailureKind != "output_empty" || excludedNativeKey != "output-failure-guid" || outputSearchEvents != 1 || outputPackageExclusions != 1 {
+		t.Fatalf("failed-output retry workflow=%q job=%q kind=%q native=%q events=%d package_exclusions=%d", outputWorkflowState, outputJobState, outputFailureKind, excludedNativeKey, outputSearchEvents, outputPackageExclusions)
 	}
 	outputSearch, err := store.LoadSearchContext(ctx, outputFailureWorkflows[0].ID)
 	if err != nil || len(outputSearch.Exclusions) != 1 || !outputSearch.Exclusions[0].Matches(indexer.ID, "output-failure-guid") || outputSearch.Exclusions[0].Matches(indexer.ID, "output-failure-guid-similar") {
@@ -164,22 +215,170 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 		t.Fatalf("bounded output workflow=%+v err=%v", boundedOutputWorkflows, err)
 	}
 	boundedOutputJob, _, _ := seedSubtitleAttempt(t, ctx, store, boundedOutputWorkflows[0].ID, altMount.ID, indexer.ID, 2, "bounded-output-guid")
-	if err := store.CompleteImport(ctx, boundedOutputJob, false, "second output is incomplete", time.Now().UTC()); err != nil {
+	if err := store.CompleteReleaseFailure(ctx, boundedOutputJob, "season_pack_incomplete", "second output is incomplete", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RequestWorkflowSearch(ctx, boundedOutputWorkflows[0].ID, "", time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "acquisition attempt limit reached") {
+	if err := store.RequestWorkflowSearch(ctx, boundedOutputWorkflows[0].ID, "", time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "round is exhausted") {
 		t.Fatalf("second failed-output retry error=%v", err)
 	}
 	var boundedOutputState, boundedOutputJobState string
-	var boundedOutputExclusions, boundedOutputEvents int
+	var boundedOutputExclusions, boundedOutputEvents, boundedOutputPackageExclusions int
 	if err := store.Pool.QueryRow(ctx, `SELECT workflow.state,job.state,
 		(SELECT count(*) FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=workflow.id),
-		(SELECT count(*) FROM outbox_events event WHERE event.aggregate_id=workflow.id AND event.event_type='workflow.search_requested')
-		FROM workflows workflow JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id WHERE workflow.id=$1`, boundedOutputWorkflows[0].ID.String()).Scan(&boundedOutputState, &boundedOutputJobState, &boundedOutputExclusions, &boundedOutputEvents); err != nil {
+		(SELECT count(*) FROM outbox_events event WHERE event.aggregate_id=workflow.id AND event.event_type='workflow.search_requested'),
+		(SELECT count(*) FROM workflow_package_exclusions package_exclusion WHERE package_exclusion.workflow_id=workflow.id)
+		FROM workflows workflow JOIN altmount_jobs job ON job.workflow_id=workflow.id AND job.id=$2 WHERE workflow.id=$1`, boundedOutputWorkflows[0].ID.String(), boundedOutputJob.JobID.String()).Scan(&boundedOutputState, &boundedOutputJobState, &boundedOutputExclusions, &boundedOutputEvents, &boundedOutputPackageExclusions); err != nil {
 		t.Fatal(err)
 	}
-	if boundedOutputState != "needs_attention" || boundedOutputJobState != "needs_attention" || boundedOutputExclusions != 0 || boundedOutputEvents != 0 {
-		t.Fatalf("bounded output workflow=%q job=%q exclusions=%d events=%d", boundedOutputState, boundedOutputJobState, boundedOutputExclusions, boundedOutputEvents)
+	if boundedOutputState != "waiting" || boundedOutputJobState != "needs_attention" || boundedOutputExclusions != 1 || boundedOutputEvents != 0 || boundedOutputPackageExclusions != 1 {
+		t.Fatalf("bounded output workflow=%q job=%q exclusions=%d events=%d package_exclusions=%d", boundedOutputState, boundedOutputJobState, boundedOutputExclusions, boundedOutputEvents, boundedOutputPackageExclusions)
+	}
+
+	// Recovery discovery never opens a round or submits a package. Repeated old
+	// identities remain old even when observed one hundred more times.
+	recoverySearch, err := store.LoadSearchContext(ctx, boundedOutputWorkflows[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldCandidateCreated time.Time
+	if err := store.Pool.QueryRow(ctx, `SELECT created_at FROM release_candidates WHERE workflow_id=$1 AND native_key='bounded-output-guid'`, boundedOutputWorkflows[0].ID.String()).Scan(&oldCandidateCreated); err != nil {
+		t.Fatal(err)
+	}
+	oldObservation := func() EvaluatedObservation {
+		observationID := uuid.NewV7()
+		return EvaluatedObservation{
+			Observation: releases.Observation{ID: observationID, IndexerID: indexer.ID, Operation: "test", NativeGUID: "bounded-output-guid", Title: "Subtitle.Integration.2026.bounded-output-guid", Fields: []releases.RawField{}, Facts: []releases.Fact{}, BodyHash: "07", ObservedAt: time.Now().UTC(), ParseVersion: "test", Problems: []string{}},
+			Evaluation:  releases.Evaluation{ObservationID: observationID, Verdict: releases.VerdictEligible, Score: 10, Explanations: []releases.Explanation{}},
+		}
+	}
+	var generation int64
+	if err := store.Pool.QueryRow(ctx, `SELECT rescan_generation FROM workflow_retry_discovery WHERE workflow_id=$1`, boundedOutputWorkflows[0].ID.String()).Scan(&generation); err != nil {
+		t.Fatal(err)
+	}
+	deferredUntil := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Microsecond)
+	if _, err := store.PersistSearch(ctx, recoverySearch, []byte("partial-recovery"), []EvaluatedObservation{oldObservation()}, SearchPersistenceOptions{RecoveryRescan: true, RescanGeneration: generation, IndexerOutcomes: []SearchIndexerOutcome{{IndexerInstanceID: indexer.ID, State: "succeeded"}, {IndexerInstanceID: indexerTwo.ID, State: "deferred", RetryAt: &deferredUntil, Detail: "indexer_pacing_deferred"}}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var noNew int
+	var lastComplete *bool
+	var nextRescan time.Time
+	if err := store.Pool.QueryRow(ctx, `SELECT rescan_generation,complete_no_new_scans,last_scan_complete,next_rescan_at FROM workflow_retry_discovery WHERE workflow_id=$1`, boundedOutputWorkflows[0].ID.String()).Scan(&generation, &noNew, &lastComplete, &nextRescan); err != nil {
+		t.Fatal(err)
+	}
+	if noNew != 0 || lastComplete == nil || *lastComplete || !nextRescan.Equal(deferredUntil) {
+		t.Fatalf("partial scan scheduling: count=%d complete=%v next=%s want=%s", noNew, lastComplete, nextRescan, deferredUntil)
+	}
+	pendingIndexers, err := store.RecoveryIndexerFilter(ctx, boundedOutputWorkflows[0].ID, generation)
+	if err != nil || len(pendingIndexers) != 1 || !pendingIndexers[indexerTwo.ID.String()] {
+		t.Fatalf("partial scan pending indexers=%v err=%v", pendingIndexers, err)
+	}
+	recoverySearch.Indexers = []Integration{indexerTwo}
+	if _, err := store.PersistSearch(ctx, recoverySearch, []byte("finish-partial-recovery"), nil, SearchPersistenceOptions{RecoveryRescan: true, RescanGeneration: generation, IndexerOutcomes: []SearchIndexerOutcome{{IndexerInstanceID: indexerTwo.ID, State: "succeeded"}}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT rescan_generation FROM workflow_retry_discovery WHERE workflow_id=$1`, boundedOutputWorkflows[0].ID.String()).Scan(&generation); err != nil {
+		t.Fatal(err)
+	}
+	pendingIndexers, err = store.RecoveryIndexerFilter(ctx, boundedOutputWorkflows[0].ID, generation)
+	if err != nil || pendingIndexers != nil {
+		t.Fatalf("complete scan retained pending indexers=%v err=%v", pendingIndexers, err)
+	}
+	recoverySearch.Indexers = []Integration{indexer, indexerTwo}
+	for scan := 0; scan < 100; scan++ {
+		if _, err := store.PersistSearch(ctx, recoverySearch, []byte("repeat-old-identity"), []EvaluatedObservation{oldObservation()}, SearchPersistenceOptions{RecoveryRescan: true, RescanGeneration: generation, IndexerOutcomes: []SearchIndexerOutcome{{IndexerInstanceID: indexer.ID, State: "succeeded"}, {IndexerInstanceID: indexerTwo.ID, State: "succeeded"}}}, time.Now().UTC()); err != nil {
+			t.Fatalf("repeat scan %d: %v", scan+1, err)
+		}
+		if err := store.Pool.QueryRow(ctx, `SELECT rescan_generation FROM workflow_retry_discovery WHERE workflow_id=$1`, boundedOutputWorkflows[0].ID.String()).Scan(&generation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var repeatedRounds, repeatedJobs, repeatedObservations, observationCount int
+	var unchangedCreated time.Time
+	if err := store.Pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM acquisition_rounds WHERE workflow_id=$1),
+		(SELECT count(*) FROM altmount_jobs WHERE workflow_id=$1),
+		(SELECT count(*) FROM release_observations WHERE indexer_instance_id=$2 AND native_guid='bounded-output-guid'),
+		candidate.observation_count,candidate.created_at
+		FROM release_candidates candidate WHERE candidate.workflow_id=$1 AND candidate.native_key='bounded-output-guid'`, boundedOutputWorkflows[0].ID.String(), indexer.ID.String()).Scan(&repeatedRounds, &repeatedJobs, &repeatedObservations, &observationCount, &unchangedCreated); err != nil {
+		t.Fatal(err)
+	}
+	if repeatedRounds != 1 || repeatedJobs != 1 || repeatedObservations != 1 || observationCount != 102 || !unchangedCreated.Equal(oldCandidateCreated) {
+		t.Fatalf("old identity changed lifecycle: rounds=%d jobs=%d observations=%d count=%d created=%s want=%s", repeatedRounds, repeatedJobs, repeatedObservations, observationCount, unchangedCreated, oldCandidateCreated)
+	}
+
+	newObservationID := uuid.NewV7()
+	newObservation := EvaluatedObservation{
+		Observation: releases.Observation{ID: newObservationID, IndexerID: indexer.ID, Operation: "test", NativeGUID: "new-after-exhaustion", Title: "Bounded.Output.Failure.Integration.2026.1080p.WEB-DL", Fields: []releases.RawField{}, Facts: []releases.Fact{}, BodyHash: "08", ObservedAt: time.Now().UTC(), ParseVersion: "test", Problems: []string{}},
+		Evaluation:  releases.Evaluation{ObservationID: newObservationID, Verdict: releases.VerdictEligible, Score: 20, Explanations: []releases.Explanation{}},
+	}
+	if _, err := store.PersistSearch(ctx, recoverySearch, []byte("new-identity"), []EvaluatedObservation{newObservation}, SearchPersistenceOptions{RecoveryRescan: true, RescanGeneration: generation, IndexerOutcomes: []SearchIndexerOutcome{{IndexerInstanceID: indexer.ID, State: "succeeded"}, {IndexerInstanceID: indexerTwo.ID, State: "succeeded"}}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var discoveryReady string
+	if err := store.Pool.QueryRow(ctx, `SELECT state FROM workflow_retry_discovery WHERE workflow_id=$1`, boundedOutputWorkflows[0].ID.String()).Scan(&discoveryReady); err != nil || discoveryReady != "ready" {
+		t.Fatalf("new identity discovery state=%q err=%v", discoveryReady, err)
+	}
+	changedPolicy := json.RawMessage(`{"required_subtitle_languages":["en"]}`)
+	if _, err := store.Pool.Exec(ctx, `UPDATE quality_profiles SET policy_version=2,policy=$2 WHERE id=$1`, profile.ID.String(), changedPolicy); err != nil {
+		t.Fatal(err)
+	}
+	startRound := make(chan struct{})
+	roundResults := make(chan error, 2)
+	var roundRacers sync.WaitGroup
+	for range 2 {
+		roundRacers.Add(1)
+		go func() {
+			defer roundRacers.Done()
+			<-startRound
+			roundResults <- store.OpenNextAcquisitionRound(ctx, boundedOutputWorkflows[0].ID, time.Now().UTC())
+		}()
+	}
+	close(startRound)
+	roundRacers.Wait()
+	close(roundResults)
+	roundsOpened := 0
+	for result := range roundResults {
+		if result == nil {
+			roundsOpened++
+		}
+	}
+	var roundTwoCount, roundTwoPolicyVersion int
+	var roundTwoPolicy json.RawMessage
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*),max(policy_version),max(policy_snapshot::text)::jsonb FROM acquisition_rounds WHERE workflow_id=$1 AND round_ordinal=2`, boundedOutputWorkflows[0].ID.String()).Scan(&roundTwoCount, &roundTwoPolicyVersion, &roundTwoPolicy); err != nil {
+		t.Fatal(err)
+	}
+	roundTwoSubtitlePolicy, err := subtitles.ParsePolicy(roundTwoPolicy)
+	if err != nil || roundsOpened != 1 || roundTwoCount != 1 || roundTwoPolicyVersion != 1 || len(roundTwoSubtitlePolicy.Required) != 1 || roundTwoSubtitlePolicy.Required[0] != "da" {
+		t.Fatalf("concurrent owner round open successes=%d persisted=%d policy_version=%d policy=%s err=%v", roundsOpened, roundTwoCount, roundTwoPolicyVersion, roundTwoPolicy, err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE acquisition_rounds SET policy_snapshot='{}'::jsonb WHERE workflow_id=$1 AND round_ordinal=2`, boundedOutputWorkflows[0].ID.String()); err == nil {
+		t.Fatal("acquisition round policy snapshot was mutable")
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE quality_profiles SET policy_version=1,policy=$2 WHERE id=$1`, profile.ID.String(), policy); err != nil {
+		t.Fatal(err)
+	}
+	var readyCandidateText string
+	if err := store.Pool.QueryRow(ctx, `SELECT id::text FROM release_candidates WHERE workflow_id=$1 AND native_key='new-after-exhaustion'`, boundedOutputWorkflows[0].ID.String()).Scan(&readyCandidateText); err != nil {
+		t.Fatal(err)
+	}
+	readyCandidateID := uuid.MustParse(readyCandidateText)
+	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='candidate_selected',selected_release_id=$2,revision=revision+1,updated_at=now() WHERE id=$1`, boundedOutputWorkflows[0].ID.String(), readyCandidateID.String()); err != nil {
+		t.Fatal(err)
+	}
+	thirdRetrieval, err := store.LoadRetrievalContext(ctx, boundedOutputWorkflows[0].ID, readyCandidateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thirdIntent, err := store.BeginAltMountSubmission(ctx, thirdRetrieval, testNZBPackageIdentity(32), time.Now().UTC())
+	if err != nil || !thirdIntent.ShouldSubmit {
+		t.Fatalf("owner-gated next-round submission=%+v err=%v", thirdIntent, err)
+	}
+	var thirdGeneration, thirdRound, thirdSlot int
+	if err := store.Pool.QueryRow(ctx, `SELECT job.attempt_generation,round.round_ordinal,job.round_slot FROM altmount_jobs job JOIN acquisition_rounds round ON round.id=job.round_id WHERE job.id=$1`, thirdIntent.JobID.String()).Scan(&thirdGeneration, &thirdRound, &thirdSlot); err != nil {
+		t.Fatal(err)
+	}
+	if thirdGeneration != 3 || thirdRound != 2 || thirdSlot != 1 {
+		t.Fatalf("lifetime generation=%d round=%d slot=%d", thirdGeneration, thirdRound, thirdSlot)
 	}
 
 	submissionMedia, err := catalog.New(catalog.KindMovie, "Submission Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654319", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
@@ -265,8 +464,46 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if recoveredEvents != 1 {
 		t.Fatalf("manual reconcile was not idempotent: events=%d", recoveredEvents)
 	}
-	oldVersionID := seedCurrentSubtitleVersion(t, ctx, store, media.ID, root.ID, profile.ID, altMount.ID, indexer.ID)
 
+	infrastructureMedia, err := catalog.New(catalog.KindMovie, "Infrastructure Recovery Integration", &year, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "7654319", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	infrastructureWorkflows, err := store.CreateManualMedia(ctx, infrastructureMedia, root.ID, profile.ID, altMount.ID, nil, false, "test")
+	if err != nil || len(infrastructureWorkflows) != 1 {
+		t.Fatalf("infrastructure workflow=%+v err=%v", infrastructureWorkflows, err)
+	}
+	infrastructureRetrieval := seedRetrievalCandidate(t, ctx, store, infrastructureWorkflows[0].ID, indexer.ID, "infrastructure-recovery-guid")
+	infrastructureIntent, err := store.BeginAltMountSubmission(ctx, infrastructureRetrieval, testNZBPackageIdentity(3), time.Now().UTC())
+	if err != nil || !infrastructureIntent.ShouldSubmit {
+		t.Fatalf("infrastructure intent=%+v err=%v", infrastructureIntent, err)
+	}
+	if err := store.MarkAltMountSubmitted(ctx, infrastructureRetrieval.Workflow.ID, infrastructureIntent.JobID, 65432, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	infrastructureJob, err := store.LoadAltMountJob(ctx, infrastructureIntent.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteImportWithCode(ctx, infrastructureJob, false, "output_inspection_failed", "synthetic bounded probe unavailable", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestAltMountReconciliation(ctx, infrastructureRetrieval.Workflow.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var infrastructureWorkflowState, infrastructureJobState string
+	var infrastructureClosedAt *time.Time
+	var infrastructureAttempts, infrastructureExclusions int
+	if err := store.Pool.QueryRow(ctx, `SELECT workflow.state,job.state,job.acquisition_closed_at,
+		(SELECT count(*) FROM altmount_jobs WHERE workflow_id=workflow.id),
+		(SELECT count(*) FROM workflow_release_exclusions WHERE workflow_id=workflow.id)
+		FROM workflows workflow JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id
+		WHERE workflow.id=$1`, infrastructureRetrieval.Workflow.ID.String()).Scan(&infrastructureWorkflowState, &infrastructureJobState, &infrastructureClosedAt, &infrastructureAttempts, &infrastructureExclusions); err != nil {
+		t.Fatal(err)
+	}
+	if infrastructureWorkflowState != "queued" || infrastructureJobState != "queued" || infrastructureClosedAt != nil || infrastructureAttempts != 1 || infrastructureExclusions != 0 {
+		t.Fatalf("same-job recovery workflow=%q job=%q closed=%v attempts=%d exclusions=%d", infrastructureWorkflowState, infrastructureJobState, infrastructureClosedAt, infrastructureAttempts, infrastructureExclusions)
+	}
 	firstJob, firstInventory, firstAssets := seedSubtitleAttempt(t, ctx, store, workflowID, altMount.ID, indexer.ID, 1, "exact-guid-1")
 	firstResult := unverifiedSubtitleResult(firstAssets[0], "attempt one has no verified da subtitle")
 	firstResult.PreferredLanguages = nil
@@ -296,7 +533,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 		t.Fatalf("first failure workflow=%q selected=%v attempt=%v job=%q old=%q", firstWorkflowState, selected, attempt, firstJobState, oldState)
 	}
 	search, err := store.LoadSearchContext(ctx, workflowID)
-	if err != nil || !search.SubtitleRetry || len(search.Exclusions) != 1 || !search.Exclusions[0].Matches(indexer.ID, "exact-guid-1") || search.Exclusions[0].Matches(indexer.ID, "exact-guid-10") || search.Exclusions[0].Matches(uuid.NewV7(), "exact-guid-1") {
+	if err != nil || len(search.Exclusions) != 1 || !search.Exclusions[0].Matches(indexer.ID, "exact-guid-1") || search.Exclusions[0].Matches(indexer.ID, "exact-guid-10") || search.Exclusions[0].Matches(uuid.NewV7(), "exact-guid-1") {
 		t.Fatalf("workflow-scoped exclusion=%+v err=%v", search.Exclusions, err)
 	}
 
@@ -351,18 +588,29 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err := store.Pool.QueryRow(ctx, `SELECT current_version_id::text FROM library_links WHERE current_version_id=$1`, oldVersionID.String()).Scan(&currentPointer); err != nil {
 		t.Fatal(err)
 	}
-	if secondRecord.RetryState != "exhausted" || finalWorkflowState != "needs_attention" || secondJobState != "needs_attention" || currentPointer != oldVersionID.String() {
+	if secondRecord.RetryState != "exhausted" || finalWorkflowState != "waiting" || secondJobState != "needs_attention" || currentPointer != oldVersionID.String() {
 		t.Fatalf("second record=%+v workflow=%q job=%q pointer=%q", secondRecord, finalWorkflowState, secondJobState, currentPointer)
 	}
-	if _, err := store.BeginAltMountSubmission(ctx, RetrievalContext{Workflow: secondJob.Workflow, CandidateID: secondJob.CandidateID, DownloadClient: Integration{ID: altMount.ID}}, testNZBPackageIdentity(3), time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "attempt limit") {
-		t.Fatalf("third subtitle acquisition attempt was not blocked: %v", err)
+	if err := store.OpenNextAcquisitionRound(ctx, workflowID, time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "newly observed eligible release") {
+		t.Fatalf("new round opened without a discovered identity: %v", err)
 	}
-	var records, exclusions, activeVersions int
-	if err := store.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM subtitle_verifications WHERE workflow_id=$1),(SELECT count(*) FROM workflow_release_exclusions WHERE workflow_id=$1),(SELECT count(*) FROM library_link_versions WHERE workflow_id=$1)`, workflowID.String()).Scan(&records, &exclusions, &activeVersions); err != nil {
+	var roundState, discoveryState string
+	var discoveryEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT round.state,discovery.state,
+		(SELECT count(*) FROM outbox_events event WHERE event.aggregate_id=$1 AND event.event_type='workflow.discovery_rescan_requested')
+		FROM acquisition_rounds round JOIN workflow_retry_discovery discovery ON discovery.exhausted_round_id=round.id
+		WHERE round.workflow_id=$1`, workflowID.String()).Scan(&roundState, &discoveryState, &discoveryEvents); err != nil {
 		t.Fatal(err)
 	}
-	if records != 2 || exclusions != 3 || activeVersions != 0 {
-		t.Fatalf("records=%d exclusions=%d unverified publications=%d", records, exclusions, activeVersions)
+	if roundState != "exhausted" || discoveryState != "waiting" || discoveryEvents != 1 {
+		t.Fatalf("round=%q discovery=%q events=%d", roundState, discoveryState, discoveryEvents)
+	}
+	var records, exclusions, packageExclusions, activeVersions int
+	if err := store.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM subtitle_verifications WHERE workflow_id=$1),(SELECT count(*) FROM workflow_release_exclusions WHERE workflow_id=$1),(SELECT count(*) FROM workflow_package_exclusions WHERE workflow_id=$1),(SELECT count(*) FROM library_link_versions WHERE workflow_id=$1)`, workflowID.String()).Scan(&records, &exclusions, &packageExclusions, &activeVersions); err != nil {
+		t.Fatal(err)
+	}
+	if records != 2 || exclusions != 3 || packageExclusions != 2 || activeVersions != 0 {
+		t.Fatalf("records=%d exclusions=%d package_exclusions=%d unverified publications=%d", records, exclusions, packageExclusions, activeVersions)
 	}
 	summaries, err := store.ListWorkflowSummaries(ctx, 100, true)
 	if err != nil {
@@ -375,7 +623,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 			break
 		}
 	}
-	if failedSummary == nil || failedSummary.AcquisitionAttempts != 2 || failedSummary.RetainedOutputCount != 2 || failedSummary.ExcludedReleaseCount != 3 || failedSummary.SearchAllowed || failedSummary.SearchBlockedReason == "" {
+	if failedSummary == nil || failedSummary.AcquisitionAttempts != 2 || failedSummary.RoundOrdinal != 1 || failedSummary.RoundState != "exhausted" || failedSummary.RoundSlotsUsed != 2 || failedSummary.RoundAttemptLimit != 2 || failedSummary.RetryDiscoveryState != "waiting" || failedSummary.NewReleaseReady || failedSummary.RetainedOutputCount != 2 || failedSummary.ExcludedReleaseCount != 3 || failedSummary.SearchAllowed || failedSummary.SearchBlockedReason == "" {
 		t.Fatalf("failed workflow recovery summary=%+v", failedSummary)
 	}
 	review, err := store.ListSubtitleVerifications(ctx, 10)
@@ -493,7 +741,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='library.publish_requested'`, seriesWorkflows[0].ID.String()).Scan(&failedSeriesPublicationEvents); err != nil {
 		t.Fatal(err)
 	}
-	if failedSeriesState != "needs_attention" || failedSeriesAttention != "subtitle_requirements_unverified" || failedSeriesPublicationEvents != 0 {
+	if failedSeriesState != "waiting" || failedSeriesAttention != "round_exhausted_waiting_new_identity" || failedSeriesPublicationEvents != 0 {
 		t.Fatalf("failed series state=%q attention=%q publication=%d", failedSeriesState, failedSeriesAttention, failedSeriesPublicationEvents)
 	}
 
@@ -629,12 +877,16 @@ func TestDeferredOutboxWorkDoesNotConsumeAnAttempt(t *testing.T) {
 	defer store.Close()
 
 	eventID, aggregateID := uuid.NewV7(), uuid.NewV7()
+	backgroundEventID := uuid.NewV7()
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow_retry_discovery',$2,1,'workflow.discovery_rescan_requested','{}',now()-interval '1 hour',now())`, backgroundEventID.String(), uuid.NewV7().String()); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'test',$2,1,'test.deferred','{}',now(),now())`, eventID.String(), aggregateID.String()); err != nil {
 		t.Fatal(err)
 	}
 	claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute)
 	if err != nil || len(claimed) != 1 || claimed[0].ID != eventID || claimed[0].Attempts != 1 {
-		t.Fatalf("claimed=%+v err=%v", claimed, err)
+		t.Fatalf("foreground work was not claimed before older recovery discovery: claimed=%+v err=%v", claimed, err)
 	}
 	retryAt := time.Now().UTC().Add(time.Minute)
 	if err := store.DeferOutbox(ctx, eventID, "test-owner", "indexer_pacing_deferred", retryAt); err != nil {
@@ -717,8 +969,19 @@ func seedSubtitleAttempt(t *testing.T, ctx context.Context, store *Store, workfl
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())`, candidateID.String(), workflowID.String(), runID.String(), observationID.String(), indexerID.String(), nativeKey, "Subtitle.Integration.2026."+nativeKey, "native:"+nativeKey); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,opened_at)
+		SELECT $1,$2,1,'open',2,0,profile.policy_version,profile.policy,now() FROM workflows workflow JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id WHERE workflow.id=$2
+		ON CONFLICT DO NOTHING`, uuid.NewV7().String(), workflowID.String()); err != nil {
+		t.Fatal(err)
+	}
 	packageIdentity := testNZBPackageIdentity(byte(generation))
-	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,submission_started_at,revision,nzb_package_sha256) VALUES($1,$2,$3,$4,$5,$6,'processing',now(),1,$7)`, jobID.String(), workflowID.String(), candidateID.String(), altMountID.String(), generation, nativeKey+".nzb", packageIdentity[:]); err != nil {
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,submission_started_at,revision,nzb_package_sha256,round_id,round_slot) VALUES($1,$2,$3,$4,$5,$6,'processing',now(),1,$7,(SELECT id FROM acquisition_rounds WHERE workflow_id=$2 AND state='open'),$5)`, jobID.String(), workflowID.String(), candidateID.String(), altMountID.String(), generation, nativeKey+".nzb", packageIdentity[:]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO workflow_attempted_releases(workflow_id,candidate_id,first_job_id,created_at) VALUES($1,$2,$3,now())`, workflowID.String(), candidateID.String(), jobID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO workflow_submitted_packages(workflow_id,package_sha256,first_job_id,created_at) VALUES($1,$2,$3,now())`, workflowID.String(), packageIdentity[:], jobID.String()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_output_inventories(id,job_id,generation,root_relative,inventory_digest,observed_at,frozen_at) VALUES($1,$2,1,$3,$4,now(),now())`, inventoryID.String(), jobID.String(), "completed/"+nativeKey, []byte(nativeKey)); err != nil {
@@ -814,7 +1077,13 @@ func seedCurrentSubtitleVersion(t *testing.T, ctx context.Context, store *Store,
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at) VALUES($1,$2,$3,$4,$5,'old-guid','Old.Release','native:old-guid',now())`, candidateID.String(), workflowID.String(), runID.String(), observationID.String(), indexerID.String()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,submission_started_at,revision) VALUES($1,$2,$3,$4,1,'old.nzb','import_complete',now(),1)`, jobID.String(), workflowID.String(), candidateID.String(), altMountID.String()); err != nil {
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,opened_at) SELECT $1,$2,1,'plex_confirmed',2,0,profile.policy_version,profile.policy,now() FROM quality_profiles profile WHERE profile.id=$3`, uuid.NewV7().String(), workflowID.String(), profileID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,submission_started_at,revision,round_id,round_slot) VALUES($1,$2,$3,$4,1,'old.nzb','import_complete',now(),1,(SELECT id FROM acquisition_rounds WHERE workflow_id=$2),1)`, jobID.String(), workflowID.String(), candidateID.String(), altMountID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO workflow_attempted_releases(workflow_id,candidate_id,first_job_id,created_at) VALUES($1,$2,$3,now())`, workflowID.String(), candidateID.String(), jobID.String()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO altmount_output_inventories(id,job_id,generation,root_relative,inventory_digest,observed_at,frozen_at) VALUES($1,$2,1,'old',$3,now(),now())`, inventoryID.String(), jobID.String(), []byte{9}); err != nil {

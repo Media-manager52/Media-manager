@@ -44,9 +44,10 @@ func (store *Store) RequestRetainedSubtitleReverification(ctx context.Context, w
 		JOIN subtitle_verifications verification ON verification.altmount_job_id=job.id AND verification.workflow_id=workflow.id
 		JOIN altmount_output_inventories inventory ON inventory.id=verification.inventory_id AND inventory.job_id=job.id
 		JOIN media_items media ON media.id=workflow.media_id
-		WHERE workflow.id=$1 AND verification.status='unverified' AND job.attempt_generation BETWEEN 1 AND 2
-		AND (SELECT count(*) FROM altmount_jobs WHERE workflow_id=workflow.id) <= 2
+		WHERE workflow.id=$1 AND verification.status='unverified'
 		AND EXISTS(SELECT 1 FROM altmount_output_assets WHERE inventory_id=inventory.id)
+		AND EXISTS(SELECT 1 FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=workflow.id AND discovery.state IN ('waiting','ready'))
+		AND NOT EXISTS(SELECT 1 FROM altmount_jobs active_job WHERE active_job.workflow_id=workflow.id AND active_job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))
 		AND (media.kind<>'series' OR EXISTS(
 			SELECT 1 FROM pack_expectation_sets expectation
 			JOIN pack_evaluations evaluation ON evaluation.expectation_id=expectation.id AND evaluation.inventory_id=inventory.id AND evaluation.evaluator_version=2 AND evaluation.verdict='verified'
@@ -61,7 +62,7 @@ func (store *Store) RequestRetainedSubtitleReverification(ctx context.Context, w
 	if err != nil {
 		return err
 	}
-	if state != workflows.StateNeedsAttention || attentionCode != "subtitle_requirements_unverified" || jobState != "needs_attention" || jobErrorCode != "subtitle_requirements_unverified" || alreadyRequested || hasPublication {
+	if state != workflows.StateWaiting || attentionCode != "round_exhausted_waiting_new_identity" || jobState != "needs_attention" || jobErrorCode != "subtitle_requirements_unverified" || alreadyRequested || hasPublication {
 		return ErrConcurrentModification
 	}
 	if _, err := uuid.Parse(candidateText); err != nil {
@@ -76,7 +77,10 @@ func (store *Store) RequestRetainedSubtitleReverification(ctx context.Context, w
 	if command.RowsAffected() != 1 {
 		return ErrConcurrentModification
 	}
-	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,'needs_attention','verifying','owner requested one bounded retained-output subtitle reverification','owner',$3)`, workflowID.String(), nextRevision, now.UTC()); err != nil {
+	if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1`, workflowID.String(), now.UTC()); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'verifying','owner requested one bounded retained-output subtitle reverification','owner',$4)`, workflowID.String(), nextRevision, state, now.UTC()); err != nil {
 		return err
 	}
 	detail, _ := json.Marshal(map[string]any{"job_id": jobID.String(), "retained_output": true, "external_requests": false})
@@ -256,7 +260,7 @@ func (store *Store) CompleteRetainedSubtitleReverification(ctx context.Context, 
 		if _, err := transaction.Exec(ctx, `UPDATE subtitle_verifications SET retry_state='succeeded' WHERE workflow_id=$1 AND id<>$2 AND retry_state='queued'`, job.Workflow.ID.String(), verificationText); err != nil {
 			return err
 		}
-		if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET state='import_complete',revision=revision+1,last_reconciled_at=$2,error_code=NULL,error_detail=NULL WHERE id=$1`, job.JobID.String(), now.UTC()); err != nil {
+		if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET state='import_complete',revision=revision+1,last_reconciled_at=$2,error_code=NULL,error_detail=NULL,acquisition_outcome='output_verified',acquisition_closed_at=$2 WHERE id=$1`, job.JobID.String(), now.UTC()); err != nil {
 			return err
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE workflows SET updated_at=$2,attention_code=NULL,attention_detail=NULL WHERE id=$1`, job.Workflow.ID.String(), now.UTC()); err != nil {
@@ -281,14 +285,26 @@ func (store *Store) CompleteRetainedSubtitleReverification(ctx context.Context, 
 		if _, err := transaction.Exec(ctx, `UPDATE subtitle_verifications SET retry_state='exhausted' WHERE workflow_id=$1 AND retry_state='queued'`, job.Workflow.ID.String()); err != nil {
 			return err
 		}
-		if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET state='needs_attention',revision=revision+1,last_reconciled_at=$2,error_code='subtitle_requirements_unverified',error_detail=$3 WHERE id=$1`, job.JobID.String(), now.UTC(), detail); err != nil {
+		if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET state='needs_attention',revision=revision+1,last_reconciled_at=$2,error_code='subtitle_requirements_unverified',error_detail=$3,acquisition_outcome='subtitle_requirements_unverified',acquisition_closed_at=$2 WHERE id=$1`, job.JobID.String(), now.UTC(), detail); err != nil {
 			return err
 		}
 		nextRevision := revision + 1
-		if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='needs_attention',revision=$2,updated_at=$3,attention_code='subtitle_requirements_unverified',attention_detail=$4 WHERE id=$1`, job.Workflow.ID.String(), nextRevision, now.UTC(), detail); err != nil {
+		if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='waiting',selected_release_id=NULL,grab_attempt_id=NULL,revision=$2,updated_at=$3,attention_code='round_exhausted_waiting_new_identity',attention_detail='Retained output still did not verify. Scheduled discovery remains pending and current media is unchanged.' WHERE id=$1`, job.Workflow.ID.String(), nextRevision, now.UTC()); err != nil {
 			return err
 		}
-		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,'verifying','needs_attention',$3,'worker',$4)`, job.Workflow.ID.String(), nextRevision, detail, now.UTC()); err != nil {
+		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,'verifying','waiting',$3,'worker',$4)`, job.Workflow.ID.String(), nextRevision, detail, now.UTC()); err != nil {
+			return err
+		}
+		var generation, noNew int64
+		if err := transaction.QueryRow(ctx, `SELECT rescan_generation+1,complete_no_new_scans FROM workflow_retry_discovery WHERE workflow_id=$1 FOR UPDATE`, job.Workflow.ID.String()).Scan(&generation, &noNew); err != nil {
+			return err
+		}
+		next := retryDiscoveryAt(job.Workflow.ID, generation, int(noNew), now)
+		if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='waiting',rescan_generation=$2,next_rescan_at=$3,last_scan_at=NULL,last_scan_complete=NULL,pending_indexer_ids=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$4 WHERE workflow_id=$1`, job.Workflow.ID.String(), generation, next.UTC(), now.UTC()); err != nil {
+			return err
+		}
+		payload, _ := json.Marshal(map[string]any{"workflow_id": job.Workflow.ID.String(), "rescan_generation": generation})
+		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested',$4,$5,$6)`, uuid.NewV7().String(), job.Workflow.ID.String(), generation, payload, now.UTC(), next.UTC()); err != nil {
 			return err
 		}
 		audit, _ := json.Marshal(map[string]any{"job_id": job.JobID.String(), "status": "unverified", "retained_output": true})

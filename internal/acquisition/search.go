@@ -47,15 +47,73 @@ type indexerConfig struct {
 
 const requiredSubtitleEvidenceWeight = 100_000
 
+type recoveryIndexersUnavailableError struct{ until time.Time }
+
+func (err recoveryIndexersUnavailableError) Error() string {
+	return "no enabled commissioned Newznab indexer is available for recovery discovery"
+}
+func (err recoveryIndexersUnavailableError) SafeCode() string   { return "recovery_indexers_unavailable" }
+func (err recoveryIndexersUnavailableError) RetryAt() time.Time { return err.until.UTC() }
+
 func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxEvent) error {
+	return service.handle(ctx, event, false)
+}
+
+func (service *SearchService) HandleDiscovery(ctx context.Context, event postgres.OutboxEvent) error {
+	return service.handle(ctx, event, true)
+}
+
+func (service *SearchService) handle(ctx context.Context, event postgres.OutboxEvent, recovery bool) error {
 	search, err := service.Store.LoadSearchContext(ctx, event.AggregateID)
 	if err != nil {
 		return err
 	}
-	if search.Workflow.State == workflows.StateCandidateSelected || search.Workflow.State == workflows.StateQueued || search.Workflow.State == workflows.StateSubmitting {
+	if recovery {
+		if err := service.Store.ValidateRecoveryDiscovery(ctx, event.AggregateID, int64(event.AggregateRevision)); err != nil {
+			if errors.Is(err, postgres.ErrConcurrentModification) {
+				return nil
+			}
+			return err
+		}
+		indexerFilter, filterErr := service.Store.RecoveryIndexerFilter(ctx, event.AggregateID, int64(event.AggregateRevision))
+		if filterErr != nil {
+			if errors.Is(filterErr, postgres.ErrConcurrentModification) {
+				return nil
+			}
+			return filterErr
+		}
+		if indexerFilter != nil {
+			filtered := search.Indexers[:0]
+			for _, integration := range search.Indexers {
+				if indexerFilter[integration.ID.String()] {
+					filtered = append(filtered, integration)
+				}
+			}
+			search.Indexers = filtered
+		}
+	} else if search.Workflow.State == workflows.StateCandidateSelected || search.Workflow.State == workflows.StateQueued || search.Workflow.State == workflows.StateSubmitting {
 		return nil
 	}
-	if search.Workflow.State == workflows.StateSearching {
+	if !recovery {
+		if search.OpenRound == nil {
+			// A closed or cancelled round can still have an older leased search
+			// event. It is a stale audited no-op, never a reason to create a round.
+			return nil
+		}
+		if search.OpenRound.PolicyVersion != search.PolicyVersion || search.OpenRound.UpgradeBaseline != search.CurrentLinkVersions {
+			return errors.New("acquisition round snapshot changed before candidate selection; owner review is required")
+		}
+	}
+	if len(search.Indexers) == 0 {
+		if recovery {
+			return recoveryIndexersUnavailableError{until: time.Now().UTC().Add(24 * time.Hour)}
+		}
+		return errors.New("no enabled commissioned Newznab indexer is available for this search")
+	}
+	if recovery {
+		// Recovery discovery is an evidence-only sub-workflow. It never changes
+		// the acquisition workflow to searching or selects a release.
+	} else if search.Workflow.State == workflows.StateSearching {
 		if search.Workflow.Revision != event.AggregateRevision && search.Workflow.Revision != event.AggregateRevision+1 {
 			return nil
 		}
@@ -99,13 +157,18 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 	var evaluated []postgres.EvaluatedObservation
 	successfulIndexers := 0
 	var earliestDeferral error
+	outcomes := make([]postgres.SearchIndexerOutcome, 0, len(search.Indexers))
 	for _, integration := range search.Indexers {
+		outcome := postgres.SearchIndexerOutcome{IndexerInstanceID: integration.ID, State: "failed", Detail: "indexer_configuration_unavailable"}
 		var config indexerConfig
 		if err := json.Unmarshal(integration.Config, &config); err != nil {
+			outcomes = append(outcomes, outcome)
 			continue
 		}
 		secret, err := service.ResolveSecret(integration.SecretRef)
 		if err != nil {
+			outcome.Detail = "indexer_secret_unavailable"
+			outcomes = append(outcomes, outcome)
 			continue
 		}
 		budget := indexers.NewznabBudget(config.MinimumIntervalMS, config.QueryLimit, config.GrabLimit, config.BudgetWindow)
@@ -114,21 +177,48 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 		}
 		client, err := newznab.New(newznab.Config{IndexerID: integration.ID.String(), BaseURL: config.BaseURL, APIKey: secret, AllowHTTP: config.AllowHTTP}, service.Scheduler, service.Transport)
 		if err != nil {
+			outcome.Detail = "indexer_client_invalid"
+			outcomes = append(outcomes, outcome)
 			continue
 		}
+		if recovery {
+			if err := service.Store.ValidateRecoveryDiscovery(ctx, event.AggregateID, int64(event.AggregateRevision)); err != nil {
+				if errors.Is(err, postgres.ErrConcurrentModification) {
+					return nil
+				}
+				return err
+			}
+		}
 		request := buildRequest(search, config)
-		observations, err := client.Search(ctx, request)
+		var observations []releases.Observation
+		if recovery {
+			observations, err = client.BackgroundSearchGuarded(ctx, request, func(guardCtx context.Context) error {
+				return service.Store.ValidateRecoveryDiscovery(guardCtx, event.AggregateID, int64(event.AggregateRevision))
+			})
+		} else {
+			observations, err = client.Search(ctx, request)
+		}
 		if err != nil {
+			if recovery && errors.Is(err, postgres.ErrConcurrentModification) {
+				return nil
+			}
 			var current interface{ RetryAt() time.Time }
 			if errors.As(err, &current) {
+				retryAt := current.RetryAt().UTC()
+				outcome.State, outcome.RetryAt, outcome.Detail = "deferred", &retryAt, safeIndexerOutcomeCode(err)
 				var earliest interface{ RetryAt() time.Time }
 				if earliestDeferral == nil || errors.As(earliestDeferral, &earliest) && current.RetryAt().Before(earliest.RetryAt()) {
 					earliestDeferral = err
 				}
+			} else {
+				outcome.Detail = safeIndexerOutcomeCode(err)
 			}
+			outcomes = append(outcomes, outcome)
 			continue
 		}
 		successfulIndexers++
+		outcome.State, outcome.Detail = "succeeded", ""
+		outcomes = append(outcomes, outcome)
 		for _, observation := range observations {
 			observation = releases.InferTitleFacts(observation, time.Now().UTC())
 			evaluation, evaluateErr := releases.Evaluate(observation, rules)
@@ -150,15 +240,33 @@ func (service *SearchService) Handle(ctx context.Context, event postgres.OutboxE
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
 		}
 	}
-	if successfulIndexers == 0 {
+	if successfulIndexers == 0 && !recovery {
 		if earliestDeferral != nil {
 			return earliestDeferral
 		}
 		return fmt.Errorf("all %d configured indexers failed before returning a valid search response", len(search.Indexers))
 	}
-	fingerprint := sha256.Sum256([]byte(search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)))
-	_, err = service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, time.Now().UTC())
+	fingerprintInput := search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)
+	if recovery {
+		fingerprintInput += "\x00recovery\x00" + strconv.FormatUint(event.AggregateRevision, 10)
+	}
+	fingerprint := sha256.Sum256([]byte(fingerprintInput))
+	_, err = service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, postgres.SearchPersistenceOptions{RecoveryRescan: recovery, RescanGeneration: int64(event.AggregateRevision), IndexerOutcomes: outcomes}, time.Now().UTC())
+	if recovery && errors.Is(err, postgres.ErrConcurrentModification) {
+		return nil
+	}
 	return err
+}
+
+func safeIndexerOutcomeCode(err error) string {
+	var coded interface{ SafeCode() string }
+	if errors.As(err, &coded) {
+		code := strings.TrimSpace(coded.SafeCode())
+		if code != "" && len(code) <= 100 {
+			return code
+		}
+	}
+	return "indexer_request_failed"
 }
 
 func applyUpgradeBaseline(observation releases.Observation, evaluation releases.Evaluation, current *releases.Observation, baseline *releases.Evaluation) releases.Evaluation {

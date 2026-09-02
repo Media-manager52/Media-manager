@@ -10,6 +10,20 @@ and all subsequent focused UI corrections. The database schema is 31.
 means that the configured services completed the real operation; health checks
 alone do not qualify.
 
+## Unreleased schema-32 recovery milestone
+
+The current development source adds durable fixed two-slot acquisition rounds,
+monotonic lifetime attempts, exact release/package attempt registries, immutable
+first-seen sequencing, partial per-indexer recovery scans, deterministic paced
+discovery, owner-gated next rounds, same-job infrastructure recovery, retained
+output accounting, owner-visible candidate evidence, low-priority scheduling,
+and a complete current-publication-set guard for upgrades.
+It does not open a new round automatically and cannot make waiting or inspection
+look successful. Focused non-socket race tests, readonly compilation/vet, and
+frontend fixture/build gates pass locally; PostgreSQL 18 lifecycle execution,
+Chromium interaction execution, and deployment evidence are still required, so this section does
+not change the schema-31 live evidence below.
+
 | Core item | Implemented | Synthetic tests passed | Live tested | Blocked | Missing |
 | --- | --- | --- | --- | --- | --- |
 | 1. Cosmos route | **Yes** — Cosmos’s supported route configuration targets `http://127.0.0.1:28080`, the authenticated Media Manager gateway, rather than the UI container. | **Not applicable** — this is external configuration rather than repository behavior. | **Yes** — authoritative route state and the gateway authentication boundary were verified without changing unrelated Cosmos fields. | **No**. | **No**. |

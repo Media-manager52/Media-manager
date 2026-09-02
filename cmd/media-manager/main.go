@@ -181,6 +181,7 @@ func run() error {
 	handlers := map[string]platform.Handler{}
 	searchService := &acquisition.SearchService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
 	handlers["workflow.search_requested"] = searchService.Handle
+	handlers["workflow.discovery_rescan_requested"] = searchService.HandleDiscovery
 	retrievalService := &acquisition.RetrievalService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
 	handlers["release.retrieve_requested"] = retrievalService.Handle
 	mediaInfoProbe := mediainfo.NewProbe()

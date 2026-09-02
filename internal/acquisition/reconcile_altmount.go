@@ -74,7 +74,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			return service.Store.CompleteImportWithCode(ctx, job, false, "altmount_identity_unresolved", "AltMount did not expose the stable upload name within 30 minutes. Do not start another search until the owner confirms the original upload was not accepted.", now)
 		}
 		if len(matches) > 1 {
-			return service.Store.CompleteImport(ctx, job, false, "multiple AltMount jobs match the stable upload name", time.Now().UTC())
+			return service.Store.CompleteImportWithCode(ctx, job, false, "altmount_identity_ambiguous", "Multiple AltMount jobs match the stable upload name. Reconcile the original submission before another acquisition.", time.Now().UTC())
 		}
 		queueID := int64(matches[0].ID)
 		if err := service.Store.AttachRecoveredQueue(ctx, job, queueID, time.Now().UTC()); err != nil {
@@ -113,39 +113,44 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 	case altmount.PhaseQueued, altmount.PhasePaused, altmount.PhaseProcessing, altmount.PhaseStreamingReady:
 		return service.Store.ObserveAltMountAndReschedule(ctx, job, item, phase, time.Now().Add(10*time.Second))
 	case altmount.PhaseFailed, altmount.PhaseNeedsAttention, altmount.PhaseUnknown:
+		if output.InventoryComplete {
+			if _, _, persistErr := service.Store.PersistAltMountInventory(ctx, job, inventory, time.Now().UTC()); persistErr != nil {
+				return persistErr
+			}
+		}
 		detail := "AltMount job needs attention"
 		if item.ErrorMessage != nil {
 			detail = *item.ErrorMessage
 		}
-		return service.Store.CompleteImport(ctx, job, false, detail, time.Now().UTC())
+		return service.Store.CompleteImportWithCode(ctx, job, false, "altmount_job_attention", detail, time.Now().UTC())
 	case altmount.PhaseImportComplete:
-		if len(inventory.Files) == 0 {
-			return service.Store.CompleteImport(ctx, job, false, "AltMount completed without a readable media inventory", time.Now().UTC())
-		}
 		inventoryID, assets, persistErr := service.Store.PersistAltMountInventory(ctx, job, inventory, time.Now().UTC())
 		if persistErr != nil {
 			return persistErr
+		}
+		if len(inventory.Files) == 0 {
+			return service.Store.CompleteReleaseFailure(ctx, job, "output_empty", "AltMount completed this release without a readable media inventory", time.Now().UTC())
 		}
 		var selected []subtitles.Asset
 		detail := "movie inventory verified"
 		if job.Media.Kind == catalog.KindSeries {
 			expectationID, seriesID, season, expected, expectationErr := service.Store.PackExpectation(ctx, job.Workflow.ID)
 			if expectationErr != nil {
-				return service.Store.CompleteImport(ctx, job, false, "season-pack expectation is missing", time.Now().UTC())
+				return service.Store.CompleteImportWithCode(ctx, job, false, "season_expectation_missing", "The immutable season-pack expectation is missing; owner recovery is required.", time.Now().UTC())
 			}
 			report := packs.Evaluate(seriesID, season, expected, assets)
 			if err := service.Store.PersistPackEvaluation(ctx, expectationID, inventoryID, report, time.Now().UTC()); err != nil {
 				return err
 			}
 			if !report.Publishable() {
-				return service.Store.CompleteImport(ctx, job, false, fmt.Sprintf("season pack is %s; %d expected episodes are missing", report.Verdict, len(report.Missing)), time.Now().UTC())
+				return service.Store.CompleteReleaseFailure(ctx, job, "season_pack_incomplete", fmt.Sprintf("season pack is %s; %d expected episodes are missing", report.Verdict, len(report.Missing)), time.Now().UTC())
 			}
 			selected = selectedPackAssets(report, assets)
 			detail = "season pack inventory and subtitle requirements verified"
 		} else {
 			selected = selectedMovieAssets(assets)
 			if len(selected) != 1 {
-				return service.Store.CompleteImport(ctx, job, false, "movie release does not have one unambiguous primary media file", time.Now().UTC())
+				return service.Store.CompleteReleaseFailure(ctx, job, "movie_primary_ambiguous", "movie release does not have one unambiguous primary media file", time.Now().UTC())
 			}
 			detail = "movie inventory and subtitle requirements verified"
 		}
@@ -155,7 +160,10 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		}
 		allAssets := subtitleAssets(assets)
 		authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, inventory.LocalRelative)
-		verification := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe, rootErr)
+		verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe, rootErr)
+		if inspectionErr != nil {
+			return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", inspectionErr.Error(), time.Now().UTC())
+		}
 		recorded, recordErr := service.Store.RecordSubtitleVerification(ctx, job, inventoryID, verification, time.Now().UTC())
 		if recordErr != nil {
 			return recordErr
@@ -208,15 +216,18 @@ func (service *AltMountReconcileService) HandleRetainedOutputReverification(ctx 
 		return err
 	}
 	authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, retained.RootRelative)
-	verification := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, retained.Policy, service.MediaInfoProbe, rootErr)
+	verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, retained.Policy, service.MediaInfoProbe, rootErr)
+	if inspectionErr != nil {
+		return inspectionErr
+	}
 	return service.Store.CompleteRetainedSubtitleReverification(ctx, job, event.AggregateRevision, retained.InventoryID, verification, time.Now().UTC())
 }
 
-func inspectSubtitleRequirements(ctx context.Context, authorizedRoot string, selected, inventory []subtitles.Asset, policy subtitles.Policy, probe subtitles.Probe, inspectionErr error) subtitles.Verification {
+func inspectSubtitleRequirements(ctx context.Context, authorizedRoot string, selected, inventory []subtitles.Asset, policy subtitles.Policy, probe subtitles.Probe, inspectionErr error) (subtitles.Verification, error) {
 	if inspectionErr == nil {
 		verification, err := subtitles.Verify(ctx, authorizedRoot, selected, inventory, policy, probe)
 		if err == nil {
-			return verification
+			return verification, nil
 		}
 		inspectionErr = err
 	}
@@ -224,15 +235,7 @@ func inspectSubtitleRequirements(ctx context.Context, authorizedRoot string, sel
 	if inspectionErr != nil {
 		detail = inspectionErr.Error()
 	}
-	return subtitles.Verification{
-		SchemaVersion:      1,
-		Status:             "unverified",
-		RequiredLanguages:  append([]string(nil), policy.Required...),
-		PreferredLanguages: append([]string(nil), policy.Preferred...),
-		Videos:             []subtitles.VideoEvidence{},
-		Companions:         []subtitles.Companion{},
-		FailureReasons:     []string{detail},
-	}
+	return subtitles.Verification{}, errors.New(detail)
 }
 
 func terminalAltMountJob(state string) bool {

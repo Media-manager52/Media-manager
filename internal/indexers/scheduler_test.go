@@ -164,3 +164,16 @@ func TestNewznabBudgetUsesConservativeFallbacks(t *testing.T) {
 		t.Fatalf("configured budget=%#v", configured)
 	}
 }
+
+func TestBackgroundSearchUsesAtMostFirstFifthOfQueryBudget(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		queryLimit int
+		want       int
+	}{{queryLimit: 1000, want: 200}, {queryLimit: 9, want: 1}, {queryLimit: 1, want: 1}} {
+		limit, family := requestLimit(WorkloadBackground, Budget{QueryLimit: test.queryLimit})
+		if limit != test.want || family != "query" {
+			t.Fatalf("query limit=%d got limit=%d family=%q want limit=%d family=query", test.queryLimit, limit, family, test.want)
+		}
+	}
+}

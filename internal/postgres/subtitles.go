@@ -13,7 +13,7 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-const maxAcquisitionAttempts = 2
+const maxAcquisitionAttemptsPerRound = 2
 
 type SubtitleVerificationRecord struct {
 	ID                 uuid.UUID       `json:"id"`
@@ -74,13 +74,15 @@ func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMount
 	var workflowRevision int64
 	var currentAttempt *string
 	var jobRevision int64
+	var roundSlot, roundAttemptLimit int
 	var candidateText, indexerText, nativeKey, releaseTitle, mediaTitle string
-	err = transaction.QueryRow(ctx, `SELECT workflow.state,workflow.revision,workflow.grab_attempt_id::text,job.revision,job.candidate_id::text,candidate.indexer_instance_id::text,candidate.native_key,candidate.title,media.title
+	err = transaction.QueryRow(ctx, `SELECT workflow.state,workflow.revision,workflow.grab_attempt_id::text,job.revision,job.round_slot,round.attempt_limit_snapshot,job.candidate_id::text,candidate.indexer_instance_id::text,candidate.native_key,candidate.title,media.title
 		FROM altmount_jobs job
 		JOIN workflows workflow ON workflow.id=job.workflow_id
+		JOIN acquisition_rounds round ON round.id=job.round_id AND round.workflow_id=workflow.id
 		JOIN release_candidates candidate ON candidate.id=job.candidate_id AND candidate.workflow_id=workflow.id
 		JOIN media_items media ON media.id=workflow.media_id
-		WHERE job.id=$1 AND job.workflow_id=$2 FOR UPDATE OF job,workflow`, job.JobID.String(), job.Workflow.ID.String()).Scan(&workflowState, &workflowRevision, &currentAttempt, &jobRevision, &candidateText, &indexerText, &nativeKey, &releaseTitle, &mediaTitle)
+		WHERE job.id=$1 AND job.workflow_id=$2 FOR UPDATE OF job,workflow,round`, job.JobID.String(), job.Workflow.ID.String()).Scan(&workflowState, &workflowRevision, &currentAttempt, &jobRevision, &roundSlot, &roundAttemptLimit, &candidateText, &indexerText, &nativeKey, &releaseTitle, &mediaTitle)
 	if err != nil {
 		return SubtitleVerificationRecord{}, err
 	}
@@ -97,7 +99,7 @@ func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMount
 	verificationID := uuid.NewV7()
 	retryState := "not_needed"
 	if verification.Status == "unverified" {
-		if job.AttemptGeneration < maxAcquisitionAttempts {
+		if roundSlot < roundAttemptLimit {
 			retryState = "queued"
 		} else {
 			retryState = "exhausted"
@@ -148,32 +150,12 @@ func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMount
 		if len(detail) > 1000 {
 			detail = detail[:1000]
 		}
-		if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET state='needs_attention',revision=revision+1,last_reconciled_at=$2,error_code='subtitle_requirements_unverified',error_detail=$3 WHERE id=$1`, job.JobID.String(), now.UTC(), detail); err != nil {
-			return SubtitleVerificationRecord{}, err
+		result, failureErr := store.recordAttributableAcquisitionFailure(ctx, transaction, job, &verificationID, "subtitle_verification", "subtitle_requirements_unverified", detail, now)
+		if failureErr != nil {
+			return SubtitleVerificationRecord{}, failureErr
 		}
-		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,verification_id,failure_kind,reason,created_at) VALUES($1,$2,$3,$4,$5,'subtitle_verification',$6,$7)`, job.Workflow.ID.String(), candidateText, indexerText, nativeKey, verificationID.String(), detail, now.UTC()); err != nil {
-			return SubtitleVerificationRecord{}, err
-		}
-		if retryState == "queued" {
-			if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='waiting',selected_release_id=NULL,grab_attempt_id=NULL,revision=revision+2,updated_at=$2,attention_code=NULL,attention_detail=NULL WHERE id=$1`, job.Workflow.ID.String(), now.UTC()); err != nil {
-				return SubtitleVerificationRecord{}, err
-			}
-			if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES
-				($1,$2,$4,'needs_attention',$5,'worker',$6),
-				($1,$3,'needs_attention','waiting','one bounded alternate release attempt queued','worker',$6)`, job.Workflow.ID.String(), workflowRevision+1, workflowRevision+2, workflowState, detail, now.UTC()); err != nil {
-				return SubtitleVerificationRecord{}, err
-			}
-			payload, _ := json.Marshal(map[string]string{"workflow_id": job.Workflow.ID.String(), "reason": "subtitle verification failed; exact release excluded"})
-			if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$5)`, uuid.NewV7().String(), job.Workflow.ID.String(), workflowRevision+2, payload, now.UTC()); err != nil {
-				return SubtitleVerificationRecord{}, err
-			}
-		} else {
-			if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='needs_attention',revision=revision+1,updated_at=$2,attention_code='subtitle_requirements_unverified',attention_detail=$3 WHERE id=$1`, job.Workflow.ID.String(), now.UTC(), detail); err != nil {
-				return SubtitleVerificationRecord{}, err
-			}
-			if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'needs_attention',$4,'worker',$5)`, job.Workflow.ID.String(), workflowRevision+1, workflowState, detail, now.UTC()); err != nil {
-				return SubtitleVerificationRecord{}, err
-			}
+		if result.RetryQueued != (retryState == "queued") || result.RoundExhausted != (retryState == "exhausted") {
+			return SubtitleVerificationRecord{}, ErrConcurrentModification
 		}
 	}
 	if err := transaction.Commit(ctx); err != nil {
@@ -205,8 +187,9 @@ func (store *Store) ListSubtitleVerifications(ctx context.Context, limit int) ([
 		limit = 100
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT verification.id::text,verification.workflow_id::text,verification.altmount_job_id::text,verification.candidate_id::text,media.title,candidate.title,verification.attempt_generation,verification.status,verification.required_languages,verification.preferred_languages,verification.observed_languages,verification.evidence,verification.failure_reasons,verification.retry_state,
-		verification.status='unverified' AND workflow.state='needs_attention' AND workflow.attention_code='subtitle_requirements_unverified' AND job.state='needs_attention' AND job.error_code='subtitle_requirements_unverified' AND job.attempt_generation BETWEEN 1 AND 2
-		AND (SELECT count(*) FROM altmount_jobs workflow_job WHERE workflow_job.workflow_id=workflow.id) <= 2
+		verification.status='unverified' AND workflow.state='waiting' AND workflow.attention_code='round_exhausted_waiting_new_identity' AND job.state='needs_attention' AND job.error_code='subtitle_requirements_unverified'
+		AND EXISTS(SELECT 1 FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=workflow.id AND discovery.state IN ('waiting','ready'))
+		AND NOT EXISTS(SELECT 1 FROM altmount_jobs active_job WHERE active_job.workflow_id=workflow.id AND active_job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))
 		AND EXISTS(SELECT 1 FROM altmount_output_inventories inventory JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id WHERE inventory.id=verification.inventory_id AND inventory.job_id=job.id)
 		AND (media.kind<>'series' OR EXISTS(
 			SELECT 1 FROM pack_expectation_sets expectation

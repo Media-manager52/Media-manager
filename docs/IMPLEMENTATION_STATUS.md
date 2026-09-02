@@ -20,6 +20,21 @@ source as visual references, but they are not imported into the Docker UI graph.
 Unmapped routes render `LiveUnavailableScreen` and cannot fall through to fixture
 screens.
 
+## Unreleased schema-32 delta
+
+Development source now models acquisition rounds separately from lifetime
+attempts. Each round has two durable submission slots; release-attributable
+failures atomically record exact release and canonical package exclusions, while
+infrastructure failures retain and reconcile the same AltMount job. After round
+exhaustion, background discovery uses immutable first-seen identity, persisted
+per-indexer completeness, shared provider budgets, stable jitter, and owner-gated
+round opening. The activity queue exposes round slots, lifetime attempts,
+retained bytes, partial/complete discovery evidence, same-job reconciliation,
+the exact ready candidate/provider evidence, and the owner action. Schema 32
+also snapshots the complete set of current link versions before upgrade
+selection and submission. This source delta is not yet included in the live
+schema-31 route table and evidence below.
+
 ## UI route audit
 
 | Route | Status | Current live behavior | Required work |

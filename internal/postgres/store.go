@@ -73,6 +73,9 @@ func (store *Store) CreateMediaWorkflow(ctx context.Context, item catalog.MediaI
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,'default',$7,$8,$9)`, workflow.ID.String(), workflow.MediaID.String(), workflow.State, workflow.RootID.String(), workflow.QualityProfileID.String(), clientID, int64(workflow.Revision), workflow.CreatedAt, workflow.UpdatedAt); err != nil {
 		return err
 	}
+	if err := insertInitialAcquisitionRound(ctx, transaction, workflow.ID, workflow.MediaID, workflow.QualityProfileID, "default", workflow.CreatedAt); err != nil {
+		return err
+	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,$2,'media.created','media',$3,$4,$5)`, uuid.NewV7().String(), actor, item.ID.String(), `{"workflow_created":true}`, item.CreatedAt); err != nil {
 		return err
 	}
@@ -229,6 +232,14 @@ func (store *Store) TransitionWorkflow(ctx context.Context, id uuid.UUID, expect
 	}
 	if command.RowsAffected() != 1 {
 		return workflows.Workflow{}, ErrConcurrentModification
+	}
+	if workflow.State == workflows.StateCancelled {
+		if _, err := transaction.Exec(ctx, `UPDATE acquisition_rounds SET state='cancelled',closed_at=$2,close_reason=$3 WHERE workflow_id=$1 AND state='open'`, id.String(), now.UTC(), reason); err != nil {
+			return workflows.Workflow{}, err
+		}
+		if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1`, id.String(), now.UTC()); err != nil {
+			return workflows.Workflow{}, err
+		}
 	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`, id.String(), int64(workflow.Revision), transition.From, transition.To, transition.Reason, transition.Actor, transition.At); err != nil {
 		return workflows.Workflow{}, err

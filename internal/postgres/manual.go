@@ -322,6 +322,16 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	if state != workflows.StateMonitored && state != workflows.StateWaiting && state != workflows.StateNeedsAttention && state != workflows.StateHeld {
 		return errors.New("workflow cannot be searched from its current state")
 	}
+	var exhaustedRound, retryDiscovery bool
+	if err := transaction.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM acquisition_rounds exhausted WHERE exhausted.workflow_id=$1 AND exhausted.state='exhausted'
+		  AND NOT EXISTS(SELECT 1 FROM acquisition_rounds open_round WHERE open_round.workflow_id=$1 AND open_round.state='open')),
+		EXISTS(SELECT 1 FROM workflow_retry_discovery WHERE workflow_id=$1 AND state IN ('waiting','ready'))`, workflowID.String()).Scan(&exhaustedRound, &retryDiscovery); err != nil {
+		return err
+	}
+	if exhaustedRound || retryDiscovery {
+		return errors.New("the acquisition round is exhausted; wait for a new eligible release and use the owner start-next-round action")
+	}
 	var indexerAvailable bool
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances WHERE kind='newznab' AND enabled AND config->'mode_verified' = 'true'::jsonb)`).Scan(&indexerAvailable); err != nil {
 		return err
@@ -335,8 +345,11 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	}
 	var outputFailure *failedOutput
 	if state == workflows.StateNeedsAttention {
+		if infrastructureAttentionCode(attentionCode) || attentionCode == "altmount_submission_rejected" {
+			return errors.New("workflow needs owner recovery of the current AltMount job before another search can start")
+		}
 		switch attentionCode {
-		case "altmount_identity_unresolved", "altmount_output_unavailable", "plex_timeout", "seerr_snapshot_changed", "seerr_request_revoked":
+		case "plex_timeout", "publication_failed", "seerr_snapshot_changed", "seerr_request_revoked":
 			return errors.New("workflow needs owner recovery before another search can start")
 		}
 		var publicationStarted bool
@@ -346,20 +359,22 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		if publicationStarted {
 			return errors.New("workflow publication already started; recover or verify the existing links instead of searching again")
 		}
-		var jobState, candidateText, indexerText, nativeKey, detail string
-		var attemptGeneration int
-		err := transaction.QueryRow(ctx, `SELECT job.state,job.attempt_generation,candidate.id::text,candidate.indexer_instance_id::text,candidate.native_key,COALESCE(job.error_detail,'')
+		var jobState, jobText, candidateText, indexerText, nativeKey, detail string
+		var roundSlot, roundLimit int
+		var packageIdentity []byte
+		err := transaction.QueryRow(ctx, `SELECT job.state,job.id::text,job.round_slot,round.attempt_limit_snapshot,candidate.id::text,candidate.indexer_instance_id::text,candidate.native_key,COALESCE(job.error_detail,''),job.nzb_package_sha256
 			FROM workflows workflow
 			JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id
+			JOIN acquisition_rounds round ON round.id=job.round_id AND round.workflow_id=workflow.id
 			JOIN release_candidates candidate ON candidate.id=job.candidate_id AND candidate.workflow_id=workflow.id AND candidate.id=workflow.selected_release_id
 			WHERE workflow.id=$1
-			FOR UPDATE OF job`, workflowID.String()).Scan(&jobState, &attemptGeneration, &candidateText, &indexerText, &nativeKey, &detail)
+			FOR UPDATE OF job,round`, workflowID.String()).Scan(&jobState, &jobText, &roundSlot, &roundLimit, &candidateText, &indexerText, &nativeKey, &detail, &packageIdentity)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 		if err == nil && jobState == "needs_attention" {
-			if attemptGeneration >= maxAcquisitionAttempts {
-				return errors.New("acquisition attempt limit reached; failed output remains available for owner review")
+			if roundSlot >= roundLimit {
+				return errors.New("acquisition round attempt limit reached; failed output remains available for owner review")
 			}
 			candidateID, candidateErr := uuid.Parse(candidateText)
 			if candidateErr != nil {
@@ -377,6 +392,12 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 				detail = detail[:1000]
 			}
 			outputFailure = &failedOutput{candidateID: candidateID, indexerID: indexerID, nativeKey: nativeKey, reason: detail}
+			if len(packageIdentity) == 32 {
+				if _, err := transaction.Exec(ctx, `INSERT INTO workflow_package_exclusions(workflow_id,package_sha256,job_id,candidate_id,failure_kind,reason,created_at)
+					VALUES($1,$2,$3,$4,'output_verification',$5,$6) ON CONFLICT(workflow_id,package_sha256) DO NOTHING`, workflowID.String(), packageIdentity, jobText, candidateText, detail, now.UTC()); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	type adoptedCurrent struct {
@@ -447,6 +468,9 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 
 func insertManualWorkflow(ctx context.Context, transaction pgx.Tx, workflow workflows.Workflow, variant string, search bool) error {
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, workflow.ID.String(), workflow.MediaID.String(), workflow.State, workflow.RootID.String(), workflow.QualityProfileID.String(), workflow.DownloadClientID.String(), variant, int64(workflow.Revision), workflow.CreatedAt, workflow.UpdatedAt); err != nil {
+		return err
+	}
+	if err := insertInitialAcquisitionRound(ctx, transaction, workflow.ID, workflow.MediaID, workflow.QualityProfileID, variant, workflow.CreatedAt); err != nil {
 		return err
 	}
 	if search {

@@ -14,7 +14,16 @@ export type APIMetadataCredit = { name: string; role: string; character?: string
 export type APIMetadataEvent = { type: string; date: string; season_number?: number; episode_number?: number; country?: string; network?: string; confidence?: number; date_conflict: boolean; sources: string[] }
 export type APIMediaMetadata = { original_title?: string; overview?: string; tagline?: string; original_language?: string; format?: string; status?: string; release_date?: string; end_date?: string; certification?: string; runtime_minutes?: number; season_count?: number; episode_count?: number; poster_url?: string; backdrop_url?: string; genres: string[]; keywords?: string[]; countries: string[]; networks: APIMetadataNetwork[]; companies?: APIMetadataCompany[]; credits?: APIMetadataCredit[]; aliases: APIMetadataAlias[]; sources: APIMetadataSource[]; ratings: APIMetadataRating[]; events: APIMetadataEvent[]; observed_at: string }
 export type APIMedia = { id: string; kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; metadata?: APIMediaMetadata }
-export type APIWorkflow = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number; attention_code?: string; attention_detail?: string; acquisition_attempts?: number; retained_output_count?: number; excluded_release_count?: number; search_allowed?: boolean; search_blocked_reason?: string; adopted_replacement_confirmation_required: boolean; terminal_at?: string; created_at: string; updated_at: string }
+export type APIWorkflow = {
+  id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number
+  attention_code?: string; attention_detail?: string; acquisition_attempts?: number
+  round_ordinal?: number; round_state?: string; round_slots_used?: number; round_attempt_limit?: number
+  retry_discovery_state?: "waiting" | "ready" | "paused"; next_rescan_at?: string; last_discovery_at?: string; last_discovery_complete?: boolean
+  complete_no_new_scans?: number; new_release_ready?: boolean; ready_candidate_id?: string; ready_release_title?: string; ready_indexer_name?: string; ready_first_observed_at?: string; open_next_round_allowed?: boolean
+  retained_output_count?: number; retained_output_bytes?: number; excluded_release_count?: number
+  search_allowed?: boolean; search_blocked_reason?: string; adopted_replacement_confirmation_required: boolean
+  terminal_at?: string; created_at: string; updated_at: string
+}
 export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string; created_at: string; updated_at: string }
 export type APILibraryRoot = { id: string; media_kind: "movie" | "series"; name: string; destination_root: string; plex_visible_root: string; source_visible_root: string; plex_instance_id?: string; plex_library_id?: string; is_default: boolean; enabled: boolean }
 export type APIQualityProfile = { id: string; media_kind: "movie" | "series"; name: string; policy_version: number; policy: Record<string, unknown>; upgrades_enabled: boolean; is_default: boolean; enabled: boolean }
@@ -162,6 +171,8 @@ export const createQualityProfile = (input: Omit<APIQualityProfile, "id">) => re
 export const updateQualityProfile = (id: string, input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })
 export const createExistingWorkflow = (mediaId: string, input: Record<string, unknown>) => requestJSON<Record<string, unknown>>(`/api/v1/media/${encodeURIComponent(mediaId)}/workflows`, { method: "POST", body: JSON.stringify(input) })
 export const searchWorkflow = (id: string, adoptedReplacementConfirmation = "") => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/search`, { method: "POST", body: JSON.stringify({ adopted_replacement_confirmation: adoptedReplacementConfirmation }) })
+export const openAcquisitionRound = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/acquisition-rounds`, { method: "POST" })
+export const reconcileAltMount = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/reconcile-altmount`, { method: "POST" })
 export const reverifyRetainedOutput = (workflowID: string, jobID: string) => requestJSON<{ status: string; workflow_id: string; job_id: string }>(`/api/v1/workflows/${encodeURIComponent(workflowID)}/reverify-retained-output`, { method: "POST", body: JSON.stringify({ job_id: jobID }) })
 export const cancelWorkflow = (id: string) => requestJSON<Record<string, unknown>>(`/api/v1/workflows/${encodeURIComponent(id)}/cancel`, { method: "POST" })
 export const createReleaseBlock = (input: { candidate_id: string; scope: "native_release" | "pack_release"; reason: string; retention_days?: 30 | 90 }) => requestJSON<APIReleaseBlock>("/api/v1/blocklist", { method: "POST", body: JSON.stringify(input) })

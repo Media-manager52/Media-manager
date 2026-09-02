@@ -97,6 +97,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/workflows", server.requireOwner(server.listWorkflows))
 	server.mux.HandleFunc("GET /api/v1/workflows/{id}", server.requireOwner(server.getWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/search", server.requireOwner(server.searchWorkflow))
+	server.mux.HandleFunc("POST /api/v1/workflows/{id}/acquisition-rounds", server.requireOwner(server.openAcquisitionRound))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/recover-altmount-submission", server.requireOwner(server.recoverAltMountSubmission))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconcile-altmount", server.requireOwner(server.reconcileAltMount))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reverify-retained-output", server.requireOwner(server.reverifyRetainedOutput))
@@ -1281,6 +1282,22 @@ func (server *Server) searchWorkflow(writer http.ResponseWriter, request *http.R
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "search_queued", "id": id.String()}})
+}
+
+func (server *Server) openAcquisitionRound(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
+		return
+	}
+	if err := server.store.OpenNextAcquisitionRound(request.Context(), id, time.Now().UTC()); errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
+		return
+	} else if err != nil {
+		writeError(writer, http.StatusConflict, "round_open_failed", err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "round_opened", "id": id.String()}})
 }
 
 func (server *Server) recoverAltMountSubmission(writer http.ResponseWriter, request *http.Request) {

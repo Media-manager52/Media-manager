@@ -155,14 +155,24 @@ func New(config Config, scheduler *indexers.Scheduler, transport http.RoundTripp
 }
 
 func (client *Client) Search(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
-	return client.search(ctx, indexers.WorkloadInteractive, request)
+	return client.search(ctx, indexers.WorkloadInteractive, request, nil)
+}
+
+// BackgroundSearch uses a conservative share of the persisted query budget.
+// It otherwise has exactly the same parsing and transport behavior as Search.
+func (client *Client) BackgroundSearch(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
+	return client.search(ctx, indexers.WorkloadBackground, request, nil)
+}
+
+func (client *Client) BackgroundSearchGuarded(ctx context.Context, request SearchRequest, guard func(context.Context) error) ([]releases.Observation, error) {
+	return client.search(ctx, indexers.WorkloadBackground, request, guard)
 }
 
 func (client *Client) CommissionSearch(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
-	return client.search(ctx, indexers.WorkloadCommissioning, request)
+	return client.search(ctx, indexers.WorkloadCommissioning, request, nil)
 }
 
-func (client *Client) search(ctx context.Context, workload indexers.Workload, request SearchRequest) ([]releases.Observation, error) {
+func (client *Client) search(ctx context.Context, workload indexers.Workload, request SearchRequest, guard func(context.Context) error) ([]releases.Observation, error) {
 	mode := strings.TrimSpace(request.Mode)
 	if mode == "" {
 		mode = "search"
@@ -186,7 +196,7 @@ func (client *Client) search(ctx context.Context, workload indexers.Workload, re
 		params = append(params, Param{Name: "extended", Value: "1"})
 	}
 	var observations []releases.Observation
-	_, err := client.request(ctx, workload, params, client.bodyLimit, func(body []byte) (indexers.Outcome, error) {
+	_, err := client.requestGuarded(ctx, workload, params, client.bodyLimit, guard, false, func(body []byte) (indexers.Outcome, error) {
 		parsed, parseErr := ParseSearch(body, client.config.IndexerID, mode, time.Now().UTC())
 		if parseErr != nil {
 			return validationFailureOutcome(parseErr), parseErr

@@ -158,36 +158,67 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return SubmissionIntent{}, err
 	}
-	if generation >= maxAcquisitionAttempts {
-		var subtitleAttemptsExhausted bool
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM subtitle_verifications WHERE workflow_id=$1 AND status='unverified')`, retrieval.Workflow.ID.String()).Scan(&subtitleAttemptsExhausted); err != nil {
-			return SubmissionIntent{}, err
-		}
-		if subtitleAttemptsExhausted {
-			return SubmissionIntent{}, errors.New("subtitle acquisition attempt limit reached")
-		}
-	}
 	var current workflows.State
 	var revision int64
-	if err := transaction.QueryRow(ctx, `SELECT state,revision FROM workflows WHERE id=$1 FOR UPDATE`, retrieval.Workflow.ID.String()).Scan(&current, &revision); err != nil {
+	var selectedCandidate *string
+	if err := transaction.QueryRow(ctx, `SELECT state,revision,selected_release_id::text FROM workflows WHERE id=$1 FOR UPDATE`, retrieval.Workflow.ID.String()).Scan(&current, &revision, &selectedCandidate); err != nil {
 		return SubmissionIntent{}, err
 	}
-	if current != workflows.StateCandidateSelected {
+	if current != workflows.StateCandidateSelected || uint64(revision) != retrieval.Workflow.Revision || selectedCandidate == nil || *selectedCandidate != retrieval.CandidateID.String() {
 		return SubmissionIntent{}, ErrConcurrentModification
 	}
-	var failedVerificationText string
-	err = transaction.QueryRow(ctx, `SELECT verification.id::text
-		FROM altmount_jobs job
-		JOIN subtitle_verifications verification ON verification.altmount_job_id=job.id
-		WHERE job.workflow_id=$1 AND job.nzb_package_sha256=$2 AND verification.status='unverified'
-		ORDER BY job.attempt_generation
-		LIMIT 1`, retrieval.Workflow.ID.String(), packageIdentity[:]).Scan(&failedVerificationText)
+	round, err := store.ensureOpenAcquisitionRound(ctx, transaction, retrieval.Workflow.ID, now)
+	if err != nil {
+		return SubmissionIntent{}, err
+	}
+	var currentBaseline string
+	err = transaction.QueryRow(ctx, `SELECT COALESCE(string_agg(version.id::text,',' ORDER BY version.id),'') FROM workflows requested
+		LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant
+		LEFT JOIN library_link_versions version ON version.workflow_id=published.id AND version.state='current'
+		WHERE requested.id=$1`, retrieval.Workflow.ID.String()).Scan(&currentBaseline)
+	if err != nil {
+		return SubmissionIntent{}, err
+	}
+	if round.UpgradeBaseline != currentBaseline {
+		return SubmissionIntent{}, errors.New("current publication changed after the acquisition round opened; candidate must be re-evaluated")
+	}
+	var firstSeenSequence int64
+	if err := transaction.QueryRow(ctx, `SELECT first_seen_sequence FROM release_candidates WHERE workflow_id=$1 AND id=$2`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String()).Scan(&firstSeenSequence); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if round.Ordinal > 1 && firstSeenSequence <= round.NoveltyCutoffSequence {
+		return SubmissionIntent{}, errors.New("candidate was already known before this acquisition round")
+	}
+	var attemptedCandidate bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_attempted_releases WHERE workflow_id=$1 AND candidate_id=$2)`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String()).Scan(&attemptedCandidate); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if attemptedCandidate {
+		return SubmissionIntent{}, errors.New("exact release identity was already submitted in this workflow")
+	}
+	var roundSlot int
+	if err := transaction.QueryRow(ctx, `SELECT count(*)+1 FROM altmount_jobs WHERE round_id=$1`, round.ID.String()).Scan(&roundSlot); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if roundSlot > round.AttemptLimit {
+		return SubmissionIntent{}, errors.New("acquisition round attempt limit reached")
+	}
+	var retainedOutputs int
+	if err := transaction.QueryRow(ctx, `SELECT count(DISTINCT job.id) FROM altmount_jobs job
+		JOIN altmount_output_inventories inventory ON inventory.job_id=job.id
+		WHERE job.workflow_id=$1 AND job.acquisition_outcome IS NOT NULL AND job.acquisition_outcome <> 'output_verified'`, retrieval.Workflow.ID.String()).Scan(&retainedOutputs); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if retainedOutputs >= 4 {
+		return SubmissionIntent{}, errors.New("retained failed-output limit reached; owner storage review is required before another submission")
+	}
+	var priorJobText string
+	err = transaction.QueryRow(ctx, `SELECT first_job_id::text FROM workflow_submitted_packages WHERE workflow_id=$1 AND package_sha256=$2`, retrieval.Workflow.ID.String(), packageIdentity[:]).Scan(&priorJobText)
 	if err == nil {
-		failedVerificationID, parseErr := uuid.Parse(failedVerificationText)
-		if parseErr != nil {
+		if _, parseErr := uuid.Parse(priorJobText); parseErr != nil {
 			return SubmissionIntent{}, parseErr
 		}
-		return recordDuplicatePackage(ctx, transaction, retrieval, failedVerificationID, current, revision, now)
+		return recordDuplicatePackage(ctx, transaction, retrieval, current, revision, now)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return SubmissionIntent{}, err
@@ -195,7 +226,13 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 	jobID := uuid.NewV7()
 	filename = releaseSlug(retrieval.ReleaseTitle) + "--mm-" + jobID.String() + ".nzb"
 	generation++
-	if _, err := transaction.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,submission_started_at,revision,nzb_package_sha256) VALUES($1,$2,$3,$4,$5,$6,'submitting',$7,1,$8)`, jobID.String(), retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), retrieval.DownloadClient.ID.String(), generation, filename, now.UTC(), packageIdentity[:]); err != nil {
+	if _, err := transaction.Exec(ctx, `INSERT INTO altmount_jobs(id,workflow_id,candidate_id,altmount_instance_id,attempt_generation,upload_name,state,submission_started_at,revision,nzb_package_sha256,round_id,round_slot) VALUES($1,$2,$3,$4,$5,$6,'submitting',$7,1,$8,$9,$10)`, jobID.String(), retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), retrieval.DownloadClient.ID.String(), generation, filename, now.UTC(), packageIdentity[:], round.ID.String(), roundSlot); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_attempted_releases(workflow_id,candidate_id,first_job_id,created_at) VALUES($1,$2,$3,$4)`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), jobID.String(), now.UTC()); err != nil {
+		return SubmissionIntent{}, err
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_submitted_packages(workflow_id,package_sha256,first_job_id,created_at) VALUES($1,$2,$3,$4)`, retrieval.Workflow.ID.String(), packageIdentity[:], jobID.String(), now.UTC()); err != nil {
 		return SubmissionIntent{}, err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='submitting',grab_attempt_id=$2,revision=revision+1,updated_at=$3 WHERE id=$1 AND revision=$4`, retrieval.Workflow.ID.String(), jobID.String(), now.UTC(), revision); err != nil {
@@ -210,15 +247,15 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 	return SubmissionIntent{JobID: jobID, Filename: filename, State: "submitting", ShouldSubmit: true}, nil
 }
 
-func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval RetrievalContext, failedVerificationID uuid.UUID, current workflows.State, revision int64, now time.Time) (SubmissionIntent, error) {
-	const detail = "exact NZB package already failed required subtitle verification in this workflow"
+func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval RetrievalContext, current workflows.State, revision int64, now time.Time) (SubmissionIntent, error) {
+	const detail = "exact NZB package was already submitted in this workflow"
 	var indexerText, nativeKey string
 	if err := transaction.QueryRow(ctx, `SELECT indexer_instance_id::text,native_key FROM release_candidates WHERE workflow_id=$1 AND id=$2`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String()).Scan(&indexerText, &nativeKey); err != nil {
 		return SubmissionIntent{}, err
 	}
 	command, err := transaction.Exec(ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,verification_id,failure_kind,reason,created_at)
-		VALUES($1,$2,$3,$4,$5,'duplicate_package',$6,$7)
-		ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO NOTHING`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), indexerText, nativeKey, failedVerificationID.String(), detail, now.UTC())
+		VALUES($1,$2,$3,$4,NULL,'duplicate_package',$5,$6)
+		ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO NOTHING`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), indexerText, nativeKey, detail, now.UTC())
 	if err != nil {
 		return SubmissionIntent{}, err
 	}
@@ -235,8 +272,10 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			FROM release_candidates candidate
 			JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
 			JOIN workflows workflow ON workflow.id=candidate.workflow_id
-			JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id AND profile.policy_version=decision.policy_version
+			JOIN acquisition_rounds round ON round.workflow_id=workflow.id AND round.state='open' AND round.policy_version=decision.policy_version
 			WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
+			  AND (round.round_ordinal=1 OR candidate.first_seen_sequence>round.novelty_cutoff_sequence)
+			  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
 			  AND NOT EXISTS (
 			    SELECT 1 FROM workflow_release_exclusions exclusion
 			    WHERE exclusion.workflow_id=candidate.workflow_id
@@ -274,7 +313,7 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 		return SubmissionIntent{}, err
 	}
 	attentionCode := "duplicate_package_no_alternate"
-	attentionDetail := "The next eligible release resolved to an exact package that already failed subtitle verification, and no unexcluded eligible candidate remains."
+	attentionDetail := "The next eligible release resolved to an exact package already submitted in this workflow, and no unexcluded eligible candidate remains."
 	if skipped > maxDuplicatePackageSkips {
 		attentionCode = "duplicate_package_skip_limit"
 		attentionDetail = "The bounded exact-package duplicate skip limit was reached; owner review is required."
@@ -320,10 +359,19 @@ func (store *Store) finishSubmission(ctx context.Context, workflowID, jobID uuid
 		return ErrConcurrentModification
 	}
 	var jobRevision int64
-	if err := transaction.QueryRow(ctx, `UPDATE altmount_jobs SET state=$2,external_queue_id=$3::bigint,submitted_at=CASE WHEN $3::bigint IS NULL THEN submitted_at ELSE $4 END,last_reconciled_at=$4,revision=revision+1 WHERE id=$1 RETURNING revision`, jobID.String(), jobState, queueID, now.UTC()).Scan(&jobRevision); err != nil {
+	if err := transaction.QueryRow(ctx, `UPDATE altmount_jobs SET state=$2,external_queue_id=$3::bigint,submitted_at=CASE WHEN $3::bigint IS NULL THEN submitted_at ELSE $4 END,last_reconciled_at=$4,revision=revision+1,
+		error_code=CASE WHEN $2='failed' THEN 'altmount_submission_rejected' ELSE error_code END,
+		error_detail=CASE WHEN $2='failed' THEN $5 ELSE error_detail END,
+		acquisition_outcome=CASE WHEN $2='failed' THEN 'execution_failed' ELSE acquisition_outcome END,
+		acquisition_closed_at=CASE WHEN $2='failed' THEN $4 ELSE acquisition_closed_at END
+		WHERE id=$1 RETURNING revision`, jobID.String(), jobState, queueID, now.UTC(), reason).Scan(&jobRevision); err != nil {
 		return err
 	}
-	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state=$2,revision=revision+1,updated_at=$3 WHERE id=$1 AND revision=$4`, workflowID.String(), workflowState, now.UTC(), revision); err != nil {
+	attentionCode := ""
+	if jobState == "failed" {
+		attentionCode = "altmount_submission_rejected"
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state=$2,revision=revision+1,updated_at=$3,attention_code=NULLIF($5,''),attention_detail=CASE WHEN $5='' THEN attention_detail ELSE $6 END WHERE id=$1 AND revision=$4`, workflowID.String(), workflowState, now.UTC(), revision, attentionCode, reason); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,$4,$5,'worker',$6)`, workflowID.String(), revision+1, current, workflowState, reason, now.UTC()); err != nil {

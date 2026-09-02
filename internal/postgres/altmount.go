@@ -151,19 +151,43 @@ func (store *Store) RequestAltMountReconciliation(ctx context.Context, workflowI
 		return err
 	}
 	defer transaction.Rollback(ctx)
-	var jobText, workflowState, jobState string
+	var jobText, workflowState, jobState, errorCode string
 	var queueID *int64
 	var revision int64
-	err = transaction.QueryRow(ctx, `SELECT job.id::text,workflow.state,job.state,job.external_queue_id,job.revision
+	var workflowRevision int64
+	err = transaction.QueryRow(ctx, `SELECT job.id::text,workflow.state,workflow.revision,job.state,COALESCE(job.error_code,''),job.external_queue_id,job.revision
 		FROM workflows workflow JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id
-		WHERE workflow.id=$1 FOR UPDATE OF workflow,job`, workflowID.String()).Scan(&jobText, &workflowState, &jobState, &queueID, &revision)
+		WHERE workflow.id=$1 FOR UPDATE OF workflow,job`, workflowID.String()).Scan(&jobText, &workflowState, &workflowRevision, &jobState, &errorCode, &queueID, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if queueID == nil || workflowState != string(workflows.StateQueued) || terminalAltMountState(jobState) {
+	if workflowState == string(workflows.StateNeedsAttention) && jobState == "needs_attention" && infrastructureAttentionCode(errorCode) {
+		nextWorkflowState, nextJobState := workflows.StateQueued, "queued"
+		if queueID == nil {
+			nextWorkflowState, nextJobState = workflows.StateTransportUnknown, "transport_unknown"
+		}
+		command, updateErr := transaction.Exec(ctx, `UPDATE altmount_jobs SET state=$2,revision=revision+1,last_reconciled_at=$3 WHERE id=$1 AND revision=$4 AND acquisition_closed_at IS NULL`, jobText, nextJobState, now.UTC(), revision)
+		if updateErr != nil {
+			return updateErr
+		}
+		if command.RowsAffected() != 1 {
+			return ErrConcurrentModification
+		}
+		command, updateErr = transaction.Exec(ctx, `UPDATE workflows SET state=$2,revision=revision+1,updated_at=$3,attention_code=NULL,attention_detail=NULL WHERE id=$1 AND revision=$4`, workflowID.String(), nextWorkflowState, now.UTC(), workflowRevision)
+		if updateErr != nil {
+			return updateErr
+		}
+		if command.RowsAffected() != 1 {
+			return ErrConcurrentModification
+		}
+		if _, updateErr := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,$4,'owner requested recovery of the same retained AltMount job','owner',$5)`, workflowID.String(), workflowRevision+1, workflowState, nextWorkflowState, now.UTC()); updateErr != nil {
+			return updateErr
+		}
+		revision++
+	} else if queueID == nil || workflowState != string(workflows.StateQueued) || terminalAltMountState(jobState) {
 		return ErrConcurrentModification
 	}
 	jobID, parseErr := uuid.Parse(jobText)
@@ -175,6 +199,15 @@ func (store *Store) RequestAltMountReconciliation(ctx context.Context, workflowI
 		return err
 	}
 	return transaction.Commit(ctx)
+}
+
+func infrastructureAttentionCode(code string) bool {
+	switch code {
+	case "altmount_identity_unresolved", "altmount_identity_ambiguous", "altmount_output_unavailable", "altmount_job_attention", "season_expectation_missing", "output_inspection_failed", "infrastructure_attention":
+		return true
+	default:
+		return false
+	}
 }
 
 func terminalAltMountState(state string) bool {
@@ -477,7 +510,15 @@ func (store *Store) CompleteImportWithCode(ctx context.Context, job AltMountJobC
 	if _, err := probe.Transition(workflowState, detail, "worker", now); err != nil {
 		return ErrConcurrentModification
 	}
-	if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET state=$2,last_reconciled_at=$3,revision=revision+1,error_code=NULLIF($4,''),error_detail=NULLIF($5,'') WHERE id=$1 AND revision=$6`, job.JobID.String(), jobState, now.UTC(), attentionCode, detail, persistedJobRevision); err != nil {
+	outcome := attentionCode
+	var closedAt any
+	if publishable {
+		outcome = "output_verified"
+		closedAt = now.UTC()
+	} else if outcome == "" {
+		outcome = "infrastructure_attention"
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET state=$2,last_reconciled_at=$3,revision=revision+1,error_code=NULLIF($4,''),error_detail=NULLIF($5,''),acquisition_outcome=$7,acquisition_closed_at=$8 WHERE id=$1 AND revision=$6`, job.JobID.String(), jobState, now.UTC(), attentionCode, detail, persistedJobRevision, outcome, closedAt); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state=$2,revision=revision+1,updated_at=$3,attention_code=NULLIF($4,''),attention_detail=NULLIF($5,'') WHERE id=$1 AND revision=$6 AND grab_attempt_id=$7`, job.Workflow.ID.String(), workflowState, now.UTC(), attentionCode, detail, revision, job.JobID.String()); err != nil {

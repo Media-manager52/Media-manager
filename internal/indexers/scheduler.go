@@ -18,6 +18,7 @@ const (
 	WorkloadInteractive   Workload = "interactive"
 	WorkloadCommissioning Workload = "commissioning"
 	WorkloadRetrieval     Workload = "retrieval"
+	WorkloadBackground    Workload = "background"
 )
 
 type Outcome string
@@ -262,6 +263,15 @@ func (permit *Permit) Record(ctx context.Context, outcome Outcome, headers http.
 func requestLimit(workload Workload, budget Budget) (int, string) {
 	if workload == WorkloadRetrieval {
 		return budget.GrabLimit, "grab"
+	}
+	if workload == WorkloadBackground {
+		limit := budget.QueryLimit / 5
+		if limit < 1 {
+			limit = 1
+		}
+		// Use the same persisted family as interactive queries so background
+		// work can use at most the first 20% of the provider's total allowance.
+		return limit, "query"
 	}
 	return budget.QueryLimit, "query"
 }

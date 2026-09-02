@@ -871,6 +871,14 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,'plex_scanning','plex_confirmed','Plex confirmed every expected identity and path','worker',$3) ON CONFLICT DO NOTHING`, scan.Workflow.ID.String(), workflowRevision+1, now.UTC()); err != nil {
 		return err
 	}
+	if _, err := transaction.Exec(ctx, `UPDATE acquisition_rounds round SET state='plex_confirmed',closed_at=$2,close_reason='exact Plex identity and path confirmed'
+		FROM plex_scan_requests scan WHERE scan.id=$3 AND round.workflow_id=$1 AND round.id=(SELECT job.round_id FROM altmount_jobs job WHERE job.id=scan.altmount_job_id)
+		AND round.state IN ('open','exhausted')`, scan.Workflow.ID.String(), now.UTC(), scan.ID.String()); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1`, scan.Workflow.ID.String(), now.UTC()); err != nil {
+		return err
+	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		SELECT $1,'workflow',$2,$3,'seerr.status_sync_requested',$4,$5,$5
 		WHERE EXISTS(SELECT 1 FROM seerr_request_workflows WHERE workflow_id=$2)

@@ -34,7 +34,7 @@ func (store *Store) ClaimOutbox(ctx context.Context, owner string, limit int, le
 	rows, err := store.Pool.Query(ctx, `WITH picked AS (
   SELECT id FROM outbox_events
   WHERE completed_at IS NULL AND available_at <= now() AND (lease_until IS NULL OR lease_until < now())
-  ORDER BY occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1
+  ORDER BY CASE WHEN event_type='workflow.discovery_rescan_requested' THEN 1 ELSE 0 END,occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1
 )
 UPDATE outbox_events AS event
 SET lease_owner=$2,lease_until=now()+($3 * interval '1 second'),attempts=attempts+1

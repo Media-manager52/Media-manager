@@ -69,6 +69,34 @@ func TestGetNZBGuardedDefersPacingBeforeGuardAndProviderRequest(t *testing.T) {
 	}
 }
 
+func TestBackgroundSearchGuardStopsBeforeProviderRequest(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests.Add(1)
+		return nil, errors.New("request must not be sent")
+	})
+	scheduler := indexers.NewScheduler(1, nil)
+	if err := scheduler.Configure("background-guard", indexers.Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute, QueryLimit: 100, LimitWindow: 24 * time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{IndexerID: "background-guard", BaseURL: "https://indexer.invalid/api", APIKey: "secret"}, scheduler, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardFailure := errors.New("discovery generation changed")
+	guardCalls := 0
+	if _, err := client.BackgroundSearchGuarded(context.Background(), SearchRequest{Mode: "search"}, func(context.Context) error {
+		guardCalls++
+		return guardFailure
+	}); !errors.Is(err, guardFailure) {
+		t.Fatalf("guard error=%v", err)
+	}
+	if guardCalls != 1 || requests.Load() != 0 {
+		t.Fatalf("guard calls=%d provider requests=%d", guardCalls, requests.Load())
+	}
+}
+
 func TestGetNZBRejectsUnsafeCrossHostRedirectWithoutExposingURL(t *testing.T) {
 	var targetRequests atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
