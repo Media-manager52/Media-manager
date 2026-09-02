@@ -20,9 +20,9 @@ var (
 
 const advertisedLocatorPrefix = "advertised:"
 
-// DownloadLocatorReference keeps only the verified credential-free
-// DrunkenSlug locator shape. The locator is not exposed by API read models and
-// is independently revalidated before use.
+// DownloadLocatorReference keeps only verified credential-free provider
+// locator shapes. The locator is not exposed by API read models and is
+// independently revalidated before use.
 func DownloadLocatorReference(downloadURL, nativeKey string) string {
 	fallback := "native:" + nativeKey
 	locator := strings.TrimSpace(SanitizeProviderValue(downloadURL))
@@ -30,7 +30,18 @@ func DownloadLocatorReference(downloadURL, nativeKey string) string {
 		return fallback
 	}
 	parsedLocator, err := url.ParseRequestURI(locator)
-	if err != nil || !parsedLocator.IsAbs() || !strings.EqualFold(parsedLocator.Scheme, "https") || !strings.EqualFold(parsedLocator.Hostname(), "drunkenslug.com") || parsedLocator.User != nil || parsedLocator.Fragment != "" || parsedLocator.RawQuery != "" || parsedLocator.RawPath != "" {
+	if err != nil || !parsedLocator.IsAbs() || !strings.EqualFold(parsedLocator.Scheme, "https") || parsedLocator.User != nil || parsedLocator.Fragment != "" || parsedLocator.RawPath != "" {
+		return fallback
+	}
+	if strings.EqualFold(parsedLocator.Hostname(), "nzbfinder.ws") {
+		retrievalID, ok := nzbFinderNativeID(nativeKey, parsedLocator)
+		locatorID, locatorOK := nzbFinderLocatorID(parsedLocator)
+		if !ok || !locatorOK || !strings.EqualFold(retrievalID, locatorID) {
+			return fallback
+		}
+		return advertisedLocatorPrefix + locator
+	}
+	if !strings.EqualFold(parsedLocator.Hostname(), "drunkenslug.com") || parsedLocator.RawQuery != "" {
 		return fallback
 	}
 	parsedNative, err := url.ParseRequestURI(strings.TrimSpace(nativeKey))
@@ -45,6 +56,40 @@ func DownloadLocatorReference(downloadURL, nativeKey string) string {
 		return fallback
 	}
 	return advertisedLocatorPrefix + locator
+}
+
+func nzbFinderNativeID(nativeKey string, locator *url.URL) (string, bool) {
+	value := strings.TrimSpace(nativeKey)
+	if retrievalIDPattern.MatchString(value) {
+		return value, nzbFinderPermalink.MatchString("/details/" + value)
+	}
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil || !parsed.IsAbs() || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" || parsed.RawPath != "" {
+		return "", false
+	}
+	locatorOrigin, locatorErr := exactOrigin(locator)
+	nativeOrigin, nativeErr := exactOrigin(parsed)
+	match := nzbFinderPermalink.FindStringSubmatch(parsed.Path)
+	if locatorErr != nil || nativeErr != nil || locatorOrigin != nativeOrigin || len(match) != 2 {
+		return "", false
+	}
+	return match[1], true
+}
+
+func nzbFinderLocatorID(locator *url.URL) (string, bool) {
+	if locator.Path != "/api/v1/getnzb" || locator.RawQuery == "" {
+		return "", false
+	}
+	query, err := url.ParseQuery(locator.RawQuery)
+	if err != nil || len(query) != 1 || len(query["id"]) != 1 {
+		return "", false
+	}
+	value := strings.TrimSpace(query.Get("id"))
+	if len(value) <= len(".nzb") || !strings.EqualFold(value[len(value)-len(".nzb"):], ".nzb") {
+		return "", false
+	}
+	value = value[:len(value)-len(".nzb")]
+	return value, nzbFinderPermalink.MatchString("/details/" + value)
 }
 
 // RetrievalID converts a durable Newznab native key into the identifier used
@@ -80,9 +125,9 @@ func RetrievalID(nativeKey, configuredBaseURL string) (string, error) {
 	return match[1], nil
 }
 
-// advertisedDownloadTarget implements DrunkenSlug's verified direct-download
-// contract. Other providers continue to use the standard Newznab t=get path.
-// The API key exists only in the in-memory request URL.
+// advertisedDownloadTarget implements verified provider-specific direct-
+// download contracts. Other providers continue to use the standard Newznab
+// t=get path. The API key exists only in the in-memory request URL.
 func advertisedDownloadTarget(locatorReference, nativeKey, configuredBaseURL, apiKey string) (*url.URL, bool, error) {
 	if !strings.HasPrefix(locatorReference, advertisedLocatorPrefix) {
 		return nil, false, nil
@@ -91,11 +136,8 @@ func advertisedDownloadTarget(locatorReference, nativeKey, configuredBaseURL, ap
 	if err != nil || !configured.IsAbs() || configured.User != nil || configured.Fragment != "" {
 		return nil, false, errors.New("configured Newznab endpoint is invalid")
 	}
-	if !strings.EqualFold(configured.Hostname(), "drunkenslug.com") {
-		return nil, false, nil
-	}
 	locator, err := url.ParseRequestURI(strings.TrimPrefix(locatorReference, advertisedLocatorPrefix))
-	if err != nil || !locator.IsAbs() || locator.User != nil || locator.Fragment != "" || locator.RawQuery != "" || locator.RawPath != "" {
+	if err != nil || !locator.IsAbs() || locator.User != nil || locator.Fragment != "" || locator.RawPath != "" {
 		return nil, true, errors.New("advertised Newznab download locator is invalid")
 	}
 	configuredOrigin, err := exactOrigin(configured)
@@ -110,11 +152,29 @@ func advertisedDownloadTarget(locatorReference, nativeKey, configuredBaseURL, ap
 	if err != nil {
 		return nil, true, err
 	}
-	match := drunkenSlugDownloadPath.FindStringSubmatch(locator.Path)
-	if len(match) != 3 || !strings.EqualFold(match[1], retrievalID) || strings.TrimSpace(apiKey) == "" || len(apiKey) > 512 {
+	if strings.TrimSpace(apiKey) == "" || len(apiKey) > 512 {
 		return nil, true, errors.New("advertised Newznab download locator does not match the release")
 	}
-	target := *locator
-	target.Path += "&r=" + apiKey
-	return &target, true, nil
+	switch strings.ToLower(configured.Hostname()) {
+	case "drunkenslug.com":
+		match := drunkenSlugDownloadPath.FindStringSubmatch(locator.Path)
+		if locator.RawQuery != "" || len(match) != 3 || !strings.EqualFold(match[1], retrievalID) {
+			return nil, true, errors.New("advertised Newznab download locator does not match the release")
+		}
+		target := *locator
+		target.Path += "&r=" + apiKey
+		return &target, true, nil
+	case "nzbfinder.ws":
+		locatorID, ok := nzbFinderLocatorID(locator)
+		if !ok || !strings.EqualFold(locatorID, retrievalID) {
+			return nil, true, errors.New("advertised Newznab download locator does not match the release")
+		}
+		target := *locator
+		query := target.Query()
+		query.Set("apikey", apiKey)
+		target.RawQuery = query.Encode()
+		return &target, true, nil
+	default:
+		return nil, true, errors.New("advertised Newznab download locator provider is not supported")
+	}
 }

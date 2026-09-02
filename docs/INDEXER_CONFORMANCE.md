@@ -29,6 +29,18 @@ failures. Parameters not listed above remain CAPS-advertised or unknown; absence
 from this table is not evidence that a parameter is unsupported. Existing
 runtime allowlists therefore remain unchanged.
 
+## Observed download locators
+
+NZBFinder search results advertise a same-origin `/api/v1/getnzb` locator whose
+`id` value is the release UUID with a `.nzb` suffix. That locator is not
+interchangeable with the generic `t=get` request shape. Media Manager retains
+only the exact sanitized origin, path, and release ID, then adds the configured
+credential in memory immediately before retrieval. Local adapter tests verify
+the request shape and reject mismatched origins, paths, IDs, ports, duplicate
+parameters, and additional query parameters. The DRI `media-manager` profile
+did not retrieve an NZB, so the provider response remains live-workflow evidence
+rather than a conformance-lab grab.
+
 OldBoys remains disabled and was not contacted. Its bearer/filter interface is
 not standard Newznab and must not be enabled through the generic adapter.
 
@@ -61,4 +73,3 @@ not standard Newznab and must not be enabled through the generic adapter.
 5. Use Media Manager's supported **Validate & enable** action. Production
    commissioning and runtime traffic continue through Media Manager's durable
    pacing, rolling budgets, sanitizer, and redirect protections.
-

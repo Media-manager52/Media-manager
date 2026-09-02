@@ -283,7 +283,82 @@ func TestDrunkenSlugAdvertisedDownloadRejectsLocatorMismatch(t *testing.T) {
 	}
 }
 
-func TestDownloadLocatorReferenceKeepsOnlyCredentialFreeVerifiedShape(t *testing.T) {
+func TestNZBFinderAdvertisedDownloadUsesSanitizedLocator(t *testing.T) {
+	t.Parallel()
+	const releaseID = "0e415c0b-6943-4f00-88ab-415d70388531"
+	const apiKey = "test-provider-key"
+	advertised := "https://nzbfinder.ws/api/v1/getnzb?id=" + releaseID + ".nzb&apikey=" + apiKey
+	var requests atomic.Int32
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests.Add(1)
+		if request.URL.Host != "nzbfinder.ws" || request.URL.Path != "/api/v1/getnzb" {
+			t.Fatal("advertised locator did not retain the exact NZBFinder origin and path")
+		}
+		query := request.URL.Query()
+		if len(query) != 2 || len(query["id"]) != 1 || query.Get("id") != releaseID+".nzb" || len(query["apikey"]) != 1 || query.Get("apikey") != apiKey {
+			t.Fatal("advertised locator did not produce the exact NZBFinder query shape")
+		}
+		if query.Has("t") || request.Referer() != "" || request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
+			t.Fatal("advertised locator request carried an unsupported parameter or origin-specific header")
+		}
+		body := `<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><file poster="test" subject="test"><groups><group>alt.binaries.test</group></groups><segments><segment bytes="12" number="1">message@example</segment></segments></file></nzb>`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	})
+	scheduler := indexers.NewScheduler(1, nil)
+	if err := scheduler.Configure("nzbfinder", indexers.Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{IndexerID: "nzbfinder", BaseURL: "https://nzbfinder.ws/api", APIKey: apiKey}, scheduler, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	native := "https://nzbfinder.ws/details/" + releaseID
+	locatorReference := DownloadLocatorReference(advertised, native)
+	if strings.Contains(locatorReference, apiKey) {
+		t.Fatal("durable locator retained the provider credential")
+	}
+	guardCalls := 0
+	pack, err := client.GetNZBPackageFromLocatorGuarded(context.Background(), releaseID, locatorReference, func(context.Context) error {
+		guardCalls++
+		return nil
+	})
+	if err != nil || len(pack.Body) == 0 {
+		t.Fatalf("advertised locator retrieval failed: %v", err)
+	}
+	if requests.Load() != 1 || guardCalls != 1 {
+		t.Fatalf("requests=%d guard calls=%d, want 1 and 1", requests.Load(), guardCalls)
+	}
+}
+
+func TestNZBFinderAdvertisedDownloadRejectsUnverifiedLocators(t *testing.T) {
+	t.Parallel()
+	const releaseID = "0e415c0b-6943-4f00-88ab-415d70388531"
+	native := "https://nzbfinder.ws/details/" + releaseID
+	valid := "https://nzbfinder.ws/api/v1/getnzb?id=" + releaseID + ".nzb&apikey=must-not-persist"
+	if got := DownloadLocatorReference(valid, native); got != "advertised:https://nzbfinder.ws/api/v1/getnzb?id="+releaseID+".nzb" {
+		t.Fatal("sanitized NZBFinder locator was not retained")
+	}
+	for _, unsafe := range []string{
+		"http://nzbfinder.ws/api/v1/getnzb?id=" + releaseID + ".nzb",
+		"https://nzbfinder.ws:444/api/v1/getnzb?id=" + releaseID + ".nzb",
+		"https://other.example/api/v1/getnzb?id=" + releaseID + ".nzb",
+		"https://nzbfinder.ws/api/v1/getnzb?id=ffffffff-ffff-ffff-ffff-ffffffffffff.nzb",
+		"https://nzbfinder.ws/api/v1/getnzb?id=" + releaseID + ".nzb&id=" + releaseID + ".nzb",
+		"https://nzbfinder.ws/api/v1/getnzb?id=" + releaseID + ".nzb&ticket=unexpected",
+		"https://nzbfinder.ws/api/v1/getnzb?id=" + releaseID,
+		"https://nzbfinder.ws/api?t=get&id=" + releaseID,
+	} {
+		if got := DownloadLocatorReference(unsafe, native); got != "native:"+native {
+			t.Fatal("unverified NZBFinder locator was retained")
+		}
+	}
+	wrongOrigin := "advertised:https://nzbfinder.ws:444/api/v1/getnzb?id=" + releaseID + ".nzb"
+	if _, advertised, err := advertisedDownloadTarget(wrongOrigin, native, "https://nzbfinder.ws/api", "secret"); !advertised || err == nil {
+		t.Fatal("wrong-origin advertised NZBFinder locator was not rejected")
+	}
+}
+
+func TestDownloadLocatorReferenceKeepsOnlyCredentialFreeDrunkenSlugShape(t *testing.T) {
 	t.Parallel()
 	const releaseID = "0123456789abcdef0123456789abcdef01234567"
 	native := "https://drunkenslug.com/details/" + releaseID
