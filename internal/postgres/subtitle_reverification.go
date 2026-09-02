@@ -57,6 +57,18 @@ func (store *Store) RequestRetainedSubtitleReverification(ctx context.Context, w
 		))
 		FOR UPDATE OF workflow,job,verification`, workflowID.String(), jobID.String()).Scan(&state, &revision, &attentionCode, &jobState, &jobErrorCode, &candidateText, &verificationText, &alreadyRequested, &hasPublication)
 	if errors.Is(err, pgx.ErrNoRows) {
+		var knownRequest bool
+		if lookupErr := transaction.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM workflows workflow
+			JOIN altmount_jobs job ON job.workflow_id=workflow.id AND job.id=$2
+			JOIN subtitle_verifications verification ON verification.workflow_id=workflow.id AND verification.altmount_job_id=job.id
+			WHERE workflow.id=$1
+		)`, workflowID.String(), jobID.String()).Scan(&knownRequest); lookupErr != nil {
+			return lookupErr
+		}
+		if knownRequest {
+			return ErrConcurrentModification
+		}
 		return ErrNotFound
 	}
 	if err != nil {
