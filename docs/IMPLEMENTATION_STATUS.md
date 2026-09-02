@@ -1,9 +1,9 @@
 # Media Manager implementation status
 
-Audited on 2026-08-30 against baseline commit `32ee814`, the live Docker build,
-the Go route registry, PostgreSQL migrations/store methods, and the React route
-switch. This document describes implemented behavior, not the development
-fixture's claims.
+Audited on 2026-08-30 and updated on 2026-09-02 against the live Docker build at
+API commit `f0ed626`, schema 31, the Go route registry, PostgreSQL
+migrations/store methods, and the React route switch. This document describes
+implemented behavior, not the development fixture's claims.
 
 ## Status definitions
 
@@ -69,7 +69,7 @@ screens.
 | Media Manager and Seerr request intake only | Real | Manual API and authenticated Seerr webhook/poll intake are implemented. Compose and runtime contain no Radarr or Sonarr dependency. |
 | Manual movie and exact-season requests | Real | Catalog, identities, root/profile/client overrides, season monitoring, immutable episode expectations, and workflows are transactionally persisted. |
 | Metadata discovery and identity verification | Partial | Owner-triggered Seerr search/detail APIs return only movie/TV results. Configured direct TMDB, TheTVDB, and Simkl clients perform bounded exact-ID enrichment, reject redirect/identity drift, strip all Simkl redirect queries before validation/persistence, and persist rich provider-separated metadata plus provenance. IMDb identity is exact; rating evidence through Simkl is labeled as indirect and no IMDb scraping exists. Series and movie refreshes have been live-tested with existing verified identities; TheTVDB remains neutral when an exact movie identity is unavailable. Per-item owner refresh is real and audited; automated Seerr intake uses the same merge path. Licensed direct IMDb access, search pagination, artwork locks, and bulk refresh review remain. |
-| Seerr reconciliation | Real | Webhook deduplication, five-minute polling, provenance, configuration retry, and revocation reconciliation are persisted. Management/status UI is missing. |
+| Seerr reconciliation | Real | Webhook deduplication, five-minute polling, provenance, configuration retry, revocation reconciliation, and idempotent verified-availability feedback are persisted. Exact Plex confirmation drives Seerr movie/season availability; partial TV requests keep unconfirmed seasons requested. Management/status UI is still missing. |
 | Newznab commissioning | Partial | A disabled instance is paced at at least three seconds, fetches CAPS, requires a usable movie/TV dialect, and performs one random negative query before enablement. A separate developer-only bounded lab has now semantically verified the real movie and complete-season request shapes for all nine enabled standard providers; it is intentionally not a production dependency or live UI feature. Persisting owner-reviewed semantic conformance for future providers remains missing; raw lab evidence must never be imported. |
 | Newznab runtime pacing | Real | Per-indexer single-flight lanes, a global bound, persisted next-allowed/cooldown state, `Retry-After`, and bounded backoff wrap supported indexer requests. |
 | Release search/evidence/policy | Partial UI | Search runs, raw observations, normalized evidence, decisions, and selection are persisted and now have bounded read screens. Raw provenance, comparison detail, and pagination remain incomplete. |
@@ -77,7 +77,7 @@ screens.
 | AltMount retrieval and reconciliation | Real | Submission intent, unknown-outcome recovery, queue observation, SSE/poll reconciliation, frozen output inventory, and read-only source paths are implemented. Every completed selected video is inspected through a bounded file descriptor rooted at that job output before publication. Required subtitle and other completed-output failures remain owner-visible and undeleted; an owner retry excludes only the exact failed release within that workflow and the second acquisition failure cannot be retried. |
 | Complete TV season packs as one job | Real | One season workflow creates an immutable expectation; one AltMount job is evaluated for exact episode coverage. Every selected pack video must independently satisfy required subtitle languages through embedded evidence or one strictly matched managed sidecar. Incomplete or ambiguous output stays unpublished and can use only the same bounded exact-release alternate path. |
 | Plex-safe symlink publication | Real | Paths are containment-checked, names require verified Plex-supported identity, and video plus verified external subtitle companions are batch-published from the authorized job root. Companion records share the video publication generation and become current only in the exact Plex confirmation transaction. |
-| Safe upgrades | Real invariant, partial product | Every selected release has a unique persisted release-ID filename token, allowing old and new paths to coexist through verification. Existing current AltMount links are displaced only inside the transaction triggered after Plex confirms the replacement. An adopted-file workflow requires an exact owner phrase and immutable fingerprint before both workflow creation and any otherwise-unapproved delayed search; after Plex confirms the new publication, the old regular file is moved through a contained fingerprint-checked operation and retained for 30 days. Rollback restores the complete retained cycle, including partial adopted TV coverage, but preserves the full replacement publication until Plex re-confirms every restored path. Physical purge still requires a second exact owner confirmation after retention. Whole-item deletion and overlapping same-scope requests stay blocked throughout the lifecycle. Current-quality comparison, cutoff presentation, and richer owner evidence remain incomplete. |
+| Safe upgrades | Real invariant, partial product | Every selected release has a unique persisted release-ID filename token, allowing old and new paths to coexist through verification. Existing current AltMount links are displaced only inside the transaction triggered after Plex confirms the replacement. Search rejects the exact current durable release and requires another candidate to score strictly higher under the target policy, unless the current release fails a newly required property. An adopted-file workflow requires an exact owner phrase and immutable fingerprint before both workflow creation and any otherwise-unapproved delayed search; after Plex confirms the new publication, the old regular file is moved through a contained fingerprint-checked operation and retained for 30 days. Rollback restores the complete retained cycle, including partial adopted TV coverage, but preserves the full replacement publication until Plex re-confirms every restored path. Physical purge still requires a second exact owner confirmation after retention. Whole-item deletion and overlapping same-scope requests stay blocked throughout the lifecycle. Cutoff presentation and richer owner comparison evidence remain incomplete. |
 | Multiple roots/defaults/per-item override | Real backend, partial UI | Movie/series defaults and explicit request overrides are enforced. UI can create/list but cannot validate, edit, or disable roots. |
 | Recycle retention | Real | Managed links enter a 30-day persisted cycle and preserve AltMount source. Displaced adopted real files enter a separate fingerprint-bound cycle only after replacement Plex confirmation, are never automatically deleted, and require an exact owner phrase after retention before the purge worker can remove them. Both link restore and Plex-gated whole-cycle adopted rollback are implemented; unsafe collisions stop in an owner-attention state. |
 | Existing-library adoption | Partial | Read-only bounded discovery, companion classification, per-item review, exact-season TV scope, compatible catalog/root/profile validation, exact live-action confirmation, contained same-root renames, verified cross-root copy/remove, durable root/path/content fingerprints, retry recovery, reverse rollback, bounded ffprobe media-info capture, Plex path/identity confirmation, current-file provenance, reviewed post-Plex monitoring/search, uniquely named replacements, separately confirmed 30-day displacement, and Plex-gated rollback are real. Monitoring requires the prior same-scope workflow to be resolved; immediate search is separately exact-phrase authorized and series workflows clone the latest immutable episode snapshot. Execution remains capped at 25 approved items. | Add richer journal/recovery UI. |
@@ -102,7 +102,7 @@ for smoke testing without explicit approval.
 
 ## Infrastructure and verification status
 
-- The four Compose services are healthy: PostgreSQL, API, UI, and gateway. Schema 30 adds a durable rolling Newznab query/grab reservation ledger without altering the schema-27/28 credential sanitization or schema-29 metadata protections.
+- The four Compose services are healthy: PostgreSQL, API, UI, and gateway. Schema 31 preserves the schema-27/28 credential sanitization, schema-29 metadata protections, and schema-30 durable rolling Newznab query/grab reservation ledger while adding bounded retained-output reverification state.
 - The gateway is bound to `127.0.0.1:28080` through its dedicated publish
   network and retains `NET_BIND_SERVICE` only.
 - Cosmos 0.23.2 now points the Media Manager domain at
@@ -112,8 +112,9 @@ for smoke testing without explicit approval.
   The protected hostname returns Cosmos authentication, while the loopback target
   returns the Media Manager gateway's expected authentication response and
   security headers.
-- Baseline verification passed: ESLint, TypeScript, UI build/tests, Go formatting,
-  vet and race tests, PostgreSQL lifecycle tests, and Compose validation. All nine
+- Baseline verification passed: ESLint, TypeScript, UI unit and Chromium tests,
+  production builds, deterministic library benchmark, Go formatting, vet and
+  race tests, PostgreSQL lifecycle tests, and Compose validation. All nine
   enabled Newznab endpoints passed live CAPS, one paced random negative TV query,
   and a separate bounded semantic check of Media Manager's real extended movie
   and complete-season request shapes. OldBoys remained disabled and uncontacted.
