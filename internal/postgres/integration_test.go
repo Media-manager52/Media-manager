@@ -477,10 +477,17 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO plex_scan_requests(id,workflow_id,plex_instance_id,plex_library_id,altmount_job_id,import_generation,state,revision,poll_attempts,requested_at,deadline_at) VALUES($1,$2,$3,'1',$4,1,'polling',1,0,$5,$6)`, replacementScanID.String(), replacementWorkflow.ID.String(), plex.ID.String(), replacementJobID.String(), displacementAt, displacementAt.Add(10*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO seerr_request_workflows(seerr_instance_id,request_id,workflow_id,attached_snapshot_revision,owns_workflow) VALUES($1,$2,$3,1,false)`, seerr.ID.String(), seerrIntake.RequestID, replacementWorkflow.ID.String()); err != nil {
+		t.Fatal(err)
+	}
 	plexPath := "/libraries/movies/" + replacementRelative
 	scan := PlexScanContext{ID: replacementScanID, Revision: 1, Workflow: replacementWorkflow, Integration: plex, Versions: []PlexVersion{{VersionID: replacementVersionID, DestinationRelative: replacementRelative, PlexVisiblePath: plexPath}}}
 	if err := store.ConfirmPlexScan(ctx, scan, []plexadapter.Confirmation{{RatingKey: "456", Path: plexPath, ProviderGUID: "tmdb://123456"}}, displacementAt); err != nil {
 		t.Fatal(err)
+	}
+	var statusSyncEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='seerr.status_sync_requested'`, replacementWorkflow.ID.String()).Scan(&statusSyncEvents); err != nil || statusSyncEvents != 1 {
+		t.Fatalf("Plex confirmation Seerr status events=%d err=%v", statusSyncEvents, err)
 	}
 	recycleEntries, err := store.ListRecycleEntries(ctx, 10)
 	if err != nil || len(recycleEntries) != 1 {

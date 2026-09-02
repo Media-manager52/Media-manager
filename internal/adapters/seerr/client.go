@@ -1,6 +1,7 @@
 package seerr
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -45,6 +46,19 @@ type Season struct {
 	ID           int64 `json:"id"`
 	SeasonNumber int16 `json:"seasonNumber"`
 	Status       int   `json:"status"`
+}
+type MediaStatus string
+
+const (
+	MediaStatusAvailable MediaStatus = "available"
+	MediaStatusPartial   MediaStatus = "partial"
+)
+
+type statusSeason struct {
+	SeasonNumber int16 `json:"seasonNumber"`
+}
+type statusRequest struct {
+	Seasons []statusSeason `json:"seasons,omitempty"`
 }
 type Request struct {
 	ID        int64     `json:"id"`
@@ -218,6 +232,62 @@ func (client *Client) Request(ctx context.Context, id int64) (Request, error) {
 	var result Request
 	if err := json.Unmarshal(body, &result); err != nil {
 		return Request{}, err
+	}
+	return result, nil
+}
+
+func (client *Client) SetMediaStatus(ctx context.Context, id int64, status MediaStatus, seasons []int16) (Media, error) {
+	if id <= 0 || (status != MediaStatusAvailable && status != MediaStatusPartial) {
+		return Media{}, ErrInvalidConfig
+	}
+	payload := statusRequest{}
+	if status == MediaStatusAvailable {
+		seen := make(map[int16]struct{}, len(seasons))
+		for _, season := range seasons {
+			if season < 0 {
+				return Media{}, ErrInvalidConfig
+			}
+			if _, exists := seen[season]; exists {
+				continue
+			}
+			seen[season] = struct{}{}
+			payload.Seasons = append(payload.Seasons, statusSeason{SeasonNumber: season})
+		}
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return Media{}, err
+	}
+	endpoint := *client.base
+	endpoint.Path = strings.TrimSuffix(client.base.Path, "/") + "/api/v1/media/" + strconv.FormatInt(id, 10) + "/" + string(status)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
+	if err != nil {
+		return Media{}, err
+	}
+	request.Header.Set("X-Api-Key", client.apiKey)
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.http.Do(request)
+	if err != nil {
+		return Media{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return Media{}, fmt.Errorf("Seerr returned HTTP %d", response.StatusCode)
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, client.responseLimit+1))
+	if err != nil {
+		return Media{}, err
+	}
+	if int64(len(responseBody)) > client.responseLimit {
+		return Media{}, ErrResponseTooLarge
+	}
+	var result Media
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		return Media{}, err
+	}
+	if result.ID != id {
+		return Media{}, errors.New("Seerr returned a different media identity")
 	}
 	return result, nil
 }

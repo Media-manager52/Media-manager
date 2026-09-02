@@ -213,6 +213,8 @@ func run() error {
 	if seerrEnabled {
 		service := &intake.SeerrService{Client: seerrClient, Store: store, InstanceID: seerrInstance, MetadataEnricher: metadataService}
 		handlers["seerr.reconcile"] = service.Handle
+		statusService := &intake.SeerrStatusService{Client: seerrClient, Store: store, InstanceID: seerrInstance}
+		handlers["seerr.status_sync_requested"] = statusService.Handle
 	}
 	worker := &platform.Worker{Store: store, Owner: workerOwner(), Handlers: handlers}
 	go func() {
@@ -225,6 +227,7 @@ func run() error {
 		_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 		if seerrEnabled {
 			_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)
+			_, _ = store.QueueConfirmedSeerrStatusSyncs(workerContext, seerrInstance, time.Now().UTC(), 25)
 		}
 		purgeTicker := time.NewTicker(time.Hour)
 		seerrTicker := time.NewTicker(5 * time.Minute)
@@ -238,6 +241,7 @@ func run() error {
 				_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 				if seerrEnabled {
 					_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)
+					_, _ = store.QueueConfirmedSeerrStatusSyncs(workerContext, seerrInstance, time.Now().UTC(), 25)
 				}
 			case <-workerContext.Done():
 				return

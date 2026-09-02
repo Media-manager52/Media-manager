@@ -871,6 +871,12 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,'plex_scanning','plex_confirmed','Plex confirmed every expected identity and path','worker',$3) ON CONFLICT DO NOTHING`, scan.Workflow.ID.String(), workflowRevision+1, now.UTC()); err != nil {
 		return err
 	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
+		SELECT $1,'workflow',$2,$3,'seerr.status_sync_requested',$4,$5,$5
+		WHERE EXISTS(SELECT 1 FROM seerr_request_workflows WHERE workflow_id=$2)
+		ON CONFLICT DO NOTHING`, uuid.NewV7().String(), scan.Workflow.ID.String(), workflowRevision+1, seerrStatusEventPayload(scan.Workflow.ID), now.UTC()); err != nil {
+		return err
+	}
 	return transaction.Commit(ctx)
 }
 

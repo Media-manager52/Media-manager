@@ -2,11 +2,80 @@ package seerr
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+func TestSetMediaStatusUsesSupportedBoundedEndpoint(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/media/77/available" || request.URL.RawQuery != "" {
+			t.Fatalf("unexpected status request: %s %s", request.Method, request.URL.String())
+		}
+		if request.Header.Get("X-Api-Key") != "secret" || request.Header.Get("Content-Type") != "application/json" {
+			t.Fatal("status request omitted required authentication or content type")
+		}
+		var payload struct {
+			Seasons []struct {
+				SeasonNumber int16 `json:"seasonNumber"`
+			} `json:"seasons"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if len(payload.Seasons) != 2 || payload.Seasons[0].SeasonNumber != 2 || payload.Seasons[1].SeasonNumber != 4 {
+			t.Fatalf("unexpected status seasons: %+v", payload.Seasons)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"id":77,"mediaType":"tv","status":5}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, APIKey: "secret", AllowHTTP: true, ResponseLimit: 1024}, server.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	media, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, []int16{2, 4, 2})
+	if err != nil || media.ID != 77 || calls != 1 {
+		t.Fatalf("status result=%+v calls=%d err=%v", media, calls, err)
+	}
+}
+
+func TestSetMediaStatusRejectsRedirectAndMismatchedIdentity(t *testing.T) {
+	redirectTargetCalls := 0
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { redirectTargetCalls++ }))
+	defer target.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/media/77/available" {
+			http.Redirect(writer, request, target.URL, http.StatusTemporaryRedirect)
+			return
+		}
+		_, _ = writer.Write([]byte(`{"id":78}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, APIKey: "secret", AllowHTTP: true}, server.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, nil); err == nil || redirectTargetCalls != 0 {
+		t.Fatalf("redirect followed or accepted: calls=%d err=%v", redirectTargetCalls, err)
+	}
+
+	mismatch := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"id":78}`))
+	}))
+	defer mismatch.Close()
+	client, err = New(Config{BaseURL: mismatch.URL, APIKey: "secret", AllowHTTP: true}, mismatch.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, nil); err == nil {
+		t.Fatal("mismatched response media identity was accepted")
+	}
+}
 
 func TestParseWebhookAcceptsLifecycleWakeups(t *testing.T) {
 	for _, notification := range []string{"MEDIA_APPROVED", "MEDIA_DECLINED", "MEDIA_AVAILABLE"} {
