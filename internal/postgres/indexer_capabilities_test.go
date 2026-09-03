@@ -689,7 +689,19 @@ func TestIndexerCapabilityConcurrentActivationRollbackAndStableSearchPath(t *tes
 	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_proc procedure JOIN pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname=current_schema() AND procedure.proname IN ('media_manager_newznab_endpoint_config_sha256','enforce_indexer_capability_profile_history','enforce_indexer_operation_status_target') AND 'search_path=pg_catalog'=ANY(procedure.proconfig)`).Scan(&hardenedFunctions); err != nil || hardenedFunctions != 3 {
 		t.Fatalf("search-path-hardened capability functions=%d err=%v", hardenedFunctions, err)
 	}
-	transaction, err := store.Pool.Begin(ctx)
+	var invalidEndpointRejected bool
+	if err := store.Pool.QueryRow(ctx, `SELECT `+qualifiedSchema+`.media_manager_newznab_endpoint_config_sha256($1::pg_catalog.jsonb,$2::pg_catalog.text) IS NULL`, `{"base_url":"https://[abc]/api"}`, "TEMP_TYPE_SHADOW_KEY").Scan(&invalidEndpointRejected); err != nil {
+		t.Fatal(err)
+	}
+	if !invalidEndpointRejected {
+		t.Fatal("endpoint digest helper accepted invalid address before temporary type shadowing")
+	}
+	shadowConnection, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shadowConnection.Close(ctx)
+	transaction, err := shadowConnection.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -707,8 +719,29 @@ func TestIndexerCapabilityConcurrentActivationRollbackAndStableSearchPath(t *tes
 	if _, err := transaction.Exec(ctx, `CREATE TEMP TABLE indexer_capability_profiles(indexer_instance_id uuid,id uuid,profile_document jsonb,activated_at timestamptz) ON COMMIT DROP`); err != nil {
 		t.Fatal(err)
 	}
+	for _, statement := range []string{
+		`CREATE DOMAIN pg_temp.inet AS pg_catalog.text`,
+		`CREATE DOMAIN pg_temp.jsonb AS pg_catalog.text`,
+		`CREATE DOMAIN pg_temp.int4 AS pg_catalog.text`,
+		`CREATE DOMAIN pg_temp.integer AS pg_catalog.text`,
+		`CREATE DOMAIN pg_temp.text AS pg_catalog.text`,
+		`CREATE DOMAIN pg_temp.bool AS pg_catalog.text`,
+		`CREATE DOMAIN pg_temp.boolean AS pg_catalog.text`,
+		`CREATE DOMAIN pg_temp.bytea AS pg_catalog.text`,
+		`CREATE DOMAIN pg_temp.timestamptz AS pg_catalog.text`,
+	} {
+		if _, err := transaction.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := transaction.Exec(ctx, `SET LOCAL search_path=`+shadowSchema+`,pg_temp,pg_catalog`); err != nil {
 		t.Fatal(err)
+	}
+	if err := transaction.QueryRow(ctx, `SELECT `+qualifiedSchema+`.media_manager_newznab_endpoint_config_sha256($1::pg_catalog.jsonb,$2::pg_catalog.text) IS NULL`, `{"base_url":"https://[abc]/api"}`, "TEMP_TYPE_SHADOW_KEY").Scan(&invalidEndpointRejected); err != nil {
+		t.Fatal(err)
+	}
+	if !invalidEndpointRejected {
+		t.Fatal("endpoint digest helper accepted invalid address after temporary type shadowing")
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE `+qualifiedSchema+`.indexer_capability_profiles SET lifecycle_state='superseded',superseded_at=$2 WHERE id=$1`, current.ID.String(), time.Now().UTC()); err != nil {
 		t.Fatalf("supersede under unrelated search_path: %v", err)

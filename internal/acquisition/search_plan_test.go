@@ -502,6 +502,71 @@ func TestPlanSearchEnforcesMovieYearBounds(t *testing.T) {
 	}
 }
 
+func TestPlanSearchEnforcesCompleteSeasonYearBounds(t *testing.T) {
+	t.Parallel()
+	season := uint16(1)
+	input := SearchPlanInput{Season: &season, Media: catalog.MediaItem{Kind: catalog.KindSeries, Title: "Example Series"}}
+	categories := newznab.NewznabCategorySelection{Series: []int{5000}}
+
+	withoutYear := verifiedRecipe("season.general", newznab.SearchScopeCompleteSeason, newznab.RecipePrimary, 0)
+	withoutYear.Mode = newznab.SearchModeGeneral
+	withoutYear.Query.Style = newznab.QueryTitleSeasonToken
+	withoutYear.Bindings = nil
+	withoutYearProfile := searchPlanProfile(withoutYear)
+
+	t.Run("absent year succeeds when recipe does not require it", func(t *testing.T) {
+		plan, err := PlanSearch(withoutYearProfile, input, categories)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []newznab.Param{{Name: "q", Value: "Example Series S01"}}
+		if !reflect.DeepEqual(plan.Primary.Request.Params, want) {
+			t.Fatalf("params=%#v, want %#v", plan.Primary.Request.Params, want)
+		}
+	})
+
+	withYear := withoutYear
+	withYear.Key = "season.general.year"
+	withYear.Bindings = []newznab.WireBinding{{Parameter: newznab.WireYear, Source: newznab.BindingYearNumber}}
+	withYearProfile := searchPlanProfile(withYear)
+
+	t.Run("absent year makes year-binding recipe unsatisfiable", func(t *testing.T) {
+		_, err := PlanSearch(withYearProfile, input, categories)
+		if !errors.Is(err, ErrNoSatisfiablePrimary) {
+			t.Fatalf("error=%v, want %v", err, ErrNoSatisfiablePrimary)
+		}
+	})
+
+	for _, year := range []uint16{1800, 9999} {
+		t.Run("emits year "+strconv.Itoa(int(year)), func(t *testing.T) {
+			inputWithYear := input
+			inputWithYear.Media.Year = &year
+			plan, err := PlanSearch(withYearProfile, inputWithYear, categories)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []newznab.Param{
+				{Name: "q", Value: "Example Series S01"},
+				{Name: "year", Value: strconv.Itoa(int(year))},
+			}
+			if !reflect.DeepEqual(plan.Primary.Request.Params, want) {
+				t.Fatalf("params=%#v, want %#v", plan.Primary.Request.Params, want)
+			}
+		})
+	}
+
+	for _, year := range []uint16{0, 1799, 10000, ^uint16(0)} {
+		t.Run("invalid year before recipe selection "+strconv.Itoa(int(year)), func(t *testing.T) {
+			inputWithYear := input
+			inputWithYear.Media.Year = &year
+			_, err := PlanSearch(withoutYearProfile, inputWithYear, categories)
+			if !errors.Is(err, ErrInvalidSearchPlanInput) {
+				t.Fatalf("complete-season year %d error=%v", year, err)
+			}
+		})
+	}
+}
+
 func TestPlanSearchEnforcesCompleteSeasonBounds(t *testing.T) {
 	t.Parallel()
 	recipe := verifiedRecipe("season.general", newznab.SearchScopeCompleteSeason, newznab.RecipePrimary, 0)

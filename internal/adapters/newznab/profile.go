@@ -379,7 +379,7 @@ type CapabilityProfile struct {
 // DecodeCapabilityProfile rejects unknown JSON fields so credentials, URLs,
 // templates, or other unowned data cannot hide inside an accepted document.
 func DecodeCapabilityProfile(document []byte) (CapabilityProfile, error) {
-	if len(document) == 0 || len(document) > maxCapabilityProfileBytes {
+	if len(document) == 0 || len(document) > maxCapabilityProfileBytes || !utf8.Valid(document) {
 		return CapabilityProfile{}, ErrInvalidCapabilityProfile
 	}
 	decoder := json.NewDecoder(bytes.NewReader(document))
@@ -918,59 +918,74 @@ func knownMapping(reference MappingRef) bool {
 func validProfileKey(value string) bool { return profileKeyPattern.MatchString(value) }
 
 func validProfileText(value string, maximum int) bool {
-	if len(value) > maximum || !utf8.ValidString(value) {
-		return false
-	}
-	for _, character := range value {
-		if unicode.IsControl(character) {
-			return false
-		}
-	}
-	forms, valid := decodedProfileTextForms(value)
-	if !valid {
-		return false
-	}
-	for _, form := range forms {
-		if unsafeProfileText(form) {
-			return false
-		}
-	}
-	return true
-}
-
-func decodedProfileTextForms(value string) ([]string, bool) {
-	forms := []string{value}
 	current := value
-	for pass := 0; pass < maxProfileTextDecodePasses; pass++ {
-		if !strings.Contains(current, "%") {
-			return forms, true
+	decodedPasses := 0
+	for {
+		if len(current) > maximum || !utf8.ValidString(current) || unsafeProfileText(current) {
+			return false
 		}
-		decoded, err := url.PathUnescape(current)
-		if err != nil {
-			return nil, false
-		}
-		if decoded == current {
-			return forms, true
-		}
-		if !utf8.ValidString(decoded) {
-			return nil, false
-		}
-		for _, character := range decoded {
+		for _, character := range current {
 			if unicode.IsControl(character) {
-				return nil, false
+				return false
 			}
 		}
-		forms = append(forms, decoded)
+
+		decoded, changed := decodeProfilePercentTriplets(current)
+		if !changed {
+			return true
+		}
+		if decodedPasses == maxProfileTextDecodePasses {
+			return false
+		}
 		current = decoded
+		decodedPasses++
 	}
-	if !strings.Contains(current, "%") {
-		return forms, true
+}
+
+// decodeProfilePercentTriplets decodes only complete %HH byte triplets. A '%'
+// that is not followed by two hexadecimal digits is ordinary literal text.
+// This deliberately does not apply query-form semantics, so '+' remains '+'.
+func decodeProfilePercentTriplets(value string) (string, bool) {
+	first := strings.IndexByte(value, '%')
+	if first < 0 {
+		return value, false
 	}
-	decoded, err := url.PathUnescape(current)
-	if err != nil || decoded != current {
-		return nil, false
+
+	var decoded strings.Builder
+	decoded.Grow(len(value))
+	decoded.WriteString(value[:first])
+	changed := false
+	for index := first; index < len(value); {
+		if value[index] == '%' && index+2 < len(value) {
+			high, highOK := profileHexNibble(value[index+1])
+			low, lowOK := profileHexNibble(value[index+2])
+			if highOK && lowOK {
+				decoded.WriteByte(high<<4 | low)
+				index += 3
+				changed = true
+				continue
+			}
+		}
+		decoded.WriteByte(value[index])
+		index++
 	}
-	return forms, true
+	if !changed {
+		return value, false
+	}
+	return decoded.String(), true
+}
+
+func profileHexNibble(value byte) (byte, bool) {
+	switch {
+	case value >= '0' && value <= '9':
+		return value - '0', true
+	case value >= 'a' && value <= 'f':
+		return value - 'a' + 10, true
+	case value >= 'A' && value <= 'F':
+		return value - 'A' + 10, true
+	default:
+		return 0, false
+	}
 }
 
 func unsafeProfileText(value string) bool {

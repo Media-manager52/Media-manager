@@ -1,6 +1,10 @@
 MEDIA MANAGER INDEXER CAPABILITY ARCHITECTURE PROPOSAL
 
-Status: Approved for Milestone 1 foundation work; no production cutover approved
+Status: Architecture approved for Milestone 1. Initial implementation
+completed; two focused independent reviews performed; this commit's remaining
+invariant corrections complete; final acceptance pending a narrow independent
+review. No production cutover, commissioning v2, or migration 0033 deployment
+is approved.
 Scope: Profile-backed Newznab search foundation
 
 The revised design remains deliberately small: one shared secure and paced
@@ -60,6 +64,7 @@ Integration configuration owns:
 - Canonical base endpoint and non-secret endpoint options.
 - Secret-reference name and authentication selection.
 - Enabled state and the existing explicit allow-HTTP policy.
+- Optional owner-reviewed provider-contract selection.
 - Owner-selected movie category IDs.
 - Owner-selected series category IDs.
 - Minimum request interval, rolling query allowance, rolling grab allowance,
@@ -482,9 +487,10 @@ indexer_capability_profiles
   endpoint digest; lifecycle fields may change only through explicit transitions.
 
 The endpoint configuration digest covers scheme, normalized hostname,
-effective port, base path, allow-HTTP selection, authentication mechanism, and
-provider-contract key/version. It excludes the secret value, any secret
-fingerprint, owner category selection, and scheduler budget settings.
+effective port, base path, allow-HTTP selection, authentication mechanism, the
+stable non-secret secret-reference identifier, and provider-contract
+key/version. It excludes the secret value, any secret fingerprint, owner
+category selection, and scheduler budget settings.
 
 indexer_operation_status
 
@@ -1160,7 +1166,10 @@ indexer request, or credential use is part of this proposal document.
 
 FINAL ARCHITECTURE AMENDMENT
 
-Status: approved for Milestone 1 only; corrective review work remains in scope
+Status: Architecture approved for Milestone 1. Initial implementation and two
+focused independent reviews completed; this commit's remaining invariant
+corrections complete; final acceptance pending a narrow independent review. No
+production cutover, commissioning v2, or migration 0033 deployment is approved.
 
 This amendment is controlling wherever it conflicts with the proposal above.
 It narrows profile schema v1 and the first implementation milestone. It does
@@ -1371,7 +1380,7 @@ that response metadata. JSON, episode, and broad-series execution likewise
 require a later schema version.
 
 
-B. CORRECTED CAPS MODE OBSERVATION
+B. CORRECTED CAPS MODE OBSERVATION FOR COMMISSIONING V2
 
 CAPS component advertisement is separate from exact recipe verification. An
 exact SearchRecipe contains RecipeVerification and evidence keys only; it must
@@ -1400,13 +1409,28 @@ source order, including duplicates and unknown names. RecognizedParameters is
 the canonical typed subset understood by Media Manager. Unknown names remain
 immutable evidence and cannot affect planning. Repeated is true only with
 CAPSElementPresentUninterpretable and records more than one bounded occurrence.
+For a repeated mode, this richer observation never merges attributes from
+separate elements into a synthetic claim.
 
-The Milestone 1 presence-aware parser distinguishes an absent element from
-present available=no, an uninterpretable available value, and repeated
-elements. Tests cover absent, present yes, present no, missing/empty/invalid
-availability, mixed case, repeated names, known and unknown names, and all
-field bounds. Legacy evidence that cannot prove presence becomes
-uninterpretable or unknown, never absent.
+The Milestone 1 parser populates this richer observation alongside the legacy
+projection, but it is inert input reserved for a separately approved
+commissioning v2. It distinguishes an absent element from present available=no,
+an uninterpretable availability value, and repeated elements. Tests cover
+absent, present yes, present no, missing/empty/invalid availability, mixed case,
+repeated names, known and unknown names, and all field bounds.
+
+CapsSnapshot.Searches remains the behaviorally unchanged legacy projection,
+including its historical last-present-attribute handling of repeated documents;
+that compatibility projection can combine attributes supplied by separate
+repetitions and must not be mistaken for the richer non-merging observation.
+Current commissioning and SelectSearchDialects continue to read only the legacy
+projection. They do not consume CAPSModeObservation, and Milestone 1 therefore
+changes no production commissioning or dialect selection. Commissioning v2
+must consume the richer observation and reject repeated modes as
+uninterpretable before commissioning v2 can be approved. Preserving the legacy
+projection's repeated-element behavior is specifically a commissioning-v2
+blocker and, consequently, also blocks profile-backed runtime cutover; it is not
+a change to current legacy commissioning.
 
 For operations that CAPS cannot describe, the CAPS claim is not applicable and
 is omitted rather than reported as omitted. Temporary quota deferral belongs
@@ -1490,18 +1514,25 @@ can activate a profile-backed runtime. The legacy runtime remains authoritative
 in milestone one. CategoryVerifiedFixed is the only recipe form that stores
 exact IDs; changing those IDs requires a new profile revision.
 
-Provider-contract selection is explicitly owner-controlled:
+Provider-contract selection is explicitly owner-controlled and bound to the
+whole profile rather than to individual recipes:
 
 - Integration configuration contains an optional owner-reviewed
   provider_contract_key.
 - The immutable profile records the exact ProviderContractRef key and version
   used during controlled verification.
-- Runtime provider behavior is enabled only when the configured key matches the
-  profile key, the exact key/version resolves to registered audited Go code,
-  and that implementation accepts the integration's configured canonical
-  origin: scheme, normalized hostname, and effective port.
-- A failed match configuration-blocks only contract-dependent behavior. An
-  independently verified generic Newznab recipe may remain usable.
+- When configuration has no provider_contract_key, the profile must omit its
+  ProviderContractRef. When configuration selects a key, the profile must carry
+  that exact key and version, the reference must resolve to registered audited
+  Go code, and that implementation must accept the integration's configured
+  canonical origin: scheme, normalized hostname, and effective port.
+- A missing or failed match configuration-blocks activation and loading of the
+  whole profile, including generic recipes. A generic recipe may coexist in a
+  correctly contract-bound profile, but it cannot bypass the profile binding.
+- Selecting, changing, or removing the configured contract makes an older
+  differently bound profile stale. A contract-version change likewise requires
+  a new profile revision; generic recipes are not retained piecemeal across
+  either change.
 - CAPS content, server title, response headers, response or redirect hostname,
   attributes, and provider self-identification can never select or activate a
   contract.
@@ -1675,9 +1706,12 @@ race gates. It does not make the new planner authoritative.
 
 F. FINAL MILESTONE 1 CORRECTIVE AMENDMENT
 
-Independent review placed Milestone 1 under focused correction. This remains an
-inert foundation: production search, commissioning, retrieval, HTTP APIs, UI,
-and workers continue to use the legacy paths. No production cutover is approved.
+The architecture is approved for Milestone 1. The initial implementation is
+complete, two focused independent reviews were performed, and this commit's
+remaining invariant corrections are complete. Final acceptance is pending a
+narrow independent review. Production search, commissioning, retrieval, HTTP
+APIs, UI, and workers continue to use the legacy paths. No production cutover,
+commissioning v2, or migration 0033 deployment is approved.
 
 The endpoint/configuration binding includes the validated canonical endpoint,
 structural configuration fields already listed above, and the configured stable
@@ -1697,11 +1731,15 @@ and outcomes are closed values rather than provider-controlled strings.
 The richer CAPS mode observation also records whether a known search element
 was repeated. A repeated mode is distinct from a single element whose
 availability is uninterpretable; it remains uninterpretable and cannot be used
-as straightforward advertised support. The legacy CAPS projection is unchanged.
+as straightforward advertised support. This observation is reserved for future
+commissioning v2. Current commissioning and dialect selection continue to use
+the unchanged legacy CAPS projection.
 
 Profile validation provides structural persisted-text safety: bounded valid
 UTF-8 text is recursively inspected for encoded URLs, credential query
 parameters, header injection, cookies, and Basic/Bearer authorization material.
+Only complete percent-encoded byte triplets are decoded; incomplete percent
+text remains literal, and every bounded decoded form receives the same checks.
 It cannot recognize every arbitrary secret without knowing that secret. Before
 future commissioning may construct a profile, its separate secret-aware
 boundary must compare every provider-derived persisted value with the resolved
@@ -1716,10 +1754,15 @@ The following issues remain deliberately deferred as separate work:
   cutover blocker.
 - Strict rejection of trailing XML roots.
 - A bounded global migration/advisory-lock timeout.
+- Commissioning v2 must consume the richer CAPS mode observation and treat
+  repeated modes as uninterpretable. Preserving the legacy repeated-element
+  projection is specifically a commissioning-v2 blocker and consequently also
+  a runtime-cutover blocker.
 - Enforce at the production orchestration boundary that only a profile returned
   by the active-profile repository path can reach the planner. This is a
   runtime-cutover blocker.
 - Direct-SQL application privilege hardening.
 
 No commissioning v2, profile-backed production request, enrichment,
-pagination, retrieval cutover, or UI work is authorized by this amendment.
+pagination, retrieval cutover, UI work, or migration 0033 deployment is
+authorized by this amendment.

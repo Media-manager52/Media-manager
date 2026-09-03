@@ -14,9 +14,9 @@ import (
 const maxPlannedCategoryIDs = 128
 
 const (
-	minimumPlannedMovieYear = 1800
-	maximumPlannedMovieYear = 9999
-	maximumPlannedSeason    = 999
+	minimumPlannedYear   = 1800
+	maximumPlannedYear   = 9999
+	maximumPlannedSeason = 999
 )
 
 var (
@@ -130,12 +130,12 @@ func PlanSearch(profile newznab.CapabilityProfile, input SearchPlanInput, catego
 }
 
 func planScope(input SearchPlanInput) (newznab.SearchScope, error) {
+	if input.Media.Year != nil && (*input.Media.Year < minimumPlannedYear || *input.Media.Year > maximumPlannedYear) {
+		return "", ErrInvalidSearchPlanInput
+	}
 	switch input.Media.Kind {
 	case catalog.KindMovie:
 		if input.Season != nil {
-			return "", ErrInvalidSearchPlanInput
-		}
-		if input.Media.Year != nil && (*input.Media.Year < minimumPlannedMovieYear || *input.Media.Year > maximumPlannedMovieYear) {
 			return "", ErrInvalidSearchPlanInput
 		}
 		return newznab.SearchScopeMovie, nil

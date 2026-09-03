@@ -1,6 +1,7 @@
 package newznab
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -403,6 +404,7 @@ func TestCapabilityProfileRejectsStructurallyUnsafePersistedText(t *testing.T) {
 		{name: "embedded arbitrary opaque URI", value: "provider says custom:payload"},
 		{name: "percent encoded URL", value: "https%3A%2F%2Fprovider.invalid%2Fpath"},
 		{name: "recursively encoded URL", value: "https%253A%252F%252Fprovider.invalid%252Fpath"},
+		{name: "percent encoded userinfo URL", value: "https%3A%2F%2Fowner%3Asynthetic%40provider.invalid%2Fpath"},
 		{name: "authorization bearer header", value: "Authorization: Bearer synthetic-token"},
 		{name: "proxy authorization header", value: "Proxy-Authorization: Basic c3ludGhldGlj"},
 		{name: "cookie header", value: "Cookie: session=synthetic"},
@@ -410,17 +412,26 @@ func TestCapabilityProfileRejectsStructurallyUnsafePersistedText(t *testing.T) {
 		{name: "encoded authorization header", value: "Authorization%3A%20Bearer%20synthetic-token"},
 		{name: "basic authorization value", value: "Basic c3ludGhldGljOnZhbHVl"},
 		{name: "bearer authorization value", value: "Bearer synthetic-token"},
+		{name: "encoded basic authorization value", value: "Basic%20c3ludGhldGljOnZhbHVl"},
+		{name: "encoded bearer authorization value", value: "Bearer%20synthetic-token"},
+		{name: "encoded cookie header", value: "Cookie%3A%20session%3Dsynthetic"},
+		{name: "encoded set cookie header", value: "Set-Cookie%3A%20session%3Dsynthetic"},
 		{name: "encoded API key parameter", value: "apikey%3Dsynthetic-value"},
+		{name: "encoded underscored API key parameter", value: "api_key%3Dsynthetic-value"},
+		{name: "recursively encoded API key parameter", value: "apikey%253Dsynthetic-value"},
+		{name: "encoded access token parameter", value: "access_token%3Dsynthetic-value"},
 		{name: "nested access token parameter", value: "access_token%253Dsynthetic-value"},
 		{name: "valueless API key query", value: "provider.invalid/path?apikey"},
 		{name: "valueless access token query", value: "path?mode=search&access_token"},
 		{name: "encoded valueless token query", value: "path%3Ftoken"},
 		{name: "protocol-relative userinfo", value: "//owner:synthetic@provider.invalid/path"},
 		{name: "CRLF injection", value: "safe\r\nAuthorization: Bearer synthetic-token"},
+		{name: "encoded CRLF injection", value: "safe%0D%0AAuthorization%3A%20Bearer%20synthetic-token"},
 		{name: "unicode control", value: "safe\u0085unsafe"},
 		{name: "invalid UTF-8", value: string([]byte{0xff})},
-		{name: "malformed percent encoding", value: "provider%ZZtitle"},
+		{name: "percent decoded invalid UTF-8", value: "provider%C3%28title"},
 		{name: "decode limit exceeded", value: "https%2525253A%2525252F%2525252Fprovider.invalid"},
+		{name: "dangerous payload with incomplete trailing escape", value: "https%3A%2F%2Fprovider.invalid%"},
 	}
 	for _, test := range unsafeValues {
 		t.Run(test.name, func(t *testing.T) {
@@ -436,10 +447,115 @@ func TestCapabilityProfileRejectsStructurallyUnsafePersistedText(t *testing.T) {
 		"Anime: 4K & TV: HD",
 		"TV > Foreign | Nordic & European",
 		"Controlled probe: valid XML; one plausible result.",
+		"Movies 100%",
+		"100% coverage",
+		"50% complete",
+		"Provider %ZZ archive",
+		"Movies%20at%20100%25",
+		"C++ / Film: børn, unge & familie — 4K (dansk)",
 	} {
 		if !validProfileText(value, maxProfileTextBytes) {
 			t.Fatalf("safe ordinary text was rejected: %q", value)
 		}
+	}
+}
+
+func TestDecodeCapabilityProfileRejectsRawInvalidUTF8BeforeJSONDecoding(t *testing.T) {
+	t.Parallel()
+	const marker = "raw-invalid-utf8-marker"
+	tests := []struct {
+		name        string
+		invalid     []byte
+		setProvider func(*CapabilityProfile)
+	}{
+		{
+			name:    "invalid continuation byte",
+			invalid: []byte{0x80},
+			setProvider: func(profile *CapabilityProfile) {
+				profile.Evidence[0].SafeSummary = marker
+			},
+		},
+		{
+			name:    "truncated multibyte sequence",
+			invalid: []byte{0xe2, 0x82},
+			setProvider: func(profile *CapabilityProfile) {
+				profile.CAPS.ServerVersion = marker
+			},
+		},
+		{
+			name:    "invalid provider title",
+			invalid: []byte{0xff},
+			setProvider: func(profile *CapabilityProfile) {
+				profile.CAPS.ServerTitle = marker
+			},
+		},
+		{
+			name:    "invalid category name",
+			invalid: []byte{0xc3, 0x28},
+			setProvider: func(profile *CapabilityProfile) {
+				profile.CAPS.Categories[0].Name = marker
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			profile := profileTestProfile()
+			test.setProvider(&profile)
+			document, err := json.Marshal(profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Count(document, []byte(marker)) != 1 {
+				t.Fatalf("expected exactly one raw marker in profile document")
+			}
+			document = bytes.Replace(document, []byte(marker), test.invalid, 1)
+			if _, err := DecodeCapabilityProfile(document); !errors.Is(err, ErrInvalidCapabilityProfile) {
+				t.Fatalf("decode error=%v", err)
+			}
+		})
+	}
+}
+
+func TestDecodeCapabilityProfileAcceptsValidUnicodeAndLiteralPercent(t *testing.T) {
+	t.Parallel()
+	profile := profileTestProfile()
+	profile.CAPS.ServerTitle = "Nordisk – 日本語 100%"
+	profile.CAPS.Categories[0].Name = "Film: børn, unge & familie — 50% complete"
+	document, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeCapabilityProfile(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.CAPS.ServerTitle != profile.CAPS.ServerTitle || decoded.CAPS.Categories[0].Name != profile.CAPS.Categories[0].Name {
+		t.Fatalf("safe provider text changed during decoding")
+	}
+}
+
+func TestDecodeCapabilityProfileRejectsPercentDecodedInvalidUTF8(t *testing.T) {
+	t.Parallel()
+	profile := profileTestProfile()
+	profile.CAPS.ServerTitle = "provider%C3%28title"
+	document, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeCapabilityProfile(document); !errors.Is(err, ErrInvalidCapabilityProfile) {
+		t.Fatalf("decode error=%v", err)
+	}
+}
+
+func TestDecodeProfilePercentTripletsPreservesPlusAndLiteralPercent(t *testing.T) {
+	t.Parallel()
+	decoded, changed := decodeProfilePercentTriplets("C++ 100% coverage%20archive%")
+	if !changed || decoded != "C++ 100% coverage archive%" {
+		t.Fatalf("decoded=%q changed=%v", decoded, changed)
+	}
+	unchanged, changed := decodeProfilePercentTriplets("C++ 100% coverage %ZZ")
+	if changed || unchanged != "C++ 100% coverage %ZZ" {
+		t.Fatalf("decoded=%q changed=%v", unchanged, changed)
 	}
 }
 

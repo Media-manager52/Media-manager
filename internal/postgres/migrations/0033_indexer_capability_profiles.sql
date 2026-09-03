@@ -32,13 +32,13 @@ STRICT
 SET search_path = pg_catalog
 AS $$
 DECLARE
-  endpoint text := COALESCE(configuration->>'base_url','');
-  endpoint_parts text[];
-  normalized_scheme text;
-  normalized_hostname text;
-  effective_port text;
-  base_path text;
-  contract_key text := COALESCE(btrim(configuration->>'provider_contract_key'),'');
+  endpoint pg_catalog.text := COALESCE(configuration->>'base_url','');
+  endpoint_parts pg_catalog.text[];
+  normalized_scheme pg_catalog.text;
+  normalized_hostname pg_catalog.text;
+  effective_port pg_catalog.text;
+  base_path pg_catalog.text;
+  contract_key pg_catalog.text := COALESCE(btrim(configuration->>'provider_contract_key'),'');
 BEGIN
   IF jsonb_typeof(configuration) <> 'object'
      OR octet_length(endpoint) > 2048
@@ -61,7 +61,7 @@ BEGIN
 
   normalized_scheme := lower(endpoint_parts[1]);
   IF normalized_scheme = 'http'
-     AND COALESCE(configuration->'allow_http','false'::jsonb) <> 'true'::jsonb THEN
+     AND COALESCE(configuration->'allow_http','false'::pg_catalog.jsonb) <> 'true'::pg_catalog.jsonb THEN
     RETURN NULL;
   END IF;
 
@@ -69,7 +69,7 @@ BEGIN
   IF left(normalized_hostname,1) = '[' AND right(normalized_hostname,1) = ']' THEN
     normalized_hostname := substr(normalized_hostname,2,length(normalized_hostname)-2);
     BEGIN
-      PERFORM normalized_hostname::inet;
+      PERFORM normalized_hostname::pg_catalog.inet;
     EXCEPTION WHEN invalid_text_representation THEN
       RETURN NULL;
     END;
@@ -84,10 +84,10 @@ BEGIN
   IF effective_port IS NULL THEN
     effective_port := CASE normalized_scheme WHEN 'https' THEN '443' ELSE '80' END;
   ELSE
-    IF effective_port::integer < 1 OR effective_port::integer > 65535 THEN
+    IF effective_port::pg_catalog.int4 < 1 OR effective_port::pg_catalog.int4 > 65535 THEN
       RETURN NULL;
     END IF;
-    effective_port := (effective_port::integer)::text;
+    effective_port := (effective_port::pg_catalog.int4)::pg_catalog.text;
   END IF;
   base_path := COALESCE(endpoint_parts[5],'');
   IF right(base_path,1) = '/' THEN
@@ -99,12 +99,12 @@ BEGIN
     'hostname', normalized_hostname,
     'effective_port', effective_port,
     'base_path', base_path,
-    'allow_http', COALESCE(configuration->'allow_http','false'::jsonb) = 'true'::jsonb,
+    'allow_http', COALESCE(configuration->'allow_http','false'::pg_catalog.jsonb) = 'true'::pg_catalog.jsonb,
     'authentication', 'query_api_key',
     'secret_reference', secret_reference,
     'provider_contract_key', contract_key,
     'provider_contract_version', CASE WHEN contract_key = '' THEN 0 ELSE 1 END
-  )::text,'UTF8'));
+  )::pg_catalog.text,'UTF8'));
 END
 $$;
 
@@ -146,10 +146,10 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog
 AS $$
 DECLARE
-  integration_configuration jsonb;
-  integration_secret_reference text;
-  current_endpoint_digest bytea;
-  integration_rows integer := 0;
+  integration_configuration pg_catalog.jsonb;
+  integration_secret_reference pg_catalog.text;
+  current_endpoint_digest pg_catalog.bytea;
+  integration_rows pg_catalog.int4 := 0;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.lifecycle_state <> 'draft' THEN
@@ -199,16 +199,16 @@ BEGIN
         USING integration_configuration,integration_secret_reference;
     END IF;
     IF integration_rows <> 1
-       OR COALESCE((integration_configuration->>'category_selection_review_required')::boolean,true)
+       OR COALESCE((integration_configuration->>'category_selection_review_required')::pg_catalog.bool,true)
        OR current_endpoint_digest IS NULL
        OR NEW.endpoint_config_sha256 IS DISTINCT FROM current_endpoint_digest
        OR COALESCE(btrim(NEW.profile_document->'provider_contract'->>'key'),'')
          IS DISTINCT FROM COALESCE(btrim(integration_configuration->>'provider_contract_key'),'')
        OR (COALESCE(btrim(NEW.profile_document->'provider_contract'->>'key'),'') <> ''
-         AND COALESCE((NEW.profile_document->'provider_contract'->>'version')::integer,0) <> 1)
+         AND COALESCE((NEW.profile_document->'provider_contract'->>'version')::pg_catalog.int4,0) <> 1)
        OR NOT EXISTS (
          SELECT 1
-         FROM jsonb_array_elements(COALESCE(NEW.profile_document->'search_recipes','[]'::jsonb)) recipe
+         FROM jsonb_array_elements(COALESCE(NEW.profile_document->'search_recipes','[]'::pg_catalog.jsonb)) recipe
          WHERE recipe->>'role' = 'primary'
            AND recipe->'verification'->>'state' = 'verified'
        ) THEN
@@ -294,9 +294,9 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog
 AS $$
 DECLARE
-  profile_document jsonb;
-  profile_activated_at timestamptz;
-  profile_rows integer := 0;
+  profile_document pg_catalog.jsonb;
+  profile_activated_at pg_catalog.timestamptz;
+  profile_rows pg_catalog.int4 := 0;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     IF NEW.indexer_instance_id IS DISTINCT FROM OLD.indexer_instance_id
@@ -320,7 +320,7 @@ BEGIN
   IF NEW.recipe_key <> '' THEN
     IF NEW.operation_key <> 'search' OR NOT EXISTS (
       SELECT 1
-      FROM jsonb_array_elements(COALESCE(profile_document->'search_recipes','[]'::jsonb)) recipe
+      FROM jsonb_array_elements(COALESCE(profile_document->'search_recipes','[]'::pg_catalog.jsonb)) recipe
       WHERE recipe->>'key' = NEW.recipe_key
     ) THEN
       RAISE EXCEPTION 'indexer operation status recipe does not belong to its capability profile';
