@@ -21,16 +21,18 @@ SET config = config
     )
   END
   || jsonb_build_object('category_selection_review_required', true)
-WHERE kind = 'newznab';
+WHERE kind = 'newznab'
+  AND jsonb_typeof(config) = 'object';
 
-CREATE FUNCTION media_manager_newznab_endpoint_config_sha256(configuration jsonb)
+CREATE FUNCTION media_manager_newznab_endpoint_config_sha256(configuration jsonb, secret_reference text)
 RETURNS bytea
 LANGUAGE plpgsql
 IMMUTABLE
 STRICT
+SET search_path = pg_catalog
 AS $$
 DECLARE
-  endpoint text := btrim(COALESCE(configuration->>'base_url',''));
+  endpoint text := COALESCE(configuration->>'base_url','');
   endpoint_parts text[];
   normalized_scheme text;
   normalized_hostname text;
@@ -38,33 +40,58 @@ DECLARE
   base_path text;
   contract_key text := COALESCE(btrim(configuration->>'provider_contract_key'),'');
 BEGIN
+  IF jsonb_typeof(configuration) <> 'object'
+     OR octet_length(endpoint) > 2048
+     OR endpoint <> btrim(endpoint)
+     OR position(chr(92) in endpoint) > 0
+     OR position('%' in regexp_replace(endpoint,'%[0-9A-Fa-f]{2}','','g')) > 0
+     OR secret_reference !~ '^[A-Za-z_][A-Za-z0-9_]{0,127}$'
+     OR (contract_key <> '' AND contract_key !~ '^[a-z][a-z0-9._:-]{0,99}$') THEN
+    RETURN NULL;
+  END IF;
+
   endpoint_parts := regexp_match(
     endpoint,
-    '^([[:alpha:]][[:alnum:]+.-]*)://(\[[^]]+\]|[^/:]+)(:([0-9]+))?(/.*)?$'
+    '^(https?)://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:([0-9]{1,5}))?(/[^?#[:space:][:cntrl:]]*)?$',
+    'i'
   );
   IF endpoint_parts IS NULL THEN
-    normalized_scheme := '';
-    normalized_hostname := lower(endpoint);
-    effective_port := '';
-    base_path := '';
+    RETURN NULL;
+  END IF;
+
+  normalized_scheme := lower(endpoint_parts[1]);
+  IF normalized_scheme = 'http'
+     AND COALESCE(configuration->'allow_http','false'::jsonb) <> 'true'::jsonb THEN
+    RETURN NULL;
+  END IF;
+
+  normalized_hostname := lower(endpoint_parts[2]);
+  IF left(normalized_hostname,1) = '[' AND right(normalized_hostname,1) = ']' THEN
+    normalized_hostname := substr(normalized_hostname,2,length(normalized_hostname)-2);
+    BEGIN
+      PERFORM normalized_hostname::inet;
+    EXCEPTION WHEN invalid_text_representation THEN
+      RETURN NULL;
+    END;
   ELSE
-    normalized_scheme := lower(endpoint_parts[1]);
-    normalized_hostname := lower(endpoint_parts[2]);
-    IF left(normalized_hostname,1) = '[' AND right(normalized_hostname,1) = ']' THEN
-      normalized_hostname := substr(normalized_hostname,2,length(normalized_hostname)-2);
-    ELSE
-      normalized_hostname := rtrim(normalized_hostname,'.');
+    normalized_hostname := rtrim(normalized_hostname,'.');
+  END IF;
+  IF normalized_hostname = '' OR octet_length(normalized_hostname) > 253 THEN
+    RETURN NULL;
+  END IF;
+
+  effective_port := NULLIF(endpoint_parts[4],'');
+  IF effective_port IS NULL THEN
+    effective_port := CASE normalized_scheme WHEN 'https' THEN '443' ELSE '80' END;
+  ELSE
+    IF effective_port::integer < 1 OR effective_port::integer > 65535 THEN
+      RETURN NULL;
     END IF;
-    effective_port := NULLIF(endpoint_parts[4],'');
-    IF effective_port IS NULL THEN
-      effective_port := CASE normalized_scheme WHEN 'https' THEN '443' WHEN 'http' THEN '80' ELSE '' END;
-    ELSE
-      effective_port := ltrim(effective_port,'0');
-      IF effective_port = '' THEN
-        effective_port := '0';
-      END IF;
-    END IF;
-    base_path := COALESCE(endpoint_parts[5],'');
+    effective_port := (effective_port::integer)::text;
+  END IF;
+  base_path := COALESCE(endpoint_parts[5],'');
+  IF right(base_path,1) = '/' THEN
+    base_path := left(base_path,length(base_path)-1);
   END IF;
 
   RETURN sha256(convert_to(jsonb_build_object(
@@ -74,6 +101,7 @@ BEGIN
     'base_path', base_path,
     'allow_http', COALESCE(configuration->'allow_http','false'::jsonb) = 'true'::jsonb,
     'authentication', 'query_api_key',
+    'secret_reference', secret_reference,
     'provider_contract_key', contract_key,
     'provider_contract_version', CASE WHEN contract_key = '' THEN 0 ELSE 1 END
   )::text,'UTF8'));
@@ -99,6 +127,7 @@ CREATE TABLE indexer_capability_profiles (
   invalidation_reason text CHECK (invalidation_reason IS NULL OR invalidation_reason ~ '^[a-z][a-z0-9._:-]{0,99}$'),
   UNIQUE (indexer_instance_id,revision),
   UNIQUE (indexer_instance_id,id),
+  CHECK ((profile_document->'schema_version' = to_jsonb(schema_version)) IS TRUE),
   CHECK (
     (lifecycle_state = 'draft' AND activated_at IS NULL AND superseded_at IS NULL AND invalidated_at IS NULL AND invalidation_reason IS NULL)
     OR (lifecycle_state = 'active' AND activated_at IS NOT NULL AND superseded_at IS NULL AND invalidated_at IS NULL AND invalidation_reason IS NULL)
@@ -114,9 +143,13 @@ CREATE UNIQUE INDEX indexer_capability_profiles_one_active
 CREATE FUNCTION enforce_indexer_capability_profile_history()
 RETURNS trigger
 LANGUAGE plpgsql
+SET search_path = pg_catalog
 AS $$
 DECLARE
   integration_configuration jsonb;
+  integration_secret_reference text;
+  current_endpoint_digest bytea;
+  integration_rows integer := 0;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.lifecycle_state <> 'draft' THEN
@@ -152,17 +185,27 @@ BEGIN
   END IF;
 
   IF OLD.lifecycle_state = 'draft' AND NEW.lifecycle_state = 'active' THEN
-    SELECT config INTO integration_configuration
-    FROM integration_instances
-    WHERE id = NEW.indexer_instance_id AND kind = 'newznab';
-    IF NOT FOUND
+    EXECUTE format(
+      'SELECT config,secret_ref FROM %I.integration_instances WHERE id=$1 AND kind=''newznab''',
+      TG_TABLE_SCHEMA
+    ) INTO integration_configuration,integration_secret_reference
+      USING NEW.indexer_instance_id;
+    GET DIAGNOSTICS integration_rows = ROW_COUNT;
+    IF integration_rows = 1 THEN
+      EXECUTE format(
+        'SELECT %I.media_manager_newznab_endpoint_config_sha256($1,$2)',
+        TG_TABLE_SCHEMA
+      ) INTO current_endpoint_digest
+        USING integration_configuration,integration_secret_reference;
+    END IF;
+    IF integration_rows <> 1
        OR COALESCE((integration_configuration->>'category_selection_review_required')::boolean,true)
-       OR NEW.endpoint_config_sha256 IS DISTINCT FROM media_manager_newznab_endpoint_config_sha256(integration_configuration)
-       OR NEW.profile_document ? 'provider_contract' AND (
-         COALESCE(btrim(NEW.profile_document->'provider_contract'->>'key'),'')
-           IS DISTINCT FROM COALESCE(btrim(integration_configuration->>'provider_contract_key'),'')
-         OR COALESCE((NEW.profile_document->'provider_contract'->>'version')::integer,0) <> 1
-       )
+       OR current_endpoint_digest IS NULL
+       OR NEW.endpoint_config_sha256 IS DISTINCT FROM current_endpoint_digest
+       OR COALESCE(btrim(NEW.profile_document->'provider_contract'->>'key'),'')
+         IS DISTINCT FROM COALESCE(btrim(integration_configuration->>'provider_contract_key'),'')
+       OR (COALESCE(btrim(NEW.profile_document->'provider_contract'->>'key'),'') <> ''
+         AND COALESCE((NEW.profile_document->'provider_contract'->>'version')::integer,0) <> 1)
        OR NOT EXISTS (
          SELECT 1
          FROM jsonb_array_elements(COALESCE(NEW.profile_document->'search_recipes','[]'::jsonb)) recipe
@@ -248,10 +291,12 @@ CREATE TABLE indexer_operation_status (
 CREATE FUNCTION enforce_indexer_operation_status_target()
 RETURNS trigger
 LANGUAGE plpgsql
+SET search_path = pg_catalog
 AS $$
 DECLARE
   profile_document jsonb;
   profile_activated_at timestamptz;
+  profile_rows integer := 0;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     IF NEW.indexer_instance_id IS DISTINCT FROM OLD.indexer_instance_id
@@ -262,13 +307,14 @@ BEGIN
     END IF;
   END IF;
 
-  SELECT capability.profile_document,capability.activated_at
-  INTO profile_document,profile_activated_at
-  FROM indexer_capability_profiles capability
-  WHERE capability.indexer_instance_id = NEW.indexer_instance_id
-    AND capability.id = NEW.capability_profile_id;
+  EXECUTE format(
+    'SELECT capability.profile_document,capability.activated_at FROM %I.indexer_capability_profiles capability WHERE capability.indexer_instance_id=$1 AND capability.id=$2',
+    TG_TABLE_SCHEMA
+  ) INTO profile_document,profile_activated_at
+    USING NEW.indexer_instance_id,NEW.capability_profile_id;
+  GET DIAGNOSTICS profile_rows = ROW_COUNT;
 
-  IF NOT FOUND OR profile_activated_at IS NULL THEN
+  IF profile_rows <> 1 OR profile_activated_at IS NULL THEN
     RAISE EXCEPTION 'indexer operation status requires an activated capability profile';
   END IF;
   IF NEW.recipe_key <> '' THEN
@@ -306,8 +352,9 @@ INSERT INTO indexer_capability_profiles(
 SELECT uuidv7(),integration.id,1,1,'draft',
   legacy_profile.document,
   sha256(convert_to(legacy_profile.document::text,'UTF8')),
-  media_manager_newznab_endpoint_config_sha256(integration.config),
+  media_manager_newznab_endpoint_config_sha256(integration.config,integration.secret_ref),
   now()
 FROM integration_instances integration
 CROSS JOIN legacy_profile
-WHERE integration.kind = 'newznab';
+WHERE integration.kind = 'newznab'
+  AND media_manager_newznab_endpoint_config_sha256(integration.config,integration.secret_ref) IS NOT NULL;

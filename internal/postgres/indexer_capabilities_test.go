@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"uuid"
@@ -325,6 +327,25 @@ func TestIndexerCapabilityPersistenceLifecycle(t *testing.T) {
 			t.Fatalf("load recipe %q=%#v err=%v", recipeKey, loaded, err)
 		}
 	}
+	equalTimestamp := IndexerOperationStatus{
+		IndexerInstanceID:   integration.ID,
+		CapabilityProfileID: second.ID,
+		OperationKey:        "search",
+		Availability:        "degraded",
+		LastOutcome:         "failed",
+		SafeCode:            "equal_timestamp_must_not_replace",
+		LastFailureScope:    "operation",
+		ConsecutiveFailures: 1,
+		LastFailureAt:       &now,
+		UpdatedAt:           now,
+	}
+	if err := store.SaveIndexerOperationStatus(ctx, equalTimestamp); err != nil {
+		t.Fatalf("save equal-timestamp status: %v", err)
+	}
+	unchangedStatus, err := store.LoadIndexerOperationStatus(ctx, integration.ID, second.ID, "search", "")
+	if err != nil || unchangedStatus.Availability != "ready" || unchangedStatus.LastOutcome != "success" || unchangedStatus.SafeCode != "" || unchangedStatus.ConsecutiveFailures != 0 {
+		t.Fatalf("equal-timestamp status replaced established state: %#v err=%v", unchangedStatus, err)
+	}
 	invalidTarget := IndexerOperationStatus{
 		IndexerInstanceID:   integration.ID,
 		CapabilityProfileID: second.ID,
@@ -373,6 +394,42 @@ func TestIndexerCapabilityPersistenceLifecycle(t *testing.T) {
 	}
 	if _, err := store.ActivateIndexerCapabilityProfile(ctx, integration.ID, invalidated.ID, "owner", time.Now().UTC()); !errors.Is(err, ErrInvalidIndexerCapabilityProfile) {
 		t.Fatalf("activate invalidated profile: %v", err)
+	}
+
+	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET secret_ref='newznab_capability_test_key' WHERE id=$1`, integration.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	changedAccountDigest, err := store.IndexerEndpointConfigurationDigest(ctx, integration.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(changedAccountDigest, observedEndpointDigest) {
+		t.Fatal("case-sensitive secret-reference change did not change endpoint binding")
+	}
+	if _, err := store.CreateIndexerCapabilityProfile(ctx, integration.ID, document, observedEndpointDigest, time.Now().UTC()); !errors.Is(err, ErrIndexerEndpointConfigurationChanged) {
+		t.Fatalf("create rebound observations after secret-reference account change: %v", err)
+	}
+	if _, err := store.ActivateIndexerCapabilityProfile(ctx, integration.ID, third.ID, "owner", time.Now().UTC()); !errors.Is(err, ErrIndexerEndpointConfigurationChanged) {
+		t.Fatalf("active profile remained usable after secret-reference account change: %v", err)
+	}
+	if _, err := store.ActiveIndexerCapabilityProfile(ctx, integration.ID); !errors.Is(err, ErrIndexerEndpointConfigurationChanged) {
+		t.Fatalf("active profile load ignored secret-reference account change: %v", err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET secret_ref='not a valid reference' WHERE id=$1`, integration.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.IndexerEndpointConfigurationDigest(ctx, integration.ID); !errors.Is(err, ErrInvalidIndexerCapabilityProfile) {
+		t.Fatalf("unsafe secret reference produced an activatable endpoint binding: %v", err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET secret_ref='NEWZNAB_CAPABILITY_TEST_KEY' WHERE id=$1`, integration.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	restoredDigest, err := store.IndexerEndpointConfigurationDigest(ctx, integration.ID)
+	if err != nil || !bytes.Equal(restoredDigest, observedEndpointDigest) {
+		t.Fatalf("restoring the same secret reference did not restore endpoint binding: equal=%v err=%v", bytes.Equal(restoredDigest, observedEndpointDigest), err)
+	}
+	if restored, err := store.ActiveIndexerCapabilityProfile(ctx, integration.ID); err != nil || restored.ID != third.ID {
+		t.Fatalf("same secret reference did not preserve active profile binding: profile=%#v err=%v", restored, err)
 	}
 
 	endpointDraft, err := store.CreateIndexerCapabilityProfile(ctx, integration.ID, document, observedEndpointDigest, time.Now().UTC())
@@ -430,6 +487,11 @@ func TestIndexerCapabilityPersistenceLifecycle(t *testing.T) {
 	if _, err := store.IndexerCapabilityProfile(ctx, invalidDocumentID); !errors.Is(err, ErrInvalidIndexerCapabilityProfile) {
 		t.Fatalf("load accepted a digest-valid but structurally invalid profile: %v", err)
 	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO indexer_capability_profiles(id,indexer_instance_id,revision,schema_version,lifecycle_state,profile_document,document_sha256,endpoint_config_sha256,created_at)
+		SELECT uuidv7(),indexer_instance_id,revision+2,2,'draft',profile_document,document_sha256,endpoint_config_sha256,now()
+		FROM indexer_capability_profiles WHERE id=$1`, endpointDraft.ID.String()); err == nil {
+		t.Fatal("database accepted a relational/profile schema-version mismatch")
+	}
 }
 
 func TestIndexerCapabilityActivationGatesCategoryReviewAndProviderSelection(t *testing.T) {
@@ -474,8 +536,11 @@ func TestIndexerCapabilityActivationGatesCategoryReviewAndProviderSelection(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ActivateIndexerCapabilityProfile(ctx, integration.ID, generic.ID, "owner", time.Now().UTC()); err != nil {
-		t.Fatalf("activate independently verified generic profile with configured contract: %v", err)
+	if _, err := store.ActivateIndexerCapabilityProfile(ctx, integration.ID, generic.ID, "owner", time.Now().UTC()); !errors.Is(err, ErrIndexerProviderContractMismatch) {
+		t.Fatalf("activate profile missing the configured provider contract: %v", err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE indexer_capability_profiles SET lifecycle_state='active',activated_at=now() WHERE id=$1`, generic.ID.String()); err == nil {
+		t.Fatal("database activated a profile missing its configured provider contract")
 	}
 	if _, err := store.ActivateIndexerCapabilityProfile(ctx, integration.ID, profile.ID, "owner", time.Now().UTC()); err != nil {
 		t.Fatalf("activate reviewed contract profile: %v", err)
@@ -522,13 +587,155 @@ func TestIndexerCapabilityActivationGatesCategoryReviewAndProviderSelection(t *t
 	}
 }
 
+func TestIndexerCapabilityConcurrentActivationRollbackAndStableSearchPath(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	store := openIndexerCapabilityTestStore(t, ctx, databaseURL)
+	defer store.Close()
+
+	integration, err := store.CreateIntegration(ctx, Integration{
+		Kind:      "newznab",
+		Name:      "Concurrent capability activation",
+		Config:    json.RawMessage(`{"base_url":"https://concurrent.invalid/api","movie_category_ids":[2000],"series_category_ids":[5000],"category_selection_review_required":false}`),
+		SecretRef: "NEWZNAB_CONCURRENT_CAPABILITY_KEY",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := store.IndexerEndpointConfigurationDigest(ctx, integration.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := activatableCapabilityProfileDocument(t)
+	baseline, err := store.CreateIndexerCapabilityProfile(ctx, integration.ID, document, digest, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ActivateIndexerCapabilityProfile(ctx, integration.ID, baseline.ID, "owner", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	competitors := make([]IndexerCapabilityProfile, 2)
+	for index := range competitors {
+		competitors[index], err = store.CreateIndexerCapabilityProfile(ctx, integration.ID, document, digest, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	activationErrors := make([]error, len(competitors))
+	var group sync.WaitGroup
+	for index := range competitors {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+			_, activationErrors[index] = store.ActivateIndexerCapabilityProfile(ctx, integration.ID, competitors[index].ID, "owner", time.Now().UTC())
+		}(index)
+	}
+	group.Wait()
+	for index, activationErr := range activationErrors {
+		if activationErr != nil {
+			t.Fatalf("concurrent activation %d: %v", index, activationErr)
+		}
+	}
+	current, err := store.ActiveIndexerCapabilityProfile(ctx, integration.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ID != competitors[0].ID && current.ID != competitors[1].ID {
+		t.Fatalf("concurrent activation left unexpected active profile %s", current.ID)
+	}
+	var activeCount int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM indexer_capability_profiles WHERE indexer_instance_id=$1 AND lifecycle_state='active'`, integration.ID.String()).Scan(&activeCount); err != nil || activeCount != 1 {
+		t.Fatalf("concurrent activation active count=%d err=%v", activeCount, err)
+	}
+
+	rollbackTarget, err := store.CreateIndexerCapabilityProfile(ctx, integration.ID, document, digest, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema string
+	if err := store.Pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	qualifiedSchema := pgx.Identifier{schema}.Sanitize()
+	if _, err := store.Pool.Exec(ctx, `CREATE FUNCTION `+qualifiedSchema+`.force_capability_activation_rollback() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ BEGIN RAISE EXCEPTION 'forced capability activation rollback'; END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `CREATE TRIGGER zz_force_capability_activation_rollback BEFORE UPDATE ON `+qualifiedSchema+`.indexer_capability_profiles FOR EACH ROW WHEN (OLD.lifecycle_state='draft' AND NEW.lifecycle_state='active') EXECUTE FUNCTION `+qualifiedSchema+`.force_capability_activation_rollback()`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ActivateIndexerCapabilityProfile(ctx, integration.ID, rollbackTarget.ID, "owner", time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "forced capability activation rollback") {
+		t.Fatalf("forced activation failure=%v", err)
+	}
+	if _, err := store.Pool.Exec(ctx, `DROP TRIGGER zz_force_capability_activation_rollback ON `+qualifiedSchema+`.indexer_capability_profiles`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `DROP FUNCTION `+qualifiedSchema+`.force_capability_activation_rollback()`); err != nil {
+		t.Fatal(err)
+	}
+	afterRollback, err := store.ActiveIndexerCapabilityProfile(ctx, integration.ID)
+	if err != nil || afterRollback.ID != current.ID {
+		t.Fatalf("failed activation did not roll back previous active profile: active=%#v err=%v", afterRollback, err)
+	}
+	rollbackTarget, err = store.IndexerCapabilityProfile(ctx, rollbackTarget.ID)
+	if err != nil || rollbackTarget.LifecycleState != "draft" {
+		t.Fatalf("failed activation changed target: profile=%#v err=%v", rollbackTarget, err)
+	}
+
+	var hardenedFunctions int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_proc procedure JOIN pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname=current_schema() AND procedure.proname IN ('media_manager_newznab_endpoint_config_sha256','enforce_indexer_capability_profile_history','enforce_indexer_operation_status_target') AND 'search_path=pg_catalog'=ANY(procedure.proconfig)`).Scan(&hardenedFunctions); err != nil || hardenedFunctions != 3 {
+		t.Fatalf("search-path-hardened capability functions=%d err=%v", hardenedFunctions, err)
+	}
+	transaction, err := store.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transaction.Rollback(ctx)
+	shadowSchema := pgx.Identifier{"mm_capability_shadow_" + strings.ReplaceAll(uuid.New().String(), "-", "")}.Sanitize()
+	if _, err := transaction.Exec(ctx, `CREATE SCHEMA `+shadowSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transaction.Exec(ctx, `CREATE FUNCTION `+shadowSchema+`.media_manager_newznab_endpoint_config_sha256(jsonb,text) RETURNS bytea LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS 'SELECT decode(repeat(''00'',32),''hex'')'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transaction.Exec(ctx, `CREATE TEMP TABLE integration_instances(id uuid,kind text,config jsonb,secret_ref text) ON COMMIT DROP`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transaction.Exec(ctx, `CREATE TEMP TABLE indexer_capability_profiles(indexer_instance_id uuid,id uuid,profile_document jsonb,activated_at timestamptz) ON COMMIT DROP`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transaction.Exec(ctx, `SET LOCAL search_path=`+shadowSchema+`,pg_temp,pg_catalog`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE `+qualifiedSchema+`.indexer_capability_profiles SET lifecycle_state='superseded',superseded_at=$2 WHERE id=$1`, current.ID.String(), time.Now().UTC()); err != nil {
+		t.Fatalf("supersede under unrelated search_path: %v", err)
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE `+qualifiedSchema+`.indexer_capability_profiles SET lifecycle_state='active',activated_at=$2 WHERE id=$1`, rollbackTarget.ID.String(), time.Now().UTC()); err != nil {
+		t.Fatalf("activate under unrelated search_path: %v", err)
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO `+qualifiedSchema+`.indexer_operation_status(indexer_instance_id,capability_profile_id,operation_key,recipe_key,availability,updated_at) VALUES($1,$2,'search','movie-imdb','unknown',$3)`, integration.ID.String(), rollbackTarget.ID.String(), time.Now().UTC()); err != nil {
+		t.Fatalf("operation status under unrelated search_path: %v", err)
+	}
+	if err := transaction.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func assertCapabilityProfileImmutable(t *testing.T, ctx context.Context, store *Store, profileID uuid.UUID, state string) {
 	t.Helper()
 	for description, statement := range map[string]string{
-		"document":        `UPDATE indexer_capability_profiles SET profile_document='{}'::jsonb WHERE id=$1`,
-		"document digest": `UPDATE indexer_capability_profiles SET document_sha256=decode(repeat('00',32),'hex') WHERE id=$1`,
-		"endpoint digest": `UPDATE indexer_capability_profiles SET endpoint_config_sha256=decode(repeat('00',32),'hex') WHERE id=$1`,
-		"created time":    `UPDATE indexer_capability_profiles SET created_at=created_at+interval '1 second' WHERE id=$1`,
+		"identity":             `UPDATE indexer_capability_profiles SET id=uuidv7() WHERE id=$1`,
+		"integration identity": `UPDATE indexer_capability_profiles SET indexer_instance_id=uuidv7() WHERE id=$1`,
+		"revision":             `UPDATE indexer_capability_profiles SET revision=revision+1000 WHERE id=$1`,
+		"schema version":       `UPDATE indexer_capability_profiles SET schema_version=schema_version+1 WHERE id=$1`,
+		"document":             `UPDATE indexer_capability_profiles SET profile_document='{}'::jsonb WHERE id=$1`,
+		"document digest":      `UPDATE indexer_capability_profiles SET document_sha256=decode(repeat('00',32),'hex') WHERE id=$1`,
+		"endpoint digest":      `UPDATE indexer_capability_profiles SET endpoint_config_sha256=decode(repeat('00',32),'hex') WHERE id=$1`,
+		"created time":         `UPDATE indexer_capability_profiles SET created_at=created_at+interval '1 second' WHERE id=$1`,
+		"invalidation reason":  `UPDATE indexer_capability_profiles SET invalidation_reason='changed' WHERE id=$1`,
 	} {
 		if _, err := store.Pool.Exec(ctx, statement, profileID.String()); err == nil {
 			t.Fatalf("database changed immutable %s for %s profile", description, state)
@@ -599,6 +806,7 @@ func activatableCapabilityProfileDocument(t *testing.T) json.RawMessage {
 
 func activatableCapabilityProfileDocumentWithContract(t *testing.T, contract newznab.ProviderContractRef) json.RawMessage {
 	t.Helper()
+	const evidenceKey = "evidence.00000000000000000000000000000001"
 	profile := newznab.CapabilityProfile{
 		SchemaVersion: newznab.CapabilityProfileSchemaVersion,
 		SearchRecipes: []newznab.SearchRecipe{{
@@ -617,18 +825,18 @@ func activatableCapabilityProfileDocumentWithContract(t *testing.T, contract new
 			Priority:      1,
 			Verification: newznab.RecipeVerification{
 				State:        newznab.VerificationVerified,
-				EvidenceKeys: []string{"movie-search"},
+				EvidenceKeys: []string{evidenceKey},
 			},
 		}},
 		Operations:  []newznab.OperationCapability{},
 		MappingRefs: []newznab.MappingRef{{Key: newznab.MappingNewznabSearchV1, Version: 1}},
 		Evidence: []newznab.CommissionEvidence{{
-			Key:                    "movie-search",
-			Kind:                   "commissioning",
-			RecipeKey:              "movie-imdb",
+			Key:                    evidenceKey,
+			Kind:                   newznab.EvidenceKindControlledProbe,
+			Target:                 newznab.EvidenceTarget{Kind: newznab.EvidenceTargetSearchRecipe, RecipeKey: "movie-imdb"},
 			ObservedAt:             time.Unix(1, 0).UTC(),
 			BodySHA256:             strings.Repeat("a", 64),
-			SafeOutcome:            "success",
+			SafeOutcome:            newznab.EvidenceOutcomeSearchSuccess,
 			RawResultCount:         1,
 			PlausibleIdentityCount: 1,
 		}},

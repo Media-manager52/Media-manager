@@ -1,6 +1,6 @@
 MEDIA MANAGER INDEXER CAPABILITY ARCHITECTURE PROPOSAL
 
-Status: Proposed design only; not implemented
+Status: Approved for Milestone 1 foundation work; no production cutover approved
 Scope: Profile-backed Newznab search foundation
 
 The revised design remains deliberately small: one shared secure and paced
@@ -1160,12 +1160,13 @@ indexer request, or credential use is part of this proposal document.
 
 FINAL ARCHITECTURE AMENDMENT
 
-Status: accepted in principle, not approved for implementation
+Status: approved for Milestone 1 only; corrective review work remains in scope
 
 This amendment is controlling wherever it conflicts with the proposal above.
 It narrows profile schema v1 and the first implementation milestone. It does
-not authorize code, schema, runtime, configuration, commissioning, credential,
-or external-service changes.
+authorize only the inert Milestone 1 foundation code and additive schema. It
+does not authorize production runtime cutover, live configuration or
+commissioning, credential access, or external-service actions.
 
 
 A. AMENDED MINIMAL SEARCHRECIPE V1
@@ -1389,6 +1390,7 @@ parameters without proving that their exact combination works.
     type CAPSModeObservation struct {
         Mode                     SearchMode
         ElementState             CAPSElementState
+        Repeated                 bool
         AdvertisedParameterNames []string
         RecognizedParameters     []WireParameter
     }
@@ -1396,15 +1398,15 @@ parameters without proving that their exact combination works.
 AdvertisedParameterNames preserves every bounded, sanitized parameter name in
 source order, including duplicates and unknown names. RecognizedParameters is
 the canonical typed subset understood by Media Manager. Unknown names remain
-immutable evidence and cannot affect planning.
+immutable evidence and cannot affect planning. Repeated is true only with
+CAPSElementPresentUninterpretable and records more than one bounded occurrence.
 
-The present parser materializes fixed zero-value search elements and therefore
-cannot distinguish an absent element from present available=no or an
-uninterpretable available value. Characterization and a presence-aware parser
-are prerequisites for recording CAPSElementAbsent. Tests must cover absent,
-present yes, present no, missing/empty/invalid availability, mixed case,
-repeated names, known and unknown names, and all field bounds. Legacy evidence
-that cannot prove presence becomes uninterpretable or unknown, never absent.
+The Milestone 1 presence-aware parser distinguishes an absent element from
+present available=no, an uninterpretable available value, and repeated
+elements. Tests cover absent, present yes, present no, missing/empty/invalid
+availability, mixed case, repeated names, known and unknown names, and all
+field bounds. Legacy evidence that cannot prove presence becomes
+uninterpretable or unknown, never absent.
 
 For operations that CAPS cannot describe, the CAPS claim is not applicable and
 is omitted rather than reported as omitted. Temporary quota deferral belongs
@@ -1669,3 +1671,55 @@ pure primary/optional-fallback planning, split category configuration with an
 unresolved-review gate, generic scheduler failure isolation, and unverified
 draft legacy profiles all pass their focused, PostgreSQL lifecycle, and full Go
 race gates. It does not make the new planner authoritative.
+
+
+F. FINAL MILESTONE 1 CORRECTIVE AMENDMENT
+
+Independent review placed Milestone 1 under focused correction. This remains an
+inert foundation: production search, commissioning, retrieval, HTTP APIs, UI,
+and workers continue to use the legacy paths. No production cutover is approved.
+
+The endpoint/configuration binding includes the validated canonical endpoint,
+structural configuration fields already listed above, and the configured stable
+non-secret secret-reference identifier with its existing case semantics. It
+never includes the resolved credential or a credential-derived fingerprint.
+Changing the value behind the same reference is not a structural change;
+selecting a different reference is. Unsafe legacy endpoint text cannot produce
+an activatable binding or a migration-created capability draft.
+
+Commissioning evidence is target-bound through closed types. Each evidence
+record names exactly one search recipe, operation, or retrieval responsibility.
+One physical probe may create multiple records with the same safe body digest
+and timestamp, but an evidence record for one target cannot verify another.
+Evidence identifiers are locally generated bounded identifiers; evidence kinds
+and outcomes are closed values rather than provider-controlled strings.
+
+The richer CAPS mode observation also records whether a known search element
+was repeated. A repeated mode is distinct from a single element whose
+availability is uninterpretable; it remains uninterpretable and cannot be used
+as straightforward advertised support. The legacy CAPS projection is unchanged.
+
+Profile validation provides structural persisted-text safety: bounded valid
+UTF-8 text is recursively inspected for encoded URLs, credential query
+parameters, header injection, cookies, and Basic/Bearer authorization material.
+It cannot recognize every arbitrary secret without knowing that secret. Before
+future commissioning may construct a profile, its separate secret-aware
+boundary must compare every provider-derived persisted value with the resolved
+credential and relevant encoded variants in memory. The generic profile
+validator and repository do not resolve or read credentials for that purpose.
+
+The following issues remain deliberately deferred as separate work:
+
+- Prowlarr-import canonical duplicate detection.
+- Separate last-instance-outcome time from scheduler pacing UpdatedAt before
+  any scoped RecordResult caller is connected to production. This is a runtime-
+  cutover blocker.
+- Strict rejection of trailing XML roots.
+- A bounded global migration/advisory-lock timeout.
+- Enforce at the production orchestration boundary that only a profile returned
+  by the active-profile repository path can reach the planner. This is a
+  runtime-cutover blocker.
+- Direct-SQL application privilege hardening.
+
+No commissioning v2, profile-backed production request, enrichment,
+pagination, retrieval cutover, or UI work is authorized by this amendment.

@@ -13,6 +13,12 @@ import (
 
 const maxPlannedCategoryIDs = 128
 
+const (
+	minimumPlannedMovieYear = 1800
+	maximumPlannedMovieYear = 9999
+	maximumPlannedSeason    = 999
+)
+
 var (
 	ErrInvalidSearchPlanInput   = errors.New("invalid Newznab search plan input")
 	ErrInvalidCategorySelection = errors.New("invalid Newznab category selection")
@@ -31,21 +37,27 @@ type PlannedSearch struct {
 }
 
 type SearchPlan struct {
-	Primary    PlannedSearch             `json:"primary"`
-	Fallback   *PlannedSearch            `json:"fallback,omitempty"`
-	FallbackOn []newznab.FallbackTrigger `json:"fallback_on,omitempty"`
+	Primary            PlannedSearch `json:"primary"`
+	fallbackCandidates []plannedFallback
+}
+
+type plannedFallback struct {
+	search PlannedSearch
+	on     []newznab.FallbackTrigger
 }
 
 // FallbackFor returns the single planned fallback only for a trigger approved
 // by that exact recipe. Operational failures and policy decisions have no
 // representation in this deliberately narrow API.
 func (plan SearchPlan) FallbackFor(trigger newznab.FallbackTrigger) (PlannedSearch, bool) {
-	if plan.Fallback == nil || !newznab.ValidFallbackTrigger(trigger) {
+	if !newznab.ValidFallbackTrigger(trigger) {
 		return PlannedSearch{}, false
 	}
-	for _, allowed := range plan.FallbackOn {
-		if trigger == allowed {
-			return clonePlannedSearch(*plan.Fallback), true
+	for _, candidate := range plan.fallbackCandidates {
+		for _, allowed := range candidate.on {
+			if trigger == allowed {
+				return clonePlannedSearch(candidate.search), true
+			}
 		}
 	}
 	return PlannedSearch{}, false
@@ -109,9 +121,10 @@ func PlanSearch(profile newznab.CapabilityProfile, input SearchPlanInput, catego
 		if !satisfiable {
 			continue
 		}
-		result.Fallback = &planned
-		result.FallbackOn = append([]newznab.FallbackTrigger(nil), recipe.FallbackOn...)
-		break
+		result.fallbackCandidates = append(result.fallbackCandidates, plannedFallback{
+			search: planned,
+			on:     append([]newznab.FallbackTrigger(nil), recipe.FallbackOn...),
+		})
 	}
 	return result, nil
 }
@@ -122,9 +135,12 @@ func planScope(input SearchPlanInput) (newznab.SearchScope, error) {
 		if input.Season != nil {
 			return "", ErrInvalidSearchPlanInput
 		}
+		if input.Media.Year != nil && (*input.Media.Year < minimumPlannedMovieYear || *input.Media.Year > maximumPlannedMovieYear) {
+			return "", ErrInvalidSearchPlanInput
+		}
 		return newznab.SearchScopeMovie, nil
 	case catalog.KindSeries:
-		if input.Season == nil {
+		if input.Season == nil || *input.Season > maximumPlannedSeason {
 			return "", ErrInvalidSearchPlanInput
 		}
 		return newznab.SearchScopeCompleteSeason, nil

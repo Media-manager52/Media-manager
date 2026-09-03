@@ -1,6 +1,8 @@
 package newznab
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -8,22 +10,42 @@ import (
 	"time"
 )
 
-func profileTestEvidence() CommissionEvidence {
-	return CommissionEvidence{
-		Key:                    "probe.success",
-		Kind:                   "controlled_probe",
-		ObservedAt:             time.Unix(1, 0).UTC(),
-		BodySHA256:             strings.Repeat("a", 64),
-		SafeOutcome:            "success",
-		RawResultCount:         1,
-		PlausibleIdentityCount: 1,
+func profileTestEvidenceKey(seed string) string {
+	digest := sha256.Sum256([]byte(seed))
+	return "evidence." + hex.EncodeToString(digest[:16])
+}
+
+func TestNewCommissionEvidenceKeyUsesLocalBoundedFormat(t *testing.T) {
+	t.Parallel()
+	first, err := NewCommissionEvidenceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewCommissionEvidenceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !evidenceKeyPattern.MatchString(first) || !evidenceKeyPattern.MatchString(second) || first == second {
+		t.Fatalf("invalid locally generated evidence identifiers")
 	}
 }
 
-func profileTestVerifiedEvidence() CommissionEvidence {
+func profileTestEvidence() CommissionEvidence {
 	return CommissionEvidence{
-		Key:         "operation.verified",
-		Kind:        "controlled_probe",
+		Key:         profileTestEvidenceKey("caps"),
+		Kind:        EvidenceKindControlledProbe,
+		Target:      EvidenceTarget{Kind: EvidenceTargetCAPS},
+		ObservedAt:  time.Unix(1, 0).UTC(),
+		BodySHA256:  strings.Repeat("a", 64),
+		SafeOutcome: EvidenceOutcomeSemanticallyVerified,
+	}
+}
+
+func profileTestVerifiedEvidence(target EvidenceTarget) CommissionEvidence {
+	return CommissionEvidence{
+		Key:         profileTestEvidenceKey("verified:" + string(target.Kind) + ":" + target.RecipeKey),
+		Kind:        EvidenceKindControlledProbe,
+		Target:      target,
 		ObservedAt:  time.Unix(1, 0).UTC(),
 		BodySHA256:  strings.Repeat("c", 64),
 		SafeOutcome: EvidenceOutcomeSemanticallyVerified,
@@ -109,7 +131,7 @@ func profileTestProfile(recipes ...SearchRecipe) CapabilityProfile {
 
 func appendProfileTestRecipe(profile *CapabilityProfile, recipe SearchRecipe) {
 	if len(recipe.Verification.EvidenceKeys) == 1 && recipe.Verification.EvidenceKeys[0] == "probe.success" {
-		key := "probe." + recipe.Key
+		key := profileTestEvidenceKey("recipe:" + recipe.Key)
 		recipe.Verification.EvidenceKeys = []string{key}
 		found := false
 		for _, evidence := range profile.Evidence {
@@ -121,8 +143,8 @@ func appendProfileTestRecipe(profile *CapabilityProfile, recipe SearchRecipe) {
 		if !found {
 			profile.Evidence = append(profile.Evidence, CommissionEvidence{
 				Key:                    key,
-				Kind:                   "controlled_probe",
-				RecipeKey:              recipe.Key,
+				Kind:                   EvidenceKindControlledProbe,
+				Target:                 EvidenceTarget{Kind: EvidenceTargetSearchRecipe, RecipeKey: recipe.Key},
 				ObservedAt:             time.Unix(1, 0).UTC(),
 				BodySHA256:             strings.Repeat("d", 64),
 				SafeOutcome:            EvidenceOutcomeSearchSuccess,
@@ -351,6 +373,7 @@ func TestCapabilityProfileCategoryAndCAPSEvidenceValidation(t *testing.T) {
 			profile.CAPS.ModeObservations[0].RecognizedParameters = []WireParameter{WireSeason}
 		}},
 		{name: "unknown caps state", mutate: func(profile *CapabilityProfile) { profile.CAPS.ModeObservations[0].ElementState = "sometimes" }},
+		{name: "repeated available caps element", mutate: func(profile *CapabilityProfile) { profile.CAPS.ModeObservations[0].Repeated = true }},
 		{name: "credential-bearing server title", mutate: func(profile *CapabilityProfile) {
 			profile.CAPS.ServerTitle = "https://provider.invalid/?apikey=marker-secret"
 		}},
@@ -358,6 +381,102 @@ func TestCapabilityProfileCategoryAndCAPSEvidenceValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			profile := profileTestProfile(fixed)
+			test.mutate(&profile)
+			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+				t.Fatalf("validation error=%v", err)
+			}
+		})
+	}
+}
+
+func TestCapabilityProfileRejectsStructurallyUnsafePersistedText(t *testing.T) {
+	t.Parallel()
+	unsafeValues := []struct {
+		name  string
+		value string
+	}{
+		{name: "plain URL", value: "https://provider.invalid/path"},
+		{name: "one-letter URI scheme", value: "x://provider.invalid/path"},
+		{name: "long URI scheme", value: strings.Repeat("a", 40) + "://provider.invalid/path"},
+		{name: "opaque URI", value: "urn:provider:item"},
+		{name: "arbitrary opaque URI", value: "custom:payload"},
+		{name: "embedded arbitrary opaque URI", value: "provider says custom:payload"},
+		{name: "percent encoded URL", value: "https%3A%2F%2Fprovider.invalid%2Fpath"},
+		{name: "recursively encoded URL", value: "https%253A%252F%252Fprovider.invalid%252Fpath"},
+		{name: "authorization bearer header", value: "Authorization: Bearer synthetic-token"},
+		{name: "proxy authorization header", value: "Proxy-Authorization: Basic c3ludGhldGlj"},
+		{name: "cookie header", value: "Cookie: session=synthetic"},
+		{name: "set cookie header", value: "Set-Cookie: session=synthetic"},
+		{name: "encoded authorization header", value: "Authorization%3A%20Bearer%20synthetic-token"},
+		{name: "basic authorization value", value: "Basic c3ludGhldGljOnZhbHVl"},
+		{name: "bearer authorization value", value: "Bearer synthetic-token"},
+		{name: "encoded API key parameter", value: "apikey%3Dsynthetic-value"},
+		{name: "nested access token parameter", value: "access_token%253Dsynthetic-value"},
+		{name: "valueless API key query", value: "provider.invalid/path?apikey"},
+		{name: "valueless access token query", value: "path?mode=search&access_token"},
+		{name: "encoded valueless token query", value: "path%3Ftoken"},
+		{name: "protocol-relative userinfo", value: "//owner:synthetic@provider.invalid/path"},
+		{name: "CRLF injection", value: "safe\r\nAuthorization: Bearer synthetic-token"},
+		{name: "unicode control", value: "safe\u0085unsafe"},
+		{name: "invalid UTF-8", value: string([]byte{0xff})},
+		{name: "malformed percent encoding", value: "provider%ZZtitle"},
+		{name: "decode limit exceeded", value: "https%2525253A%2525252F%2525252Fprovider.invalid"},
+	}
+	for _, test := range unsafeValues {
+		t.Run(test.name, func(t *testing.T) {
+			if validProfileText(test.value, maxProfileTextBytes) {
+				t.Fatalf("unsafe text was accepted: %q", test.value)
+			}
+		})
+	}
+
+	for _, value := range []string{
+		"Test Newznab 2.1",
+		"Movies: HD / UHD (Dansk)",
+		"Anime: 4K & TV: HD",
+		"TV > Foreign | Nordic & European",
+		"Controlled probe: valid XML; one plausible result.",
+	} {
+		if !validProfileText(value, maxProfileTextBytes) {
+			t.Fatalf("safe ordinary text was rejected: %q", value)
+		}
+	}
+}
+
+func TestCapabilityProfileAppliesTextSafetyToEveryProviderTextField(t *testing.T) {
+	t.Parallel()
+	mutations := []struct {
+		name   string
+		mutate func(*CapabilityProfile)
+	}{
+		{name: "server title", mutate: func(profile *CapabilityProfile) {
+			profile.CAPS.ServerTitle = "https%253A%252F%252Fprovider.invalid"
+		}},
+		{name: "server version", mutate: func(profile *CapabilityProfile) {
+			profile.CAPS.ServerVersion = "Authorization%3A%20Bearer%20synthetic"
+		}},
+		{name: "category name", mutate: func(profile *CapabilityProfile) {
+			profile.CAPS.Categories[0].Name = "apikey%3Dsynthetic"
+		}},
+		{name: "evidence summary", mutate: func(profile *CapabilityProfile) {
+			profile.Evidence[0].SafeSummary = "Set-Cookie: session=synthetic"
+		}},
+		{name: "server title length", mutate: func(profile *CapabilityProfile) {
+			profile.CAPS.ServerTitle = strings.Repeat("a", maxProfileTextBytes+1)
+		}},
+		{name: "server version length", mutate: func(profile *CapabilityProfile) {
+			profile.CAPS.ServerVersion = strings.Repeat("a", maxServerVersionBytes+1)
+		}},
+		{name: "category name length", mutate: func(profile *CapabilityProfile) {
+			profile.CAPS.Categories[0].Name = strings.Repeat("a", maxProfileTextBytes+1)
+		}},
+		{name: "evidence summary length", mutate: func(profile *CapabilityProfile) {
+			profile.Evidence[0].SafeSummary = strings.Repeat("a", maxEvidenceSummaryBytes+1)
+		}},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			profile := profileTestProfile()
 			test.mutate(&profile)
 			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
 				t.Fatalf("validation error=%v", err)
@@ -389,14 +508,15 @@ func TestCapabilityProfileUsesClosedMappingAndContractRegistries(t *testing.T) {
 
 	registered := ProviderContractRef{Key: ProviderContractNZBFinderV1, Version: 1}
 	profile = profileTestProfile(profileTestMovieRecipe())
-	profile.Evidence = append(profile.Evidence, profileTestVerifiedEvidence())
+	detailsEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetDetails})
+	profile.Evidence = append(profile.Evidence, detailsEvidence)
 	profile.ProviderContract = &registered
 	profile.Operations = []OperationCapability{{
 		Operation: OperationDetails,
 		Assessment: CapabilityAssessment{
 			ProviderClaim: ClaimAdvertised,
 			Verification:  VerificationVerified,
-			EvidenceKeys:  []string{"operation.verified"},
+			EvidenceKeys:  []string{detailsEvidence.Key},
 		},
 		Contract: &registered,
 	}}
@@ -428,7 +548,6 @@ func TestCapabilityProfileUsesClosedMappingAndContractRegistries(t *testing.T) {
 func TestCapabilityProfileKeepsRetrievalResponsibilitiesSeparate(t *testing.T) {
 	t.Parallel()
 	contract := ProviderContractRef{Key: ProviderContractNZBFinderV1, Version: 1}
-	verified := CapabilityAssessment{ProviderClaim: ClaimAdvertised, Verification: VerificationVerified, EvidenceKeys: []string{"operation.verified"}}
 	untested := CapabilityAssessment{ProviderClaim: ClaimUnknown, Verification: VerificationUntested}
 	draft := profileTestProfile(profileTestMovieRecipe())
 	draft.Retrieval = RetrievalProfile{
@@ -440,15 +559,17 @@ func TestCapabilityProfileKeepsRetrievalResponsibilitiesSeparate(t *testing.T) {
 	}
 
 	profile := profileTestProfile(profileTestMovieRecipe())
-	profile.Evidence = append(profile.Evidence, profileTestVerifiedEvidence())
+	nativeEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetNativeIdentity})
+	getEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetStandardGet})
+	profile.Evidence = append(profile.Evidence, nativeEvidence, getEvidence)
 	profile.ProviderContract = &contract
 	profile.Retrieval = RetrievalProfile{
 		NativeIdentity: NativeIdentityCapability{
-			Assessment: verified,
+			Assessment: CapabilityAssessment{ProviderClaim: ClaimAdvertised, Verification: VerificationVerified, EvidenceKeys: []string{nativeEvidence.Key}},
 			Method:     NativeIdentityDetailsContract,
 			Contract:   &contract,
 		},
-		StandardGet:     verified,
+		StandardGet:     CapabilityAssessment{ProviderClaim: ClaimAdvertised, Verification: VerificationVerified, EvidenceKeys: []string{getEvidence.Key}},
 		PreferredMethod: RetrievalStandardGet,
 	}
 	if err := ValidateCapabilityProfile(profile); err != nil {
@@ -465,7 +586,12 @@ func TestCapabilityProfileKeepsRetrievalResponsibilitiesSeparate(t *testing.T) {
 		t.Fatalf("profile preferred an undeclared locator: %v", err)
 	}
 
-	profile.Retrieval.AdvertisedLocator = &AdvertisedLocatorCapability{Assessment: verified, Validator: contract}
+	locatorEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetAdvertisedLocator})
+	profile.Evidence = append(profile.Evidence, locatorEvidence)
+	profile.Retrieval.AdvertisedLocator = &AdvertisedLocatorCapability{
+		Assessment: CapabilityAssessment{ProviderClaim: ClaimAdvertised, Verification: VerificationVerified, EvidenceKeys: []string{locatorEvidence.Key}},
+		Validator:  contract,
+	}
 	if err := ValidateCapabilityProfile(profile); err != nil {
 		t.Fatalf("verified advertised locator declaration: %v", err)
 	}
@@ -483,7 +609,7 @@ func TestCapabilityVerificationRejectsTemporaryOrNoResultEvidence(t *testing.T) 
 		t.Run(outcome, func(t *testing.T) {
 			t.Parallel()
 			profile := profileTestProfile(profileTestMovieRecipe())
-			profile.Evidence[1].SafeOutcome = outcome
+			profile.Evidence[1].SafeOutcome = EvidenceOutcome(outcome)
 			profile.Evidence[1].RawResultCount = 0
 			profile.Evidence[1].PlausibleIdentityCount = 0
 			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
@@ -491,14 +617,14 @@ func TestCapabilityVerificationRejectsTemporaryOrNoResultEvidence(t *testing.T) 
 			}
 
 			profile = profileTestProfile()
-			profile.Evidence[0].SafeOutcome = outcome
-			profile.Evidence[0].RawResultCount = 0
-			profile.Evidence[0].PlausibleIdentityCount = 0
+			detailsEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetDetails})
+			detailsEvidence.SafeOutcome = EvidenceOutcome(outcome)
+			profile.Evidence = append(profile.Evidence, detailsEvidence)
 			profile.Operations = []OperationCapability{{
 				Operation: OperationDetails,
 				Assessment: CapabilityAssessment{
 					Verification: VerificationVerified,
-					EvidenceKeys: []string{"probe.success"},
+					EvidenceKeys: []string{detailsEvidence.Key},
 				},
 			}}
 			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
@@ -512,7 +638,7 @@ func TestCapabilityVerificationRequiresStateCompatibleRecipeEvidence(t *testing.
 	t.Parallel()
 	for _, test := range []struct {
 		state   VerificationState
-		outcome string
+		outcome EvidenceOutcome
 	}{
 		{state: VerificationVerified, outcome: EvidenceOutcomeSearchSuccess},
 		{state: VerificationUnsupported, outcome: EvidenceOutcomeUnsupported},
@@ -551,6 +677,11 @@ func TestCapabilityVerificationEvidenceIsBoundToItsExactRecipe(t *testing.T) {
 	if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
 		t.Fatalf("one recipe reused another recipe's evidence: %v", err)
 	}
+	profile = profileTestProfile(first, second)
+	profile.SearchRecipes[0].Verification.EvidenceKeys = append(profile.SearchRecipes[0].Verification.EvidenceKeys, profile.SearchRecipes[1].Verification.EvidenceKeys[0])
+	if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+		t.Fatalf("recipe accepted a mixed exact/cross-target evidence list: %v", err)
+	}
 
 	profile = profileTestProfile(profileTestMovieRecipe())
 	profile.Operations = []OperationCapability{{
@@ -562,6 +693,207 @@ func TestCapabilityVerificationEvidenceIsBoundToItsExactRecipe(t *testing.T) {
 	}}
 	if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
 		t.Fatalf("operation reused recipe-bound evidence: %v", err)
+	}
+}
+
+func TestCapabilityVerificationRejectsCrossOperationEvidenceReuse(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		evidenceTarget EvidenceTargetKind
+		operation      Operation
+	}{
+		{name: "details cannot verify nfo", evidenceTarget: EvidenceTargetDetails, operation: OperationNFO},
+		{name: "nfo cannot verify file list", evidenceTarget: EvidenceTargetNFO, operation: OperationFileList},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			profile := profileTestProfile()
+			evidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: test.evidenceTarget})
+			profile.Evidence = append(profile.Evidence, evidence)
+			profile.Operations = []OperationCapability{{
+				Operation: test.operation,
+				Assessment: CapabilityAssessment{
+					Verification: VerificationVerified,
+					EvidenceKeys: []string{evidence.Key},
+				},
+			}}
+			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+				t.Fatalf("cross-target evidence error=%v", err)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		state   VerificationState
+		outcome EvidenceOutcome
+	}{
+		{state: VerificationUnsupported, outcome: EvidenceOutcomeUnsupported},
+		{state: VerificationPermissionRestricted, outcome: EvidenceOutcomePermissionRestricted},
+		{state: VerificationContradicted, outcome: EvidenceOutcomeContradicted},
+	} {
+		profile := profileTestProfile()
+		evidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetDetails})
+		evidence.SafeOutcome = test.outcome
+		profile.Evidence = append(profile.Evidence, evidence)
+		profile.Operations = []OperationCapability{{
+			Operation: OperationDetails,
+			Assessment: CapabilityAssessment{
+				Verification: test.state,
+				EvidenceKeys: []string{evidence.Key},
+			},
+		}}
+		if err := ValidateCapabilityProfile(profile); err != nil {
+			t.Fatalf("state %q rejected its exact target evidence: %v", test.state, err)
+		}
+		profile.Operations[0].Operation = OperationNFO
+		if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+			t.Fatalf("state %q reused another operation's evidence: %v", test.state, err)
+		}
+	}
+
+	profile := profileTestProfile()
+	detailsEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetDetails})
+	nfoEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetNFO})
+	profile.Evidence = append(profile.Evidence, detailsEvidence, nfoEvidence)
+	profile.Operations = []OperationCapability{{
+		Operation: OperationDetails,
+		Assessment: CapabilityAssessment{
+			Verification: VerificationVerified,
+			EvidenceKeys: []string{detailsEvidence.Key, nfoEvidence.Key},
+		},
+	}}
+	if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+		t.Fatalf("operation accepted a mixed exact/cross-target evidence list: %v", err)
+	}
+}
+
+func TestCapabilityVerificationRejectsCrossRetrievalEvidenceReuse(t *testing.T) {
+	t.Parallel()
+	contract := ProviderContractRef{Key: ProviderContractNZBFinderV1, Version: 1}
+	nativeEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetNativeIdentity})
+	getEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetStandardGet})
+	locatorEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetAdvertisedLocator})
+	directEvidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetProviderDirect})
+	valid := profileTestProfile()
+	valid.ProviderContract = &contract
+	valid.Evidence = append(valid.Evidence, nativeEvidence, getEvidence, locatorEvidence, directEvidence)
+	valid.Retrieval = RetrievalProfile{
+		NativeIdentity: NativeIdentityCapability{
+			Assessment: CapabilityAssessment{Verification: VerificationVerified, EvidenceKeys: []string{nativeEvidence.Key}},
+			Method:     NativeIdentityDetailsContract,
+			Contract:   &contract,
+		},
+		StandardGet: CapabilityAssessment{Verification: VerificationVerified, EvidenceKeys: []string{getEvidence.Key}},
+		AdvertisedLocator: &AdvertisedLocatorCapability{
+			Assessment: CapabilityAssessment{Verification: VerificationVerified, EvidenceKeys: []string{locatorEvidence.Key}},
+			Validator:  contract,
+		},
+		DirectDownload: &DirectDownloadCapability{
+			Assessment: CapabilityAssessment{Verification: VerificationVerified, EvidenceKeys: []string{directEvidence.Key}},
+			Contract:   contract,
+		},
+		PreferredMethod: RetrievalProviderDirect,
+	}
+	if err := ValidateCapabilityProfile(valid); err != nil {
+		t.Fatalf("distinct target records from one physical probe should validate: %v", err)
+	}
+	mixed := valid
+	mixed.Retrieval.StandardGet.EvidenceKeys = append(mixed.Retrieval.StandardGet.EvidenceKeys, nativeEvidence.Key)
+	if err := ValidateCapabilityProfile(mixed); !errors.Is(err, ErrInvalidCapabilityProfile) {
+		t.Fatalf("retrieval declaration accepted a mixed exact/cross-target evidence list: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		evidenceTarget EvidenceTargetKind
+		declaration    EvidenceTargetKind
+	}{
+		{name: "operation cannot verify retrieval", evidenceTarget: EvidenceTargetDetails, declaration: EvidenceTargetStandardGet},
+		{name: "native identity cannot verify standard get", evidenceTarget: EvidenceTargetNativeIdentity, declaration: EvidenceTargetStandardGet},
+		{name: "standard get cannot verify advertised locator", evidenceTarget: EvidenceTargetStandardGet, declaration: EvidenceTargetAdvertisedLocator},
+		{name: "advertised locator cannot verify provider direct", evidenceTarget: EvidenceTargetAdvertisedLocator, declaration: EvidenceTargetProviderDirect},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			profile := profileTestProfile()
+			profile.ProviderContract = &contract
+			evidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: test.evidenceTarget})
+			profile.Evidence = append(profile.Evidence, evidence)
+			verified := CapabilityAssessment{Verification: VerificationVerified, EvidenceKeys: []string{evidence.Key}}
+			untested := CapabilityAssessment{Verification: VerificationUntested}
+			profile.Retrieval = RetrievalProfile{
+				NativeIdentity: NativeIdentityCapability{Assessment: untested, Method: NativeIdentityGUID},
+				StandardGet:    untested,
+			}
+			switch test.declaration {
+			case EvidenceTargetStandardGet:
+				profile.Retrieval.StandardGet = verified
+			case EvidenceTargetAdvertisedLocator:
+				profile.Retrieval.AdvertisedLocator = &AdvertisedLocatorCapability{Assessment: verified, Validator: contract}
+			case EvidenceTargetProviderDirect:
+				profile.Retrieval.DirectDownload = &DirectDownloadCapability{Assessment: verified, Contract: contract}
+			}
+			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+				t.Fatalf("cross-target evidence error=%v", err)
+			}
+		})
+	}
+}
+
+func TestCapabilityEvidenceUsesClosedTargetsKindsOutcomesAndLocalKeys(t *testing.T) {
+	t.Parallel()
+	valid := profileTestProfile()
+	valid.Evidence[0].SafeSummary = "Controlled CAPS probe returned a valid XML envelope."
+	if err := ValidateCapabilityProfile(valid); err != nil {
+		t.Fatalf("safe evidence summary: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*CommissionEvidence)
+	}{
+		{name: "provider supplied key", mutate: func(evidence *CommissionEvidence) { evidence.Key = "provider.supplied" }},
+		{name: "unknown kind", mutate: func(evidence *CommissionEvidence) { evidence.Kind = "provider_probe" }},
+		{name: "unknown outcome", mutate: func(evidence *CommissionEvidence) { evidence.SafeOutcome = "temporary_success" }},
+		{name: "search outcome for operation target", mutate: func(evidence *CommissionEvidence) { evidence.SafeOutcome = EvidenceOutcomeSearchSuccess }},
+		{name: "unknown target", mutate: func(evidence *CommissionEvidence) { evidence.Target.Kind = "custom_target" }},
+		{name: "search target without recipe", mutate: func(evidence *CommissionEvidence) { evidence.Target = EvidenceTarget{Kind: EvidenceTargetSearchRecipe} }},
+		{name: "operation target with recipe", mutate: func(evidence *CommissionEvidence) { evidence.Target.RecipeKey = "movie.imdb" }},
+		{name: "non-search result counts", mutate: func(evidence *CommissionEvidence) { evidence.RawResultCount = 1 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			profile := profileTestProfile()
+			test.mutate(&profile.Evidence[0])
+			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+				t.Fatalf("validation error=%v", err)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name      string
+		outcome   EvidenceOutcome
+		rawCount  int
+		plausible int
+	}{
+		{name: "no-results with raw results", outcome: EvidenceOutcomeNoResults, rawCount: 1},
+		{name: "no-results with plausible results", outcome: EvidenceOutcomeNoResults, rawCount: 1, plausible: 1},
+		{name: "search success without raw results", outcome: EvidenceOutcomeSearchSuccess},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recipe := profileTestMovieRecipe()
+			recipe.Verification = RecipeVerification{State: VerificationUntested}
+			profile := profileTestProfile(recipe)
+			evidence := profileTestVerifiedEvidence(EvidenceTarget{Kind: EvidenceTargetSearchRecipe, RecipeKey: recipe.Key})
+			evidence.SafeOutcome = test.outcome
+			evidence.RawResultCount = test.rawCount
+			evidence.PlausibleIdentityCount = test.plausible
+			profile.Evidence = append(profile.Evidence, evidence)
+			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+				t.Fatalf("inconsistent search outcome counts were accepted: %v", err)
+			}
+		})
 	}
 }
 

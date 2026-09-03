@@ -54,6 +54,96 @@ type CapsSnapshot struct {
 type capsSearchXML struct {
 	Available       string `xml:"available,attr"`
 	SupportedParams string `xml:"supportedParams,attr"`
+	availableSet    bool
+	paramsSet       bool
+}
+
+const maxCAPSSearchModeOccurrences = 16
+
+type capsModeElements struct {
+	occurrences int
+	elements    []capsSearchXML
+	legacy      capsSearchXML
+}
+
+func (elements *capsModeElements) add(value capsSearchXML) {
+	if elements.occurrences <= maxCAPSSearchModeOccurrences {
+		elements.occurrences++
+	}
+	if len(elements.elements) < maxCAPSSearchModeOccurrences {
+		elements.elements = append(elements.elements, value)
+	}
+	if value.availableSet {
+		elements.legacy.Available = value.Available
+		elements.legacy.availableSet = true
+	}
+	if value.paramsSet {
+		elements.legacy.SupportedParams = value.SupportedParams
+		elements.legacy.paramsSet = true
+	}
+}
+
+type capsSearchingXML struct {
+	Search capsModeElements
+	TV     capsModeElements
+	Movie  capsModeElements
+	Audio  capsModeElements
+	Book   capsModeElements
+}
+
+func (value *capsSearchXML) UnmarshalXML(decoder *xml.Decoder, start xml.StartElement) error {
+	*value = capsSearchXML{}
+	for _, attribute := range start.Attr {
+		switch attribute.Name.Local {
+		case "available":
+			value.Available = attribute.Value
+			value.availableSet = true
+		case "supportedParams":
+			value.SupportedParams = attribute.Value
+			value.paramsSet = true
+		}
+	}
+	return decoder.Skip()
+}
+
+func (searching *capsSearchingXML) UnmarshalXML(decoder *xml.Decoder, start xml.StartElement) error {
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		switch typed := token.(type) {
+		case xml.StartElement:
+			var destination *capsModeElements
+			switch typed.Name.Local {
+			case "search":
+				destination = &searching.Search
+			case "tv-search":
+				destination = &searching.TV
+			case "movie-search":
+				destination = &searching.Movie
+			case "audio-search":
+				destination = &searching.Audio
+			case "book-search":
+				destination = &searching.Book
+			}
+			if destination == nil {
+				if err := decoder.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
+			var element capsSearchXML
+			if err := decoder.DecodeElement(&element, &typed); err != nil {
+				return err
+			}
+			destination.add(element)
+		case xml.EndElement:
+			if typed.Name == start.Name {
+				return nil
+			}
+		}
+	}
 }
 
 type capCategoryXML struct {
@@ -354,13 +444,7 @@ func ParseCaps(body []byte, observedAt time.Time) (CapsSnapshot, error) {
 			Available string `xml:"available,attr"`
 			Open      string `xml:"open,attr"`
 		} `xml:"registration"`
-		Searching struct {
-			Search *capsSearchXML `xml:"search"`
-			TV     *capsSearchXML `xml:"tv-search"`
-			Movie  *capsSearchXML `xml:"movie-search"`
-			Audio  *capsSearchXML `xml:"audio-search"`
-			Book   *capsSearchXML `xml:"book-search"`
-		} `xml:"searching"`
+		Searching  capsSearchingXML `xml:"searching"`
 		Categories []capCategoryXML `xml:"categories>category"`
 	}
 	decoder := xml.NewDecoder(bytes.NewReader(body))
@@ -372,12 +456,9 @@ func ParseCaps(body []byte, observedAt time.Time) (CapsSnapshot, error) {
 	result := CapsSnapshot{ServerTitle: document.Server.Title, ServerVersion: document.Server.Version, DefaultLimit: document.Limits.Default, MaximumLimit: document.Limits.Max, RegistrationAvailable: yes(document.Registration.Available), RegistrationOpen: yes(document.Registration.Open), ObservedAt: observedAt.UTC(), BodyHash: hex.EncodeToString(hash[:])}
 	for _, entry := range []struct {
 		name  string
-		value *capsSearchXML
+		value capsModeElements
 	}{{"search", document.Searching.Search}, {"tv-search", document.Searching.TV}, {"movie-search", document.Searching.Movie}, {"audio-search", document.Searching.Audio}, {"book-search", document.Searching.Book}} {
-		legacy := capsSearchXML{}
-		if entry.value != nil {
-			legacy = *entry.value
-		}
+		legacy := entry.value.legacy
 		params := splitParams(legacy.SupportedParams)
 		result.Searches = append(result.Searches, SearchCapability{Mode: entry.name, Available: yes(legacy.Available), Params: params, State: CapabilityAdvertised})
 	}
@@ -392,13 +473,24 @@ func ParseCaps(body []byte, observedAt time.Time) (CapsSnapshot, error) {
 	return result, nil
 }
 
-func capsModeObservation(mode SearchMode, element *capsSearchXML) CAPSModeObservation {
+func capsModeObservation(mode SearchMode, elements capsModeElements) CAPSModeObservation {
 	observation := CAPSModeObservation{Mode: mode, ElementState: CAPSElementAbsent}
-	if element == nil {
+	if elements.occurrences == 0 {
 		return observation
 	}
-	observation.ElementState = capsElementState(element.Available)
-	advertised := boundedCAPSParameterNames(element.SupportedParams)
+	if elements.occurrences == 1 {
+		observation.ElementState = capsElementState(elements.elements[0].Available)
+	} else {
+		observation.ElementState = CAPSElementPresentUninterpretable
+		observation.Repeated = true
+	}
+	parameterValues := make([]string, 0, len(elements.elements))
+	for _, element := range elements.elements {
+		if element.paramsSet {
+			parameterValues = append(parameterValues, element.SupportedParams)
+		}
+	}
+	advertised := boundedCAPSParameterNames(strings.Join(parameterValues, ","))
 	observation.AdvertisedParameterNames = advertised
 	observation.RecognizedParameters = recognizedCAPSParameters(advertised)
 	return observation

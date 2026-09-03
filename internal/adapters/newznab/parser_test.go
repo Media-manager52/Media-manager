@@ -254,6 +254,96 @@ func TestParseCapsPreservesBoundedAdvertisedNamesAndRecognizesTypedSubset(t *tes
 	}
 }
 
+func TestParseCapsRepeatedModeIsUninterpretableWithoutSynthesizingEvidence(t *testing.T) {
+	t.Parallel()
+	body := []byte(`<caps><searching><search available="yes"/><search supportedParams="q,future.flag"/></searching></caps>`)
+	snapshot, err := ParseCaps(body, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := snapshot.ModeObservations[0]
+	if observation.Mode != SearchModeGeneral || observation.ElementState != CAPSElementPresentUninterpretable || !observation.Repeated {
+		t.Fatalf("repeated mode observation=%#v", observation)
+	}
+	if !reflect.DeepEqual(observation.AdvertisedParameterNames, []string{"q", "future.flag"}) || !reflect.DeepEqual(observation.RecognizedParameters, []WireParameter{WireQuery}) {
+		t.Fatalf("repeated mode parameter evidence=%#v", observation)
+	}
+	// The production legacy projection deliberately retains its historical
+	// merge behavior while only the richer observation rejects the composite.
+	wantLegacy := SearchCapability{Mode: "search", Available: true, Params: []string{"q", "future.flag"}, State: CapabilityAdvertised}
+	if snapshot.Searches[0].Mode != wantLegacy.Mode || snapshot.Searches[0].Available != wantLegacy.Available || !reflect.DeepEqual(snapshot.Searches[0].Params, wantLegacy.Params) || snapshot.Searches[0].State != wantLegacy.State {
+		t.Fatalf("legacy repeated projection=%#v, want %#v", snapshot.Searches[0], wantLegacy)
+	}
+}
+
+func TestParseCapsRepeatedConflictingAvailabilityIsUninterpretable(t *testing.T) {
+	t.Parallel()
+	body := []byte(`<caps><searching><movie-search available="yes" supportedParams="q"/><movie-search available="no" supportedParams="imdbid"/></searching></caps>`)
+	snapshot, err := ParseCaps(body, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := snapshot.ModeObservations[1]
+	if observation.Mode != SearchModeMovie || observation.ElementState != CAPSElementPresentUninterpretable || !observation.Repeated {
+		t.Fatalf("repeated conflicting mode observation=%#v", observation)
+	}
+	if !reflect.DeepEqual(observation.AdvertisedParameterNames, []string{"q", "imdbid"}) || !reflect.DeepEqual(observation.RecognizedParameters, []WireParameter{WireQuery, WireIMDbID}) {
+		t.Fatalf("repeated conflicting parameter evidence=%#v", observation)
+	}
+	if snapshot.Searches[2].Available || !reflect.DeepEqual(snapshot.Searches[2].Params, []string{"imdbid"}) {
+		t.Fatalf("legacy last-attribute projection changed: %#v", snapshot.Searches[2])
+	}
+}
+
+func TestParseCapsBoundsRepeatedModeEvidence(t *testing.T) {
+	t.Parallel()
+	var searching strings.Builder
+	for index := 0; index < maxCAPSSearchModeOccurrences+5; index++ {
+		searching.WriteString(`<tv-search available="yes" supportedParams="future`)
+		searching.WriteString(strconv.Itoa(index))
+		searching.WriteString(`"/>`)
+	}
+	snapshot, err := ParseCaps([]byte(`<caps><searching>`+searching.String()+`</searching></caps>`), time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := snapshot.ModeObservations[2]
+	if observation.Mode != SearchModeTV || observation.ElementState != CAPSElementPresentUninterpretable || !observation.Repeated {
+		t.Fatalf("bounded repeated mode observation=%#v", observation)
+	}
+	if len(observation.AdvertisedParameterNames) != maxCAPSSearchModeOccurrences {
+		t.Fatalf("advertised repeated names=%d, want %d", len(observation.AdvertisedParameterNames), maxCAPSSearchModeOccurrences)
+	}
+	wantLegacy := []string{"future" + strconv.Itoa(maxCAPSSearchModeOccurrences+4)}
+	if got := snapshot.Searches[1].Params; !reflect.DeepEqual(got, wantLegacy) {
+		t.Fatalf("legacy repeated projection=%#v", got)
+	}
+}
+
+func TestParseCapsOrdinaryLegacyProjectionRemainsCompatible(t *testing.T) {
+	t.Parallel()
+	body := []byte(`<caps><searching><search available="true" supportedParams="q"/><tv-search available="1" supportedParams="q,tvdbid,season"/><movie-search available="yes" supportedParams="q,imdbid"/><audio-search available="no"/><book-search available="sometimes" supportedParams="q"/></searching></caps>`)
+	snapshot, err := ParseCaps(body, time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []SearchCapability{
+		{Mode: "search", Available: true, Params: []string{"q"}, State: CapabilityAdvertised},
+		{Mode: "tv-search", Available: true, Params: []string{"q", "tvdbid", "season"}, State: CapabilityAdvertised},
+		{Mode: "movie-search", Available: true, Params: []string{"q", "imdbid"}, State: CapabilityAdvertised},
+		{Mode: "audio-search", Available: false, Params: []string{}, State: CapabilityAdvertised},
+		{Mode: "book-search", Available: false, Params: []string{"q"}, State: CapabilityAdvertised},
+	}
+	if !reflect.DeepEqual(snapshot.Searches, want) {
+		t.Fatalf("ordinary legacy projection=%#v, want %#v", snapshot.Searches, want)
+	}
+	for _, observation := range snapshot.ModeObservations {
+		if observation.Repeated {
+			t.Fatalf("ordinary single CAPS element marked repeated: %#v", observation)
+		}
+	}
+}
+
 func TestParseCapsBoundsModeParameterEvidence(t *testing.T) {
 	t.Parallel()
 	maximum := make([]string, maxCAPSParameterNames)

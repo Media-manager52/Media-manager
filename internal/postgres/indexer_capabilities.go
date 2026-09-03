@@ -65,7 +65,7 @@ func (store *Store) IndexerEndpointConfigurationDigest(ctx context.Context, inde
 		return nil, ErrInvalidIndexerCapabilityProfile
 	}
 	var digest []byte
-	if err := store.Pool.QueryRow(ctx, `SELECT media_manager_newznab_endpoint_config_sha256(config) FROM integration_instances WHERE id=$1 AND kind='newznab'`, indexerID.String()).Scan(&digest); errors.Is(err, pgx.ErrNoRows) {
+	if err := store.Pool.QueryRow(ctx, `SELECT media_manager_newznab_endpoint_config_sha256(config,secret_ref) FROM integration_instances WHERE id=$1 AND kind='newznab'`, indexerID.String()).Scan(&digest); errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, err
@@ -93,12 +93,15 @@ func (store *Store) CreateIndexerCapabilityProfile(ctx context.Context, indexerI
 	defer transaction.Rollback(ctx)
 	var kind string
 	var endpointDigest []byte
-	if err := transaction.QueryRow(ctx, `SELECT kind,media_manager_newznab_endpoint_config_sha256(config) FROM integration_instances WHERE id=$1 FOR UPDATE`, indexerID.String()).Scan(&kind, &endpointDigest); errors.Is(err, pgx.ErrNoRows) {
+	if err := transaction.QueryRow(ctx, `SELECT kind,media_manager_newznab_endpoint_config_sha256(config,secret_ref) FROM integration_instances WHERE id=$1 FOR UPDATE`, indexerID.String()).Scan(&kind, &endpointDigest); errors.Is(err, pgx.ErrNoRows) {
 		return IndexerCapabilityProfile{}, ErrNotFound
 	} else if err != nil {
 		return IndexerCapabilityProfile{}, err
 	}
 	if kind != "newznab" {
+		return IndexerCapabilityProfile{}, ErrInvalidIndexerCapabilityProfile
+	}
+	if len(endpointDigest) != 32 {
 		return IndexerCapabilityProfile{}, ErrInvalidIndexerCapabilityProfile
 	}
 	if !bytes.Equal(endpointDigest, expectedEndpointDigest) {
@@ -136,10 +139,13 @@ func (store *Store) ActivateIndexerCapabilityProfile(ctx context.Context, indexe
 	defer transaction.Rollback(ctx)
 	var configuration []byte
 	var currentEndpointDigest []byte
-	if err := transaction.QueryRow(ctx, `SELECT config,media_manager_newznab_endpoint_config_sha256(config) FROM integration_instances WHERE id=$1 AND kind='newznab' FOR UPDATE`, indexerID.String()).Scan(&configuration, &currentEndpointDigest); errors.Is(err, pgx.ErrNoRows) {
+	if err := transaction.QueryRow(ctx, `SELECT config,media_manager_newznab_endpoint_config_sha256(config,secret_ref) FROM integration_instances WHERE id=$1 AND kind='newznab' FOR UPDATE`, indexerID.String()).Scan(&configuration, &currentEndpointDigest); errors.Is(err, pgx.ErrNoRows) {
 		return IndexerCapabilityProfile{}, ErrNotFound
 	} else if err != nil {
 		return IndexerCapabilityProfile{}, err
+	}
+	if len(currentEndpointDigest) != 32 {
+		return IndexerCapabilityProfile{}, ErrIndexerEndpointConfigurationChanged
 	}
 	var state string
 	var document, documentDigest, observedEndpointDigest []byte
@@ -249,7 +255,7 @@ func (store *Store) IndexerCapabilityProfile(ctx context.Context, profileID uuid
 }
 
 func (store *Store) ActiveIndexerCapabilityProfile(ctx context.Context, indexerID uuid.UUID) (IndexerCapabilityProfile, error) {
-	result, configuration, endpointDigestMatches, err := scanActiveIndexerCapabilityProfile(store.Pool.QueryRow(ctx, `SELECT `+activeCapabilityProfileColumns+`,profile.document_sha256=sha256(convert_to(profile.profile_document::text,'UTF8')),integration.config,profile.endpoint_config_sha256=media_manager_newznab_endpoint_config_sha256(integration.config)
+	result, configuration, endpointDigestMatches, err := scanActiveIndexerCapabilityProfile(store.Pool.QueryRow(ctx, `SELECT `+activeCapabilityProfileColumns+`,profile.document_sha256=sha256(convert_to(profile.profile_document::text,'UTF8')),integration.config,profile.endpoint_config_sha256 IS NOT DISTINCT FROM media_manager_newznab_endpoint_config_sha256(integration.config,integration.secret_ref)
 		FROM indexer_capability_profiles profile
 		JOIN integration_instances integration ON integration.id=profile.indexer_instance_id AND integration.kind='newznab'
 		WHERE profile.indexer_instance_id=$1 AND profile.lifecycle_state='active'`, indexerID.String()))
@@ -308,7 +314,7 @@ func (store *Store) SaveIndexerOperationStatus(ctx context.Context, status Index
 	_, err := store.Pool.Exec(ctx, `INSERT INTO indexer_operation_status(indexer_instance_id,capability_profile_id,operation_key,recipe_key,availability,last_outcome,safe_code,last_failure_scope,consecutive_failures,retry_at,last_success_at,last_failure_at,updated_at)
 		VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,$10,$11,$12,$13)
 		ON CONFLICT(capability_profile_id,operation_key,recipe_key) DO UPDATE SET indexer_instance_id=EXCLUDED.indexer_instance_id,availability=EXCLUDED.availability,last_outcome=EXCLUDED.last_outcome,safe_code=EXCLUDED.safe_code,last_failure_scope=EXCLUDED.last_failure_scope,consecutive_failures=EXCLUDED.consecutive_failures,retry_at=EXCLUDED.retry_at,last_success_at=EXCLUDED.last_success_at,last_failure_at=EXCLUDED.last_failure_at,updated_at=EXCLUDED.updated_at
-		WHERE indexer_operation_status.updated_at <= EXCLUDED.updated_at`, status.IndexerInstanceID.String(), status.CapabilityProfileID.String(), status.OperationKey, status.RecipeKey, status.Availability, status.LastOutcome, status.SafeCode, status.LastFailureScope, status.ConsecutiveFailures, status.RetryAt, status.LastSuccessAt, status.LastFailureAt, status.UpdatedAt.UTC())
+		WHERE indexer_operation_status.updated_at < EXCLUDED.updated_at`, status.IndexerInstanceID.String(), status.CapabilityProfileID.String(), status.OperationKey, status.RecipeKey, status.Availability, status.LastOutcome, status.SafeCode, status.LastFailureScope, status.ConsecutiveFailures, status.RetryAt, status.LastSuccessAt, status.LastFailureAt, status.UpdatedAt.UTC())
 	return err
 }
 
@@ -436,10 +442,10 @@ func capabilityConfigurationState(configuration []byte) (capabilityConfigState, 
 }
 
 func providerContractAligned(configuration capabilityConfigState, observed *newznab.ProviderContractRef) bool {
-	if observed == nil {
-		return true
-	}
 	configured := strings.TrimSpace(configuration.ProviderContractKey)
+	if observed == nil {
+		return configured == ""
+	}
 	return configured != "" && configured == observed.Key && newznab.ProviderContractAcceptsEndpoint(*observed, configuration.BaseURL)
 }
 

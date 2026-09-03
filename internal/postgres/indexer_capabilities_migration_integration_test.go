@@ -57,6 +57,8 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 
 	now := time.Now().UTC()
 	legacyID, splitID, malformedID, otherID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	missingID, nullID, emptyID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	unsafeEndpointID, unsafeReferenceID := uuid.NewV7(), uuid.NewV7()
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO integration_instances(id,kind,name,enabled,is_default,config,secret_ref,created_at,updated_at) VALUES
 		($1,'newznab','Legacy categories',true,false,$5,'LEGACY_KEY',$9,$9),
 		($2,'newznab','Split categories',false,false,$6,'SPLIT_KEY',$9,$9),
@@ -67,6 +69,53 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 		`{"base_url":"https://split.invalid/api","mode_verified":false,"categories":[9999],"movie_category_ids":[2010],"series_category_ids":[5030]}`,
 		`{"base_url":"https://malformed.invalid/api","mode_verified":false,"categories":{"unexpected":true}}`,
 		`{"categories":[42],"unchanged":true}`,
+		now); err != nil {
+		t.Fatal(err)
+	}
+	unsafeLegacyEndpoints := []struct {
+		name      string
+		config    string
+		secretRef string
+	}{
+		{name: "Unsafe query endpoint", config: `{"base_url":"https://unsafe-query.invalid/api?x=y"}`, secretRef: "UNSAFE_QUERY_KEY"},
+		{name: "Unsafe fragment endpoint", config: `{"base_url":"https://unsafe-fragment.invalid/api#part"}`, secretRef: "UNSAFE_FRAGMENT_KEY"},
+		{name: "Unsafe percent endpoint", config: `{"base_url":"https://unsafe-percent.invalid/%zz"}`, secretRef: "UNSAFE_PERCENT_KEY"},
+		{name: "Unsafe backslash endpoint", config: `{"base_url":"https://unsafe-backslash.invalid/a\\b"}`, secretRef: "UNSAFE_BACKSLASH_KEY"},
+		{name: "Unsafe whitespace endpoint", config: `{"base_url":" https://unsafe-whitespace.invalid/api"}`, secretRef: "UNSAFE_WHITESPACE_KEY"},
+		{name: "Unsafe control endpoint", config: `{"base_url":"https://unsafe-control.invalid/a\u0001b"}`, secretRef: "UNSAFE_CONTROL_KEY"},
+		{name: "Unsafe HTTP endpoint", config: `{"base_url":"http://unsafe-http.invalid/api"}`, secretRef: "UNSAFE_HTTP_KEY"},
+		{name: "Unsafe missing authority", config: `{"base_url":"https:///api"}`, secretRef: "UNSAFE_AUTHORITY_KEY"},
+	}
+	unsafeBindingIDs := []string{unsafeEndpointID.String(), unsafeReferenceID.String()}
+	for _, fixture := range unsafeLegacyEndpoints {
+		id := uuid.NewV7()
+		unsafeBindingIDs = append(unsafeBindingIDs, id.String())
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO integration_instances(id,kind,name,enabled,is_default,config,secret_ref,created_at,updated_at) VALUES($1,'newznab',$2,false,false,$3,$4,$5,$5)`, id.String(), fixture.name, fixture.config, fixture.secretRef, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	missingReferenceID := uuid.NewV7()
+	unsafeBindingIDs = append(unsafeBindingIDs, missingReferenceID.String())
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO integration_instances(id,kind,name,enabled,is_default,config,secret_ref,created_at,updated_at) VALUES($1,'newznab','Missing secret reference',false,false,$2,NULL,$3,$3)`, missingReferenceID.String(), `{"base_url":"https://missing-reference.invalid/api"}`, now); err != nil {
+		t.Fatal(err)
+	}
+	invalidConfigID := uuid.NewV7()
+	unsafeBindingIDs = append(unsafeBindingIDs, invalidConfigID.String())
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO integration_instances(id,kind,name,enabled,is_default,config,secret_ref,created_at,updated_at) VALUES($1,'newznab','Invalid scalar configuration',false,false,'null'::jsonb,'INVALID_CONFIG_KEY',$2,$2)`, invalidConfigID.String(), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO integration_instances(id,kind,name,enabled,is_default,config,secret_ref,created_at,updated_at) VALUES
+		($1,'newznab','Missing legacy categories',false,false,$6,'MISSING_KEY',$11,$11),
+		($2,'newznab','Null legacy categories',false,false,$7,'NULL_KEY',$11,$11),
+		($3,'newznab','Empty legacy categories',false,false,$8,'EMPTY_KEY',$11,$11),
+		($4,'newznab','Unsafe legacy endpoint',false,false,$9,'UNSAFE_ENDPOINT_KEY',$11,$11),
+		($5,'newznab','Unsafe secret reference',false,false,$10,'not a reference',$11,$11)`,
+		missingID.String(), nullID.String(), emptyID.String(), unsafeEndpointID.String(), unsafeReferenceID.String(),
+		`{"base_url":"https://missing.invalid/api"}`,
+		`{"base_url":"https://null.invalid/api","categories":null}`,
+		`{"base_url":"https://empty.invalid/api","categories":[]}`,
+		`{"base_url":"https://user@unsafe.invalid/api"}`,
+		`{"base_url":"https://unsafe-reference.invalid/api","categories":[2000]}`,
 		now); err != nil {
 		t.Fatal(err)
 	}
@@ -81,16 +130,29 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 	if schemaVersion != 33 {
 		t.Fatalf("schema=%d want 33", schemaVersion)
 	}
-	var equivalentEndpointDigest, distinctPathDigest bool
+	var equivalentEndpointDigest, canonicalPathDigest, caseSensitiveReferenceDigest, distinctReferenceDigest, allowedHTTPDigest, unsafeBindingRejected bool
 	if err := store.Pool.QueryRow(ctx, `SELECT
-		media_manager_newznab_endpoint_config_sha256('{"base_url":"https://INDEXER.invalid:0443/api"}'::jsonb)
-			= media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb),
-		media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb)
-			<> media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api/"}'::jsonb)`).Scan(&equivalentEndpointDigest, &distinctPathDigest); err != nil {
+		media_manager_newznab_endpoint_config_sha256('{"base_url":"https://INDEXER.invalid:0443/api"}'::jsonb,'INDEXER_KEY')
+			= media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb,'INDEXER_KEY'),
+		media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb,'INDEXER_KEY')
+			= media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api/"}'::jsonb,'INDEXER_KEY'),
+		media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb,'INDEXER_KEY')
+			<> media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb,'indexer_key'),
+		media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb,'INDEXER_KEY')
+			<> media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb,'OTHER_INDEXER_KEY'),
+		media_manager_newznab_endpoint_config_sha256('{"base_url":"http://indexer.invalid/api","allow_http":true}'::jsonb,'INDEXER_KEY') IS NOT NULL,
+		media_manager_newznab_endpoint_config_sha256('{"base_url":" https://indexer.invalid/api"}'::jsonb,'INDEXER_KEY') IS NULL
+			AND media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/%zz"}'::jsonb,'INDEXER_KEY') IS NULL
+			AND media_manager_newznab_endpoint_config_sha256(jsonb_build_object('base_url','https://indexer.invalid/a'||chr(92)||'b'),'INDEXER_KEY') IS NULL
+			AND media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api?x=y"}'::jsonb,'INDEXER_KEY') IS NULL
+			AND media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api#fragment"}'::jsonb,'INDEXER_KEY') IS NULL
+			AND media_manager_newznab_endpoint_config_sha256('{"base_url":"http://indexer.invalid/api"}'::jsonb,'INDEXER_KEY') IS NULL
+			AND media_manager_newznab_endpoint_config_sha256('{"base_url":"https://indexer.invalid/api"}'::jsonb,'not a reference') IS NULL`).Scan(
+		&equivalentEndpointDigest, &canonicalPathDigest, &caseSensitiveReferenceDigest, &distinctReferenceDigest, &allowedHTTPDigest, &unsafeBindingRejected); err != nil {
 		t.Fatal(err)
 	}
-	if !equivalentEndpointDigest || !distinctPathDigest {
-		t.Fatalf("endpoint configuration digest normalization: equivalent=%v distinct_path=%v", equivalentEndpointDigest, distinctPathDigest)
+	if !equivalentEndpointDigest || !canonicalPathDigest || !caseSensitiveReferenceDigest || !distinctReferenceDigest || !allowedHTTPDigest || !unsafeBindingRejected {
+		t.Fatalf("endpoint configuration digest normalization: equivalent=%v canonical_path=%v case_sensitive_ref=%v distinct_ref=%v allowed_http=%v unsafe_rejected=%v", equivalentEndpointDigest, canonicalPathDigest, caseSensitiveReferenceDigest, distinctReferenceDigest, allowedHTTPDigest, unsafeBindingRejected)
 	}
 
 	assertConfig := func(id uuid.UUID, movie, series []int, reviewRequired bool) {
@@ -114,6 +176,11 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 	assertConfig(legacyID, []int{2000, 2040}, []int{2000, 2040}, true)
 	assertConfig(splitID, []int{2010}, []int{5030}, true)
 	assertConfig(malformedID, []int{}, []int{}, true)
+	assertConfig(missingID, []int{}, []int{}, true)
+	assertConfig(nullID, []int{}, []int{}, true)
+	assertConfig(emptyID, []int{}, []int{}, true)
+	assertConfig(unsafeEndpointID, []int{}, []int{}, true)
+	assertConfig(unsafeReferenceID, []int{2000}, []int{2000}, true)
 
 	var legacyEnabled bool
 	var legacySecret string
@@ -130,6 +197,10 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 	if string(otherConfig) != `{"unchanged": true, "categories": [42]}` {
 		t.Fatalf("unrelated integration changed: %s", otherConfig)
 	}
+	var invalidConfigUnchanged bool
+	if err := store.Pool.QueryRow(ctx, `SELECT config='null'::jsonb FROM integration_instances WHERE id=$1`, invalidConfigID.String()).Scan(&invalidConfigUnchanged); err != nil || !invalidConfigUnchanged {
+		t.Fatalf("invalid legacy configuration was rewritten: unchanged=%v err=%v", invalidConfigUnchanged, err)
+	}
 
 	var profiles, activeProfiles, operationStatuses, untruthfulProfiles int
 	if err := store.Pool.QueryRow(ctx, `SELECT
@@ -140,8 +211,21 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 		FROM indexer_capability_profiles`).Scan(&profiles, &activeProfiles, &operationStatuses, &untruthfulProfiles); err != nil {
 		t.Fatal(err)
 	}
-	if profiles != 3 || activeProfiles != 0 || operationStatuses != 0 || untruthfulProfiles != 0 {
+	if profiles != 6 || activeProfiles != 0 || operationStatuses != 0 || untruthfulProfiles != 0 {
 		t.Fatalf("profiles=%d active=%d statuses=%d untruthful=%d", profiles, activeProfiles, operationStatuses, untruthfulProfiles)
+	}
+	var unsafeProfiles int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM indexer_capability_profiles WHERE indexer_instance_id=ANY($1::uuid[])`, unsafeBindingIDs).Scan(&unsafeProfiles); err != nil || unsafeProfiles != 0 {
+		t.Fatalf("unsafe legacy bindings created drafts=%d err=%v", unsafeProfiles, err)
+	}
+	for _, unsafeID := range unsafeBindingIDs {
+		parsedID, parseErr := uuid.Parse(unsafeID)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		if _, err := store.IndexerEndpointConfigurationDigest(ctx, parsedID); !errors.Is(err, ErrInvalidIndexerCapabilityProfile) {
+			t.Fatalf("unsafe legacy integration %s produced a repository binding: %v", parsedID, err)
+		}
 	}
 	var legacyProfileText string
 	var revision int64

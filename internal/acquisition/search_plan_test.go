@@ -1,9 +1,13 @@
 package acquisition
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,13 +16,15 @@ import (
 	"github.com/media-manager/media-manager/internal/catalog"
 )
 
-func searchPlanEvidence() newznab.CommissionEvidence {
+func searchPlanEvidence(recipeKey string) newznab.CommissionEvidence {
+	digest := sha256.Sum256([]byte(recipeKey))
 	return newznab.CommissionEvidence{
-		Key:                    "probe.success",
-		Kind:                   "controlled_probe",
+		Key:                    "evidence." + hex.EncodeToString(digest[:16]),
+		Kind:                   newznab.EvidenceKindControlledProbe,
+		Target:                 newznab.EvidenceTarget{Kind: newznab.EvidenceTargetSearchRecipe, RecipeKey: recipeKey},
 		ObservedAt:             time.Unix(1, 0).UTC(),
 		BodySHA256:             strings.Repeat("a", 64),
-		SafeOutcome:            "success",
+		SafeOutcome:            newznab.EvidenceOutcomeSearchSuccess,
 		RawResultCount:         1,
 		PlausibleIdentityCount: 1,
 	}
@@ -79,11 +85,8 @@ func searchPlanProfile(recipes ...newznab.SearchRecipe) newznab.CapabilityProfil
 	}
 	for index := range profile.SearchRecipes {
 		recipe := &profile.SearchRecipes[index]
-		key := "probe." + recipe.Key
-		recipe.Verification.EvidenceKeys = []string{key}
-		evidence := searchPlanEvidence()
-		evidence.Key = key
-		evidence.RecipeKey = recipe.Key
+		evidence := searchPlanEvidence(recipe.Key)
+		recipe.Verification.EvidenceKeys = []string{evidence.Key}
 		profile.Evidence = append(profile.Evidence, evidence)
 	}
 	return profile
@@ -276,19 +279,19 @@ func TestPlanSearchSelectsOneFallbackOnlyForApprovedTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Fallback == nil || plan.Fallback.RecipeKey != "movie.fallback.imdb" {
-		t.Fatalf("fallback=%+v", plan.Fallback)
-	}
-	if _, ok := plan.FallbackFor(newznab.FallbackZeroRawResults); !ok {
+	if fallback, ok := plan.FallbackFor(newznab.FallbackZeroRawResults); !ok || fallback.RecipeKey != first.Key {
 		t.Fatal("approved zero-result fallback was unavailable")
 	}
-	if _, ok := plan.FallbackFor(newznab.FallbackNoPlausibleIdentityScope); !ok {
+	if fallback, ok := plan.FallbackFor(newznab.FallbackNoPlausibleIdentityScope); !ok || fallback.RecipeKey != first.Key {
 		t.Fatal("approved identity/scope fallback was unavailable")
 	}
-	if _, ok := plan.FallbackFor(newznab.FallbackDeterministicContradiction); !ok {
+	if fallback, ok := plan.FallbackFor(newznab.FallbackDeterministicContradiction); !ok || fallback.RecipeKey != first.Key {
 		t.Fatal("approved deterministic-contradiction fallback was unavailable")
 	}
-	for _, trigger := range []newznab.FallbackTrigger{"timeout", "authentication", "quota", "server_failure", "malformed_xml", "policy_rejection"} {
+	for _, trigger := range []newznab.FallbackTrigger{
+		"timeout", "quota", "rate_limit", "authentication", "server_failure", "dns_failure", "tls_failure",
+		"malformed_xml", "quality_rejection", "danish_language_rejection", "blocklist_rejection", "upgrade_policy_rejection",
+	} {
 		if _, ok := plan.FallbackFor(trigger); ok {
 			t.Fatalf("unapproved trigger %q returned fallback", trigger)
 		}
@@ -311,8 +314,50 @@ func TestPlanSearchSkipsUnsatisfiedFallbackAlternative(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Fallback == nil || plan.Fallback.RecipeKey != "movie.fallback.general" {
-		t.Fatalf("fallback=%+v", plan.Fallback)
+	if fallback, ok := plan.FallbackFor(newznab.FallbackZeroRawResults); !ok || fallback.RecipeKey != general.Key {
+		t.Fatalf("fallback=%+v, available=%v", fallback, ok)
+	}
+}
+
+func TestPlanSearchSelectsFallbackAfterTriggerFiltering(t *testing.T) {
+	t.Parallel()
+	primary := verifiedRecipe("movie.primary", newznab.SearchScopeMovie, newznab.RecipePrimary, 0)
+	zeroOnly := verifiedRecipe("movie.fallback.a-zero", newznab.SearchScopeMovie, newznab.RecipeFallback, 0)
+	zeroOnly.FallbackOn = []newznab.FallbackTrigger{newznab.FallbackZeroRawResults}
+	contradictionOnly := verifiedRecipe("movie.fallback.b-contradiction", newznab.SearchScopeMovie, newznab.RecipeFallback, 0)
+	contradictionOnly.FallbackOn = []newznab.FallbackTrigger{newznab.FallbackDeterministicContradiction}
+	input := moviePlanInput(catalog.ExternalIdentity{Namespace: "imdb", Value: "tt1234567", State: catalog.IdentityVerified})
+
+	plan, err := PlanSearch(searchPlanProfile(contradictionOnly, primary, zeroOnly), input, newznab.NewznabCategorySelection{Movie: []int{2000}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback, ok := plan.FallbackFor(newznab.FallbackZeroRawResults); !ok || fallback.RecipeKey != zeroOnly.Key {
+		t.Fatalf("zero-results fallback=%+v, available=%v", fallback, ok)
+	}
+	if fallback, ok := plan.FallbackFor(newznab.FallbackDeterministicContradiction); !ok || fallback.RecipeKey != contradictionOnly.Key {
+		t.Fatalf("contradiction fallback=%+v, available=%v", fallback, ok)
+	}
+}
+
+func TestPlanSearchBreaksEqualPriorityFallbackTiesAfterTriggerFiltering(t *testing.T) {
+	t.Parallel()
+	primary := verifiedRecipe("movie.primary", newznab.SearchScopeMovie, newznab.RecipePrimary, 0)
+	first := verifiedRecipe("movie.fallback.a", newznab.SearchScopeMovie, newznab.RecipeFallback, 0)
+	second := verifiedRecipe("movie.fallback.b", newznab.SearchScopeMovie, newznab.RecipeFallback, 0)
+	first.FallbackOn = []newznab.FallbackTrigger{newznab.FallbackNoPlausibleIdentityScope}
+	second.FallbackOn = []newznab.FallbackTrigger{newznab.FallbackNoPlausibleIdentityScope}
+	input := moviePlanInput(catalog.ExternalIdentity{Namespace: "imdb", Value: "tt1234567", State: catalog.IdentityVerified})
+
+	for _, recipes := range [][]newznab.SearchRecipe{{first, second, primary}, {second, primary, first}} {
+		plan, err := PlanSearch(searchPlanProfile(recipes...), input, newznab.NewznabCategorySelection{Movie: []int{2000}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fallback, ok := plan.FallbackFor(newznab.FallbackNoPlausibleIdentityScope)
+		if !ok || fallback.RecipeKey != first.Key {
+			t.Fatalf("equal-priority fallback=%+v, available=%v", fallback, ok)
+		}
 	}
 }
 
@@ -377,8 +422,8 @@ func TestPlanSearchCategoryInvalidationOnlyAffectsReferencingRecipes(t *testing.
 	if plan.Primary.RecipeKey != categorylessPrimary.Key {
 		t.Fatalf("primary=%q, want unaffected recipe %q", plan.Primary.RecipeKey, categorylessPrimary.Key)
 	}
-	if plan.Fallback == nil || plan.Fallback.RecipeKey != categorylessFallback.Key {
-		t.Fatalf("fallback=%+v, want unaffected recipe %q", plan.Fallback, categorylessFallback.Key)
+	if fallback, ok := plan.FallbackFor(newznab.FallbackZeroRawResults); !ok || fallback.RecipeKey != categorylessFallback.Key {
+		t.Fatalf("fallback=%+v, available=%v, want unaffected recipe %q", fallback, ok, categorylessFallback.Key)
 	}
 }
 
@@ -416,6 +461,84 @@ func TestPlanSearchRejectsInvalidIntentAndConflictingIdentity(t *testing.T) {
 	}
 }
 
+func TestPlanSearchEnforcesMovieYearBounds(t *testing.T) {
+	t.Parallel()
+	recipe := verifiedRecipe("movie.general", newznab.SearchScopeMovie, newznab.RecipePrimary, 0)
+	recipe.Mode = newznab.SearchModeGeneral
+	recipe.Query.Style = newznab.QueryTitleYear
+	recipe.Bindings = nil
+	recipe.Categories.Set = newznab.CategoryNone
+	profile := searchPlanProfile(recipe)
+	tests := []struct {
+		year    uint16
+		wantErr bool
+	}{
+		{year: 0, wantErr: true},
+		{year: 1799, wantErr: true},
+		{year: 1800},
+		{year: 9999},
+		{year: 10000, wantErr: true},
+		{year: ^uint16(0), wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(strconv.Itoa(int(test.year)), func(t *testing.T) {
+			input := moviePlanInput()
+			input.Media.Year = &test.year
+			plan, err := PlanSearch(profile, input, newznab.NewznabCategorySelection{})
+			if test.wantErr {
+				if !errors.Is(err, ErrInvalidSearchPlanInput) {
+					t.Fatalf("year %d error=%v", test.year, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("year %d: %v", test.year, err)
+			}
+			wantQuery := "Example Movie " + strconv.Itoa(int(test.year))
+			if len(plan.Primary.Request.Params) != 1 || plan.Primary.Request.Params[0] != (newznab.Param{Name: "q", Value: wantQuery}) {
+				t.Fatalf("year %d request=%#v", test.year, plan.Primary.Request)
+			}
+		})
+	}
+}
+
+func TestPlanSearchEnforcesCompleteSeasonBounds(t *testing.T) {
+	t.Parallel()
+	recipe := verifiedRecipe("season.general", newznab.SearchScopeCompleteSeason, newznab.RecipePrimary, 0)
+	recipe.Mode = newznab.SearchModeGeneral
+	recipe.Query.Style = newznab.QueryTitleSeasonToken
+	recipe.Bindings = nil
+	profile := searchPlanProfile(recipe)
+	tests := []struct {
+		season uint16
+		valid  bool
+	}{
+		{season: 0, valid: true},
+		{season: 999, valid: true},
+		{season: 1000},
+		{season: ^uint16(0)},
+	}
+	for _, test := range tests {
+		t.Run(strconv.Itoa(int(test.season)), func(t *testing.T) {
+			input := SearchPlanInput{Season: &test.season, Media: catalog.MediaItem{Kind: catalog.KindSeries, Title: "Example Series"}}
+			plan, err := PlanSearch(profile, input, newznab.NewznabCategorySelection{Series: []int{5000}})
+			if !test.valid {
+				if !errors.Is(err, ErrInvalidSearchPlanInput) {
+					t.Fatalf("season %d error=%v", test.season, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("season %d: %v", test.season, err)
+			}
+			wantQuery := fmt.Sprintf("Example Series S%02d", test.season)
+			if len(plan.Primary.Request.Params) != 1 || plan.Primary.Request.Params[0] != (newznab.Param{Name: "q", Value: wantQuery}) {
+				t.Fatalf("season %d request=%#v", test.season, plan.Primary.Request)
+			}
+		})
+	}
+}
+
 func TestPlanSearchAcceptsFullIMDbRangeAndRejectsInvalidVerifiedIDs(t *testing.T) {
 	t.Parallel()
 	recipe := verifiedRecipe("movie.imdb", newznab.SearchScopeMovie, newznab.RecipePrimary, 0)
@@ -442,7 +565,7 @@ func TestPlanSearchDoesNotExposeTransportOrCredentialData(t *testing.T) {
 	t.Parallel()
 	marker := "marker-secret-value"
 	recipe := verifiedRecipe("movie.imdb", newznab.SearchScopeMovie, newznab.RecipePrimary, 0)
-	input := moviePlanInput(catalog.ExternalIdentity{Namespace: "imdb", Value: "tt1234567", State: catalog.IdentityVerified})
+	input := moviePlanInput(catalog.ExternalIdentity{Namespace: "imdb", Value: "tt1234567", State: catalog.IdentityVerified, Source: marker})
 	plan, err := PlanSearch(searchPlanProfile(recipe), input, newznab.NewznabCategorySelection{Movie: []int{2000}})
 	if err != nil {
 		t.Fatal(err)

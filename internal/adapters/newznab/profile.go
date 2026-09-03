@@ -2,6 +2,8 @@ package newznab
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -18,24 +21,34 @@ const (
 	MaxFallbackRecipesPerScope            = 2
 	MaxVerifiedRequestLimit        uint16 = 100
 
-	maxCapabilityProfileBytes = 1 << 20
-	maxCapabilityEvidence     = 128
-	maxEvidenceKeysPerRecipe  = 16
-	maxCategoryIDs            = 128
-	maxCAPSCategoryNodes      = 4096
-	maxCAPSCategoryDepth      = 8
-	maxCAPSParameterNames     = 256
-	maxCommissionResultCount  = 250_000
-	maxProfileTextBytes       = 500
-	maxServerVersionBytes     = 100
+	maxCapabilityProfileBytes  = 1 << 20
+	maxCapabilityEvidence      = 128
+	maxEvidenceKeysPerRecipe   = 16
+	maxCategoryIDs             = 128
+	maxCAPSCategoryNodes       = 4096
+	maxCAPSCategoryDepth       = 8
+	maxCAPSParameterNames      = 256
+	maxCommissionResultCount   = 250_000
+	maxProfileTextBytes        = 500
+	maxServerVersionBytes      = 100
+	maxEvidenceSummaryBytes    = 500
+	maxProfileTextDecodePasses = 3
 )
 
 var (
-	ErrInvalidCapabilityProfile    = errors.New("invalid Newznab capability profile")
-	ErrCapabilityProfileNotActive  = errors.New("Newznab capability profile is not activatable")
-	profileKeyPattern              = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,99}$`)
-	profileDigestPattern           = regexp.MustCompile(`^[a-f0-9]{64}$`)
-	advertisedParameterNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,63}$`)
+	ErrInvalidCapabilityProfile     = errors.New("invalid Newznab capability profile")
+	ErrCapabilityProfileNotActive   = errors.New("Newznab capability profile is not activatable")
+	profileKeyPattern               = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,99}$`)
+	evidenceKeyPattern              = regexp.MustCompile(`^evidence\.[a-f0-9]{32}$`)
+	profileDigestPattern            = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	advertisedParameterNamePattern  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,63}$`)
+	uriSchemePattern                = regexp.MustCompile(`(?i)(?:^|[^a-z0-9+.-])[a-z][a-z0-9+.-]*:[^\s]`)
+	credentialParameterPattern      = regexp.MustCompile(`(?i)(?:api[_-]?key|access[_-]?token|token|password|authorization)\s*=`)
+	credentialQueryNamePattern      = regexp.MustCompile(`(?i)[?&#;]\s*(?:api[_-]?key|access[_-]?token|token|password|authorization)\s*(?:=|[&#;]|$)`)
+	credentialHeaderPattern         = regexp.MustCompile(`(?i)(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key)\s*:`)
+	authorizationValuePattern       = regexp.MustCompile(`(?i)(?:^|[^a-z0-9_-])(?:basic|bearer)\s+[a-z0-9._~+/=-]+(?:$|[^a-z0-9._~+/=-])`)
+	protocolRelativeUserinfoPattern = regexp.MustCompile(`(?i)(?:^|[\s("'=])//[^/\s?#]*@`)
+	schemelessUserinfoPattern       = regexp.MustCompile(`(?i)(?:^|[\s("'=])[^/\s:@]+:[^/\s@]+@(?:\[[0-9a-f:]+\]|[a-z0-9.-]+)(?::[0-9]+)?(?:[/\s?#]|$)`)
 )
 
 type SearchScope string
@@ -181,6 +194,7 @@ const (
 type CAPSModeObservation struct {
 	Mode                     SearchMode       `json:"mode"`
 	ElementState             CAPSElementState `json:"element_state"`
+	Repeated                 bool             `json:"repeated,omitempty"`
 	AdvertisedParameterNames []string         `json:"advertised_parameter_names,omitempty"`
 	RecognizedParameters     []WireParameter  `json:"recognized_parameters,omitempty"`
 }
@@ -288,24 +302,68 @@ type RetrievalProfile struct {
 	PreferredMethod   RetrievalMethod              `json:"preferred_method,omitempty"`
 }
 
-type CommissionEvidence struct {
-	Key                    string    `json:"key"`
-	Kind                   string    `json:"kind"`
-	RecipeKey              string    `json:"recipe_key,omitempty"`
-	ObservedAt             time.Time `json:"observed_at,omitempty"`
-	BodySHA256             string    `json:"body_sha256,omitempty"`
-	SafeOutcome            string    `json:"safe_outcome"`
-	RawResultCount         int       `json:"raw_result_count,omitempty"`
-	PlausibleIdentityCount int       `json:"plausible_identity_count,omitempty"`
-}
+// EvidenceTargetKind identifies exactly one capability tested by a controlled
+// commissioning observation. Search evidence additionally names its recipe;
+// all other targets are closed operation or retrieval declarations.
+type EvidenceTargetKind string
 
 const (
-	EvidenceOutcomeSearchSuccess        = "success"
-	EvidenceOutcomeSemanticallyVerified = "verified"
-	EvidenceOutcomeUnsupported          = "unsupported"
-	EvidenceOutcomePermissionRestricted = "permission_restricted"
-	EvidenceOutcomeContradicted         = "contradicted"
+	EvidenceTargetSearchRecipe      EvidenceTargetKind = "search_recipe"
+	EvidenceTargetCAPS              EvidenceTargetKind = "caps"
+	EvidenceTargetDetails           EvidenceTargetKind = "details"
+	EvidenceTargetNFO               EvidenceTargetKind = "nfo"
+	EvidenceTargetFileList          EvidenceTargetKind = "file_list"
+	EvidenceTargetFeed              EvidenceTargetKind = "feed"
+	EvidenceTargetNativeIdentity    EvidenceTargetKind = "native_identity"
+	EvidenceTargetStandardGet       EvidenceTargetKind = "standard_get"
+	EvidenceTargetAdvertisedLocator EvidenceTargetKind = "advertised_locator"
+	EvidenceTargetProviderDirect    EvidenceTargetKind = "provider_direct"
 )
+
+type EvidenceTarget struct {
+	Kind      EvidenceTargetKind `json:"kind"`
+	RecipeKey string             `json:"recipe_key,omitempty"`
+}
+
+// EvidenceKind is intentionally small in schema v1. Future commissioning may
+// add another reviewed kind, but provider-controlled text cannot define one.
+type EvidenceKind string
+
+const EvidenceKindControlledProbe EvidenceKind = "controlled_probe"
+
+type EvidenceOutcome string
+
+const (
+	EvidenceOutcomeSearchSuccess        EvidenceOutcome = "success"
+	EvidenceOutcomeNoResults            EvidenceOutcome = "no_results"
+	EvidenceOutcomeSemanticallyVerified EvidenceOutcome = "verified"
+	EvidenceOutcomeUnsupported          EvidenceOutcome = "unsupported"
+	EvidenceOutcomePermissionRestricted EvidenceOutcome = "permission_restricted"
+	EvidenceOutcomeContradicted         EvidenceOutcome = "contradicted"
+)
+
+// NewCommissionEvidenceKey creates the only supported evidence identifier
+// shape. Future commissioning constructs keys locally; provider values are
+// never used as identifiers.
+func NewCommissionEvidenceKey() (string, error) {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", errors.New("generate Newznab commissioning evidence key")
+	}
+	return "evidence." + hex.EncodeToString(random[:]), nil
+}
+
+type CommissionEvidence struct {
+	Key                    string          `json:"key"`
+	Kind                   EvidenceKind    `json:"kind"`
+	Target                 EvidenceTarget  `json:"target"`
+	ObservedAt             time.Time       `json:"observed_at,omitempty"`
+	BodySHA256             string          `json:"body_sha256,omitempty"`
+	SafeOutcome            EvidenceOutcome `json:"safe_outcome"`
+	SafeSummary            string          `json:"safe_summary,omitempty"`
+	RawResultCount         int             `json:"raw_result_count,omitempty"`
+	PlausibleIdentityCount int             `json:"plausible_identity_count,omitempty"`
+}
 
 type CapabilityProfile struct {
 	SchemaVersion    uint16                `json:"schema_version"`
@@ -348,7 +406,13 @@ func ValidateCapabilityProfile(profile CapabilityProfile) error {
 	}
 	evidence := make(map[string]CommissionEvidence, len(profile.Evidence))
 	for _, item := range profile.Evidence {
-		if !validProfileKey(item.Key) || !validProfileKey(item.Kind) || item.RecipeKey != "" && !validProfileKey(item.RecipeKey) || !validProfileKey(item.SafeOutcome) || item.ObservedAt.IsZero() || item.RawResultCount < 0 || item.RawResultCount > maxCommissionResultCount || item.PlausibleIdentityCount < 0 || item.PlausibleIdentityCount > item.RawResultCount || item.BodySHA256 != "" && !profileDigestPattern.MatchString(item.BodySHA256) {
+		if !evidenceKeyPattern.MatchString(item.Key) || !validEvidenceKind(item.Kind) || !validEvidenceTarget(item.Target) || !validEvidenceOutcomeForTarget(item.Target, item.SafeOutcome) || !validProfileText(item.SafeSummary, maxEvidenceSummaryBytes) || item.ObservedAt.IsZero() || item.RawResultCount < 0 || item.RawResultCount > maxCommissionResultCount || item.PlausibleIdentityCount < 0 || item.PlausibleIdentityCount > item.RawResultCount || item.BodySHA256 != "" && !profileDigestPattern.MatchString(item.BodySHA256) {
+			return ErrInvalidCapabilityProfile
+		}
+		if item.SafeOutcome == EvidenceOutcomeNoResults && (item.RawResultCount != 0 || item.PlausibleIdentityCount != 0) || item.SafeOutcome == EvidenceOutcomeSearchSuccess && item.RawResultCount == 0 {
+			return ErrInvalidCapabilityProfile
+		}
+		if item.Target.Kind != EvidenceTargetSearchRecipe && (item.RawResultCount != 0 || item.PlausibleIdentityCount != 0) {
 			return ErrInvalidCapabilityProfile
 		}
 		if _, duplicate := evidence[item.Key]; duplicate {
@@ -390,15 +454,16 @@ func ValidateCapabilityProfile(profile CapabilityProfile) error {
 		}
 	}
 	for _, item := range profile.Evidence {
-		if item.RecipeKey != "" {
-			if _, exists := keys[item.RecipeKey]; !exists {
+		if item.Target.Kind == EvidenceTargetSearchRecipe {
+			if _, exists := keys[item.Target.RecipeKey]; !exists {
 				return ErrInvalidCapabilityProfile
 			}
 		}
 	}
 	operations := make(map[Operation]struct{}, len(profile.Operations))
 	for _, capability := range profile.Operations {
-		if !validOperation(capability.Operation) || !validAssessment(capability.Assessment, evidence) || !validNestedContractRef(profile.ProviderContract, capability.Contract) {
+		target, hasExactTarget := evidenceTargetForOperation(capability.Operation)
+		if !validOperation(capability.Operation) || !validAssessment(capability.Assessment, evidence, target, hasExactTarget) || !validNestedContractRef(profile.ProviderContract, capability.Contract) {
 			return ErrInvalidCapabilityProfile
 		}
 		if capability.Operation != OperationSearch && capability.Assessment.CAPSClaim != "" {
@@ -445,9 +510,16 @@ func validateSearchRecipe(recipe SearchRecipe, caps CAPSRecord, evidence map[str
 		return ErrInvalidCapabilityProfile
 	}
 	evidenceSeen := make(map[string]struct{}, len(recipe.Verification.EvidenceKeys))
+	if recipe.Verification.State == VerificationUntested {
+		if len(recipe.Verification.EvidenceKeys) != 0 {
+			return ErrInvalidCapabilityProfile
+		}
+	} else if len(recipe.Verification.EvidenceKeys) == 0 {
+		return ErrInvalidCapabilityProfile
+	}
 	verificationSupported := recipe.Verification.State == VerificationUntested
 	for _, key := range recipe.Verification.EvidenceKeys {
-		if !validProfileKey(key) {
+		if !evidenceKeyPattern.MatchString(key) {
 			return ErrInvalidCapabilityProfile
 		}
 		if _, duplicate := evidenceSeen[key]; duplicate {
@@ -457,9 +529,13 @@ func validateSearchRecipe(recipe SearchRecipe, caps CAPSRecord, evidence map[str
 		if !exists {
 			return ErrInvalidCapabilityProfile
 		}
-		if searchEvidenceSupportsVerification(recipe.Verification.State, recipe.Key, item) {
-			verificationSupported = true
+		if item.Target != (EvidenceTarget{Kind: EvidenceTargetSearchRecipe, RecipeKey: recipe.Key}) {
+			return ErrInvalidCapabilityProfile
 		}
+		if !searchEvidenceSupportsVerification(recipe.Verification.State, recipe.Key, item) {
+			return ErrInvalidCapabilityProfile
+		}
+		verificationSupported = true
 		evidenceSeen[key] = struct{}{}
 	}
 	if !verificationSupported {
@@ -600,6 +676,9 @@ func validateCAPSRecord(record CAPSRecord) error {
 		if observation.ElementState == CAPSElementAbsent && (len(observation.AdvertisedParameterNames) != 0 || len(observation.RecognizedParameters) != 0) {
 			return ErrInvalidCapabilityProfile
 		}
+		if observation.Repeated && observation.ElementState != CAPSElementPresentUninterpretable {
+			return ErrInvalidCapabilityProfile
+		}
 		advertised := make(map[string]struct{}, len(observation.AdvertisedParameterNames))
 		for _, name := range observation.AdvertisedParameterNames {
 			if !advertisedParameterNamePattern.MatchString(name) {
@@ -644,14 +723,20 @@ func validateCAPSCategories(categories []Category, depth int, nodes *int, ids ma
 	return true
 }
 
-func validAssessment(assessment CapabilityAssessment, evidence map[string]CommissionEvidence) bool {
+func validAssessment(assessment CapabilityAssessment, evidence map[string]CommissionEvidence, target EvidenceTarget, hasExactTarget bool) bool {
 	if !validOptionalClaimState(assessment.CAPSClaim) || !validOptionalClaimState(assessment.ProviderClaim) || !validVerificationState(assessment.Verification) || len(assessment.EvidenceKeys) > maxEvidenceKeysPerRecipe {
 		return false
 	}
+	if assessment.Verification == VerificationUntested {
+		return len(assessment.EvidenceKeys) == 0
+	}
+	if !hasExactTarget {
+		return false
+	}
 	seen := make(map[string]struct{}, len(assessment.EvidenceKeys))
-	verificationSupported := assessment.Verification == VerificationUntested
+	verificationSupported := false
 	for _, key := range assessment.EvidenceKeys {
-		if !validProfileKey(key) {
+		if !evidenceKeyPattern.MatchString(key) {
 			return false
 		}
 		if _, duplicate := seen[key]; duplicate {
@@ -661,16 +746,20 @@ func validAssessment(assessment CapabilityAssessment, evidence map[string]Commis
 		if !exists {
 			return false
 		}
-		if item.RecipeKey == "" && assessmentEvidenceSupportsVerification(assessment.Verification, item) {
-			verificationSupported = true
+		if item.Target != target {
+			return false
 		}
+		if !assessmentEvidenceSupportsVerification(assessment.Verification, item) {
+			return false
+		}
+		verificationSupported = true
 		seen[key] = struct{}{}
 	}
 	return verificationSupported
 }
 
 func searchEvidenceSupportsVerification(state VerificationState, recipeKey string, evidence CommissionEvidence) bool {
-	if evidence.RecipeKey != recipeKey {
+	if evidence.Target != (EvidenceTarget{Kind: EvidenceTargetSearchRecipe, RecipeKey: recipeKey}) {
 		return false
 	}
 	if state == VerificationVerified {
@@ -680,7 +769,7 @@ func searchEvidenceSupportsVerification(state VerificationState, recipeKey strin
 }
 
 func assessmentEvidenceSupportsVerification(state VerificationState, evidence CommissionEvidence) bool {
-	want := ""
+	var want EvidenceOutcome
 	switch state {
 	case VerificationVerified:
 		want = EvidenceOutcomeSemanticallyVerified
@@ -707,7 +796,7 @@ func validRetrievalProfile(profile RetrievalProfile, evidence map[string]Commiss
 	if zero {
 		return true
 	}
-	if !validAssessment(profile.NativeIdentity.Assessment, evidence) || !validAssessment(profile.StandardGet, evidence) || profile.PreferredMethod != "" && !validRetrievalMethod(profile.PreferredMethod) {
+	if !validAssessment(profile.NativeIdentity.Assessment, evidence, EvidenceTarget{Kind: EvidenceTargetNativeIdentity}, true) || !validAssessment(profile.StandardGet, evidence, EvidenceTarget{Kind: EvidenceTargetStandardGet}, true) || profile.PreferredMethod != "" && !validRetrievalMethod(profile.PreferredMethod) {
 		return false
 	}
 	if profile.NativeIdentity.Assessment.CAPSClaim != "" || profile.StandardGet.CAPSClaim != "" {
@@ -726,12 +815,12 @@ func validRetrievalProfile(profile RetrievalProfile, evidence map[string]Commiss
 		return false
 	}
 	if profile.AdvertisedLocator != nil {
-		if !validAssessment(profile.AdvertisedLocator.Assessment, evidence) || profile.AdvertisedLocator.Assessment.CAPSClaim != "" || !validNestedContractRef(selectedContract, &profile.AdvertisedLocator.Validator) {
+		if !validAssessment(profile.AdvertisedLocator.Assessment, evidence, EvidenceTarget{Kind: EvidenceTargetAdvertisedLocator}, true) || profile.AdvertisedLocator.Assessment.CAPSClaim != "" || !validNestedContractRef(selectedContract, &profile.AdvertisedLocator.Validator) {
 			return false
 		}
 	}
 	if profile.DirectDownload != nil {
-		if !validAssessment(profile.DirectDownload.Assessment, evidence) || profile.DirectDownload.Assessment.CAPSClaim != "" || !validNestedContractRef(selectedContract, &profile.DirectDownload.Contract) {
+		if !validAssessment(profile.DirectDownload.Assessment, evidence, EvidenceTarget{Kind: EvidenceTargetProviderDirect}, true) || profile.DirectDownload.Assessment.CAPSClaim != "" || !validNestedContractRef(selectedContract, &profile.DirectDownload.Contract) {
 			return false
 		}
 	}
@@ -832,16 +921,120 @@ func validProfileText(value string, maximum int) bool {
 	if len(value) > maximum || !utf8.ValidString(value) {
 		return false
 	}
-	lower := strings.ToLower(value)
-	if strings.Contains(lower, "://") || strings.Contains(lower, "apikey=") || strings.Contains(lower, "api_key=") || strings.Contains(lower, "token=") || strings.Contains(lower, "password=") || strings.Contains(lower, "authorization:") {
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	forms, valid := decodedProfileTextForms(value)
+	if !valid {
 		return false
 	}
-	for _, character := range value {
-		if character < 0x20 || character == 0x7f {
+	for _, form := range forms {
+		if unsafeProfileText(form) {
 			return false
 		}
 	}
 	return true
+}
+
+func decodedProfileTextForms(value string) ([]string, bool) {
+	forms := []string{value}
+	current := value
+	for pass := 0; pass < maxProfileTextDecodePasses; pass++ {
+		if !strings.Contains(current, "%") {
+			return forms, true
+		}
+		decoded, err := url.PathUnescape(current)
+		if err != nil {
+			return nil, false
+		}
+		if decoded == current {
+			return forms, true
+		}
+		if !utf8.ValidString(decoded) {
+			return nil, false
+		}
+		for _, character := range decoded {
+			if unicode.IsControl(character) {
+				return nil, false
+			}
+		}
+		forms = append(forms, decoded)
+		current = decoded
+	}
+	if !strings.Contains(current, "%") {
+		return forms, true
+	}
+	decoded, err := url.PathUnescape(current)
+	if err != nil || decoded != current {
+		return nil, false
+	}
+	return forms, true
+}
+
+func unsafeProfileText(value string) bool {
+	return uriSchemePattern.MatchString(value) ||
+		credentialParameterPattern.MatchString(value) ||
+		credentialQueryNamePattern.MatchString(value) ||
+		credentialHeaderPattern.MatchString(value) ||
+		authorizationValuePattern.MatchString(value) ||
+		protocolRelativeUserinfoPattern.MatchString(value) ||
+		schemelessUserinfoPattern.MatchString(value)
+}
+
+func validEvidenceKind(kind EvidenceKind) bool {
+	return kind == EvidenceKindControlledProbe
+}
+
+func validEvidenceOutcome(outcome EvidenceOutcome) bool {
+	switch outcome {
+	case EvidenceOutcomeSearchSuccess, EvidenceOutcomeNoResults, EvidenceOutcomeSemanticallyVerified, EvidenceOutcomeUnsupported, EvidenceOutcomePermissionRestricted, EvidenceOutcomeContradicted:
+		return true
+	default:
+		return false
+	}
+}
+
+func validEvidenceOutcomeForTarget(target EvidenceTarget, outcome EvidenceOutcome) bool {
+	if !validEvidenceOutcome(outcome) {
+		return false
+	}
+	if target.Kind == EvidenceTargetSearchRecipe {
+		return outcome != EvidenceOutcomeSemanticallyVerified
+	}
+	return outcome != EvidenceOutcomeSearchSuccess && outcome != EvidenceOutcomeNoResults
+}
+
+func validEvidenceTarget(target EvidenceTarget) bool {
+	switch target.Kind {
+	case EvidenceTargetSearchRecipe:
+		return validProfileKey(target.RecipeKey)
+	case EvidenceTargetCAPS, EvidenceTargetDetails, EvidenceTargetNFO, EvidenceTargetFileList, EvidenceTargetFeed, EvidenceTargetNativeIdentity, EvidenceTargetStandardGet, EvidenceTargetAdvertisedLocator, EvidenceTargetProviderDirect:
+		return target.RecipeKey == ""
+	default:
+		return false
+	}
+}
+
+func evidenceTargetForOperation(operation Operation) (EvidenceTarget, bool) {
+	switch operation {
+	case OperationCAPS:
+		return EvidenceTarget{Kind: EvidenceTargetCAPS}, true
+	case OperationDetails:
+		return EvidenceTarget{Kind: EvidenceTargetDetails}, true
+	case OperationNFO:
+		return EvidenceTarget{Kind: EvidenceTargetNFO}, true
+	case OperationFileList:
+		return EvidenceTarget{Kind: EvidenceTargetFileList}, true
+	case OperationFeed:
+		return EvidenceTarget{Kind: EvidenceTargetFeed}, true
+	default:
+		// Search evidence is bound to one exact recipe, while retrieval
+		// evidence is bound to one exact retrieval declaration. The generic
+		// operation rows cannot truthfully stand in for either.
+		return EvidenceTarget{}, false
+	}
 }
 
 func validSearchScope(value SearchScope) bool {
