@@ -1,10 +1,10 @@
 MEDIA MANAGER INDEXER CAPABILITY ARCHITECTURE PROPOSAL
 
-Status: Architecture approved for Milestone 1. Initial implementation
-completed; two focused independent reviews performed; this commit's remaining
-invariant corrections complete; final acceptance pending a narrow independent
-review. No production cutover, commissioning v2, or migration 0033 deployment
-is approved.
+Status: Milestone 1 was independently accepted on September 3, 2026, with the
+verdict APPROVE WITH NON-BLOCKING FOLLOW-UPS. Accepted implementation HEAD:
+ae3dbd026fddfb0ed8a8043f99015defbe1de898. The capability foundation remains
+runtime-inert; no production cutover, commissioning v2, or migration 0033
+deployment is approved.
 Scope: Profile-backed Newznab search foundation
 
 The revised design remains deliberately small: one shared secure and paced
@@ -1166,10 +1166,10 @@ indexer request, or credential use is part of this proposal document.
 
 FINAL ARCHITECTURE AMENDMENT
 
-Status: Architecture approved for Milestone 1. Initial implementation and two
-focused independent reviews completed; this commit's remaining invariant
-corrections complete; final acceptance pending a narrow independent review. No
-production cutover, commissioning v2, or migration 0033 deployment is approved.
+Status: Architecture approved and independently accepted for Milestone 1 on
+September 3, 2026. Final verdict: APPROVE WITH NON-BLOCKING FOLLOW-UPS. Accepted
+implementation HEAD: ae3dbd026fddfb0ed8a8043f99015defbe1de898. No production
+cutover, commissioning v2, or migration 0033 deployment is approved.
 
 This amendment is controlling wherever it conflicts with the proposal above.
 It narrows profile schema v1 and the first implementation milestone. It does
@@ -1706,12 +1706,13 @@ race gates. It does not make the new planner authoritative.
 
 F. FINAL MILESTONE 1 CORRECTIVE AMENDMENT
 
-The architecture is approved for Milestone 1. The initial implementation is
-complete, two focused independent reviews were performed, and this commit's
-remaining invariant corrections are complete. Final acceptance is pending a
-narrow independent review. Production search, commissioning, retrieval, HTTP
-APIs, UI, and workers continue to use the legacy paths. No production cutover,
-commissioning v2, or migration 0033 deployment is approved.
+The architecture and implementation were independently accepted for Milestone
+1 on September 3, 2026, with the final verdict APPROVE WITH NON-BLOCKING
+FOLLOW-UPS. The accepted implementation HEAD is
+ae3dbd026fddfb0ed8a8043f99015defbe1de898. Production search, commissioning,
+retrieval, HTTP APIs, UI, scheduler callers, and workers continue to use the
+legacy paths. No production cutover, commissioning v2, or migration 0033
+deployment is approved.
 
 The endpoint/configuration binding includes the validated canonical endpoint,
 structural configuration fields already listed above, and the configured stable
@@ -1762,7 +1763,26 @@ The following issues remain deliberately deferred as separate work:
   by the active-profile repository path can reach the planner. This is a
   runtime-cutover blocker.
 - Direct-SQL application privilege hardening.
+- Add stronger test-only temporary-type-shadow coverage for explicit-port
+  digest construction and provider-contract version validation.
+- Make transaction overlap deterministic in test-side profile activation and
+  revision-concurrency coverage without adding production hooks.
+- Keep the deterministic-overlap test-quality concern discoverable in this
+  central deferred-issues list and subsequent architecture status updates.
+
+All previously documented runtime-cutover and commissioning-v2 blockers remain
+in force.
 
 No commissioning v2, profile-backed production request, enrichment,
 pagination, retrieval cutover, UI work, or migration 0033 deployment is
 authorized by this amendment.
+
+
+G. MILESTONE 1 ACCEPTANCE CLOSEOUT
+
+Milestone 1 is closed as independently accepted. Its capability foundation
+remains runtime-inert, and migration 0033 has not been deployed to an
+application database. No production search, commissioning, retrieval, UI, HTTP,
+scheduler caller, or worker path has been cut over. Commissioning v2 is the next
+design phase, but neither that phase nor production runtime cutover is
+authorized by this acceptance.
