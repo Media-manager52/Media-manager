@@ -400,3 +400,145 @@ func TestUnresolvedCategoryReviewBlocksSearchPlanning(t *testing.T) {
 		t.Fatal("unresolved category review did not block plan")
 	}
 }
+
+func TestCanonicalProviderContractReferenceRoundTripsUnchanged(t *testing.T) {
+	t.Parallel()
+	fixtures := validFixtureDocument()
+	reference := newznab.ProviderContractRef{Key: newznab.ProviderContractNZBFinderV1, Version: 1}
+	plan, err := BuildCAPSPlan(CAPSPlanInput{
+		ConfigurationSHA256:  testConfigurationDigest(),
+		ProviderContract:     &reference,
+		Fixtures:             fixtures,
+		ProfileSchemaVersion: newznab.CapabilityProfileSchemaVersion,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.ProviderContract == nil || *plan.ProviderContract != reference {
+		t.Fatalf("canonical provider contract changed: %#v", plan.ProviderContract)
+	}
+	wantFingerprint := plan.Steps[0].StructuralSHA256
+	fingerprint, err := StructuralRequestFingerprint(plan.ConfigurationSHA256, &reference, plan.ProfileSchemaVersion, plan.PlannerVersion, plan.Steps[0])
+	if err != nil || fingerprint != wantFingerprint {
+		t.Fatalf("canonical fingerprint=%s want=%s err=%v", fingerprint, wantFingerprint, err)
+	}
+	document, err := CanonicalProbePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeProbePlan(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ProviderContract == nil || *decoded.ProviderContract != reference || decoded.Steps[0].StructuralSHA256 != wantFingerprint {
+		t.Fatalf("canonical round trip changed plan: %#v", decoded)
+	}
+
+	searchInput := testSearchPlanInput()
+	searchInput.ProviderContract = &reference
+	searchPlan, err := BuildSearchPlan(searchInput)
+	if err != nil || searchPlan.ProviderContract == nil || *searchPlan.ProviderContract != reference {
+		t.Fatalf("canonical search contract=%#v err=%v", searchPlan.ProviderContract, err)
+	}
+	if _, err := BuildCAPSPlan(CAPSPlanInput{
+		ConfigurationSHA256:  testConfigurationDigest(),
+		Fixtures:             fixtures,
+		ProfileSchemaVersion: newznab.CapabilityProfileSchemaVersion,
+	}); err != nil {
+		t.Fatalf("absent optional provider contract: %v", err)
+	}
+}
+
+func TestProviderContractReferenceRequiresExactCanonicalKey(t *testing.T) {
+	t.Parallel()
+	fixtures := validFixtureDocument()
+	canonical, err := BuildCAPSPlan(CAPSPlanInput{
+		ConfigurationSHA256: testConfigurationDigest(),
+		ProviderContract: &newznab.ProviderContractRef{
+			Key:     newznab.ProviderContractNZBFinderV1,
+			Version: 1,
+		},
+		Fixtures:             fixtures,
+		ProfileSchemaVersion: newznab.CapabilityProfileSchemaVersion,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPaddedFingerprint, err := ParseSHA256Digest("32cc5cf8972ea8423f6ab457b8e0785369452808c093e7ffeaaf630b81d52058")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := []struct {
+		name       string
+		key        string
+		version    uint16
+		mustEscape bool
+	}{
+		{name: "leading ASCII space", key: " " + newznab.ProviderContractNZBFinderV1, version: 1},
+		{name: "trailing ASCII space", key: newznab.ProviderContractNZBFinderV1 + " ", version: 1},
+		{name: "leading tab", key: "\t" + newznab.ProviderContractNZBFinderV1, version: 1, mustEscape: true},
+		{name: "trailing tab", key: newznab.ProviderContractNZBFinderV1 + "\t", version: 1, mustEscape: true},
+		{name: "leading newline", key: "\n" + newznab.ProviderContractNZBFinderV1, version: 1, mustEscape: true},
+		{name: "trailing newline", key: newznab.ProviderContractNZBFinderV1 + "\n", version: 1, mustEscape: true},
+		{name: "carriage return", key: newznab.ProviderContractNZBFinderV1 + "\r", version: 1, mustEscape: true},
+		{name: "CRLF", key: newznab.ProviderContractNZBFinderV1 + "\r\n", version: 1, mustEscape: true},
+		{name: "non-breaking space", key: "\u00a0" + newznab.ProviderContractNZBFinderV1, version: 1},
+		{name: "Unicode em space", key: newznab.ProviderContractNZBFinderV1 + "\u2003", version: 1},
+		{name: "excessive leading padding", key: strings.Repeat(" ", 4096) + newznab.ProviderContractNZBFinderV1, version: 1},
+		{name: "excessive trailing padding", key: newznab.ProviderContractNZBFinderV1 + strings.Repeat(" ", 4096), version: 1},
+		{name: "whitespace only", key: " \t\r\n", version: 1, mustEscape: true},
+		{name: "embedded newline", key: "nzb\nfinder", version: 1, mustEscape: true},
+		{name: "embedded NUL", key: "nzb\x00finder", version: 1, mustEscape: true},
+		{name: "invalid UTF-8", key: string([]byte("nzbfinder\xff")), version: 1},
+		{name: "wrong case", key: "NZBFINDER", version: 1},
+		{name: "unknown key", key: "unknown.contract", version: 1},
+		{name: "zero version", key: newznab.ProviderContractNZBFinderV1, version: 0},
+		{name: "unknown version", key: newznab.ProviderContractNZBFinderV1, version: 2},
+	}
+	for _, test := range invalid {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			reference := &newznab.ProviderContractRef{Key: test.key, Version: test.version}
+			if plan, err := BuildCAPSPlan(CAPSPlanInput{
+				ConfigurationSHA256:  testConfigurationDigest(),
+				ProviderContract:     reference,
+				Fixtures:             fixtures,
+				ProfileSchemaVersion: newznab.CapabilityProfileSchemaVersion,
+			}); err == nil {
+				t.Fatalf("noncanonical provider contract reached fingerprint %s", plan.Steps[0].StructuralSHA256)
+			}
+
+			searchInput := testSearchPlanInput()
+			searchInput.ProviderContract = reference
+			if _, err := BuildSearchPlan(searchInput); err == nil {
+				t.Fatal("noncanonical provider contract reached search planning")
+			}
+			if _, err := StructuralRequestFingerprint(canonical.ConfigurationSHA256, reference, canonical.ProfileSchemaVersion, canonical.PlannerVersion, canonical.Steps[0]); err == nil {
+				t.Fatal("noncanonical provider contract reached fingerprinting")
+			}
+
+			tampered := canonical
+			tampered.ProviderContract = reference
+			tampered.Steps = append([]ProbeStep(nil), canonical.Steps...)
+			if test.name == "leading ASCII space" {
+				// This is the exact fingerprint produced by e374faf for this
+				// noncanonical reference. The whole document was self-consistent
+				// before exact registry validation was enforced.
+				tampered.Steps[0].StructuralSHA256 = legacyPaddedFingerprint
+			}
+			if err := ValidateProbePlan(tampered); err == nil {
+				t.Fatal("direct validation accepted a noncanonical provider contract")
+			}
+			document, err := json.Marshal(tampered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.mustEscape && !strings.Contains(string(document), `\`) {
+				t.Fatalf("test document did not contain an escaped control: %s", document)
+			}
+			if _, err := DecodeProbePlan(document); err == nil {
+				t.Fatal("strict decode accepted a noncanonical provider contract")
+			}
+		})
+	}
+}

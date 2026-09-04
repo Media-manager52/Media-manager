@@ -663,6 +663,25 @@ func TestIndexerCommissioningRunCreationSerializesPerInstance(t *testing.T) {
 		if _, err := store.Pool.Exec(ctx, "DROP FUNCTION "+functionName+"()"); err != nil {
 			t.Fatal(err)
 		}
+		created, err := store.CreateIndexerCommissioningRun(ctx, rollbackIndexerID, fixtures, rollbackPlan, now.Add(4*time.Second))
+		if err != nil {
+			t.Fatalf("valid creation after rollback: %v", err)
+		}
+		if created.State != commissioningv2.RunAwaitingCAPSAuthorization || created.Revision != 1 || !created.ConfigurationCurrent || len(created.Steps) != 1 {
+			t.Fatalf("creation after rollback=%#v", created)
+		}
+		step := created.Steps[0]
+		if step.RunID != created.ID || step.Ordinal != 1 || step.Phase != commissioningv2.StepPhaseCAPS || step.Target != (newznab.EvidenceTarget{Kind: newznab.EvidenceTargetCAPS}) || step.State != commissioningv2.StepPlanned {
+			t.Fatalf("CAPS step after rollback=%#v", step)
+		}
+		if err := store.Pool.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM indexer_commissioning_runs WHERE indexer_instance_id=$1),
+			(SELECT count(*) FROM indexer_commissioning_steps step JOIN indexer_commissioning_runs run ON run.id=step.run_id WHERE run.indexer_instance_id=$1)`, rollbackIndexerID.String()).Scan(&runCount, &stepCount); err != nil {
+			t.Fatal(err)
+		}
+		if runCount != 1 || stepCount != 1 {
+			t.Fatalf("valid creation after rollback: runs=%d steps=%d", runCount, stepCount)
+		}
 	})
 
 	for _, list := range []bool{false, true} {

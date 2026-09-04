@@ -661,6 +661,90 @@ func TestCapabilityProfileUsesClosedMappingAndContractRegistries(t *testing.T) {
 	}
 }
 
+func TestProviderContractRegistryRequiresExactCanonicalKeys(t *testing.T) {
+	t.Parallel()
+	canonicalKeys := []string{
+		ProviderContractNZBFinderV1,
+		ProviderContractPath32GetNZBV1,
+		ProviderContractDrunkenSlugV1,
+	}
+	for _, key := range canonicalKeys {
+		if !ValidProviderContractKey(key) {
+			t.Errorf("canonical provider-contract key %q was rejected", key)
+		}
+	}
+
+	invalidKeys := []struct {
+		name string
+		key  string
+	}{
+		{name: "empty", key: ""},
+		{name: "leading ASCII space", key: " " + ProviderContractNZBFinderV1},
+		{name: "trailing ASCII space", key: ProviderContractNZBFinderV1 + " "},
+		{name: "leading tab", key: "\t" + ProviderContractNZBFinderV1},
+		{name: "trailing tab", key: ProviderContractNZBFinderV1 + "\t"},
+		{name: "leading newline", key: "\n" + ProviderContractNZBFinderV1},
+		{name: "trailing newline", key: ProviderContractNZBFinderV1 + "\n"},
+		{name: "carriage return", key: ProviderContractNZBFinderV1 + "\r"},
+		{name: "CRLF", key: ProviderContractNZBFinderV1 + "\r\n"},
+		{name: "non-breaking space", key: "\u00a0" + ProviderContractNZBFinderV1},
+		{name: "Unicode em space", key: ProviderContractNZBFinderV1 + "\u2003"},
+		{name: "excessive leading padding", key: strings.Repeat(" ", 4096) + ProviderContractNZBFinderV1},
+		{name: "excessive trailing padding", key: ProviderContractNZBFinderV1 + strings.Repeat(" ", 4096)},
+		{name: "whitespace only", key: " \t\r\n"},
+		{name: "embedded newline", key: "nzb\nfinder"},
+		{name: "embedded NUL", key: "nzb\x00finder"},
+		{name: "invalid UTF-8", key: string([]byte("nzbfinder\xff"))},
+		{name: "wrong case", key: "NZBFINDER"},
+		{name: "unknown", key: "unknown.contract"},
+	}
+	for _, test := range invalidKeys {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if ValidProviderContractKey(test.key) {
+				t.Fatal("noncanonical provider-contract key was accepted")
+			}
+			profile := profileTestProfile(profileTestMovieRecipe())
+			profile.ProviderContract = &ProviderContractRef{Key: test.key, Version: 1}
+			if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+				t.Fatalf("noncanonical profile contract error=%v", err)
+			}
+			document, err := json.Marshal(profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeCapabilityProfile(document); !errors.Is(err, ErrInvalidCapabilityProfile) {
+				t.Fatalf("decoded noncanonical profile contract error=%v", err)
+			}
+		})
+	}
+
+	canonical := ProviderContractRef{Key: ProviderContractNZBFinderV1, Version: 1}
+	profile := profileTestProfile(profileTestMovieRecipe())
+	profile.ProviderContract = &canonical
+	if err := ValidateCapabilityProfile(profile); err != nil {
+		t.Fatalf("canonical profile contract: %v", err)
+	}
+	document, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeCapabilityProfile(document)
+	if err != nil {
+		t.Fatalf("decode canonical profile contract: %v", err)
+	}
+	if decoded.ProviderContract == nil || *decoded.ProviderContract != canonical {
+		t.Fatalf("canonical contract changed during decode: %#v", decoded.ProviderContract)
+	}
+
+	for _, version := range []uint16{0, 2} {
+		profile.ProviderContract = &ProviderContractRef{Key: ProviderContractNZBFinderV1, Version: version}
+		if err := ValidateCapabilityProfile(profile); !errors.Is(err, ErrInvalidCapabilityProfile) {
+			t.Fatalf("contract version %d error=%v", version, err)
+		}
+	}
+}
+
 func TestCapabilityProfileKeepsRetrievalResponsibilitiesSeparate(t *testing.T) {
 	t.Parallel()
 	contract := ProviderContractRef{Key: ProviderContractNZBFinderV1, Version: 1}

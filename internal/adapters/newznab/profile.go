@@ -867,10 +867,10 @@ func knownProviderContract(reference ProviderContractRef) bool {
 	}
 }
 
-// ValidProviderContractKey lets owner-configuration validation share this
-// closed registry without duplicating provider knowledge in PostgreSQL code.
+// ValidProviderContractKey lets owner-configuration and typed-plan validation
+// share this exact closed registry without duplicating provider knowledge.
 func ValidProviderContractKey(key string) bool {
-	return knownProviderContract(ProviderContractRef{Key: strings.TrimSpace(key), Version: 1})
+	return validContractRef(ProviderContractRef{Key: key, Version: 1})
 }
 
 // ProviderContractAcceptsEndpoint verifies the owner-selected contract against
