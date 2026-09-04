@@ -5,9 +5,22 @@ Status
 ------
 
 Approved on 2026-09-03 for the offline/dry-run first implementation milestone
-in section 27 only. This approval does not authorize live commissioning,
-credential resolution, profile activation, deployment, production runtime
-cutover, or any later milestone.
+in section 27 only. The completed offline foundation received final independent
+acceptance on 2026-09-04 with the verdict APPROVE WITH NON-BLOCKING FOLLOW-UPS.
+The architecture commit is 75423d351022a088e319fef0e745bd8702ddccdf, the
+initial implementation commit is e374faf6834fd84c1d3b197decc5da511fcc5175,
+and the canonical provider-contract correction and accepted implementation
+commit is 25930c3f4ea2adc8774c53929ece5e5ee0d5d164.
+
+The accepted foundation remains offline and runtime-inert. Migration 0034 is
+undeployed, and production remains at schema 33 on the legacy commissioning,
+search, and retrieval paths. No Commissioning v2 HTTP route, UI, worker, live
+executor, credential resolver, profile generator, activation path, search
+integration, or external request path exists. Merge, deployment, application-
+database migration, and production runtime cutover are not authorized.
+Commissioning v2's next implementation milestone is a separately reviewed,
+owner-authorized live CAPS/search-probe executor; live execution is not part of
+the accepted offline foundation.
 
 Prepared: 2026-09-03
 Repository source audited at: 6014590d85c962c71e52142a87753ee3b25a109d
@@ -1574,8 +1587,15 @@ credential, or provider response.
 * Existing activation does not atomically compare a commissioning category
   snapshot. The activation milestone needs the narrow transactional extension
   described here.
-* Deterministic transaction overlap tests should be strengthened without adding
-  production hooks.
+Accepted non-blocking offline-foundation follow-ups are centralized here:
+
+* deterministically force transaction overlap in the concurrent-create test
+  using test-side coordination;
+* add isolated sensitivity assertions for additional structural-fingerprint
+  fields;
+* add a dedicated complete-season year-boundary test table, although the shared
+  validator is already correct;
+* add another harmless partial-overlap case for the exact-secret guard.
 * Provider-contract search recipe catalogs do not yet exist for every provider;
   add only evidence-backed reviewed entries, never hostname inference.
 * Retrieval commissioning, enrichment, pagination, feeds, JSON, and broader
@@ -1589,9 +1609,11 @@ credential, or provider response.
 Final recommendation
 --------------------
 
-Approve Commissioning v2 only as the small two-authorization, five-call,
-positive-fixture design above. Implement the offline run/plan/persistence
-foundation first and independently review it. Do not add any live client call in
-that milestone. The next milestone may add one owner-invoked CAPS/search step at
-a time only after the exact-secret, strict-parser, scheduler-scope, durable
-intent, and no-resend blockers pass local tests.
+The offline run/plan/persistence foundation is independently accepted at
+25930c3f4ea2adc8774c53929ece5e5ee0d5d164 with the non-blocking follow-ups
+listed above. It remains the small, runtime-inert foundation for the approved
+two-authorization, five-call, positive-fixture design. The next separately
+reviewed milestone may add one owner-authorized CAPS/search-probe step at a time
+only after the exact-secret, strict-parser, scheduler-scope, durable-intent, and
+no-resend blockers pass local tests. No live execution is authorized by this
+acceptance.
