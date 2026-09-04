@@ -917,6 +917,15 @@ func knownMapping(reference MappingRef) bool {
 
 func validProfileKey(value string) bool { return profileKeyPattern.MatchString(value) }
 
+// ValidStructurallySafePersistedText applies the capability profile's bounded
+// URL/auth-material and control-character exclusions to another profile-bound
+// document. It deliberately does not claim to recognize arbitrary secrets;
+// future live commissioning must still compare against the resolved credential
+// at its authorized construction boundary.
+func ValidStructurallySafePersistedText(value string, maximumBytes int) bool {
+	return maximumBytes > 0 && maximumBytes <= maxProfileTextBytes && validProfileText(value, maximumBytes)
+}
+
 func validProfileText(value string, maximum int) bool {
 	current := value
 	decodedPasses := 0
