@@ -1,0 +1,1597 @@
+Media Manager Newznab Commissioning v2 Architecture Proposal
+============================================================
+
+Status
+------
+
+Approved on 2026-09-03 for the offline/dry-run first implementation milestone
+in section 27 only. This approval does not authorize live commissioning,
+credential resolution, profile activation, deployment, production runtime
+cutover, or any later milestone.
+
+Prepared: 2026-09-03
+Repository source audited at: 6014590d85c962c71e52142a87753ee3b25a109d
+Accepted capability foundation: ae3dbd026fddfb0ed8a8043f99015defbe1de898
+Capability-foundation closeout: bb2ab1c23250d51800e2aa598c4996e042fa91da
+
+The task supplied schema 33, ten migration-created Newznab draft profiles, zero
+active profiles, zero verified recipes, and zero operation-status rows as the
+current deployed state. This source-only audit did not access an application
+database, so those deployed counts are inputs to this proposal rather than
+independently re-queried facts.
+
+The Milestone 1 capability foundation remains authoritative. Commissioning v2
+constructs evidence for that closed model; it does not replace the model, add a
+plugin system, or make the currently inert planner a production dependency.
+
+
+1. Current-code audit
+---------------------
+
+### 1.1 Existing commissioning behavior
+
+The current production path is a synchronous legacy operation:
+
+* cmd/media-manager/main.go constructs one shared indexer scheduler, creates
+  commissioning.NewznabService, and exposes its Commission method through the
+  owner HTTP server.
+* internal/httpapi/server.go registers the owner-only
+  POST /api/v1/settings/integrations/{id}/commission route.
+* internal/commissioning/newznab.go loads one integration, resolves its
+  secret_ref, configures the shared scheduler, and constructs the shared
+  Newznab client.
+* It calls CAPS, passes the legacy CapsSnapshot.Searches projection to
+  SelectSearchDialects, then sends one randomized negative television query at
+  limit 1.
+* It may repeat that negative request once only for a short ordinary pacing
+  delay of at most ten seconds. This is still a second request, not semantic
+  verification.
+* Zero results from that randomized query are treated as success.
+* internal/postgres/commission.go CompleteNewznabCommission writes
+  mode_verified, mutable search_dialects, advertised CAPS limits/hash/version,
+  and automatically sets enabled=true.
+
+That path has no positive fixture, exact-recipe proof, durable request intent,
+target-bound run evidence, immutable plan preview, or crash/no-resend boundary.
+It must eventually be replaced for v2 commissioning, but must remain unchanged
+and in service until a separately reviewed cutover.
+
+The existing HTTP handler also returns the legacy commissioning error string.
+Commissioning v2 must use closed safe response codes and must not reuse that
+handler or CompleteNewznabCommission.
+
+### 1.2 Existing production search and retrieval
+
+Production acquisition is still profile-independent:
+
+* internal/postgres/search.go selects enabled Newznab integrations using the
+  legacy commissioned configuration.
+* internal/acquisition/search.go buildRequest reads mode_verified,
+  search_dialects, the legacy shared category list, limits, and extended.
+* It resolves the integration credential, constructs the existing shared
+  client, searches, evaluates acquisition policy, and persists normal search
+  runs/candidates.
+* internal/acquisition/search_plan.go PlanSearch considers only already
+  verified profile recipes and currently has test callers only.
+* internal/acquisition/retrieve.go and the Newznab retrieval methods remain on
+  the existing retrieval path.
+
+Commissioning probes must not be stored as acquisition search_runs. Those rows
+require workflow/policy semantics and feed candidate history. A commissioning
+probe is evidence about an indexer recipe, not an attempt to acquire media.
+
+### 1.3 Reusable components
+
+The following code should be reused rather than replaced:
+
+* internal/adapters/newznab/client.go: the single Newznab transport. It emits
+  XML requests, bounds response bodies, disables automatic redirects, follows
+  at most two redirects manually, strips credentials and Referer, enforces the
+  redirect origin rules, and retains the existing DNS-pinning/TLS protections
+  where cross-origin retrieval redirects are permitted.
+* internal/indexers/scheduler.go: the only per-instance request lane. It owns
+  one request in flight per indexer, global concurrency, minimum intervals,
+  rolling query/grab allowance, Retry-After, cooldown, and durable request
+  reservation.
+* internal/adapters/newznab/parser.go: strict, bounded XML parsing; ordered raw
+  field preservation; normalized facts; item-level problems; and the richer
+  CAPS mode observation. A strict single-root correction is nevertheless a
+  live-probe blocker, as described below.
+* internal/adapters/newznab/profile.go: closed recipe, CAPS, provider-contract,
+  mapping, evidence-target, and verification types plus strict validation.
+* internal/acquisition/search_plan.go: useful normalization, category, and
+  deterministic-ordering behavior. It is not itself the commissioning planner
+  because it correctly refuses unverified recipes.
+* internal/postgres/indexer_capabilities.go: append-only profile revision
+  creation, strict reload validation, fresh account/configuration binding, and
+  atomic explicit activation/supersession.
+* integration configuration in internal/postgres/settings.go: separate movie
+  and series categories, category_selection_review_required, legacy fields,
+  and the optional owner-selected provider contract.
+* audit_events: suitable for short lifecycle summaries only. It is not a place
+  for request detail or provider response text.
+
+### 1.4 Foundation behavior that Commissioning v2 must honor
+
+* Profile schema v1 is XML-only and single-page.
+* Only movie and complete-season search scopes are modeled.
+* Search recipes are exact, closed typed structures. Individual CAPS parameter
+  advertisements do not verify a combination.
+* Evidence is bound to exactly one recipe, operation, or retrieval target.
+* Provider contracts are owner-selected, registered Go implementations and
+  bind the whole profile revision.
+* The non-secret endpoint/configuration digest includes the exact case-sensitive
+  secret_ref but never the resolved secret or a secret-derived fingerprint.
+* Ordinary movie/series category choices are configuration, not copied fixed
+  recipe data. A run must still remember the exact categories it exercised.
+* Activation currently requires at least one verified primary recipe, so a
+  truthful movie-only or season-only profile is structurally possible.
+* Operation status belongs to an activated profile revision. Commissioning run
+  availability and temporary failures must not be written there.
+* Migration-created empty drafts are valid historical drafts but cannot pass
+  activation. Commissioning must append a new revision rather than mutate them.
+
+### 1.5 Code that must be replaced later, but not yet
+
+Commissioning v2 eventually replaces only the commissioning route/service and
+its use of CompleteNewznabCommission. It does not replace the shared client or
+scheduler. The legacy route, legacy dialect projection, legacy categories,
+mode_verified, production request builder, and retrieval path remain available
+until each later cutover gate passes.
+
+No existing startup worker, HTTP route, search, retrieval, or profile-loading
+path should change in the first v2 implementation milestone.
+
+
+2. Goal in plain language
+-------------------------
+
+For one exact configured Newznab instance, let the owner preview and authorize
+a very small set of real API calls. Use those calls to prove only the exact
+movie or complete-season request shapes that returned the intended fixture.
+Keep every result tied to the endpoint, account reference, provider contract,
+categories, fixture, and request recipe actually used. Produce a new immutable
+draft for owner review. Never infer whole-indexer health, enable the integration,
+activate the draft, retrieve an NZB, or begin acquisition automatically.
+
+The central truth rule is:
+
+    advertised component != exact recipe verified != media file verified
+
+CAPS is evidence about provider claims. A controlled positive search is
+evidence about one exact request recipe. Neither is post-download evidence
+about audio, subtitles, completeness, or playability.
+
+
+3. Scope and non-goals
+----------------------
+
+### 3.1 Initial Commissioning v2 scope
+
+* One owner-triggered run for one configured Newznab integration.
+* One explicitly authorized CAPS observation.
+* Owner review of movie and series categories.
+* One positive movie recipe probe when a valid movie fixture is supplied.
+* One positive complete-season recipe probe when a valid season fixture is
+  supplied.
+* At most one separately tested general-search fallback for each supplied
+  scope.
+* A maximum of five logical query-budget calls for a full two-scope run.
+* Durable run/step intent, outcome, safe evidence, and crash state.
+* Append-only generation of one immutable profile draft.
+* Owner review and a separate explicit activation action.
+* A disabled integration may be explicitly commissioned and may hold an active
+  profile, but remains disabled.
+
+### 3.2 Explicit non-goals
+
+The initial v2 implementation does not execute or verify DETAILS, GETNFO, file
+lists, comments, feeds/RSS polling, JSON, pagination, NZB retrieval, advertised
+download locators, provider-direct downloads, enrichment, media download,
+AltMount, ffprobe, subtitle inspection, or Plex verification.
+
+It also does not add provider scripts, arbitrary templates, regular expressions
+from data, a plugin framework, a workflow DSL, a universal fixture catalog, a
+general request log, a generic evidence graph, automatic contract detection,
+periodic probing, crawling, browser automation, or Prowlarr as a compatibility
+layer.
+
+No extra operation is necessary for truthful search commissioning. CAPS plus
+positive search fixtures is sufficient for the narrow claim being made.
+Retrieval is deliberately separate because it consumes a grab allowance and
+parses more dangerous content.
+
+
+4. Final minimal component diagram
+----------------------------------
+
+                                    configuration/read only
+  Owner page/API  --------------------------------------------------+
+       |                                                           |
+       | create, review, authorize, execute one step, cancel       v
+       v                                             integration_instances
+  Commissioning v2 service                                      (owner data)
+       |                                                           |
+       +--> pure probe planner <---- fixtures + richer CAPS + contract registry
+       |          |
+       |          +---- immutable typed plan / structural fingerprint
+       |
+       +--> commissioning run repository --> runs + steps (append/transition)
+       |
+       +--> one-step executor (later live milestone)
+       |          |
+       |          +--> shared indexer Scheduler --> durable query reservation
+       |          |
+       |          +--> existing secure Newznab Client --> one authorized call
+       |                         |
+       |                         +--> pre-parse exact-secret guard
+       |                         +--> strict bounded CAPS/search parser
+       |
+       +--> profile draft builder --> existing append-only profile repository
+       |
+       +--> existing explicit activation repository (separate owner action)
+
+  Production acquisition/search/retrieval ----------------> legacy path
+                                               (no v2 dependency or call edge)
+
+There is no v2 background crawler. Initial live execution performs exactly one
+outbound logical operation per explicit owner execute-next action. This avoids
+the existing generic outbox worker's automatic retry behavior and makes restart
+semantics unambiguous.
+
+
+5. Ownership table
+------------------
+
+Component                    Owns
+---------------------------  -----------------------------------------------
+Owner configuration          Endpoint/base path, allow-HTTP policy, exact
+                             secret_ref, enabled state, minimum interval,
+                             query/grab budgets, selected movie/series category
+                             IDs, review-required state, and optional explicitly
+                             selected provider-contract key.
+
+Commissioning run            Immutable account/config digest snapshot, fixture
+                             snapshot, phase authorization, category snapshot,
+                             immutable phase plans, planner/profile versions,
+                             safe lifecycle state, generated draft link, and
+                             owner-visible attention/stale state.
+
+Probe planner                Pure selection of a bounded exact recipe proposal
+                             from a closed built-in catalog or the explicitly
+                             selected provider contract. It performs no I/O and
+                             makes no support claim.
+
+Executor                     Exactly one authorized step, durable intent,
+                             freshness/cancellation guards, credential lifetime,
+                             safe classification, and terminal step recording.
+                             It owns no HTTP transport.
+
+Shared Newznab client        URL construction, XML output, authentication on the
+                             wire, transport security, redirect rules, response
+                             bounds, parser invocation, and the live exact-secret
+                             inspection seam before parse/hash/logging.
+
+Indexer scheduler            Instance-wide one-request lane, global concurrency,
+                             minimum interval, rolling query/grab reservation,
+                             cooldown, Retry-After, and protocol-neutral failure
+                             scope. It does not know recipe/profile types.
+
+Commissioning evidence       One exact target, safe counts/outcome, observed
+                             facts needed for the semantic decision, source
+                             ordinals where retained, inference kept separate,
+                             and a response digest only after the secret gate.
+
+Capability profile          Immutable durable support claims, CAPS claims,
+                             exact verified recipes, registered mapping refs,
+                             provider-contract version, conservative limits,
+                             and exact evidence references.
+
+Operation status             Temporary runtime availability for one activated
+                             profile/operation/recipe. Commissioning does not
+                             create or update these rows.
+
+Provider contract            Tiny reviewed Go registry of candidate recipe
+                             shapes, validators, origin restrictions, and
+                             version. Owner selection only; provider responses
+                             cannot select it.
+
+Owner API/UI                 Owner authentication, bounded input, phase preview,
+                             explicit authorization/cancellation/activation,
+                             safe state display, and no secret/full URL/body.
+
+
+6. Commissioning run state machine
+----------------------------------
+
+The run uses closed states rather than a generic workflow engine:
+
+    awaiting_caps_authorization
+        -> caps_authorized
+        -> awaiting_category_review
+        -> awaiting_search_authorization
+        -> searches_authorized
+        -> ready_for_draft
+        -> completed
+
+From any nonterminal state, bounded transitions may lead to:
+
+    owner_attention
+    cancel_requested
+    cancelled
+    stale
+    safety_blocked
+
+Rules:
+
+1. Creating a run validates and freezes the account/config digest, fixture
+   snapshot, profile schema, planner version, contract key/version, a one-call
+   CAPS plan, and the total ceiling of five calls. It sends nothing.
+2. CAPS authorization applies only to the CAPS step. This resolves the
+   unavoidable sequencing issue: fresh CAPS is needed before the exact search
+   plan exists, but CAPS itself requires prior owner authorization.
+3. After safe CAPS evidence, the run pauses. The owner reviews movie and series
+   categories against the richer safe CAPS tree. Category edits are expected
+   only in this phase.
+4. The planner then freezes the exact category digest and appends the search
+   plan once. Existing steps are never edited. The owner sees every structural
+   request and authorizes at most four search calls.
+5. searches_authorized means the owner may execute the next planned step. It
+   does not cause startup/background execution.
+6. Once every authorized search step has a terminal safe outcome, the run is
+   ready_for_draft. A local transaction generates the draft and sets completed.
+7. Draft generation normally follows completion automatically because it has
+   no external side effect. If a crash occurs between evidence and generation,
+   a later owner action may repeat only the local finalization transaction.
+8. Profile activation is not a run-state transition. It is a separate explicit
+   owner operation after reviewing the completed draft.
+
+No state transition enables or disables an integration. No terminal run is
+deleted. A new attempt creates a new run.
+
+
+7. Step state machine and crash semantics
+-----------------------------------------
+
+Each row is one logical API attempt and has a closed state:
+
+    planned
+      -> intent_committed
+      -> transmitting
+      -> completed
+
+Other terminal/attention states are:
+
+    deferred_before_send
+    indeterminate
+    cancelled
+
+The safe outcome is a separate closed value; state is not overloaded with
+provider semantics.
+
+Execution order:
+
+1. Lock integration, run, then step in that order.
+2. Recheck run revision, authorization, exact config/account digest, provider
+   contract, profile/planner version, frozen category digest, cancellation, and
+   step state.
+3. Set intent_committed and commit. No database transaction remains open across
+   scheduler waiting or network I/O.
+4. The shared client acquires the existing scheduler permit. Cooldown or budget
+   rejection before network leaves transmitted_at null and records
+   deferred_before_send.
+5. A narrow client callback, after permit acquisition and immediately before
+   the first HTTP send, atomically rechecks the run and marks transmitting.
+   Failure to persist that marker prevents the send. Existing request guards
+   recheck cancellation/configuration immediately before the initial request
+   and every redirect hop.
+6. Marking transmitting before http.Client.Do is deliberately conservative. A
+   crash between the marker and the actual send is still treated as possibly
+   sent.
+7. After a safe parsed outcome, persist the terminal step result and release the
+   scheduler permit through the existing recording path.
+
+Crash behavior:
+
+* Before intent: the step remains planned. It can be attempted after a new
+  explicit owner execute action.
+* After intent but before transmitted_at: no request is known to have been sent.
+  The run is presented for owner action; nothing sends automatically. In the
+  offline milestone there is deliberately no lease-renewal/resume transition:
+  the truthful recovery is to request cancellation, cancel the unsent step,
+  close the run, and let the owner create a new bounded run. A later live
+  executor may add an explicitly owner-authorized retry only after separate
+  crash-boundary review.
+* After transmitted_at and before terminal result: the step is indeterminate.
+  It is never resent automatically.
+* After evidence persistence but before profile creation: local finalization can
+  continue from durable evidence without another request.
+* During profile creation: one transaction either appends the complete draft
+  and links it to the run, or rolls back both. No partial/active profile exists.
+
+A short database execution lease prevents two API processes from executing one
+step concurrently. An expired transmitting lease is displayed as interrupted;
+an owner transition records indeterminate. Lease expiry never authorizes a
+request. No production-only concurrency hook is needed.
+
+The initial policy for an indeterminate step is intentionally simple: close the
+old run for owner attention and create a new bounded run if the owner chooses to
+try again. Do not append an unplanned retry to the old immutable plan.
+
+
+8. Fixture model
+----------------
+
+Fixtures are bounded immutable run snapshots, not a global catalog.
+
+MovieFixture:
+
+* local fixture key generated by Media Manager;
+* canonical title (required, bounded, valid UTF-8);
+* optional year, 1800..9999;
+* zero or more trusted verified identities from the current closed set:
+  IMDb, TMDb, and other identifiers already supported by the profile model;
+* local media ID/revision when selected from the catalog;
+* source kind: trusted_local_metadata or explicit_owner_assertion.
+
+CompleteSeasonFixture:
+
+* local fixture key;
+* canonical series title;
+* season 0..999 (season zero is specials);
+* optional year, 1800..9999;
+* trusted verified TVDb, TMDb, TVMaze, IMDb, or other modeled identities;
+* local series ID/revision when available;
+* source kind as above.
+
+Only catalog.ExternalIdentity values already marked verified are eligible from
+local metadata. Manual fixtures receive the same identifier, title, year, and
+size validation and are visibly owner-asserted; they do not silently become
+catalog identity evidence.
+
+Initial v2 has no discovery request. If no suitable fixture exists, that scope
+cannot be verified in the run. This is preferable to spending a query to find a
+fixture using the same behavior under test. A bounded discovery option may be
+designed later as a separate owner-authorized diagnostic, not hidden inside
+commissioning.
+
+
+9. Deterministic probe-planning algorithm
+-----------------------------------------
+
+There are two pure plan phases.
+
+### 9.1 CAPS phase
+
+1. Validate integration kind, canonical configuration, secret_ref syntax,
+   provider contract selection, fixture snapshots, and profile/planner version.
+2. Obtain the existing non-secret account/config digest. Never resolve a secret.
+3. Read scheduler cooldown and an advisory remaining-query-budget view. This
+   preview is informational; Acquire remains authoritative.
+4. Produce one CAPS step with target=caps, XML, query budget, no categories,
+   no complete URL, and one safe structural fingerprint.
+5. Show a total run ceiling of five calls even though the exact post-CAPS steps
+   are not yet known.
+
+### 9.2 Search phase
+
+1. Strictly validate the safe richer CAPS observation. Do not consult the
+   legacy CapsSnapshot.Searches projection.
+2. Require owner-reviewed category selections for every scope being planned.
+   Validate selected IDs against the complete nested safe CAPS category tree.
+   Unusual numeric families warn but are not rejected. A fixed-category
+   provider contract uses only its reviewed fixed set. A selected-movie or
+   selected-series recipe requires a nonempty reviewed set. If the owner
+   deliberately commissions a request without cat, the closed recipe must use
+   CategoryNone; an accidentally empty selected set is not silently treated as
+   no category filter.
+3. Form a small ordered list of candidate recipe shapes from:
+   a. a closed generic Newznab recipe catalog in reviewed Go code; and
+   b. the exact version of the explicitly owner-selected provider contract.
+4. CAPS available/recognized mode and component claims may make a generic
+   candidate reasonable, but do not verify it. CAPS omission may be probed only
+   when a closed generic candidate or selected contract supports proposing it,
+   and the preview calls out the omission. CAPS unavailable/repeated/
+   uninterpretable modes are not used to infer a generic recipe; a selected
+   reviewed contract may still propose an explicitly warned probe.
+5. For each supplied scope, select exactly one strongest primary candidate whose
+   typed fixture inputs exist. If the highest candidate cannot be materialized,
+   consider the next candidate without sending anything. A zero-result network
+   outcome does not cascade to another exact-ID recipe in the same run.
+6. Optionally add one general-search recipe for that scope as an independent
+   fallback target. Its closed declaration lists only zero_raw_results,
+   no_plausible_identity_scope, and/or deterministic_recipe_contradiction, as
+   shown in the preview; it can never list timeout, quota, authentication,
+   transport, malformed-XML, or policy rejection. It is sent as an independent
+   commissioning probe rather than being triggered by the primary result, and
+   primary evidence cannot verify it.
+7. Use extended=true only when the exact candidate calls for it and CAPS or the
+   selected contract makes that candidate reasonable. Otherwise use the closed
+   non-extended candidate. Do not probe both merely to compare metadata.
+8. Set request limit to min(20, positive safe CAPS maximum) when CAPS supplies a
+   positive maximum; otherwise use 20. Never use CAPS to raise the tested limit.
+9. Use XML and PaginationNone only. Offset is absent/zero.
+10. Sort selected steps by scope (movie, complete season), role (primary,
+    fallback), priority ascending (the established profile meaning: lower
+    numeric priority is stronger), then recipe key ascending. Assign immutable
+    ordinals.
+11. Return at most four search steps and at most five total run calls.
+
+Candidate ordering does not claim universal provider behavior. An illustrative
+generic ordering is movie q+IMDb, then q+TMDb, then a separately approved
+ID-only shape when its fixed definition is applicable; and television q+TVDb+
+season, then q+TMDb+season, then q+TVMaze+season. General title/year or
+title+season-token is the optional fallback. The exact reviewed catalog, not
+this prose, is authoritative in implementation.
+
+### 9.3 Structural request fingerprint
+
+Use SHA-256 over a versioned deterministic binary/canonical tuple containing:
+
+* planner/profile version;
+* config/account digest;
+* exact evidence target and recipe key;
+* scope, mode, query style, typed bindings/transforms, and extended flag;
+* category-set reference and exact sorted category IDs used;
+* XML output, limit, offset/pagination-none, and role.
+
+Do not include the resolved credential, authorization, complete URL, host,
+provider path, raw query string, or provider text. The immutable fixture digest
+is stored beside the structural fingerprint and binds the concrete title/IDs.
+Together they identify the exact planned meaning without turning a credential
+into a fingerprint.
+
+
+10. Exact default request budget
+--------------------------------
+
+Default and hard maximum for one full initial search-only run: five logical
+query-budget calls.
+
+    1 CAPS
+    1 movie primary
+    1 optional movie general fallback
+    1 complete-season primary
+    1 optional complete-season general fallback
+
+Runs with one scope or without a fallback have a smaller immutable count. No
+negative control, discovery request, alternate-after-no-results, or retry is
+hidden outside that number. Redirect hops remain separately bounded by the
+shared client and are displayed as transport hops, not additional planned API
+operations. The scheduler remains authoritative if available budget changes
+after preview.
+
+
+11. Semantic verification matrix
+--------------------------------
+
+Target / observation     Required proof                         Durable result
+-----------------------  -------------------------------------  ----------------
+CAPS                     Authenticated bounded transport; one   CAPS evidence only.
+                         strict CAPS XML document; valid CAPS    Never verifies a
+                         envelope; exact-secret scan passed;     search recipe.
+                         retained text structurally safe.
+
+Exact-ID movie recipe    Exact planned recipe sent; valid       Verified only when a
+                         search envelope; at least one item      matching provider-
+                         has the requested provider-supplied     supplied ID for the
+                         ID, canonical title match, and no       requested namespace is
+                         conflicting explicit ID/year. A         present. Missing echoed
+                         supplied provider year must match.      ID leaves it unknown.
+
+General movie recipe     Exact general recipe sent; canonical   Verified when title and
+                         title boundary match; exact fixture     exact year match with no
+                         year appears as an explicit field or    conflicting provider ID/
+                         deterministic title token; no conflict. year. Inference basis is
+                                                                retained separately.
+
+Exact-ID season recipe   Exact request; matching provider-      Verified only when one
+                         supplied series ID; canonical series    item independently proves
+                         title; requested season from explicit   identity, season, and
+                         field or strict title token; credible   plausible pack scope.
+                         complete-pack evidence; no conflicting
+                         series ID, season, or episode scope.
+
+General season recipe    Canonical series title; requested       Same pack rule, without
+                         season; no conflicting explicit ID;     claiming an ID binding.
+                         credible pack evidence.
+
+General fallback         Its own exact planned request and the   Own target-bound evidence.
+                         same scope-specific semantic checks.    Primary success is irrelevant.
+
+Zero results             Valid envelope and zero raw items.      Recipe remains untested/
+                                                                unknown; no unsupported claim.
+
+No plausible match       Valid items but none meets strict       Unknown plus safe warning,
+                         fixture/scope proof.                    unless deterministic conflict
+                                                                meets contradicted rule.
+
+Deterministic protocol   Closed mapped provider error specific   Unsupported for this exact
+unsupported              to the exact mode/shape (for example,   recipe only.
+                         reviewed Newznab no-such-function code).
+
+Permission restriction   Closed deterministic account/plan       Permission restricted for
+                         response scoped to this operation.       exact target; not inferred
+                                                                from generic authentication.
+
+Contradicted             CAPS/provider claim advertised the      Contradicted only for the
+                         behavior and the exact controlled probe  exact target. A mere empty
+                         produced deterministic conflict.         result is insufficient.
+
+Movie title/year without an echoed ID is deliberately sufficient only for a
+general title/year recipe. It does not prove that an ID-bound recipe honored
+its ID parameter. This sacrifices coverage in favor of truthful exact-ID
+claims; the owner can choose a general recipe or a different fixture.
+
+For complete seasons, a single SxxEyy item never proves pack support. A bare
+episode range is not enough unless a trusted local expected-episode snapshot is
+part of a future fixture and the range covers it. Initial v2 accepts a provider-
+mapped pack fact or strict title evidence such as S02 with no episode token,
+"complete season", or "season complete". An explicit episode fact or conflicting
+season makes that item unusable. Mixed responses are allowed only when at least
+one individual item satisfies all three dimensions.
+
+One sample proves only that the exact recipe worked for the fixture at that
+time. It does not prove retention, universal field availability, or post-
+download media properties.
+
+
+12. Failure classification matrix
+---------------------------------
+
+Class / examples          Continue?       Retry policy          Persistence / support
+------------------------  --------------  --------------------  ------------------------
+Instance-wide: missing    Stop for owner.  No automatic retry.   Closed safe outcome,
+credential, general auth,                 New run/owner action   timestamps, Retry-After
+quota, 429, Retry-After,                   after correction or    where applicable. No
+DNS/TLS/provider transport                 cooldown.              capability change.
+
+Operation/recipe: clear   May continue     Never retry that step  Exact target-bound safe
+unsupported mode/shape,   other already    automatically.        evidence for deterministic
+operation-specific plan   authorized                            unsupported/restricted/
+restriction, exact        independent                           contradicted outcomes.
+contradiction             steps.                                Scheduler scope=operation.
+
+Operation temporary:     Stop in owner    No automatic retry.   Safe code/counts only;
+malformed whole XML,      attention; do    Owner chooses a new   recipe stays unknown.
+semantic ambiguity        not salvage.     run.                  Unrelated capabilities stay.
+
+Item-specific: missing    Continue parsing Valid items in same   Bounded item problem and
+GUID, one bad field, one  the valid XML     response remain.      omitted/unusable item.
+conflicting ID/result      response.                              Scheduler may record success.
+
+Safety: credential echo,  Stop run in      Never retry same run. Closed safety code and
+unsafe redirect, unsafe   safety_blocked.  Owner investigates.   timing only; no unsafe text
+required persisted text,                                        or response digest; no
+body/XML resource limit                                         capability change.
+
+Configuration/category   Stop before next Require a new run     Evidence retained under old
+changed after freeze      send; mark stale. for new snapshot.    digest; no activatable draft.
+
+Cancellation before send Stop cleanly.     New run if desired.   Closed cancelled code; no call.
+
+Cancellation/ crash after Mark possible    Never resend.         Indeterminate attempt remains
+transmission              send indeterminate. New run only.      immutable and visible.
+
+Authentication, quota, Retry-After, DNS/TLS, and provider-wide failures are
+instance-scoped in the scheduler. Deterministic recipe failures consume normal
+minimum pacing but use RecordResult with operation scope, so they do not create
+unrelated global backoff. Item problems never enter scheduler state.
+
+The accepted scheduler/read-model timestamp separation remains a blocker before
+the first production caller uses scoped RecordResult. Existing production
+callers continue using Record.
+
+
+13. Exact-secret-aware sanitization boundary
+---------------------------------------------
+
+Milestone 1 structural validation remains generic and credential-blind.
+Commissioning v2 adds a separate guard only while an owner-authorized step holds
+the resolved credential in memory.
+
+### 13.1 Boundary placement
+
+The guard must be inside the existing shared Newznab client execution path,
+after bounded bytes/headers are received but before:
+
+* ParseCaps or ParseSearch;
+* any raw or canonical response hash;
+* an error containing provider material;
+* logging;
+* run/step/profile persistence.
+
+Current ParseCaps/ParseSearch compute hashes internally. Raw-byte scanning is
+not sufficient because XML entity decoding can reconstruct a credential that
+does not appear literally in the raw body. The live v2 path must therefore
+factor the existing strict parser core so it can parse without hashing, scan
+all decoded provider fields in memory, and compute a digest only after both the
+raw and decoded scans pass. Existing production parser behavior can remain
+unchanged through a compatibility wrapper. CAPS needs the same boundary as
+search. Redirect Location and all final response headers are inspected before
+use/persistence; an exact credential in Location is rejected before existing
+redirect stripping or following can hide it.
+
+### 13.2 Compared representations
+
+Build a small bounded in-memory comparison set from the exact resolved
+credential and the configured authentication mechanism:
+
+* raw credential bytes;
+* exact URL query encoding used by the client;
+* exact path encoding only if that configured method actually uses a path;
+* one through the same fixed maximum nested-percent depth accepted by the
+  structural model, detected by bounded complete-%HH decoding so hex case does
+  not matter;
+* query-form decoding only inside known query contexts, where '+' semantics are
+  actually applicable;
+* exact Basic or Bearer header representation only if the configured client
+  actually sent that authentication form;
+* complete credential-bearing parameter forms for the closed credential names
+  the client uses.
+
+Scan the bounded raw body and every bounded response/redirect header value. A
+whole-body scan covers literal and percent-encoded material. Then parse without
+hashing and scan all decoded XML attributes, elements, error text, titles,
+categories, and result fields again, including values reconstructed from XML
+entities. No parser-produced body hash may exist before that second scan.
+
+Do not use entropy scores, secret-looking heuristics, provider regexes, or
+provider-supplied redaction rules. A short credential may cause a conservative
+false positive; leakage prevention wins.
+
+### 13.3 Detection outcome and digest policy
+
+If any exact representation is found:
+
+* return only credential_echo_detected;
+* stop the run in safety_blocked;
+* persist no provider text, raw body, response header, body hash, sanitized hash,
+  credential fingerprint, or encoded credential;
+* emit no provider-derived error/log field;
+* require owner attention.
+
+For an accepted response, store SHA-256 over a versioned, deterministic
+sanitized evidence projection as safe_response_sha256; it is not mislabeled as
+a raw-body digest. Profile schema v1 also requires a durable BodySHA256 for
+verified evidence. Commissioning v2 therefore computes that raw-body SHA-256
+only after the bounded raw scan, strict parse, decoded-field scan, and
+structural acceptance of every field selected for persistence all pass.
+Expected but non-persisted fields such as download links are excluded from the
+evidence projection. The digest remains a raw-body digest and is copied to
+the profile under its existing meaning. It establishes absence of the exact
+configured credential representations checked by this boundary, not the
+impossible absence of every unknown secret. If a future design chooses to omit
+raw-body digests, it must revise the profile schema/validator explicitly rather
+than put a sanitized digest under the old name.
+
+No hash is permitted for a rejected secret-bearing response. Hashing after
+redaction is safe only when the canonical projection is made exclusively from
+accepted bounded fields, scanned again for the exact credential, versioned, and
+labeled as a sanitized projection digest.
+
+Go cannot guarantee memory zeroization. The practical boundary is an ephemeral
+per-step credential value, no persistence/logging, prompt release of references,
+and no copies in run/plan structures.
+
+
+14. Minimum database additions
+------------------------------
+
+Use the next additive schema migration after 0033. Add exactly two tables; do
+not alter acquisition search history.
+
+### 14.1 indexer_commissioning_runs
+
+Minimum columns:
+
+* id uuid primary key;
+* indexer_instance_id uuid FK integration_instances ON DELETE RESTRICT;
+* state closed text check;
+* revision bigint for optimistic owner transitions;
+* profile_schema_version smallint;
+* planner_version smallint/closed version;
+* endpoint_config_sha256 bytea exactly 32 bytes;
+* provider_contract_key and provider_contract_version, nullable as a pair;
+* fixture_document jsonb, document SHA-256, and strict schema/version;
+* caps_plan_sha256 and caps_authorized_at/by;
+* category_selection_sha256, movie_category_ids, series_category_ids,
+  initially nullable and write-once at the category-freeze transition;
+* search_plan_document jsonb and search_plan_sha256, nullable then write-once;
+* search_authorized_at/by;
+* maximum_api_calls smallint check 1..5;
+* planned_api_calls smallint check 1..maximum_api_calls;
+* safe_code closed/bounded, never provider text;
+* generated_profile_id nullable unique FK profiles ON DELETE RESTRICT;
+* created_at, updated_at, cancel_requested_at, stale_at, completed_at.
+
+Constraints:
+
+* partial unique index: one nonterminal run per indexer;
+* immutable identity/config/fixture/version/CAPS plan/maximum fields;
+* category and search plan columns may transition null -> value once only;
+* phase authorization cannot precede its sealed plan;
+* generated_profile_id may transition null -> value once;
+* terminal states cannot reopen;
+* documents use strict typed decoding in Go before insert and after load;
+* no endpoint, secret_ref text, resolved secret, URL, or raw provider body.
+
+The account reference is bound indirectly by endpoint_config_sha256, whose
+existing definition includes exact secret_ref. The run never stores or displays
+the secret reference through its detailed evidence.
+
+### 14.2 indexer_commissioning_steps
+
+Minimum columns:
+
+* id uuid primary key;
+* run_id uuid FK commissioning_runs ON DELETE RESTRICT;
+* ordinal smallint with unique(run_id, ordinal), bounded to 1..5;
+* phase caps/search;
+* target_kind closed EvidenceTargetKind;
+* recipe_key nullable only for non-search target, with exact target constraint;
+* scope and role nullable/required consistently with search target;
+* fixture_key nullable for CAPS, locally generated/validated otherwise;
+* fixture_sha256 bytea for search steps;
+* typed_request_document jsonb with strict closed schema;
+* structural_request_sha256 bytea exactly 32 bytes;
+* category_ids integer[] bounded, sorted, unique;
+* request_limit smallint; XML and PaginationNone implied/checked;
+* budget_family fixed to query;
+* state closed text check;
+* intent_at, transmitted_at, completed_at;
+* executor_lease_owner and executor_lease_until, bounded operational fields;
+* safe_outcome and safe_code closed enums;
+* retry_at for definite scheduler/provider deferral;
+* raw_result_count and plausible_identity_count bounded to requested limit;
+* safe_response_sha256 nullable 32 bytes;
+* raw_body_sha256 nullable only after the exact-secret gate, if retained;
+* evidence_key nullable unique, generated locally in the accepted format;
+* evidence_document jsonb: bounded typed semantic proof, retained raw-field
+  ordinals/names and accepted values needed for the decision, inferred facts in
+  a separate section, and no URL/body/header/error text.
+
+Unknown attribute names may be kept as a bounded safe inventory. Unknown raw
+values are not needed in the profile and should not be retained merely because
+they exist. Recognized values used for proof may be retained only after exact-
+secret and structural validation. Expected URL fields such as download links
+are excluded from commissioning persistence rather than treated as profile
+text.
+
+One step row is one physical logical attempt. There is no generic retry row,
+HTTP log, or third evidence table. The same evidence_key is copied into the
+immutable profile evidence record, allowing the owner read model to find its
+source step.
+
+The scheduler reservation API currently exposes a deferral time rather than a
+reservation ID. Store budget_family and timestamps; keep an accounting reference
+nullable unless the scheduler later exposes a real non-secret identifier. Do
+not invent one.
+
+
+15. Locking and concurrency rules
+---------------------------------
+
+* One nonterminal run per integration, enforced in PostgreSQL.
+* One nonterminal executing step per run, enforced in PostgreSQL.
+* The scheduler independently enforces one request in flight per indexer across
+  commissioning and production work.
+* Repository lock order is always integration row -> run -> step -> profile.
+* Do not hold row locks while waiting for scheduler pacing or network I/O.
+* An expected run revision is required on owner mutations.
+* Step intent commits before external I/O.
+* A before-send callback rechecks current account/config/category binding and
+  commits transmitted_at before http.Client.Do.
+* The existing request guard rechecks before every followed redirect.
+* Evidence acceptance rechecks bindings after the response. A mid-request
+  change makes the run stale even if the old response was valid.
+* FinalizeCommissioningRun locks integration and run, verifies all evidence,
+  appends exactly one profile revision, and links it in one transaction. A
+  private transaction-aware helper may be extracted from the existing profile
+  creation repository; no general document-update method is added.
+* Activation uses the existing atomic activation repository, narrowly extended
+  at the commissioning boundary to lock/recheck the originating run's frozen
+  category digest in the same transaction. A separate precheck followed by
+  activation would have a category-edit race and is not sufficient.
+* All network work occurs outside a transaction. All SQL remains parameterized.
+
+
+16. Profile-draft generation rules
+----------------------------------
+
+A successfully finalized run appends one new immutable draft revision. It never
+edits a migration-created or prior v2 draft.
+
+The document contains only:
+
+* safe richer CAPS observations and category tree;
+* CAPS claims exactly as observed, including omitted/repeated/uninterpretable;
+* exact recipes represented by the sealed plan;
+* verified, unsupported, permission-restricted, contradicted, or untested state
+  only when its exact target evidence supports that state;
+* closed mapping references already registered in Go;
+* the exact selected provider-contract key/version for the whole profile;
+* locally generated evidence keys, safe outcomes/counts/times/digests/summaries;
+* empty/unknown retrieval and deferred operation declarations.
+
+Rules:
+
+1. CAPS never verifies a recipe.
+2. Zero results and no plausible match may be retained as evidence, but the
+   recipe verification remains untested and cites no fabricated verification.
+3. VerifiedLimit equals the exact sent limit, normally 20 or a lower positive
+   CAPS maximum. It never equals an untested higher advertised maximum.
+4. A verified fallback is included only when its own probe passed and that
+   scope has a verified primary, as required by profile v1. A fallback is never
+   silently promoted to primary after the primary returned zero results.
+5. A run with a verified fallback but no verified primary in that scope retains
+   the step evidence but leaves that fallback unusable/untested in the draft;
+   an owner may commission the general shape as a primary in a new run.
+6. Optional unsafe CAPS display fields can be omitted with a safe warning. An
+   unsafe value required for identity/category/semantic proof makes that item
+   unusable. Exact credential echo blocks the whole probe and permits no digest.
+7. Provider error descriptions, bodies, response URLs, download locators,
+   headers, secrets, and secret-derived fingerprints never enter the draft.
+8. Creating a draft does not activate it, enable the indexer, update legacy
+   mode_verified/dialects, create operation status, or queue any work.
+
+The ten migration-created empty drafts remain untouched historical revisions.
+Automatic invalidation would add no safety and would erase the useful record of
+the compatibility migration's state.
+
+
+17. Owner review and activation gates
+-------------------------------------
+
+The owner view for a completed run must show:
+
+* integration name/ID and enabled state;
+* current digest freshness without displaying secret_ref or endpoint query;
+* reviewed movie/series categories and exact categories used by each step;
+* provider-contract key/version or explicit none;
+* CAPS claim by mode, including repeated/uninterpretable;
+* every recipe and its exact controlled state;
+* evidence target, safe proof basis, counts, tested limit, and timestamp;
+* unknown/restricted/contradicted scopes and warnings;
+* operations and retrieval that remain untested;
+* a safe diff against the currently active profile, if any;
+* exact scopes that a later profile-backed runtime could and could not use.
+
+Activation requires all of the following in one owner-only path:
+
+1. explicit second owner action with current run/profile revision;
+2. run completed and generated_profile_id matches the selected draft;
+3. profile still draft and strict document validation passes;
+4. current account/config digest equals run and profile digest, including
+   unchanged secret_ref;
+5. provider contract key/version and configured origin still align;
+6. category review resolved, current category digest equals the frozen run
+   digest, and IDs remain in the safe CAPS tree (or exact fixed contract set);
+7. every non-untested claim has exact matching evidence;
+8. at least one verified usable primary recipe;
+9. no safety-blocked/indeterminate evidence was used;
+10. no integration enabled/default state mutation and no queued search.
+
+A disabled indexer may pass these profile gates, but remains disabled. Profile
+activation alone is not permission to use it.
+
+
+18. Partial-profile behavior
+----------------------------
+
+Allow activation with one verified primary in either movie or complete-season
+scope. Requiring both would make truthful single-purpose indexers impossible and
+would encourage false claims.
+
+The other scope remains absent/untested and must not be planned later. The owner
+screen must say "movie search verified; season search unknown" rather than
+showing a whole-indexer green badge.
+
+This does not authorize production use yet. Before runtime cutover, the search
+orchestrator must load only a fresh active repository profile and use only the
+verified scope/recipe. Retrieval remains independently unverified and must have
+its own later design/gate before an end-to-end acquisition relies on the active
+search profile.
+
+
+19. Revalidation and stale-run behavior
+---------------------------------------
+
+There is no periodic probe worker.
+
+Revalidation begins only by owner action, configuration-triggered proposal, or
+a later controlled runtime contradiction. It creates a new run and new draft.
+The old active profile remains immutable and active while the same account/
+configuration digest remains current, until the owner activates a replacement.
+
+Staleness rules:
+
+* endpoint origin/base path, HTTP policy, auth mechanism, secret_ref, provider
+  contract key/version, profile schema, planner version, or fixed category
+  contract change: immediately stale; no more calls; no activatable draft for
+  the new configuration; new run required.
+* ordinary category edits before the post-CAPS category-freeze transition are
+  the expected owner review step.
+* ordinary category edits after freeze make the run/draft stale and require a
+  new run before initial activation. Exact old category IDs remain in evidence.
+* after a profile is already active, ordinary owner category edits follow the
+  accepted Milestone 1 rule: they do not rewrite/invalidate the profile when
+  reviewed IDs remain in its CAPS tree. They are shown as not exercised by the
+  old commissioning evidence and recommend owner revalidation. Fixed-category
+  changes require a new profile revision.
+* changed CAPS digest recommends revalidation but never rewrites or downgrades
+  old evidence by itself.
+* temporary outage changes run/scheduler availability, never durable support.
+
+Later normal runtime successes/failures may update profile-revision-scoped
+operation status. They must not silently modify immutable verification or create
+a new profile.
+
+
+20. Metadata provenance and Danish-language rules
+-------------------------------------------------
+
+Commissioning preserves four distinct layers:
+
+1. bounded provider fields and their raw ordinals/names used for proof;
+2. observed facts from a registered generic/provider mapping;
+3. deterministic title inference, visibly marked inferred;
+4. post-download facts, which are outside commissioning.
+
+The existing Newznab mapping can expose sample facts such as external IDs,
+season, generic language, resolution, size, group, and explicit subtitle
+attributes. A profile MappingRef selects reviewed Go mapping logic; it does not
+claim every result will contain those attributes. Unknown safe attribute names
+may appear in the run's bounded inventory and remain unused. They do not create
+new mappings or profile revisions automatically.
+
+Language rules:
+
+* provider field "language" remains generic language, not audio language;
+* bare DANISH/DANSK/DK in a release title proves neither Danish audio nor
+  Danish subtitles;
+* only an explicit subtitle field or explicit subtitle title marker may be
+  retained as subtitle evidence, with observed vs inferred provenance intact;
+* missing audio/subtitle metadata is unknown and neutral pre-download;
+* conflicting facts remain conflicting;
+* search commissioning never changes or weakens quality, Danish audio,
+  subtitle, blocklist, or upgrade policy;
+* bounded file inspection and Plex confirmation remain stronger lifecycle facts.
+
+Commissioning v2 can learn that a particular sample exposed a semantic field
+and that a recipe found a plausible fixture. It cannot learn universal metadata
+coverage, actual audio tracks, actual subtitle streams, complete episode files,
+or playability.
+
+
+21. Owner API and UI flow
+-------------------------
+
+Initial later owner surface: one page inside the existing indexer detail area,
+not a generic wizard and not the Prowlarr import/indexer-lab page.
+
+Minimum owner operations:
+
+* read readiness for one integration, including enabled state, category-review
+  state/selections, configured contract, profile revisions/current active
+  profile, scheduler cooldown, and advisory available query budget;
+* create/read one run with fixtures and CAPS preview;
+* authorize the CAPS phase;
+* execute exactly the next authorized step;
+* record/review movie and series category configuration;
+* build/read the sealed search preview;
+* authorize the search phase;
+* cancel before the next request;
+* read run/steps and owner-attention state;
+* repeat local-only draft finalization after a crash;
+* compare the generated draft with current profile;
+* explicitly activate the draft.
+
+Use a generic phase authorization endpoint only for the two closed phase values,
+not arbitrary step scripts. Every mutation requires owner auth, strict bounded
+JSON, expected revision, no-store responses, and safe errors.
+
+The UI displays parameter names and typed sources, never resolved values where
+they would reveal a secret. Fixture titles/IDs and category IDs are owner data
+and may be displayed. It never displays API keys, full URLs, query strings,
+headers, cookies, raw XML, provider error text, or response bodies.
+
+Badges are per claim/recipe: advertised, verified, contradicted, permission
+restricted, unknown, temporarily deferred, or safety blocked. There is no
+single whole-indexer "verified" badge.
+
+
+22. Required scenarios
+----------------------
+
+### Scenario A: successful exact commissioning
+
+Initial preview shows a five-call ceiling. Owner authorizes:
+
+1. CAPS, target caps.
+
+CAPS safely records movie/tv-search claims and categories. The owner reviews the
+two category sets. The planner then proposes and the owner authorizes:
+
+2. movie primary, for example movie.imdb.title.extended.v1, target that exact
+   recipe, q from canonical title, numeric IMDb binding, selected movie
+   categories, extended=true, XML, limit 20;
+3. movie general fallback, target its own recipe, title/year query;
+4. season primary, for example season.tvdb.title-season.extended.v1, target that
+   exact recipe, q from series title, TVDb binding, season binding, selected
+   series categories, XML, limit 20;
+5. season general fallback, target its own recipe, title+S02 query.
+
+Each positive response supplies a different locally generated evidence key.
+The exact movie and season matches pass their ID/title/scope checks; each
+general probe independently passes. The generated draft keeps CAPS claims
+separate, marks all four exact recipes verified, records VerifiedLimit=20 (or
+the smaller exact tested value), references the registered search mapping, and
+leaves retrieval/other operations unknown. Activation still requires fresh
+digest/contract/categories, strict validation, a separate owner action, and
+does not enable or search.
+
+### Scenario B: movie works, season returns no results
+
+The movie recipe becomes verified. The season step records target-bound
+no_results evidence, but the season recipe remains untested/unknown. No
+unsupported/contradicted claim is made. A draft with the verified movie primary
+may be activated for movie scope only. Complete-season planning remains
+unavailable. A separately positive general season fallback is not promoted to
+primary silently.
+
+### Scenario C: CAPS omits a standard mode
+
+CAPSModeObservation remains absent for movie mode. A closed generic catalog or
+explicitly selected provider contract may propose one exact movie request only
+when the post-CAPS preview highlights the omission and the owner authorizes it.
+If it passes strict semantic verification, its controlled verification is
+verified while CAPS remains omitted. Neither field rewrites the other.
+
+### Scenario D: HTTP 429 during the run
+
+The scheduler records an instance-wide rate limit and Retry-After/cooldown. The
+step records only the safe rate_limited outcome and time; the recipe remains
+unknown. The run stops in owner_attention. It does not hammer, fall back, or
+downgrade support. After the deadline the owner may create a new run; the old
+attempt remains immutable.
+
+### Scenario E: configuration changes mid-run
+
+Before every send and after every response, current digests are compared. A
+changed endpoint, secret_ref, provider contract, or post-freeze category set
+marks the run stale. No further request is sent. Safe evidence remains tied to
+the old snapshots, but no draft under the new configuration is generated or
+activated. A new run is required.
+
+### Scenario F: provider echoes the API key
+
+The in-memory guard detects the raw or bounded encoded credential in the body
+or headers before parser/hash/logging. The step/run stores only
+credential_echo_detected and timing. It stores no provider text, raw or
+sanitized response digest, fingerprint of the credential, error description,
+or body. The run is safety_blocked and requires owner investigation.
+
+### Scenario G: crash after request transmission
+
+The committed transmitted_at marker remains without a terminal outcome. On
+restart no worker or startup path sends it. After lease expiry the owner view
+shows indeterminate. It cannot be reused or reset; an owner who wants another
+call creates and authorizes a new bounded run.
+
+### Scenario H: one malformed item among valid items
+
+The XML envelope remains syntactically valid. The bad item receives bounded
+item-specific problems and is unusable; valid items remain candidates for the
+semantic fixture check. If one valid item satisfies all required proof, the
+recipe can verify. Scheduler records the operation as successful, and the bad
+item does not poison the instance or recipe. A syntactically malformed document
+instead invalidates the whole step and is never permissively salvaged.
+
+
+23. Resolved open decisions
+---------------------------
+
+1. Fixtures: owner-supplied or selected trusted local fixtures only. No initial
+   discovery request. This avoids circular proof and an extra query.
+
+2. Negative control: omit it initially. It cannot verify a positive recipe. If
+   query-ignoring behavior is suspected, leave the result unknown/contradicted
+   only with deterministic evidence and design a separate owner diagnostic.
+
+3. Default maximum calls: five logical query calls, hard-capped as described in
+   section 10.
+
+4. Partial profiles: allow movie-only or season-only activation when at least
+   one primary is verified. Runtime may use only the verified scope after its
+   own future cutover.
+
+5. Disabled integrations: explicit commissioning and profile activation are
+   allowed, but enabled remains false.
+
+6. Draft creation: automatically perform the local transaction after every
+   authorized step is terminal and safe. A crash leaves ready_for_draft for an
+   owner-invoked local retry, never another network call.
+
+7. Activation: always a second explicit owner action after viewing the diff.
+
+8. VerifiedLimit: exactly the limit sent and safely demonstrated, normally 20
+   or a lower positive CAPS maximum.
+
+9. Movie title/year without provider ID: may verify only a general title/year
+   recipe under strict no-conflict rules. It does not verify an ID-bound recipe.
+
+10. Complete-season minimum: one item must independently prove series identity,
+    requested season, and plausible complete-pack scope; an episode item or
+    unbounded/ambiguous range is insufficient.
+
+11. Migration drafts: leave them immutable historical drafts. Append a new
+    revision; do not auto-invalidate.
+
+12. Persistence: two tables, run plus steps. A one-row JSON attempt array cannot
+    safely express intent/concurrency; acquisition tables have wrong semantics.
+
+13. Crash-after-send retry: never within the old run. The owner creates a new
+    bounded run after accepting its new budget.
+
+14. Credential representations: raw credential, exact encodings/auth forms the
+    configured client actually uses, and bounded recursive percent-decoded
+    forms; query-form decoding only in query contexts. Scan all bounded body and
+    header material before parse/hash/log.
+
+15. Response hashes: no digest on secret detection. Store a clearly labeled
+    canonical sanitized-projection digest after both exact-secret and structural
+    checks. For profile schema v1, also compute the required raw BodySHA256 only
+    after the raw and decoded exact-secret scans and structural acceptance pass;
+    retain its truthful raw-body meaning.
+
+16. Category edits: allowed as the explicit post-CAPS review before freezing;
+    after freeze they stale the run. Before first activation a changed selection
+    requires a new run. Later active-profile category edits follow the accepted
+    dynamic-category rule but are marked unexercised and recommend revalidation.
+
+
+24. Security threats and mitigations
+------------------------------------
+
+Threat                         Mitigation
+-----------------------------  -----------------------------------------------
+Credential echo/leak           Exact in-memory pre-parse/pre-hash scan; closed
+                               errors; no unsafe digest/body/header/log.
+
+SSRF/unsafe redirects/DNS      Existing secure shared client only; canonical
+rebinding/TLS downgrade        configured origin; automatic redirects disabled;
+                               per-hop validation/guard; existing pinning/SNI.
+
+Credential sent to redirect    Existing no-cross-origin search policy and
+                               credential stripping; no Referer; fail closed.
+
+Provider lies in CAPS          Claims and controlled verification orthogonal;
+                               exact positive recipe evidence required.
+
+Provider contract spoofing     Owner-selected registered key/version, whole-
+                               profile binding, accepted configured origin;
+                               never inferred from response/hostname/title.
+
+XML/body resource exhaustion   Existing byte/token/item bounds plus strict
+                               single-root blocker before live probes.
+
+One malicious result           Item isolation; no permissive whole-document
+                               recovery; accepted evidence fields bounded.
+
+Quota hammering                Five-call hard cap, two phase authorizations,
+                               shared scheduler/reservations, no retries.
+
+Crash/replay duplicate call    Intent/transmission marker; expired attempt is
+                               indeterminate; no automatic startup/outbox resend.
+
+TOCTOU configuration change    Account/category digests and revisions checked
+                               before every send, redirect, evidence acceptance,
+                               draft creation, and activation.
+
+Evidence cross-use             Existing exact EvidenceTarget + recipe key;
+                               one local evidence key per declaration.
+
+Automatic behavioral change    Draft only; separate activation; disabled state,
+                               legacy fields, production paths unchanged.
+
+Secret-derived fingerprints    Request fingerprint excludes credentials; config
+                               digest contains only secret_ref; response hash
+                               prohibited on exact secret detection.
+
+Provider text injection        UTF-8/control/URL/auth structural validation,
+                               field/count bounds, closed generated summaries.
+
+Concurrency                    DB uniqueness/row locks/revisions, consistent
+                               lock order, scheduler lane, no network in tx.
+
+
+25. Migration and compatibility plan
+------------------------------------
+
+The first implementation would add the next additive migration after schema 33
+for only the two commissioning tables, constraints, indexes, and immutable/
+lifecycle triggers. It must not alter or delete migration 0033 data, integration
+rows, legacy config, profile documents, operation status, search_runs, release
+observations, candidates, or workflows.
+
+Compatibility rules:
+
+* existing legacy POST commission remains wired until a later explicit cutover;
+* v2 routes use distinct names and never call CompleteNewznabCommission;
+* legacy mode_verified/search_dialects/categories remain untouched;
+* migration-created drafts remain inactive and immutable;
+* v2 profile drafts use existing strict profile validation/repository rules;
+* no profile is automatically active;
+* no operation-status row is created by migration/commissioning;
+* no integration enabled/default flag changes;
+* production search/retrieval do not load v2 run tables;
+* rollback of the unshipped additive migration is table/function removal only
+  in development; production backup/deployment rules require separate review.
+
+The task-supplied deployed schema 33 state should be verified during a future
+authorized implementation/deployment milestone, not during this source audit.
+
+
+26. Phased implementation plan
+------------------------------
+
+Phase 1 - offline/dry-run foundation
+
+* closed commissioning run/step/fixture/plan types;
+* pure two-phase bounded planner and structural fingerprints;
+* synthetic exact-secret guard unit tests;
+* additive run/step persistence and disposable PostgreSQL tests;
+* repository-only plan preview/read models;
+* no client call, route, worker, activation, or runtime wiring.
+
+Phase 2 - secure local execution seam
+
+* strict single-root CAPS/search parsing;
+* guarded Commissioning CAPS/Search methods on the same shared client;
+* pre-parse exact-secret scanning and safe digest construction;
+* closed Newznab failure classification into generic scheduler scopes;
+* durable before-send callback and indeterminate recovery;
+* local test servers only, no live provider.
+
+Phase 3 - owner-controlled live Commissioning v2
+
+* narrow category-review configuration mutation;
+* readiness/budget preview and two authorization gates;
+* owner API and single indexer page;
+* one-step execution, semantic verifier, draft builder/finalizer;
+* explicit activation with atomic run/category freshness gate;
+* separately reviewed authorization before any live indexer call.
+
+Phase 4 - retrieval commissioning (separate architecture/review)
+
+* native identity, standard get, locator, and provider-direct targets separately;
+* consumes grab allowance and never inherits search evidence.
+
+Phase 5 - production profile-backed search cutover (separate milestone)
+
+* repository-loaded active profiles only;
+* per-scope rollout, durable runtime attempt evidence, safe fallback semantics;
+* legacy transition plan; retrieval readiness; no implicit enablement.
+
+Enrichment, pagination, feeds, JSON, DETAILS/NFO/file lists, and broader metadata
+remain later evidence-driven work, not implied by these phases.
+
+
+27. Exact first implementation milestone
+----------------------------------------
+
+The preferred offline split is correct and is the recommended first milestone.
+
+Implement only:
+
+* internal/commissioningv2 closed v2 run, step, fixture, plan, state, outcome,
+  and validation types;
+* pure fixture normalization and deterministic two-phase probe planning;
+* credential-free structural request fingerprinting;
+* current non-secret config-digest and category-digest snapshot structures;
+* synthetic-credential exact-secret scanner as a pure component, with no secret
+  resolver call;
+* the next additive migration with indexer_commissioning_runs and
+  indexer_commissioning_steps;
+* narrow PostgreSQL create/read/authorize/seal-plan/transition/finalize-state
+  repository methods, without profile creation or activation wiring;
+* owner-visible plan preview through repository/domain tests only;
+* strict JSON, immutability, lifecycle, concurrency, crash-state, no-secret, and
+  disposable PostgreSQL tests.
+
+Do not add in that milestone:
+
+* external HTTP execution or a Newznab client call;
+* owner HTTP routes or UI;
+* outbox events/handlers/startup work;
+* credential resolution;
+* draft generation or profile activation;
+* production PlanSearch/profile loading;
+* commissioning-v2 cutover or legacy removal.
+
+Suggested package boundaries remain small:
+
+* internal/commissioningv2/types.go
+* internal/commissioningv2/fixture.go
+* internal/commissioningv2/probe_plan.go
+* internal/commissioningv2/fingerprint.go
+* internal/commissioningv2/secret_guard.go
+* internal/commissioningv2/evidence.go
+* focused adjacent _test.go files
+* internal/postgres/indexer_commissioning.go
+* one next-numbered additive migration and disposable tests
+
+The separate leaf package is intentional: the legacy internal/commissioning
+service already imports internal/postgres, while the narrow PostgreSQL
+repository needs these inert document types. Placing them in the legacy package
+would create a package cycle. No legacy constructor or runtime path imports the
+new leaf package.
+
+This offline milestone has no response semantic verifier or closed protocol-
+error proof payload. Search-step evidence may therefore record only the
+non-verifying no-results and no-plausible-match outcomes. It must reject
+verified, unsupported, permission-restricted, and contradicted capability
+claims until the later live-execution milestone adds exact target-bound proof
+types and the reviewed verifier. CAPS evidence remains observational only.
+
+Do not add interfaces unless an existing repository/client boundary requires
+one. Do not modify internal/acquisition/search_plan.go simply to share speculative
+infrastructure; copy only a tiny pure normalization helper if moving it to an
+existing neutral package is clearly smaller and behaviorally frozen.
+
+
+28. Explicit blockers
+----------------------
+
+### 28.1 Before any live probe execution
+
+* Offline milestone independently reviewed and accepted.
+* Strict trailing-root/single-document rejection for CAPS and search.
+* Guarded CAPS and CommissionSearch methods on the existing client, with no
+  production behavior change.
+* Exact-secret inspection of raw and decoded material before any response hash,
+  persisted error, or log, including response/redirect headers. The v2 parser
+  core must support parsing without its current eager body hash.
+* Safe closed owner errors; no provider-derived err.Error response.
+* Rich CAPS observation exclusively; legacy synthesized projection prohibited.
+* Legacy repeated-CAPS behavior either corrected for legacy use or proved
+  unreachable from v2. This remains a Commissioning-v2 blocker.
+* Durable intent/before-send/config/cancel guard and indeterminate no-resend.
+* One-step executor with local-only tests and no generic automatic retry.
+* Operation-scoped Newznab recording through protocol-neutral RecordResult.
+* Scheduler/read-model outcome timestamp separation before that new production
+  caller; this accepted blocker remains in force.
+* Read-only budget availability preview (advisory only).
+* Owner category-review mutation and complete nested-tree validation.
+* Synthetic and local-server security/crash/concurrency acceptance suite.
+* Explicit authorization for actual live provider calls.
+
+### 28.2 Before profile activation
+
+* All live-execution blockers above.
+* Transactional evidence-to-draft finalizer using existing append-only rules.
+* Exact semantic verifier and target-bound evidence tests.
+* Fresh account/config/secret_ref/contract/schema/category snapshots under lock.
+* At least one verified usable primary and strict profile activation validation.
+* Owner review/diff and separate explicit owner activation request.
+* Atomic category-digest gate integrated with the existing activation transaction.
+* No unsafe/indeterminate evidence used; no automatic enablement/search.
+
+### 28.3 Before production runtime cutover
+
+* Production orchestration accepts only a fresh repository-loaded active
+  profile, never caller-constructed profile data.
+* Scheduler/read-model outcome timestamp separation.
+* Durable primary/fallback runtime-attempt association required by Milestone 1.
+* Per-scope profile routing and partial-profile behavior fully tested.
+* Legacy repeated-CAPS projection cannot feed v2/profile decisions.
+* Legacy mode_verified/enabled constraint transition is explicitly migrated;
+  no integration changes state implicitly.
+* Retrieval readiness is separately decided/verified; search evidence cannot
+  stand in for retrieval.
+* Operation-status update rules and profile revision isolation are wired.
+* Full fallback trigger and quality/Danish-policy non-weakening tests.
+* Direct-SQL application privilege hardening decision remains addressed before
+  relying on application-only activation gates.
+* Bounded migration/advisory-lock timeout and deployment/rollback review.
+
+
+29. Testing strategy
+--------------------
+
+Offline milestone tests:
+
+* fixtures: bounds, verified IDs only, season zero, years, Unicode/control data,
+  strict JSON/unknown fields, immutable snapshots;
+* planner: exact deterministic recipe ordering, missing IDs selecting the next
+  offline alternative, CAPS absent/unavailable/repeated behavior, two category
+  sets/nested categories, unusual valid category IDs, fixed contracts, max five,
+  no URL/secret/query value, identical input identical plan/fingerprint;
+* secret guard: synthetic raw, query/path escaped, nested percent, header forms
+  actually configured, XML attribute/text/error/title/category/result echoes,
+  no false heuristic matches, and no digest on detection;
+* persistence: one active run, immutable documents, write-once phase plans,
+  authorization transitions, stale/cancel states, config/category digest drift,
+  one executing step, indeterminate state, safe text/count bounds, no cascade
+  deletion, concurrent create/authorize/finalize, rollback;
+* legacy characterization: old commission route/service/search builder remains
+  byte-for-byte/semantically unchanged and v2 has no startup/worker caller.
+
+Local live-seam milestone tests (no external network):
+
+* httptest/local transports only; unexpected network blocked;
+* one scheduler lane shared by legacy search and commissioning;
+* query reservation/minimum interval/cooldown/Retry-After;
+* no commissioning-level retry and no outbox replay send;
+* before-send guard on initial and every redirect;
+* secret scan before parser/hash/error/log under all response shapes;
+* strict single XML root, body/token/item bounds, item isolation;
+* exact failure-scope mapping without global poisoning;
+* crash injection before intent, before send, after send, after evidence, and
+  during draft transaction;
+* configuration/category change races and cancellation;
+* semantic movie/season matrices including conflicts, missing IDs, mixed pack/
+  episode results, and zero results;
+* profile generation strict decode/activation eligibility but no activation in
+  the executor test.
+
+Owner/API/UI milestone tests:
+
+* owner authentication/no-store/bounded JSON/revision checks;
+* every preview shows exact call maximum and temporary budget state;
+* disabled stays disabled; no queued search/acquisition;
+* UI distinguishes claim states by recipe and exposes no URL/body/header/secret;
+* restart exposes incomplete/indeterminate run and sends nothing;
+* explicit activation only after all gates.
+
+Disposable PostgreSQL tests must use the repository's isolated loopback method,
+never an application database. No test fixture may contain a live hostname,
+credential, or provider response.
+
+
+30. Remaining risks and deferred work
+-------------------------------------
+
+* A single positive fixture is limited evidence. The design states exactly that
+  limitation and does not infer retention or universal metadata coverage.
+* Strict exact-ID proof will leave providers that omit IDs unknown. This is an
+  intentional truthfulness tradeoff; general recipes remain available.
+* Search-only activation does not prove retrieval. Production cutover must not
+  confuse an active search profile with end-to-end acquisition readiness.
+* The exact-secret guard detects the configured credential and bounded exact
+  encodings, not arbitrary unknown secrets. Structural validation remains a
+  separate layer; no impossible generic-secret claim is made.
+* Safe budget preview can race with other workflows. Scheduler Acquire remains
+  authoritative, and pre-send deferral is not a failed capability.
+* Current scheduler reservations have no durable request ID. The design records
+  the real budget family/timing rather than inventing correlation.
+* Legacy repeated-CAPS synthesis must not enter v2; its separate hardening is
+  still a Commissioning-v2 blocker.
+* Strict trailing-root XML rejection remains a live-probe blocker.
+* Scheduler last-outcome/read-model timestamp separation remains a live scoped-
+  recording/runtime-cutover blocker.
+* Existing activation does not atomically compare a commissioning category
+  snapshot. The activation milestone needs the narrow transactional extension
+  described here.
+* Deterministic transaction overlap tests should be strengthened without adding
+  production hooks.
+* Provider-contract search recipe catalogs do not yet exist for every provider;
+  add only evidence-backed reviewed entries, never hostname inference.
+* Retrieval commissioning, enrichment, pagination, feeds, JSON, and broader
+  mappings remain separately designed work.
+* Existing documented blockers from the Milestone 1 architecture remain in
+  force, including Prowlarr-import duplicate handling, direct-SQL privileges,
+  migration lock bounds, repository-loaded active-profile enforcement, and
+  runtime attempt audit.
+
+
+Final recommendation
+--------------------
+
+Approve Commissioning v2 only as the small two-authorization, five-call,
+positive-fixture design above. Implement the offline run/plan/persistence
+foundation first and independently review it. Do not add any live client call in
+that milestone. The next milestone may add one owner-invoked CAPS/search step at
+a time only after the exact-secret, strict-parser, scheduler-scope, durable
+intent, and no-resend blockers pass local tests.
