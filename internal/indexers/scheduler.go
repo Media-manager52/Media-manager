@@ -61,13 +61,21 @@ type Budget struct {
 }
 
 type Snapshot struct {
-	IndexerID          string        `json:"indexer_id"`
-	NextAllowedAt      time.Time     `json:"next_allowed_at"`
-	CooldownUntil      time.Time     `json:"cooldown_until"`
-	ConsecutiveFailure uint32        `json:"consecutive_failure"`
-	LastOutcome        Outcome       `json:"last_outcome"`
-	UpdatedAt          time.Time     `json:"updated_at"`
-	MinimumInterval    time.Duration `json:"minimum_interval"`
+	IndexerID          string    `json:"indexer_id"`
+	NextAllowedAt      time.Time `json:"next_allowed_at"`
+	CooldownUntil      time.Time `json:"cooldown_until"`
+	ConsecutiveFailure uint32    `json:"consecutive_failure"`
+	LastOutcome        Outcome   `json:"last_outcome"`
+	// LastOutcomeAt is the authoritative time of the last outcome-producing
+	// request. It is separate from UpdatedAt, which is a read-model
+	// observation timestamp that pacing-only writes also advance. A pre-send
+	// pacing write must not refresh the apparent time of a historical
+	// outcome. Durable separation requires migration 0035 (last_outcome_at);
+	// until then this field is populated from durable state where known and
+	// never synthesized from UpdatedAt.
+	LastOutcomeAt   time.Time     `json:"last_outcome_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+	MinimumInterval time.Duration `json:"minimum_interval"`
 }
 
 type SnapshotStore interface {
@@ -93,6 +101,15 @@ type lane struct {
 	budget   Budget
 	snapshot Snapshot
 	loaded   bool
+	// cacheUnknown is the fail-closed stale-cache barrier. When true, every
+	// Acquire must reload authoritative durable state before another
+	// transmission can occur, even when a fresh durable-gate check returns
+	// NULL/clear. It is set while still owning the lane permit on uncertain
+	// finalization or failed cache refresh, before recovery reload or lane
+	// release. Normal cache operation is untouched: known-valid state does
+	// not trigger a database reload on every acquisition.
+	cacheUnknown bool
+	gateSource   CommissioningGateSource
 }
 
 type Permit struct {
@@ -131,6 +148,20 @@ func (err RequestBudgetError) Error() string {
 }
 func (err RequestBudgetError) SafeCode() string   { return "indexer_budget_deferred" }
 func (err RequestBudgetError) RetryAt() time.Time { return err.Until.UTC() }
+
+// CommissioningGateBlockedError is a closed fail-closed error: the durable
+// unresolved-attempt gate is unresolved, or the gate could not be read. It
+// carries no provider URL, header, or error text.
+type CommissioningGateBlockedError struct {
+	IndexerID string
+}
+
+func (err CommissioningGateBlockedError) Error() string {
+	return "indexer request is blocked by unresolved commissioning accounting"
+}
+func (err CommissioningGateBlockedError) SafeCode() string {
+	return "commissioning_accounting_unresolved"
+}
 
 func NewznabBudget(minimumIntervalMS int64, queryLimit, grabLimit int, windowSeconds int64) Budget {
 	minimum := time.Duration(minimumIntervalMS) * time.Millisecond
@@ -178,9 +209,25 @@ func (scheduler *Scheduler) Configure(indexerID string, budget Budget) error {
 	return nil
 }
 
+// SetCommissioningGateSource injects the durable unresolved-attempt gate
+// source for one lane. Milestone A tests inject an in-memory source; the
+// migration 0035 implementation must back this with durable storage checked
+// on every acquisition (never a once-loaded cache). A nil source preserves
+// legacy behavior.
+func (scheduler *Scheduler) SetCommissioningGateSource(indexerID string, source CommissioningGateSource) {
+	lane := scheduler.getLane(indexerID)
+	lane.mu.Lock()
+	lane.gateSource = source
+	lane.mu.Unlock()
+}
+
 // Acquire is the only supported path to an indexer network request. The lane
 // token is held until Record or Close, enforcing one request at a time even in
-// commissioning and tests.
+// commissioning and tests. When the lane cache is fail-closed unknown,
+// Acquire reloads authoritative durable state while holding the lane before
+// any transmission decision; reload failure or cancellation permits zero
+// transmissions. A NULL/clear durable gate alone never authorizes acquisition
+// while scheduling state is unknown.
 func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workload Workload) (*Permit, error) {
 	indexerID = strings.TrimSpace(indexerID)
 	if indexerID == "" {
@@ -203,6 +250,25 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		<-scheduler.global
 		<-lane.gate
 		return nil, err
+	}
+	lane.mu.RLock()
+	unknown := lane.cacheUnknown
+	source := lane.gateSource
+	lane.mu.RUnlock()
+	if unknown {
+		if err := scheduler.ReloadLaneCache(ctx, indexerID); err != nil {
+			<-scheduler.global
+			<-lane.gate
+			return nil, err
+		}
+		lane.mu.RLock()
+		source = lane.gateSource
+		lane.mu.RUnlock()
+	}
+	if !gateAllowsTransmission(ctx, source, indexerID) {
+		<-scheduler.global
+		<-lane.gate
+		return nil, CommissioningGateBlockedError{IndexerID: indexerID}
 	}
 	now := scheduler.now().UTC()
 	lane.mu.RLock()
@@ -284,6 +350,7 @@ func (permit *Permit) recordResult(ctx context.Context, result RecordResult, ret
 		snapshot.IndexerID = permit.indexerID
 		if result.Scope != FailureScopeOperation {
 			snapshot.LastOutcome = result.Outcome
+			snapshot.LastOutcomeAt = now
 		}
 		snapshot.UpdatedAt = now
 		snapshot.MinimumInterval = budget.MinimumInterval
@@ -356,6 +423,18 @@ func requestLimit(workload Workload, budget Budget) (int, string) {
 }
 
 func (permit *Permit) Close() { _ = permit.Record(context.Background(), OutcomeCancelled, nil) }
+
+// ReleaseWithoutOutcome releases the lane and global slot without an
+// outcome-recording Record/RecordResult write that could overwrite already
+// committed state. It is used on the uncertain-finalization path after the
+// complete lane cache has been invalidated: the committed cooldown/pacing
+// floor must survive, and the next Acquire must reload authoritative state.
+func (permit *Permit) ReleaseWithoutOutcome() {
+	permit.once.Do(func() {
+		<-permit.scheduler.global
+		<-permit.lane.gate
+	})
+}
 
 func (scheduler *Scheduler) Snapshot(indexerID string) Snapshot {
 	lane := scheduler.getLane(indexerID)
