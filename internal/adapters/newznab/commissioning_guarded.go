@@ -492,6 +492,12 @@ func itoa(value int) string {
 func strictSingleRootScan(body []byte) (attrs [][]byte, texts [][]byte, err error) {
 	decoder := xml.NewDecoder(bytes.NewReader(body))
 	decoder.Strict = true
+	// xml.HTMLEntity is deliberately used for Newznab/provider compatibility:
+	// it is the bounded Go standard-library named-entity map, not external
+	// entity resolution. Decoded/entity-expanded text still passes through
+	// InspectSecret before any digest, retained parsed value, error, log, or
+	// evidence boundary. This does not authorize DTD/external-resource
+	// processing.
 	decoder.Entity = xml.HTMLEntity
 	depth := 0
 	tokens := 0

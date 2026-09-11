@@ -130,10 +130,9 @@ func TestCommissioningGuardedTransportSendsOnceOverFreshHTTP1Transport(t *testin
 		}
 		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
 	})
-	// Pin TLS to the fake server certificate through the base transport.
-	base := server.Client().Transport.(*http.Transport).Clone()
-	base.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	pinned, err := New(Config{IndexerID: "commission-once", BaseURL: server.URL, APIKey: "local-test-key", Timeout: 5 * time.Second}, indexers.NewScheduler(1, nil), base)
+	// Rely only on the local fake TLS server certificate pool supplied
+	// through dest.Roots, as the guarded production design intends.
+	pinned, err := New(Config{IndexerID: "commission-once", BaseURL: server.URL, APIKey: "local-test-key", Timeout: 5 * time.Second}, indexers.NewScheduler(1, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
