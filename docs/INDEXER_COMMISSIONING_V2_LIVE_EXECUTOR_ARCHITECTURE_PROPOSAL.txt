@@ -2,7 +2,7 @@ MEDIA MANAGER INDEXER COMMISSIONING V2 LIVE EXECUTOR ARCHITECTURE PROPOSAL
 
 Status: proposed for review; not approved for live execution
 Prepared: September 4, 2026
-Revised: September 8, 2026, following independent architecture review
+Revised: September 11, 2026, following final independent architecture review
 Audited source: 454f20feb11dc15d5de808ce0641f6c9f742bb50
 Current deployed schema: 34
 
@@ -624,15 +624,19 @@ silently applied to an in-flight request.
     only when accounting is safely resolved. Unknown accounting retains it.
 25. After known commit, refresh the scheduler cache from durable state while
     retaining the lane, then release the permit exactly once without a second
-    Record/RecordResult write. Failed finalization or uncertain transport keeps
-    the durable gate closed. No later request may pass that gate.
+    Record/RecordResult write. On uncertain finalization or failed cache refresh,
+    invalidate the complete lane scheduling cache before releasing the lane,
+    as specified in section 14.2. A lost commit acknowledgement may mean the
+    gate is already cleared; a NULL gate alone never makes unknown cached
+    scheduling state usable. Unresolved transport/accounting retains the gate.
 26. Drop all references to the credential and ephemeral client. Go cannot
     promise physical zeroization, so the design promises lifetime minimization
     and non-persistence, not impossible memory guarantees.
 
-If step/result persistence is uncertain after transmission, the recovery rule
-is indeterminate. The executor does not repeat the request to obtain a cleaner
-record.
+If step/result persistence is uncertain after transmission, reload authoritative
+state before deciding whether completion committed or the attempt still needs
+indeterminate closure. Reload failure permits neither transmission nor assumed
+completion. The executor never repeats the request to obtain a cleaner record.
 
 
 13. CRASH AND RESTART SEMANTICS
@@ -659,10 +663,13 @@ response obtained, close transaction   If the close transaction committed, its
 committed                               exact evidence is durable and no request
                                        repeats.
 
-response obtained, close commit         Commit status is uncertain, so reload.
-uncertain                              If terminal evidence is absent while
-                                       transmitted_at exists, mark
-                                       indeterminate. Never replay.
+response obtained, close commit         Invalidate scheduling cache and reload
+uncertain                              step/accounting together. Preserve any
+                                       committed terminal outcome, including
+                                       one without evidence. If still unclosed
+                                       with transmitted_at, close indeterminate
+                                       through recovery. Failed reload blocks
+                                       acquisition; never replay.
 
 completed evidence, later run          Continue from durable evidence after
 transition missing                     owner action through an idempotent local
@@ -741,8 +748,35 @@ bounded parsed deadline before that transaction; raw header text is not stored.
 No independently committed terminal step may be followed by an optional
 best-effort cooldown write. Preserve stronger existing cooldowns and the pacing
 floor. Cache publication follows the commit while the lane remains held.
-Failure or uncertain commit leaves the lane releasable in memory but the durable
-gate blocks all later work until the durable result is reloaded and resolved.
+A confirmed rollback leaves the durable gate present. Lost acknowledgement is
+different: completion may have committed its cooldown and cleared the gate.
+
+The shared scheduler owns cache validity for the entire indexer lane, not just
+the commissioning permit. On uncertain finalization/commit acknowledgement, or
+failure to refresh after a known commit, mark the complete scheduling cache
+unknown under the lane mutex WHILE still owning the lane permit. Do this before
+attempting recovery reload or making the lane available; no release path may
+expose the old cache as usable. Retained old values are not decision inputs.
+Release without an outcome-recording Close/Record that could overwrite the
+committed state. Other indexers are unaffected.
+
+Every subsequent Acquire, legacy or v2, must treat that unknown cache as a
+fail-closed reload barrier even when its fresh gate check returns NULL. While
+holding the lane, load a consistent authoritative snapshot of all durable
+scheduling decision state, including NextAllowedAt, CooldownUntil, the unresolved
+gate, and the remaining budget/outcome state used by the scheduler. Recovery
+also reads the step in the same database snapshot to resolve completion status.
+Publish the complete snapshot under the lane mutex before marking it valid;
+then re-evaluate gate, pacing, cooldown and normal budget reservation checks.
+A failed or cancelled reload leaves the cache unknown and permits zero
+transmissions, never stale-memory or default-value fallback. A later acquisition
+may retry this database read, not the commissioning request. An already-cleared
+gate does not waive the newly committed cooldown or pacing floor.
+
+This is targeted cache invalidation/reload for uncertain finalization or failed
+publication, not a full-state database reload on every normal acquisition.
+The required fresh durable-gate check remains mandatory. Known successful
+finalization publishes fresh state while holding the lane before normal release.
 
 If the response/accounting is lost, including crash after receiving 429 but
 before persistence, keep the gate closed even after marking the step
@@ -763,8 +797,8 @@ outside this milestone; B deployment must verify the singleton condition.
 The accepted last-outcome/read-model timestamp separation must be completed and
 tested in A's scheduler/storage substrate, before B wiring. A pre-send pacing
 write must not refresh the apparent time of a historical outcome. With no gate
-present, existing callers retain their request construction, pacing and outcome
-semantics; there is no production executor in A.
+present AND valid scheduling state, existing callers retain their request
+construction, pacing and outcome semantics; there is no production executor in A.
 
 All commissioning redirects, including same-origin redirects, are rejected
 before any follow-up. This is necessary but not sufficient for one transmission:
@@ -972,9 +1006,25 @@ The following are safety-relevant:
 The endpoint/account digest binds canonical endpoint, allow-HTTP, the fixed
 query-api-key mechanism, secret_ref and provider contract. Profile schema and
 planner versions are separate immutable plan/run fields, not digest fields.
-The guarded parser/transport policy must be fixed to the reviewed executor
-version; a changed policy cannot resume an old authorized run. Search plans
-additionally bind the normalized frozen category digest and sorted arrays.
+Use the existing persisted ProbePlan.PlannerVersion (and matching run
+planner_version and fingerprint field) as the compatibility contract for the
+whole probe policy, including executor, guarded parser and transport semantics.
+Authorization already binds that immutable plan digest; no separate executor
+version field or versioning framework is needed. Search plans additionally bind
+the normalized frozen category digest and sorted arrays.
+
+Bump this policy version when materially changing request materialization,
+authorization interpretation, transmission/retry/redirect rules, DNS/TLS policy,
+pacing/accounting ordering, parsing/response bounds, secret-inspection rules or
+outcome/evidence interpretation. Semantically identical refactoring and comments
+do not require a bump. Before claiming execution, require an explicitly supported
+persisted PlannerVersion with its exact reviewed semantics; reject unsupported
+versions before credential resolution, reservation or transmission. Do not
+rewrite an old plan/version or silently reinterpret an old authorization. A new
+policy requires a new preview and authorization when the old version is no longer
+supported. Historical rows remain readable. Any change to existing SQL version
+constraints needs separate schema review; do not conflate this policy version
+with profile/document schema versions or silently relax schema-34 constraints.
 
 Before and after every request the executor:
 
@@ -1257,8 +1307,13 @@ Safe provider 5xx response            completed        owner_attention; instance
 Wrong media type/content encoding     completed        malformed_response;
                                                      owner_attention, no digest
 
-Response finalization fails           transmitting     retain gate; reload commit
-                                                     result, else indeterminate
+Response finalization uncertain       reload required  invalidate cache; reload
+                                                     committed outcome/accounting
+                                                     or recover unclosed attempt;
+                                                     failed reload blocks Acquire
+
+"Reload required" describes the caller's uncertainty, not a new durable step
+state: the transaction may have committed a terminal outcome or left transmitting.
 
 The broad pre-transmission failure row above is not permission to invent a
 schema-34 outcome. Before the marker, map only the existing legal deferral or
@@ -1282,7 +1337,7 @@ deadline; safe 5xx uses system_failure/instance. Operation-local search failures
 later use system_failure/operation and cannot change instance failure history.
 Malformed CAPS/media-type failures stop B and use operation-local failure, not
 unsupported. Pre-send cancellation claims no provider result. Secret echo,
-unsafe transport/text, lost response, or uncertain accounting retains the gate
+unsafe transport/text, lost response, or unresolved accounting retains the gate
 and stores only closed local failure information; it must not pass raw headers
 to the scheduler. None clears a stronger cooldown. These mappings, including
 safe 5xx to the closed provider-failure classification, need explicit Go/SQL
@@ -1314,7 +1369,9 @@ request. Cancelling its context is allowed, but without safely finalized
 response the durable result is indeterminate, never cancelled-before-send.
 Cancellation never authorizes execution, retry, gate clearance or cleanup of
 evidence. Recovery finalization uses a bounded service-owned context after an
-HTTP disconnect; failure still leaves the durable marker and gate intact.
+HTTP disconnect. Confirmed rollback leaves the marker and gate intact; uncertain
+commit may already have cleared the gate and requires section 14.2's cache
+invalidation and authoritative reload, never an assumed rollback or resend.
 
 
 24. DATABASE AND REPOSITORY PLAN
@@ -1402,8 +1459,11 @@ The scheduler remains the policy owner, but uses a narrow transaction-aware
 storage seam for this finalization; it is not a separately committed write after
 step completion. Failed claim means no permit/request. Failed reservation means
 no transmission. Failed transmission transaction means no HTTP call. Unknown
-transmission commit means reload, not send. Failed completion retains the gate;
-unknown completion commit reloads both step and accounting before cache update.
+transmission commit means reload, not send. Confirmed completion rollback retains
+the gate; unknown completion commit may have cleared it. Invalidate the complete
+lane cache before release and reload step/accounting in one consistent snapshot
+before publishing fresh cache state, as required by section 14.2. Reload failure
+keeps legacy and v2 acquisitions blocked even if a later gate-only read is NULL.
 Duplicate execute loses the expected-state claim and performs no network I/O.
 
 24.3 Lock order
@@ -1426,6 +1486,26 @@ are mandatory; no generic JSON-update or gate-reset API is added.
 Never hold a database transaction while waiting for scheduler cooldown or
 performing HTTP I/O. Different indexers remain independent. Context
 cancellation rolls back all local mutations.
+
+
+24.4 Rollback limits before Milestone B deployment
+
+Before B may deploy, its separately reviewed rollback procedure must preserve
+post-transmission safety history and unresolved restrictions. Restoring a backup
+from before a possible live transmission is NOT an ordinary safe code rollback:
+it can erase markers, gates, reservations, cooldowns and evidence needed to
+prevent resend or premature legacy requests. A code rollback must not erase that
+history. The schema-34 binary's exact-schema readiness contract also forbids
+simply starting it against schema 35.
+
+If rollback is needed after possible transmission, retain the post-transmission
+database and restrictions; keep the API stopped if safe compatibility cannot be
+established. Require a separately reviewed, owner-authorized compatible recovery
+or forward correction before serving again. Neither a pre-transmission restore
+nor manual gate/ledger clearance may substitute for preserving no-resend safety.
+The B deployment gate must demonstrate a recovery plan compatible with the actual
+schema and retained safety state. This is a rollback constraint, not a general
+disaster-recovery framework or authorization to implement live recovery in A.
 
 
 25. PROVIDER CONTRACTS
@@ -1549,6 +1629,10 @@ Use only local TLS httptest servers and fakes. Tests must prove:
   environment settings cannot bypass guarded destination policy;
 * unauthorized, stale, cancelled, wrong-revision, wrong-fingerprint, and
   out-of-order steps make zero requests;
+* an authorization persisted under policy PlannerVersion N is rejected by an
+  executor that supports only the materially changed N+1 policy: no claim,
+  credential resolution, reservation or request occurs; a newly previewed and
+  authorized supported plan can proceed against the fake server;
 * exact durable intent exists before the fake server observes a request;
 * durable scheduler pacing exists before the fake server observes a request;
 * crash before intent is safely retryable only by a new owner action;
@@ -1564,6 +1648,15 @@ Use only local TLS httptest servers and fakes. Tests must prove:
 * a crash after receiving 429 and before finalization retains the durable gate;
 * forced scheduler/step finalization failures roll back together; there is no
   committed terminal step with a lost cooldown;
+* in the SAME live scheduler/process with preloaded cached state, completion
+  actually commits a new 429 cooldown, terminal outcome and NULL gate, but its
+  acknowledgement is lost and immediate authoritative reload is forced to fail.
+  Deterministic test-side coordination proves invalidation precedes lane release.
+  A legacy Acquire must make zero transmissions, even with a fresh NULL gate.
+  A later successful authoritative reload must still block through the committed
+  cooldown (and pacing floor); only after the fake clock permits it may a legacy
+  request transmit. Do not reconstruct the scheduler or merely roll back the
+  transaction: either would miss the stale-cache failure being tested;
 * exactly one permit and real reservation are consumed, with no nested Acquire
   and no outcome-recording Close after atomic finalization;
 * unknown accounting remains gated after indeterminate acknowledgement, across
@@ -1690,6 +1783,10 @@ activation.
 * Durable intent, transmitted boundary, no-resend, recovery, and cancellation
   are proven.
 * Durable pre-send scheduler pacing is proven across restart.
+* Same-process uncertain-finalization cache invalidation/reload protects legacy
+  and v2 acquisitions, including committed NULL gate plus new cooldown.
+* Unsupported persisted probe-policy versions reject old authorization before
+  claiming execution or resolving credentials.
 * Strict single-root XML and exact-secret-before-digest gates are proven.
 * No raw transport error can reach persistence/logs.
 * The proposed additive gate/outcome-time migration has separate design approval
@@ -1704,6 +1801,8 @@ activation.
 * Durable gate/accounting behavior passes crash tests; the owner sees that
   unresolved accounting can block that indexer until separately reviewed recovery.
 * Exactly one serving API/shared-scheduler process is verified for deployment.
+* The rollback/recovery plan preserves post-transmission safety history and
+  restrictions and respects exact-schema compatibility (section 24.4).
 * Minimal owner API and production resolver adapter have independent review.
 * All owner authentication, revision, plan, freshness, and call-count gates
   pass.
