@@ -1,0 +1,1880 @@
+MEDIA MANAGER INDEXER COMMISSIONING V2 LIVE EXECUTOR ARCHITECTURE PROPOSAL
+
+Status: proposed for review; not approved for live execution
+Prepared: September 4, 2026
+Revised: September 8, 2026, following independent architecture review
+Audited source: 454f20feb11dc15d5de808ce0641f6c9f742bb50
+Current deployed schema: 34
+
+This proposal defines the smallest safe path from the accepted offline
+Commissioning v2 foundation to owner-authorized Newznab CAPS and search probes.
+It does not authorize implementation, a live request, profile generation,
+profile activation, or production profile-backed search.
+
+The status statements in this document describe the deployed state audited on
+September 4, 2026. They supersede older historical statements in the offline
+foundation proposal that migration 0034 was not yet deployed. They do not
+change the accepted architecture or history recorded there.
+
+For future live execution, this proposal also refines the offline proposal's
+forward-looking sketches: commissioning redirects and transport replays are
+forbidden; initial-origin transport protections must be added explicitly;
+durable accounting and an unresolved-attempt gate protect the transmission
+boundary; and draft activation is a separate Milestone E. A narrow additive
+migration 0035 design is now required for the durable gate and outcome time.
+This document proposes that work; it does not authorize creating or deploying
+a migration. The accepted offline implementation itself is unchanged.
+
+
+1. DECISION SUMMARY
+
+The preferred four-part split is sound, with two safety refinements:
+
+* Milestone A is a local-only live-executor substrate. It uses fake TLS
+  Newznab servers and a test credential resolver, has no production wiring,
+  and cannot contact a configured indexer.
+* Profile activation is not part of draft generation. It is a separately
+  reviewed Milestone E. Production profile-backed search is later still.
+
+The resulting sequence is:
+
+A. Guarded local executor substrate
+   Domain orchestration, narrow repository operations, durable transmission
+   intent, crash recovery, durable scheduler pacing, a credential-resolver
+   interface with test-only implementation, and guarded shared-client/parser
+   seams. All requests terminate at local fake TLS servers. There is no owner
+   route and no production resolver.
+
+B. One owner-authorized live CAPS observation
+   Add the minimum owner-only API and production secret-store adapter needed
+   to preview, authorize, and synchronously execute exactly one CAPS request
+   for one selected indexer. No search probe is executable.
+
+C. Bounded owner-authorized search probes
+   Add exact movie and complete-season recipe materialization, closed semantic
+   proof records, category freezing, and sequential execution of no more than
+   four already-previewed search probes. No profile is generated.
+
+D. Immutable draft generation and owner review
+   Generate an immutable, partial capability-profile draft only from exact
+   accepted evidence and show a safe revision comparison. Do not activate it.
+
+E. Explicit profile activation
+   In a separately reviewed milestone, reuse the existing atomic activation
+   repository after all freshness, evidence, category, and owner gates pass.
+
+Production acquisition cutover is not part of A through E. It requires its own
+later review.
+
+The default maximum for one complete search-only commissioning run remains
+five provider transmissions: one CAPS request plus at most four search
+requests. In Milestone B the hard maximum is exactly one CAPS transmission.
+There are no commissioning-level retries, redirects, pagination requests, or
+automatic resends.
+
+
+2. CURRENT STATUS SNAPSHOT
+
+The audit found:
+
+* Production branch main and the retained feature branch both point to
+  454f20feb11dc15d5de808ce0641f6c9f742bb50.
+* Both worktrees were clean before this proposal was created.
+* PostgreSQL is at schema 34, with migration versions 1 through 34 present
+  exactly once.
+* indexer_commissioning_runs contains zero rows.
+* indexer_commissioning_steps contains zero rows.
+* indexer_capability_profiles contains ten drafts and zero active profiles.
+* indexer_operation_status contains zero rows.
+* The API reports commit 454f20feb11dc15d5de808ce0641f6c9f742bb50 and is
+  healthy.
+* The UI is healthy and contains fast-uri 3.1.7.
+* PostgreSQL 18.6 is healthy.
+* The Caddy gateway is running.
+* No Commissioning v2 executor, resolver, handler, worker, profile builder, or
+  production caller exists.
+
+Migration 0034 is deployed but inert: it created the two empty commissioning
+tables and their invariants. Merely having those tables and the offline Go
+package cannot send a request.
+
+
+3. CURRENT-CODE AUDIT
+
+3.1 Existing legacy commissioning
+
+cmd/media-manager/main.go constructs the shared indexer scheduler and the
+legacy commissioning.NewznabService. The owner endpoint
+POST /api/v1/settings/integrations/{id}/commission invokes that legacy
+service.
+
+The legacy service:
+
+* loads the selected integration;
+* resolves its secret;
+* builds the existing secure Newznab client;
+* acquires the shared per-indexer scheduler;
+* requests CAPS;
+* chooses dialects through the legacy CapsSnapshot.Searches projection;
+* performs a randomized negative TV query;
+* may perform its existing bounded pacing retry;
+* records legacy mode verification and search dialect settings; and
+* may enable the integration through CompleteNewznabCommission.
+
+That behavior is not evidence suitable for a capability profile. In
+particular, repeated CAPS elements can be synthesized by the legacy
+projection, and the negative query cannot verify an exact recipe.
+
+This proposal does not change that route or service. They remain the production
+commissioning path until a later, explicit cutover.
+
+3.2 Existing legacy search and retrieval
+
+internal/acquisition/search.go still constructs requests through the legacy
+request builder and calls the shared Newznab client. PlanSearch has no
+production caller. Retrieval remains on the existing path. No production
+caller loads an active capability profile.
+
+This proposal adds no acquisition, retrieval, scheduler-caller, or startup
+cutover.
+
+3.3 Accepted offline Commissioning v2 foundation
+
+internal/commissioningv2 currently supplies:
+
+* closed run, step, phase, outcome, safe-code, fixture, identity, request,
+  evidence, and planner types;
+* strict bounded JSON decoding and canonical serialization;
+* exact provider-contract validation;
+* one-step CAPS planning;
+* CAPS-bound search planning with at most four search steps;
+* an absolute five-call plan ceiling;
+* deterministic structural request fingerprints;
+* pure exact-secret inspection with a caller-supplied credential; and
+* exact-target evidence validation.
+
+internal/postgres/indexer_commissioning.go supplies append-only run and step
+persistence, phase authorization, category/search-plan sealing, explicit
+state transitions, one nonterminal run per indexer, one executing step per
+run, strict decode-on-read, and repeatable-read combined reads.
+
+Migration 0034 created those durable structures without creating runs,
+evidence, profiles, operation status, or activation.
+
+There is deliberately no transport or production orchestration in the
+offline package.
+
+3.4 Components safe to reuse
+
+The live executor must reuse:
+
+* the canonical integration parser and schema-33 endpoint/account digest;
+* exact provider-contract registry and validation;
+* the accepted fixture and two-phase planners;
+* immutable plan and structural fingerprints;
+* the existing commissioning run and step tables;
+* the existing PostgreSQL run/step repository;
+* the existing per-indexer scheduler and durable request reservations;
+* the existing Newznab client, with an explicitly guarded initial-hop transport
+  rather than assuming its cross-origin redirect protections cover CAPS;
+* the richer immutable CAPSModeObservation representation;
+* the structural provider-text validator;
+* the pure exact-secret inspector; and
+* the existing owner authentication, no-store, strict JSON, optimistic-revision,
+  and bounded-error HTTP patterns. CSRF/origin and content-type enforcement
+  for the new mutations are new Milestone B work, not existing middleware.
+
+3.5 Components that must not be reused as evidence
+
+The executor must not use:
+
+* legacy CapsSnapshot.Searches;
+* legacy mode_verified;
+* legacy randomized negative-search conclusions;
+* a legacy synthesized dialect;
+* provider software or server-title inference;
+* provider-controlled contract selection;
+* acquisition search history as commissioning evidence; or
+* operation status as immutable proof.
+
+3.6 Gaps that block a live request
+
+The current source is correctly inert, but these gaps must be closed before
+Milestone B may contact an indexer:
+
+* The parser boundary must reject trailing roots and all bytes after the one
+  expected XML document. Current CAPS parsing is not yet a strict full-stream
+  single-root proof.
+* Exact-secret inspection must cover bounded raw response bytes, relevant
+  response headers, decoded XML attributes and complete logical text values
+  before any hash, retained parse value, error, or log is produced.
+* The existing Newznab client needs a narrow guarded commissioning method; a
+  second HTTP client is forbidden.
+* Transport errors must be converted to closed safe outcomes without
+  persisting or logging an error string that may contain the credential-bearing
+  request URL.
+* Scheduler minimum pacing is currently durably advanced when Record or
+  RecordResult runs. A process crash after a send but before that call could
+  allow an early post-restart request. A durable pre-send pacing operation is
+  required.
+* Scheduler outcome time and read-model observation time must remain separate;
+  the previously documented timestamp-separation blocker applies before the
+  new executor records production results.
+* Executor state changes and the accepted evidence must be persisted through
+  narrow atomic repository operations, not a series of loosely related generic
+  transitions.
+* The v2 path must consume richer CAPS observations only. The legacy
+  projection must be unreachable from it.
+
+
+4. GOAL IN PLAIN LANGUAGE
+
+The owner chooses one configured Newznab instance, reviews a small immutable
+plan, sees its exact maximum cost, explicitly authorizes that exact plan, and
+then separately asks Media Manager to execute the next exact step.
+
+Media Manager sends at most the authorized request, through its existing
+secure client and scheduler. It remembers before sending that a transmission
+may occur. If the outcome can be safely interpreted, it stores only bounded,
+credential-free evidence tied to the exact run, step, recipe, fixture,
+categories, account/configuration digest, and request fingerprint. If the
+process might have sent but cannot prove the result, it records indeterminate
+and never sends that step again automatically.
+
+Nothing is commissioned merely because CAPS says so. Nothing is activated
+merely because a run succeeds.
+
+
+5. SCOPE
+
+Milestones A through C may support only:
+
+* one selected configured Newznab instance per run;
+* owner-created immutable plan previews;
+* explicit per-phase authorization;
+* exactly one CAPS step in phase one;
+* owner-reviewed movie and series categories;
+* at most four phase-two movie or complete-season search steps;
+* XML, single-page Newznab responses;
+* exact target-bound evidence;
+* cancellation between requests;
+* safe owner-attention, stale, indeterminate, and safety-blocked outcomes; and
+* local fake-server testing before any real request is possible.
+
+Milestone D may add immutable draft generation and read-only comparison.
+Milestone E may add explicit activation.
+
+
+6. NON-GOALS
+
+This design excludes:
+
+* DETAILS and GETNFO;
+* file lists, comments, feeds, and RSS;
+* JSON output;
+* pagination;
+* NZB retrieval or advertised download locators;
+* provider-direct downloads;
+* enrichment;
+* media downloads;
+* AltMount submission;
+* ffprobe, subtitle inspection, and Plex verification;
+* episode search;
+* automatic fixture discovery;
+* provider auto-detection;
+* periodic probes;
+* background commissioning workers;
+* automatic resume or retry;
+* profile generation in A through C;
+* profile activation in A through D;
+* production profile-backed search;
+* a workflow DSL, rules DSL, plugin system, generic job engine, or event
+  sourcing; and
+* mutation of legacy commissioning, search, or retrieval behavior.
+
+
+7. MINIMAL COMPONENT DIAGRAM
+
+                         owner-authenticated API (B)
+                                  |
+                    preview / authorize / execute / cancel
+                                  |
+                                  v
+                  CommissioningV2 service/orchestrator
+                    |        |          |          |
+                    |        |          |          +-- clock/IDs
+                    |        |          |
+                    |        |          +-- CredentialResolver (B adapter)
+                    |        |                    |
+                    |        |                 secret store
+                    |        |          (value exists only in memory)
+                    |        |
+                    |        +-- existing per-indexer Scheduler
+                    |                    |
+                    |             durable reservation and
+                    |             pre-send pacing marker
+                    |
+                    +-- CommissioningRepository
+                    |      run, step, intent, outcome, evidence
+                    |
+                    +-- existing secure Newznab Client
+                              |
+                         guarded CAPS (B)
+                         guarded Search (C)
+                              |
+                       configured canonical origin
+
+The Newznab package must not import internal/commissioningv2, because
+commissioningv2 already imports Newznab types. A tiny guard callback interface
+owned by the Newznab client package avoids that dependency cycle. The executor
+adapts the pure exact-secret inspector and freshness checker to that callback.
+
+There is no queue, worker, periodic loop, or startup recovery executor.
+
+
+8. OWNERSHIP TABLE
+
+Component                         Owns
+--------------------------------  --------------------------------------------
+Owner configuration               Endpoint, HTTP policy, secret_ref, enabled
+                                  state, provider-contract selection, movie and
+                                  series category selection
+
+Fixture document                  Owner-trusted local movie and complete-season
+                                  identities; no provider request fields
+
+Probe planner                     Deterministic closed steps, call ceiling,
+                                  typed bindings, exact structural fingerprints
+
+Commissioning run                Account/config digest, fixtures, contract,
+                                  phase plans, authorizations, category freeze,
+                                  lifecycle, maximum planned calls
+
+Commissioning step               One exact request target, ordinal, intent,
+                                  transmission fact, lease, safe outcome,
+                                  exact evidence
+
+Owner API                         Authentication, CSRF/origin protections,
+                                  strict bounded request decoding, preview,
+                                  explicit authorization, explicit execution,
+                                  cancellation, read-only status
+
+Executor                          Sequencing, freshness, scheduler permit,
+                                  ephemeral secret/client lifetime, guarded
+                                  request, outcome classification, atomic close
+
+CredentialResolver               Resolve one exact secret_ref for one
+                                  authorized step; return bytes in memory only
+
+Newznab client                    Canonical request construction, secure
+                                  transport, SSRF/DNS/TLS protection, bounded
+                                  response, no automatic credential leakage
+
+Response safety boundary          Exact-secret scan, strict XML token scan,
+                                  structural text validation, safe digest gate
+
+Scheduler                         One request in flight per instance, global
+                                  limit, query budget, minimum interval,
+                                  cooldown, Retry-After, durable reservation
+
+Evidence                          Bounded immutable claim about one exact
+                                  attempt and target; never an authorization
+
+Capability profile               Immutable generated draft in D; no execution
+                                  authority and no automatic activation
+
+Operation status                 Later mutable runtime availability only; not
+                                  immutable commissioning proof
+
+Provider contract                Owner-selected reviewed Go behavior bound to
+                                  the whole run/profile revision
+
+
+9. TRUST AND AUTHORIZATION MODEL
+
+9.1 Owner authority
+
+Only an authenticated owner may create, authorize, execute, cancel, or later
+finalize a run. Readiness and plan preview are read-only and perform no network
+request.
+
+Authorization and execution are separate durable actions:
+
+* Authorization names the run ID, expected run revision, phase, immutable plan
+  SHA-256, and maximum call count.
+* Authorization stores the authenticated owner actor and time using the
+  existing bounded actor representation.
+* Execution names the exact run ID, expected run revision, step ID, expected
+  step state, and structural request fingerprint.
+* A stale revision or mismatched fingerprint fails before credential
+  resolution or scheduler acquisition.
+
+Refreshing a page, repeating a GET, restarting the API, or observing an expired
+lease never authorizes a request.
+
+9.2 One run per indexer
+
+The schema-34 partial unique index remains authoritative: at most one
+nonterminal run exists for an indexer instance. An indexer may be disabled,
+but commissioning it requires an explicit owner action and does not enable it.
+
+Different indexers may have independent runs. Milestone B nevertheless sends
+only the one selected run's CAPS request.
+
+9.3 No ambient authority
+
+A plan, fingerprint, database row, scheduler permit, or secret reference is not
+authority by itself. The executor requires the durable phase authorization and
+a separate current owner execution action.
+
+
+10. MINIMUM OWNER API
+
+No owner API is added in Milestone A. Local tests invoke the orchestrator
+directly.
+
+A minimal API is strictly necessary in Milestone B. Direct SQL would bypass
+domain validation and audit, while a command-line switch would not naturally
+bind an authenticated owner's preview and authorization. No UI is necessary.
+
+Recommended owner-only operations:
+
+* GET /api/v1/settings/integrations/{id}/commissioning-v2/readiness
+  Return sanitized configuration state, categories, current scheduler budget
+  and cooldown, profile revisions, and any existing run. No secret values.
+
+* POST /api/v1/settings/integrations/{id}/commissioning-v2/runs
+  Strictly decode owner fixtures, build one CAPS plan, persist it, and return
+  its preview. This is offline and sends nothing.
+
+* GET /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}
+  Return the run, steps, safe evidence summary, and current freshness.
+
+* POST .../{run}/authorize-caps
+  Bind expected revision and exact plan digest. This sends nothing.
+
+* POST .../{run}/steps/{step}/execute
+  Synchronously attempt only the exact authorized next step. It does not loop
+  to another step.
+
+* POST .../{run}/cancel
+  Request cancellation before the next transmission.
+
+* POST .../{run}/acknowledge-interrupted
+  Convert a recoverably detected transmitted-but-unclosed attempt to
+  indeterminate/owner-attention. It never makes the step retryable.
+
+Milestone C adds category review/seal, authorize-searches, and the same
+single-step execute operation for search steps. Milestone D adds draft
+generation and safe profile comparison. Activation is deliberately absent
+until Milestone E.
+
+All mutation routes require owner authentication, new CSRF/origin protection,
+no-store responses, strict content type and JSON decoding, request-size bounds,
+optimistic revisions, closed errors, and audit actor conventions. The UI never
+receives a secret, full URL, header, cookie, or response body.
+
+Current Caddy authenticates the owner with Basic authentication and injects a
+server-side bearer token. The Go owner middleware only checks that bearer;
+neither it nor decodeJSON supplies origin or media-type enforcement. Browser
+authentication may be ambient, so the injected token alone is not proof of an
+intentional execute action.
+
+B must reject mutation requests with missing, null, malformed, or unapproved
+Origin; require application/json; and reject cross-site Fetch Metadata when
+present. Match Origin against an exact canonical owner origin explicitly
+configured for B's API boundary from the owner-approved deployed route, never
+request Host or an arbitrary forwarded header. Missing trusted-origin
+configuration disables these mutations. This is non-secret B configuration,
+subject to its separate deployment review, not a change authorized here. Test
+the real gateway's header handling. No permissive origin reflection or wildcard
+CORS is allowed. Non-browser callers must satisfy the same origin/media-type
+rules in addition to owner authentication; there is no missing-Origin bypass.
+GET remains read-only. No new session system or UI is required.
+
+One-use semantics are the locked planned-to-intent transition, not a reusable
+token. Authorization binds the immutable phase plan; each execute POST separately
+binds owner authority, integration/run/step IDs, revision, expected state and
+fingerprint. Concurrent or repeated POSTs return current safe state/conflict
+without sending again. An HTTP timeout or owner disconnect does not reopen a
+claimed step. Request context cancellation after the transmission marker uses
+the indeterminate rules, not an HTTP retry.
+
+
+11. PLAN PREVIEW
+
+The owner must see before authorization:
+
+* selected indexer identity and enabled state;
+* whether category review is required;
+* movie and series category IDs, never provider credentials;
+* optional exact provider-contract key and version;
+* current profile revisions and active profile, if one later exists;
+* current query-budget availability, minimum interval, and cooldown;
+* the immutable phase and plan fingerprint;
+* every proposed step in ordinal order;
+* target capability and exact recipe key;
+* mode and typed value-source names;
+* category-set reference and selected category IDs;
+* fixture key, not arbitrary title text in the fingerprint;
+* query limit;
+* primary or fallback role;
+* safe structural request fingerprint;
+* reason and CAPS basis;
+* maximum provider transmissions;
+* earliest execution time;
+* stop behavior; and
+* everything the run will leave unknown.
+
+The preview never shows a complete URL, endpoint path assembled with query
+values, API key, Authorization value, cookie, raw provider text, or response
+body.
+
+Previewing does not reserve budget and cannot promise that budget will still be
+available at execution time. The execution path rechecks it.
+
+
+12. LIVE EXECUTION ALGORITHM
+
+Each execute action handles exactly one step and returns only after that step
+has reached a safe durable state or the caller has received a bounded internal
+failure. It never advances to a second request.
+
+12.1 Before intent
+
+1. Authenticate and authorize the owner.
+2. Strictly decode the execute command.
+3. Load one consistent run-plus-steps snapshot.
+4. Require the exact expected revisions, phase authorization, ordinal, target,
+   fingerprint, and planned state.
+5. Load and validate the current integration.
+6. Recompute and compare:
+   * endpoint/account digest, including exact secret_ref;
+   * provider-contract key/version;
+   * current category selection and review state;
+   * frozen category digest for search steps; and
+   * profile schema and planner versions.
+7. Check cancellation.
+8. Atomically move planned to intent_committed with a bounded executor lease.
+
+No credential has been resolved and no network operation has occurred through
+this point.
+
+12.2 Scheduler and secret preparation
+
+9. Acquire the shared scheduler's narrow commissioning permit using
+   WorkloadCommissioning and this exact step ID. It owns one per-instance lane,
+   one global slot and one durable query reservation. The client must consume
+   this already-held permit, never acquire another one (section 14).
+10. If pacing, budget, context cancellation, or configuration blocks before
+    send, atomically finish the step as deferred_before_send or cancelled with
+    a closed outcome. No request is considered transmitted.
+11. Re-read and compare all freshness inputs.
+12. Resolve only the exact snapshotted secret_ref through CredentialResolver.
+13. Reject an empty or oversized secret. Keep it only in a short-lived byte
+    buffer owned by this execution call.
+14. Construct an ephemeral configuration for the existing Newznab client. Do
+    not put the secret in a run, step, log field, context value, metric label,
+    error, fingerprint, or persistent digest.
+
+12.3 Commit the transmission boundary
+
+15. Prepare a fixed bounded execution deadline and the closed request. Resolve
+    and validate the initial destination through the guarded client. No HTTP
+    request bytes may be written during this preparation.
+16. In one repository transaction, lock integration, run, step, then budget
+    state; verify the exact reservation, lease, cancellation, deadline and
+    freshness; persist the unresolved-attempt gate and a pacing floor through
+    deadline plus minimum interval; and move intent_committed to transmitting
+    with transmitted_at fixed once. All these writes commit or roll back
+    together. No success/failure outcome is claimed by this operation.
+17. Release the database transaction.
+18. Invoke the guarded Newznab client method once.
+
+The gate and transmission marker are one commit. An uncertain commit must be
+reloaded; it never permits transmission on assumption. A crash after that commit
+is possibly sent, even if no socket write occurred. A delayed sender must use
+the original absolute deadline, not start a fresh timeout inside the client.
+Expired deadlines prohibit sending. The durable gate does not expire with the
+deadline or lease, so restart cannot bypass an unresolved late transmission.
+
+There is an unavoidable tiny interval between the final database check and
+transport. The request uses the immutable configuration and secret_ref snapshot
+already bound to the run. A concurrent edit is detected by the mandatory
+post-response check; its result cannot become accepted evidence. No edit is
+silently applied to an in-flight request.
+
+12.4 After transport
+
+19. The guarded client bounds and safety-checks all headers and body bytes.
+20. It performs exact-secret and strict XML checks before returning any
+    provider-derived value or digest.
+21. Re-read the current integration, secret_ref, contract, categories, run
+    state, and cancellation state.
+22. If any freshness value changed, discard the response as capability evidence
+    and select configuration_stale/run stale for finalization. Persist no
+    provider-derived text or response/body digest. A safely classified
+    instance-wide cooldown still applies to the request's original indexer;
+    configuration drift must not discard already obtained rate-limit facts.
+23. Otherwise classify the closed outcome and build exact-target evidence when
+    the outcome permits it.
+24. CompleteLiveAttempt uses one transaction to recheck target/fingerprint and
+    freshness, persist the closed scheduler outcome/cooldown, persist terminal
+    step/evidence and run state, release the executor lease, and clear the gate
+    only when accounting is safely resolved. Unknown accounting retains it.
+25. After known commit, refresh the scheduler cache from durable state while
+    retaining the lane, then release the permit exactly once without a second
+    Record/RecordResult write. Failed finalization or uncertain transport keeps
+    the durable gate closed. No later request may pass that gate.
+26. Drop all references to the credential and ephemeral client. Go cannot
+    promise physical zeroization, so the design promises lifetime minimization
+    and non-persistence, not impossible memory guarantees.
+
+If step/result persistence is uncertain after transmission, the recovery rule
+is indeterminate. The executor does not repeat the request to obtain a cleaner
+record.
+
+
+13. CRASH AND RESTART SEMANTICS
+
+State at crash                         Meaning after restart
+-------------------------------------  ----------------------------------------
+planned                                Nothing was authorized for transmission.
+                                       A later explicit execute action may
+                                       begin normally after current checks.
+
+intent_committed, no transmitted_at    The repository has no transmission
+                                       marker. No startup task resumes it.
+                                       An owner may cancel the run and create a
+                                       new run; the same step is not silently
+                                       reset.
+
+transmitting, transmitted_at present   The request may have left the process.
+                                       When the lease expires, the step becomes
+                                       owner-visible as interrupted. An explicit
+                                       recovery action closes it indeterminate
+                                       and the run owner_attention.
+
+response obtained, close transaction   If the close transaction committed, its
+committed                               exact evidence is durable and no request
+                                       repeats.
+
+response obtained, close commit         Commit status is uncertain, so reload.
+uncertain                              If terminal evidence is absent while
+                                       transmitted_at exists, mark
+                                       indeterminate. Never replay.
+
+completed evidence, later run          Continue from durable evidence after
+transition missing                     owner action through an idempotent local
+                                       run transition only. No HTTP repeat.
+
+No service-startup worker scans and resumes steps. Expired leases are
+visibility and recovery signals, not authorization.
+
+A step that becomes indeterminate is terminal forever. It cannot transition to
+planned, intent_committed, transmitting, or completed. A deliberate new
+attempt requires an owner-created new run with a new run ID, step ID, budget
+reservation, authorization, and evidence target. The owner is warned that the
+previous call may have consumed quota.
+
+Client cancellation before transmitted_at closes cancelled with no request.
+After that marker, cancellation without safely finalized response closes
+indeterminate, even if a client believes zero bytes were written. There is no
+transmitting-to-cancelled exception. Terminal indeterminate does not by itself
+clear unresolved scheduler accounting (section 14).
+
+
+14. SCHEDULER AND REQUEST ACCOUNTING
+
+All CAPS and search requests use the existing scheduler's
+WorkloadCommissioning query family. There is no private lane.
+
+The executor respects:
+
+* one request in flight per indexer instance;
+* the existing global concurrency bound;
+* minimum interval of at least three seconds;
+* owner-configured query limit and window;
+* durable reservations;
+* current cooldown;
+* Retry-After; and
+* cancellation while waiting.
+
+14.1 One permit and one reservation
+
+The executor owns the acquired permit until safe release. A commissioning-only
+client method consumes a one-use request capability from that permit. It checks
+the indexer and durable transmitting step identity, but performs no Acquire,
+Record, RecordResult or implicit Close that records an outcome. The existing
+requestTargetGuarded acquires and records internally, so wrapping that method
+while holding an outer permit is forbidden. Extract a narrow transport seam
+inside the existing client; preserve the legacy wrapper and its behavior.
+
+Current ReserveIndexerRequest returns only a deferral time. The new narrow
+reservation operation must use the existing step UUID as the actual reservation
+row ID, validate its instance/query-family association, and return that real
+identity to the permit. Reserve under the existing budget lock with all normal
+limits; never reserve twice through legacy Acquire as well. A duplicate ID must
+validate the existing row rather than consume another call. This is not a
+secret-derived identifier. Never refund a reservation after possible send.
+Before the transmission commit, require the reservation still to be valid in
+the configured budget window. A missing/expired reservation fails closed; do
+not silently obtain another reservation and reuse the claimed step.
+Reservation failure prevents transmission. An orphaned pre-send reservation
+may conservatively consume budget until normal expiry; it cannot authorize I/O.
+
+14.2 Durable transmission and completion
+
+Reserve first, then MarkClaimedStepTransmitting atomically associates a durable
+budget-state gate with the step and commits the transmission marker. Set
+NextAllowedAt to at least the fixed execution deadline plus the configured
+minimum interval, preserving any longer existing restriction. This protects a
+late send; merely writing now plus three seconds before a delayed socket write
+does not. Every shared scheduler Acquire, including legacy callers, must check
+the durable gate before allowing a request. Failure to read the gate fails
+closed. Gate checks must not use a once-loaded cache.
+
+The gate survives process death and has no automatic expiry. CompleteLiveAttempt
+persists the protocol-neutral scheduler result, step/run terminal state and gate
+clearance in the SAME transaction. A safely observed Retry-After becomes a
+bounded parsed deadline before that transaction; raw header text is not stored.
+No independently committed terminal step may be followed by an optional
+best-effort cooldown write. Preserve stronger existing cooldowns and the pacing
+floor. Cache publication follows the commit while the lane remains held.
+Failure or uncertain commit leaves the lane releasable in memory but the durable
+gate blocks all later work until the durable result is reloaded and resolved.
+
+If the response/accounting is lost, including crash after receiving 429 but
+before persistence, keep the gate closed even after marking the step
+indeterminate. Acknowledge-interrupted never clears it. This intentionally
+pauses legacy requests for THAT indexer as well; other indexers are unaffected.
+A/B do not provide an unsafe timeout-based or direct-SQL gate reset. An owner
+may close the run and preview a new one, but cannot transmit through unresolved
+accounting. Unblocking such an indexer requires a separately reviewed explicit
+owner recovery policy that addresses unknown Retry-After and an old process
+possibly still running. This operational limitation must be shown before the
+first B authorization. No automatic recovery or new request is the safe default.
+
+Use one serving API process and its shared scheduler for A/B. Repository locks
+prevent duplicate step claims, but the current in-process lanes do not serialize
+legacy HTTP work across multiple API processes. Multi-process execution is
+outside this milestone; B deployment must verify the singleton condition.
+
+The accepted last-outcome/read-model timestamp separation must be completed and
+tested in A's scheduler/storage substrate, before B wiring. A pre-send pacing
+write must not refresh the apparent time of a historical outcome. With no gate
+present, existing callers retain their request construction, pacing and outcome
+semantics; there is no production executor in A.
+
+All commissioning redirects, including same-origin redirects, are rejected
+before any follow-up. This is necessary but not sufficient for one transmission:
+the no-replay transport policy in section 16 is also mandatory. There is no
+commissioning retry, transport replay, authentication retry or fallback hop.
+429, quota exhaustion and Retry-After stop the run after durable accounting;
+they never cause sleep-and-retry.
+
+
+15. CREDENTIAL RESOLUTION AND EXACT-SECRET SAFETY
+
+15.1 Resolver boundary
+
+Milestone A defines:
+
+    type CredentialResolver interface {
+        ResolveCommissioningCredential(
+            context.Context,
+            indexerInstanceID,
+            exactSecretRef,
+        ) ([]byte, error)
+    }
+
+The exact signature may use repository UUID types, but its authority remains
+that narrow. Milestone A has only a test implementation. Milestone B adds a
+small adapter over the existing secret resolver. The executor supplies the
+run's exact secret_ref; the resolver never selects an alternative.
+
+Resolution occurs only after owner authorization, intent persistence, scheduler
+permission, and a current freshness check. The generic profile validator,
+planner, repository, and HTTP handler never resolve credentials.
+
+Resolve once per exact attempt. Do not resolve again after the response to
+infer account identity. Replacement behind the same secret_ref is treated as
+rotation for the same account, as in the accepted foundation; the system cannot
+detect a different account placed behind that unchanged reference. Owners must
+change the reference for an account change. Minimize byte/string copies when
+adapting the existing string-based client/scanner; do not promise erasure of Go
+strings or use unsafe memory tricks.
+
+15.2 Representations
+
+For each bounded provider-controlled input, InspectExactSecret receives the
+credential and only the representations applicable to the configured client:
+
+* raw credential bytes;
+* percent-encoded forms;
+* recursively percent-encoded forms through the existing fixed bound;
+* query-escaped form, with plus-as-space semantics only for query-form input;
+* the exact Bearer representation only when Bearer authentication is actually
+  configured; and
+* the exact complete Basic representation only when both configured username
+  and password are known.
+
+The scanner must not invent a username, invent Basic material, use entropy,
+guess secret shapes, or broadly redact harmless overlaps.
+
+15.3 Inputs scanned
+
+Before any provider-derived value is retained, logged, hashed, or placed in an
+error, scan:
+
+* every bounded raw response-body byte;
+* response status reason if exposed by the transport;
+* every bounded response-header name and value, including Location,
+  WWW-Authenticate, Retry-After, Content-Disposition, Cookie, and Set-Cookie;
+* every decoded XML attribute name and value;
+* complete reconstructed logical XML text values, including CDATA, entity
+  expansion, adjacent character-data chunks, unknown elements, and ignored
+  fields;
+* Newznab error codes/messages;
+* server titles and descriptions;
+* category names;
+* search result titles and all retained attributes; and
+* any provider-contract-derived retained value.
+
+Parsing must use bounded buffers and a bounded rolling/reconstruction strategy
+so splitting a credential across adjacent XML character-data tokens cannot
+bypass inspection.
+
+15.4 On detection
+
+If an exact representation is found:
+
+* do not persist any matching or surrounding provider text;
+* do not emit it in a log, trace, metric, or error;
+* do not compute or store a raw-body or sanitized-response digest;
+* terminate that step with safety_credential_echo and a closed safe code;
+* transition the run to safety_blocked; and
+* require owner attention.
+
+Only a closed code and local timestamps are persisted.
+
+15.5 Safe digest
+
+After every raw, header, decoded-token, structural, UTF-8, size, and envelope
+check passes, the executor may compute:
+
+* the existing raw-body SHA-256 required by CAPS evidence.
+
+For A/B, request Accept-Encoding: identity, disable automatic decompression, and
+reject any non-identity Content-Encoding without parsing or hashing its body.
+The hash input is exactly the bounded identity-encoded entity-body bytes exposed
+by the HTTP transport, after HTTP transfer framing is removed and before XML
+normalization. Inspect those bytes and all bounded decoded XML logical values
+before hashing. No compressed wire-body or redacted-projection digest is stored.
+Supporting compression or a canonical sanitized projection is deferred pending
+an exact separately reviewed decoding, size-limit and canonical-input contract.
+
+The digest is not logged as proof of semantic support. If scanning cannot
+complete or a response is discarded for freshness, no provider-body digest is
+persisted.
+
+This is an exact-representation guarantee, not a claim that arbitrary unknown
+secret transformations can be detected.
+
+
+16. SHARED NEWZNAB CLIENT AND PARSER
+
+No independent HTTP-client subsystem is allowed. The guarded commissioning
+methods extend the existing Newznab client. Current public-address validation
+and pinned dialing protect cross-origin redirects, NOT the initial configured
+origin; New currently defaults that request to http.DefaultTransport. The new
+guarded initial-hop path must explicitly enforce:
+
+* canonical endpoint enforcement;
+* SSRF protections;
+* public-address validation;
+* DNS pinning and rebinding resistance;
+* TLS and SNI verification;
+* HTTPS downgrade rejection;
+* no automatic Referer leakage;
+* credential/header stripping;
+* response-size limits;
+* safe timeouts; and
+* existing API-key request construction.
+
+For B, fail closed unless the configured origin is HTTPS with a DNS hostname
+and every bounded resolved address is public. Pin dialing to the validated
+addresses while preserving the original canonical host/port and TLS SNI/name
+verification. No second DNS lookup, environment proxy or HTTPS downgrade is
+permitted. An owner allow_http setting is not a v2 exemption; show in readiness
+that B cannot probe that instance. A loopback TLS address and local test CA may
+be supplied only by the injected test harness, never provider data or a
+production bypass setting. This restriction does not rewrite legacy config.
+
+Use a fresh, non-reusing HTTP/1-only transport for the guarded attempt, with
+Proxy nil, keep-alives disabled, no alternate protocol or HTTP/2 negotiation,
+and no retrying wrapper. Audit the exact supported Go transport implementation:
+default GET replay on a reused connection is NOT prevented by CheckRedirect.
+Set finite dial/TLS/header/body bounds inside the original absolute deadline.
+Connection attempts before any HTTP bytes are not additional provider requests,
+but after a possible HTTP write no error may cause another HTTP transmission.
+One-use guarded invocation is consumed even on error. No cookie jar, Referer,
+401/407 challenge negotiation, credential resubmission or redirect following is
+allowed. Standard HTTP framing is handled by the transport; retain no raw
+transport error strings. Local request-count tests and transport-source review
+are both required; calling Do once is not itself proof of sending once.
+
+The live v2 methods accept only typed request objects produced by the closed
+planner. They never accept a URL, path template, arbitrary parameter map,
+provider expression, or regular expression.
+
+The client-owned guard seam should expose bounded events such as response
+headers, raw body, decoded attribute/text, and immediately-before-send. The
+executor provides callbacks for:
+
+* cancellation and freshness;
+* exact-secret inspection; and
+* structural provider-text validation.
+
+Callbacks return only allow or a closed safe failure. They must not receive a
+logger and must not return provider text.
+
+The XML reader must:
+
+* require valid UTF-8 before normalization;
+* forbid DTD/external resources and unbounded entity expansion;
+* enforce byte, depth, element, attribute, text, category, and item bounds;
+* accept exactly one expected root;
+* consume through EOF;
+* reject a second/trailing root or any non-whitespace trailing content;
+* validate the envelope before semantic use;
+* isolate an invalid item only where the whole XML document and item boundary
+  remain trustworthy; and
+* never permissively salvage malformed whole-document XML.
+
+CAPS returns CAPSModeObservation. The v2 executor must never call the legacy
+Searches projection.
+
+
+17. FRESHNESS MODEL
+
+The following are safety-relevant:
+
+* canonical endpoint origin and base path;
+* allow-HTTP policy and transport policy;
+* authentication mechanism;
+* exact non-secret secret_ref;
+* optional provider-contract key and exact version;
+* profile schema and planner version;
+* category review state; and
+* movie/series category selection.
+
+The endpoint/account digest binds canonical endpoint, allow-HTTP, the fixed
+query-api-key mechanism, secret_ref and provider contract. Profile schema and
+planner versions are separate immutable plan/run fields, not digest fields.
+The guarded parser/transport policy must be fixed to the reviewed executor
+version; a changed policy cannot resume an old authorized run. Search plans
+additionally bind the normalized frozen category digest and sorted arrays.
+
+Before and after every request the executor:
+
+1. loads the integration by the exact run indexer ID;
+2. recomputes the endpoint/account digest;
+3. compares the exact provider contract;
+4. loads and canonicalizes category review and selections;
+5. compares the pre-request category snapshot; and
+6. for search, compares the run's frozen category digest and arrays.
+
+CAPS precedes final category review, so its current category snapshot need not
+be added to immutable CAPS evidence. It is captured in memory immediately
+before transmission and compared immediately after response. If it changes,
+the CAPS response is discarded and the run is stale. A crash after
+transmission is indeterminate regardless, so the missing in-memory value can
+never lead to accepted evidence.
+
+Search cannot run until category review is resolved and the categories are
+frozen in the run and each step.
+
+Any mismatch:
+
+* prevents a not-yet-sent request;
+* or, after transmission, prevents evidence acceptance;
+* records only configuration_stale and safe local timing;
+* retains earlier already-safe evidence under its old immutable binding;
+* makes the run non-activatable; and
+* requires a new run.
+
+The executor never silently applies evidence from old categories or account
+configuration to edited configuration.
+
+
+18. MILESTONE B: EXACTLY ONE LIVE CAPS REQUEST
+
+Milestone B is the first code authorized to contact a configured indexer, but
+only after its own independent acceptance and an explicit owner action.
+
+A B run:
+
+1. validates one selected Newznab integration;
+2. validates owner-supplied local fixtures even though CAPS does not send them;
+3. builds and persists exactly one CAPS plan/step;
+4. returns the safe preview;
+5. durably records exact owner authorization;
+6. receives a separate execute action;
+7. follows the execution algorithm above;
+8. sends exactly one XML CAPS request with no redirect or retry;
+9. persists one safe exact-target CAPS evidence document on success; and
+10. moves to awaiting_category_review.
+
+Successful CAPS evidence proves only:
+
+* a response was obtained while using the exact authorized configuration;
+* the bounded response was one valid CAPS XML document;
+* the richer observation was safely captured; and
+* the evidence belongs to that exact run, step, digest, and target.
+
+It does not prove that the provider checked the supplied credential: CAPS may
+be served without account authentication. It does not verify a movie recipe,
+season recipe, category access, result limit, metadata consistency, or retrieval.
+
+Repeated known mode elements remain present, repeated, and uninterpretable.
+Their attributes are not merged into a truthful claim and cannot justify a
+search candidate.
+
+An omitted mode remains omitted. A later owner-approved generic or selected
+provider-contract candidate may be proposed in C, but CAPS history is never
+rewritten.
+
+
+19. MILESTONE C: BOUNDED SEARCH PROBES
+
+C reuses the accepted pure BuildSearchPlan result. It cannot plan without safe
+CAPS evidence from the same run and exact CAPS digest.
+
+The order remains deterministic:
+
+Movie:
+
+1. strongest reasonable exact-ID recipe for which trusted fixture data exists;
+2. a different exact-ID primary only when the first cannot be planned; and
+3. at most one separately targeted general title/year fallback when requested.
+
+Complete season:
+
+1. strongest reasonable series-ID plus season recipe;
+2. another exact-ID primary only when inputs for the first are unavailable;
+3. at most one separately targeted general title plus season-token fallback.
+
+The sealed plan contains at most four search steps. Together with CAPS, the run
+contains at most five transmissions. The executor rejects any caller-provided
+larger value independently of the preview.
+
+Each execute action sends one next ordinal only. It has no loop. An
+operation-local completed outcome may leave the following independent planned
+step eligible for another explicit owner execute action. Instance-wide,
+safety, stale, cancellation, or indeterminate outcomes stop the run.
+
+Search remains XML-only, single-page, limit 20 by default, with no redirect or
+retry. A later profile's initial VerifiedLimit cannot exceed the exact tested
+limit.
+
+
+20. SEMANTIC SEARCH PROOF
+
+Before C can persist verified, unsupported, permission-restricted, or
+contradicted search evidence, it must add a closed versioned proof payload.
+Counts alone are insufficient, and the accepted offline validator correctly
+rejects such claims today.
+
+The proof may contain only closed and bounded fields such as:
+
+* proof schema version;
+* fixture identity namespace used;
+* provider-observed identity match, absence, or conflict;
+* canonical-title match class;
+* exact year match, absence, or conflict;
+* requested season number;
+* provider-observed season match, absence, or conflict;
+* title-derived season token match;
+* closed complete-pack marker basis;
+* individual-episode-only count;
+* malformed-item count;
+* valid-item count; and
+* a bounded list of closed conflict codes.
+
+It does not store the full result title, URL, GUID, arbitrary attributes, raw
+XML, or provider error message.
+
+Movie verification requires one of:
+
+* an exact matching provider-supplied trusted external ID with no conflicting
+  trusted ID, plus compatible year when the provider supplies a year; or
+* canonical title plus exact year, with no conflicting trusted provider ID.
+
+Title alone, title inference alone, a missing year for a title/year recipe, or
+conflicting IDs does not verify.
+
+Complete-season verification requires:
+
+* exact matching trusted series ID, or canonical series title with no
+  conflicting ID;
+* exact requested season from provider metadata or an unambiguous bounded title
+  token;
+* positive complete-pack evidence from a closed provider field or a strict
+  title-pack grammar; and
+* no evidence that all plausible matches are individual episodes.
+
+A single episode never verifies complete-season search. Mixed results may
+verify only if at least one independently plausible complete pack meets all
+identity and season rules. Missing or conflicting season/pack evidence remains
+unknown or no_plausible_match.
+
+One malformed item is isolated and counted. It does not poison other valid
+items or mark the indexer unsupported. Malformed whole-document XML stops the
+step.
+
+No-result and no-plausible-match remain unknown capability, not unsupported.
+Unsupported, restricted, and contradicted require deterministic
+operation-specific protocol proof recorded in closed fields.
+
+
+21. EXACT-TARGET EVIDENCE
+
+Every live evidence record is bound, directly or through the immutable step,
+to:
+
+* run ID;
+* step ID and ordinal;
+* indexer instance ID;
+* endpoint/account digest;
+* profile schema and planner version;
+* exact provider-contract key/version;
+* phase;
+* capability target;
+* exact recipe key for search;
+* fixture key and fixture digest for search;
+* exact normalized category IDs and category digest for search;
+* structural request fingerprint;
+* budget family;
+* start, transmission, and completion times;
+* closed safe outcome and safe code;
+* bounded counts;
+* safe response/body digest only after all gates; and
+* evidence key.
+
+CAPS evidence cannot verify search. Movie evidence cannot verify season.
+Evidence for recipe A cannot verify recipe B. A fallback is its own recipe and
+requires its own evidence.
+
+Indeterminate, safety-blocked, stale, authentication, rate-limit, transport, or
+malformed-response outcomes contain no capability-verifying evidence.
+
+The structural fingerprint is identity and tamper detection, not authorization,
+proof of transmission, or proof of semantic correctness.
+
+
+22. STOP-VERSUS-CONTINUE MATRIX
+
+Outcome/class                       Step state       Run behavior
+----------------------------------  ---------------  --------------------------
+CAPS safely observed                completed        awaiting_category_review
+
+Repeated CAPS mode                  completed        continue to review; mode
+                                                     remains uninterpretable
+
+Search recipe verified              completed        next independent step may
+                                                     be owner-executed
+
+No results                           completed        recipe remains unknown;
+                                                     next independent step may
+                                                     be owner-executed
+
+No plausible fixture match          completed        recipe remains unknown;
+                                                     next independent step may
+                                                     be owner-executed
+
+Deterministic unsupported            completed        exact recipe only;
+                                                     independent step may
+                                                     continue
+
+Operation permission restricted      completed        exact recipe only;
+                                                     independent step may
+                                                     continue
+
+Exact recipe contradicted            completed        exact recipe only;
+                                                     independent step may
+                                                     continue
+
+One malformed item                   completed if a   isolate item; evaluate
+                                     valid envelope   remaining valid items
+
+Credential unavailable               deferred before owner_attention; no send
+send
+
+Cooldown or budget unavailable       deferred before owner_attention; expose
+send                                                  safe earliest time
+
+Authentication failure               completed        owner_attention; no
+                                                     capability downgrade
+
+429, quota, Retry-After              completed        owner_attention; scheduler
+                                                     cooldown, no retry
+
+DNS/TLS/connection failure after     indeterminate    owner_attention; no retry
+possible transmission
+
+Failure proven before transmission   deferred before owner_attention; new run
+                                     send             only by owner
+
+Malformed whole XML/envelope         completed        owner_attention; no
+                                                     permissive salvage
+
+Semantic ambiguity                   completed        owner_attention; no
+                                                     capability downgrade
+
+Secret echo                          completed        safety_blocked; no body,
+                                                     text, or digest persisted
+
+Unsafe redirect/text/body/XML limit  completed        safety_blocked
+
+Configuration/category drift before deferred before stale; no send
+send                                 send
+
+Configuration/category drift after  completed        stale; discard response
+send                                                  as evidence
+
+Owner cancellation before send       cancelled        cancel run
+
+Cancellation or crash after send      indeterminate    owner_attention forever;
+                                                     never resend
+
+Timeout or incomplete response after indeterminate    owner_attention; unknown
+transmission marker                                  accounting gate retained
+
+Safe provider 5xx response            completed        owner_attention; instance
+                                                     backoff, no capability claim
+
+Wrong media type/content encoding     completed        malformed_response;
+                                                     owner_attention, no digest
+
+Response finalization fails           transmitting     retain gate; reload commit
+                                                     result, else indeterminate
+
+The broad pre-transmission failure row above is not permission to invent a
+schema-34 outcome. Before the marker, map only the existing legal deferral or
+cancellation outcomes. Unexpected local preparation/storage failures remain
+claimed and owner-visible until safely cancelled; they send nothing. After the
+marker, uncertain DNS/TLS/connection/timeout results close indeterminate with
+no verifying evidence, even where a lower layer believes nothing was sent.
+
+Every row forbids automatic retry. An owner can create a new run, but it cannot
+transmit while unresolved accounting remains gated. Safe CAPS observations are
+the only B evidence; no B outcome changes durable capability support or creates
+operation-status/profile rows. Safety, drift, ambiguity, malformed responses,
+authentication, quota and transport outcomes require owner attention. A safely
+obtained rate limit updates the instance cooldown even if another closed
+classification prevents using the response as capability evidence.
+
+Closed scheduler mapping: safe CAPS uses success/none; search no-results uses
+no_results/none; safe authentication failure uses auth_failed/instance; quota,
+429 and safe Retry-After use rate_limited/instance with a parsed bounded
+deadline; safe 5xx uses system_failure/instance. Operation-local search failures
+later use system_failure/operation and cannot change instance failure history.
+Malformed CAPS/media-type failures stop B and use operation-local failure, not
+unsupported. Pre-send cancellation claims no provider result. Secret echo,
+unsafe transport/text, lost response, or uncertain accounting retains the gate
+and stores only closed local failure information; it must not pass raw headers
+to the scheduler. None clears a stronger cooldown. These mappings, including
+safe 5xx to the closed provider-failure classification, need explicit Go/SQL
+validation tests rather than relying on provider message text.
+
+The implementation must encode this matrix once in closed domain helpers and
+test Go, repository, SQL, scheduler, and handler behavior against the same
+table. It must not infer scope by matching provider error strings.
+
+
+23. OWNER CANCELLATION
+
+Cancellation is checked:
+
+* before intent;
+* while awaiting the scheduler;
+* after scheduler acquisition;
+* before credential resolution;
+* immediately before the transmission marker;
+* in the guarded client immediately before send; and
+* after the response before evidence persistence.
+
+Cancel requested while no request is transmitting prevents the next request
+and transitions remaining planned steps to cancelled through explicit local
+operations.
+
+Cancel requested once the transmission marker commits cannot retract the
+request. Cancelling its context is allowed, but without safely finalized
+response the durable result is indeterminate, never cancelled-before-send.
+Cancellation never authorizes execution, retry, gate clearance or cleanup of
+evidence. Recovery finalization uses a bounded service-owned context after an
+HTTP disconnect; failure still leaves the durable marker and gate intact.
+
+
+24. DATABASE AND REPOSITORY PLAN
+
+24.1 Reuse schema 34 and review the narrow missing storage
+
+Schema 34 already has the core durable run and step data:
+
+* immutable plans and fixture documents with hashes;
+* exact digest and contract binding;
+* owner authorization actor/time;
+* state/revision;
+* intent/transmission/completion timestamps;
+* executor lease;
+* closed outcomes/codes;
+* retry time;
+* exact request/fingerprint/category fields;
+* bounded counts and digests; and
+* exact evidence document.
+
+Migration 0034 is deployed and must never be edited in place. Its retry_at is
+legal only for deferred-before-send steps, not completed 429 outcomes; it cannot
+be used as an invented durable post-response accounting record. Existing
+last_outcome also shares updated_at with pacing/read-model changes.
+
+The revised design proposes separately reviewed additive migration 0035 with
+only the storage required for the chosen protocol:
+
+* nullable indexer_budget_state.commissioning_gate_step_id, referencing a
+  commissioning step with deletion restricted;
+* a constraint/trigger ensuring the referenced step belongs to that same
+  indexer, and that an existing unresolved gate cannot be replaced by a new
+  step or cleared outside the atomic completion contract;
+* nullable last_outcome_at, separate from updated_at; historical values are
+  unknown unless their time can be established truthfully. Do not backfill an
+  operation-read timestamp as a historical outcome time.
+
+No new run is created and all gates start NULL. A gate may retain a terminal
+indeterminate/safety step; its lifetime is intentionally independent of the
+lease and run uniqueness slot. Completion clearance requires a safely resolved
+accounting outcome and the exact old gate identity, atomically with terminal
+step and scheduler state. Existing reservation IDs store the real step UUID;
+do not add a parallel request-log table. A foreign key is not sufficient without
+the same-indexer and lifecycle checks. All new functions must follow the
+qualified-type/search_path protections of the accepted migrations.
+
+This is a migration DESIGN requirement, not permission to create SQL now.
+Review the precise schema and atomic SQL before Milestone A persistence work;
+if this minimal design cannot enforce the stated contract, return for review
+rather than silently weakening it. Do not implement schema-dependent methods
+against schema 34 and call them live-ready.
+
+24.2 Narrow repository operations
+
+Milestone A should add service-facing atomic methods rather than exposing
+arbitrary transitions:
+
+* ClaimAuthorizedStepIntent
+* DeferClaimedStepBeforeSend
+* MarkClaimedStepTransmitting
+* CompleteLiveAttempt
+* MarkInterruptedAttemptIndeterminate
+* RequestRunCancellation
+* FinalizeCancelledRun
+
+Names may vary, but each method accepts exact IDs, expected revisions/states,
+lease owner, closed outcome, and a bounded time. It locks the integration,
+run, and step in one consistent order and revalidates immutable plan identity.
+
+CompleteLiveAttempt atomically:
+
+* confirms transmitting state and lease;
+* revalidates run/step target and structural fingerprint;
+* revalidates current account/contract/category binding;
+* persists safe scheduler accounting and the appropriate outcome timestamp;
+* persists the terminal step and optional exact evidence;
+* applies the stop/continue run transition; and
+* removes the lease, clearing the exact scheduler gate only when its accounting
+  is safely resolved. Otherwise retain that gate across terminal closure.
+
+It cannot create or activate a profile, update integration enablement, or
+replace a plan/fixture/evidence document.
+
+The scheduler remains the policy owner, but uses a narrow transaction-aware
+storage seam for this finalization; it is not a separately committed write after
+step completion. Failed claim means no permit/request. Failed reservation means
+no transmission. Failed transmission transaction means no HTTP call. Unknown
+transmission commit means reload, not send. Failed completion retains the gate;
+unknown completion commit reloads both step and accounting before cache update.
+Duplicate execute loses the expected-state claim and performs no network I/O.
+
+24.3 Lock order
+
+The short initial claim happens before lane acquisition and releases its locks
+before waiting. Once acquired, retain the shared scheduler lane through
+transmission/finalization. Database transactions lock in this fixed order:
+
+1. integration instance;
+2. commissioning run;
+3. commissioning step;
+4. indexer budget state.
+
+Budget reservation uses its existing advisory lock in a separate short
+transaction and never takes run/step locks while holding it. No path takes the
+budget row first and then a commissioning row. The transaction-aware scheduler
+storage helper follows the same order. Rows-affected and exact gate/lease checks
+are mandatory; no generic JSON-update or gate-reset API is added.
+
+Never hold a database transaction while waiting for scheduler cooldown or
+performing HTTP I/O. Different indexers remain independent. Context
+cancellation rolls back all local mutations.
+
+
+25. PROVIDER CONTRACTS
+
+Provider contracts remain:
+
+* explicitly selected by the owner;
+* exact canonical registered keys;
+* exact reviewed versions;
+* bound to the complete run and later complete profile revision;
+* limited to reviewed Go code; and
+* constrained to the configured canonical origin.
+
+CAPS server text, headers, host observations, response fields, or software
+names cannot select or change a contract. A contract cannot bypass transport,
+secret, XML, structural, evidence, scheduler, or authorization gates.
+
+Changing, adding, removing, or version-changing a contract makes the run stale.
+Generic recipes are not retained piecemeal under a mismatched contract.
+
+
+26. METADATA PROVENANCE
+
+Search evidence keeps distinct:
+
+* bounded raw provider field observation, when safe and represented only by a
+  closed proof or digest;
+* generic Newznab semantic mapping;
+* exact registered provider-contract mapping;
+* normalized observed claim;
+* release-title inference;
+* unknown;
+* conflicting; and
+* later post-download verification.
+
+Commissioning may use only registered versioned mapping sets. Unknown
+attributes do not create a mapping or capability.
+
+Language rules remain conservative:
+
+* provider language is not automatically audio language;
+* a DANISH title token proves neither Danish audio nor subtitles;
+* missing subtitle data does not prove absence;
+* missing Danish evidence is neutral;
+* title inference stays separate from observed metadata; and
+* commissioning never weakens quality or Danish-language policy.
+
+CAPS and search probes cannot prove file contents. Enrichment, retrieval, and
+post-download inspection remain later work.
+
+
+27. SECURITY THREATS AND MITIGATIONS
+
+Threat                              Required mitigation
+----------------------------------  ------------------------------------------
+Unapproved network call             Separate durable authorization and execute
+                                    actions; no worker/startup executor
+
+Duplicate after crash               transmitted_at is a point of no return;
+                                    expired lease becomes indeterminate
+
+Quota burst after crash             durable pre-send pacing marker plus durable
+                                    query reservation
+
+Credential echo                     exact raw/header/decoded scans before any
+                                    text, hash, error, evidence, or log
+
+Credential in transport error       closed typed error mapping; never persist
+                                    or log raw error strings/URLs
+
+SSRF or DNS rebinding               guarded initial-origin validation/pinning;
+                                    no default proxy or unvalidated re-resolution
+
+Hidden duplicate transmission       reject redirects AND transport replay;
+                                    fresh non-reusing HTTP/1-only attempt
+
+Malformed/trailing XML              strict one-root consume-through-EOF parser
+
+CAPS overclaim                      richer observations only; CAPS never
+                                    verifies a recipe
+
+Repeated CAPS synthesis             repeated/uninterpretable; legacy projection
+                                    unreachable
+
+Tampered plan                       strict decode, canonical hash, exact stored
+                                    target/fingerprint/revision checks
+
+Configuration race                  before/after digest, contract, secret_ref,
+                                    and category checks; discard stale response
+
+Provider-chosen contract            owner selection only; closed exact registry
+
+Unsafe arbitrary persistence        closed outcomes/proofs; no raw body, URL,
+                                    header, cookie, or provider error
+
+Authorization replay                optimistic revisions and one-way phase
+                                    authorization; exact step executes once
+
+Cancellation race                   guard before send; after-send is
+                                    indeterminate
+
+Permissive item salvage             isolate only within a valid whole document;
+                                    never salvage malformed envelope/XML
+
+Profile auto-activation             no profile generator A-C; draft only D;
+                                    separate explicit activation E
+
+
+28. TEST STRATEGY
+
+28.1 Milestone A local tests
+
+Use only local TLS httptest servers and fakes. Tests must prove:
+
+* no production constructor wires the executor;
+* resolver is caller-injected and no secret store is imported;
+* one authorized execute call makes at most one request;
+* response-read failure after the server receives a GET cannot cause transport
+  replay; test actual request counts, connection reuse and HTTP/2 exclusion;
+* initial-hop private/mixed DNS answers, rebinding, TLS-name mismatch and proxy
+  environment settings cannot bypass guarded destination policy;
+* unauthorized, stale, cancelled, wrong-revision, wrong-fingerprint, and
+  out-of-order steps make zero requests;
+* exact durable intent exists before the fake server observes a request;
+* durable scheduler pacing exists before the fake server observes a request;
+* crash before intent is safely retryable only by a new owner action;
+* crash after intent but before transmission makes no automatic request;
+* crash after transmitted_at becomes indeterminate;
+* restart never automatically resumes;
+* an expired lease never makes a step executable;
+* the same step cannot be sent twice under concurrent execute calls;
+* different indexers do not share a database lock;
+* scheduler reconstruction enforces the pre-send interval;
+* an injected delay longer than the minimum interval before socket write does
+  not permit an early request after restart;
+* a crash after receiving 429 and before finalization retains the durable gate;
+* forced scheduler/step finalization failures roll back together; there is no
+  committed terminal step with a lost cooldown;
+* exactly one permit and real reservation are consumed, with no nested Acquire
+  and no outcome-recording Close after atomic finalization;
+* unknown accounting remains gated after indeterminate acknowledgement, across
+  scheduler reconstruction and legacy Acquire, while other indexers proceed;
+* outcome time is unchanged by a pacing-only write;
+* body limits, slow responses, TLS failures, DNS policy, and cancellation
+  yield the expected closed outcomes;
+* every redirect is rejected without a second fake-server request;
+* raw, percent-encoded, recursively encoded, query-escaped, configured Bearer,
+  and exact configured Basic secret echoes are blocked;
+* secret echoes in headers, XML attributes, XML text, CDATA, entities, ignored
+  elements, error messages, category names, and result fields are blocked;
+* split adjacent character-data cannot evade the scanner;
+* no secret or credential-bearing URL appears in errors or captured logs;
+* secret detection produces no response/body digest;
+* identity-encoded bodies have an exact tested hash input; compressed responses
+  reject without decompression, retained provider text or body digest;
+* CAPS served while ignoring a synthetic key produces no verified-auth claim;
+* safe Unicode and benign percent characters remain accepted;
+* unknown fields, invalid UTF-8, trailing JSON, and oversized documents fail;
+* strict XML rejects a trailing root and trailing non-whitespace;
+* repeated CAPS is richer repeated/uninterpretable;
+* legacy Searches is never read;
+* every terminal outcome follows the stop/continue matrix;
+* operation-local search outcomes allow only a later explicit action;
+* instance/safety/stale/indeterminate outcomes block later requests; and
+* no profile, integration, or operation-status row is changed.
+
+All malicious fixtures are synthetic.
+
+28.2 PostgreSQL tests
+
+Use a fresh loopback-only PostgreSQL 18.6 database. Test:
+
+* atomic claim, transmit, and completion transactions;
+* exact optimistic revisions;
+* one nonterminal run per indexer;
+* one executing step per run;
+* lock order and concurrent claims;
+* rollback after injected mid-transaction failures;
+* immutable plan, fixture, intent, transmission, and evidence fields;
+* stale checks before and after simulated response;
+* indeterminate closure and inability to reopen;
+* cancellation before versus after transmission;
+* exact evidence target/fingerprint matching;
+* safe-code/outcome consistency;
+* no raw body, URL, header, cookie, or secret column;
+* stable resolution under hostile search_path and temporary objects for any
+  new SQL function;
+* no profile activation or integration mutation; and
+* schema 34 data remains otherwise unchanged by the separately reviewed additive
+  migration; all new gates start empty and historical outcome time is not invented.
+
+No application database is used.
+
+28.3 Milestone B acceptance tests
+
+Before any real owner action is enabled:
+
+* all A tests and full normal/race suites pass;
+* the minimal API is owner-only, no-store, CSRF/origin protected, strict and
+  bounded;
+* cross-origin, missing/null Origin, spoofed forwarding, wrong media type and
+  unauthenticated mutations cannot authorize or execute; gateway Basic-to-bearer
+  injection does not bypass these checks;
+* GET and preview routes cannot send;
+* authorization cannot send;
+* execution requires the exact separately authorized CAPS step;
+* one action produces exactly one observed CAPS request;
+* redirects and retries produce no second request;
+* no search request shape is executable;
+* current configuration changes block or stale the attempt;
+* no profile is generated or activated; and
+* an independent review explicitly approves live CAPS execution.
+
+The first actual indexer call is not a smoke-test side effect. It is a distinct
+owner-authorized commissioning action after B is deployed.
+
+28.4 Milestone C tests
+
+Add semantic table tests for movie and complete-season identity, year, season,
+pack, conflict, missing metadata, individual episodes, mixed results, malformed
+items, zero results, and deterministic provider errors. Assert at most four
+search transmissions and at most five total. Each result must target the exact
+recipe and fixture.
+
+
+29. IMPLEMENTATION FILE BOUNDARIES
+
+Milestone A may add or change only narrowly relevant packages:
+
+* internal/commissioningv2 for executor domain/orchestration and closed
+  classification;
+* internal/adapters/newznab for guarded transport/parser seams;
+* internal/indexers for durable pre-send pacing;
+* internal/postgres for narrow atomic repository and pacing methods;
+* migration 0035 only after its separate schema-design approval, for the narrow
+  durable gate and outcome-time separation described above;
+* focused local and disposable-database tests; and
+* this architecture/status documentation when acceptance requires it.
+
+It must not touch cmd/media-manager wiring, internal/httpapi, UI files,
+acquisition, retrieval, profile activation, or application deployment.
+
+Milestone B may additionally add:
+
+* a production adapter over the existing credential resolver;
+* minimal owner HTTP handlers and main wiring for explicit actions; and
+* route/security/integration tests.
+
+It must not add a UI or background worker.
+
+Milestone C may add closed search semantic proof and exact materialization. D
+may add draft construction and read-only comparison. E alone may expose
+activation.
+
+
+30. ACCEPTANCE GATES BY MILESTONE
+
+30.1 Before Milestone A acceptance
+
+* Orchestrator is unreachable from production.
+* Fake TLS is the only request target in tests.
+* Durable intent, transmitted boundary, no-resend, recovery, and cancellation
+  are proven.
+* Durable pre-send scheduler pacing is proven across restart.
+* Strict single-root XML and exact-secret-before-digest gates are proven.
+* No raw transport error can reach persistence/logs.
+* The proposed additive gate/outcome-time migration has separate design approval
+  before persistence implementation and passes isolated migration tests. No
+  application migration or deployment is authorized by A acceptance.
+
+30.2 Before any Milestone B live CAPS request
+
+* Milestone A has independent approval.
+* Scheduler outcome/read-model timestamp separation is proven in A.
+* Initial-hop DNS/pinning and at-most-one transport behavior are proven.
+* Durable gate/accounting behavior passes crash tests; the owner sees that
+  unresolved accounting can block that indexer until separately reviewed recovery.
+* Exactly one serving API/shared-scheduler process is verified for deployment.
+* Minimal owner API and production resolver adapter have independent review.
+* All owner authentication, revision, plan, freshness, and call-count gates
+  pass.
+* Rich CAPS observations are the only v2 evidence source.
+* The configured endpoint is canonical and needs no redirect.
+* The owner reviews and authorizes the one-call preview.
+* Deployment of B is separately authorized.
+
+30.3 Before Milestone C search execution
+
+* Category review and immutable category freeze are complete.
+* Closed semantic proof payload and verification matrices are approved.
+* Exact typed materialization for the accepted recipes is reviewed.
+* At-most-four and total-five enforcement is tested at every boundary.
+* Operation-local versus stop-required outcomes are proven.
+* Owner separately authorizes the exact search plan.
+
+30.4 Before Milestone D draft generation
+
+* Every asserted claim has exact matching safe evidence.
+* Configuration, contract, secret_ref, and category binding is current.
+* Partial-profile and VerifiedLimit rules are implemented.
+* Safe owner-visible comparison exists.
+* No activation side effect is reachable.
+
+30.5 Before Milestone E activation
+
+* Draft generation has independent acceptance.
+* Category review is resolved.
+* At least one usable primary recipe is verified.
+* The existing atomic activation repository rechecks all freshness and
+  evidence bindings.
+* Activation is a second explicit owner action and starts no search.
+
+30.6 Before production runtime cutover
+
+* Production orchestration accepts only repository-loaded active profiles.
+* Attempt/evidence audit is complete for runtime search.
+* Scheduler/read-model timestamps are correctly separated.
+* Legacy repeated-CAPS behavior cannot influence v2 decisions.
+* Direct-SQL application privileges are hardened as approved.
+* All capability architecture runtime-cutover blockers are closed.
+* Acquisition, retrieval, and legacy fallback changes receive a separate
+  design and review.
+
+
+31. PARTIAL PROFILE AND LIMIT RULES
+
+Milestone D may create a partial draft:
+
+* movie verified and season unknown;
+* season verified and movie unknown; or
+* exact primary verified and general fallback unknown.
+
+That is truthful and safer than requiring unsupported symmetry. Later
+activation may permit a partial profile when at least one safe primary recipe
+is verified; production planning would then expose only verified scopes.
+
+VerifiedLimit is exactly the maximum safely demonstrated for that recipe, no
+higher. A CAPS-advertised limit is only advertised. If the probe used 20, the
+initial verified limit is at most 20.
+
+The ten migration-created empty drafts remain immutable historical drafts.
+Successful commissioning creates a new revision; it does not mutate or
+invalidate those drafts merely to tidy history.
+
+
+32. REVALIDATION
+
+No periodic revalidation worker is introduced.
+
+Initially, revalidation is:
+
+* owner-triggered;
+* required after configuration/account/category/contract change; or
+* recommended after a later controlled runtime contradiction.
+
+A changed account/configuration digest prevents an old profile from loading as
+current. A changed CAPS digest may recommend revalidation but does not rewrite
+old evidence. Temporary outages alter scheduler/operation availability, not
+immutable capability history.
+
+Each revalidation is a new run and, in D, a new draft. No external request
+automatically resumes after restart.
+
+
+33. REMAINING BLOCKERS AND DEFERRED WORK
+
+Live CAPS blockers:
+
+* strict one-root, consume-through-EOF XML validation;
+* guarded raw/header/decoded exact-secret scanning before any digest or error;
+* closed safe transport errors;
+* durable pre-send scheduler pacing;
+* atomic outcome/accounting finalization and a durable unresolved-attempt gate;
+* separately reviewed additive storage for that gate and outcome timestamp;
+* guarded initial-origin public-address validation and pinned TLS transport;
+* one-transmission proof covering internal transport retries, not only redirects;
+* scheduler outcome/read-model timestamp separation;
+* narrow atomic live-attempt repository methods;
+* fake-server crash/security coverage;
+* minimal owner API, production resolver adapter, and independent review; and
+* proof that legacy CAPS projection is unreachable.
+
+Live search blockers:
+
+* all live CAPS blockers;
+* owner category review and freeze;
+* closed semantic proof payloads;
+* exact recipe materializer review;
+* deterministic stop/continue implementation; and
+* bounded one-step-at-a-time owner execution.
+
+Draft-generation blockers:
+
+* exact evidence-to-claim builder;
+* conservative partial-profile and limit rules;
+* safe comparison; and
+* proof of no activation side effect.
+
+Activation and runtime-cutover blockers:
+
+* separately reviewed explicit activation;
+* repository-loaded active-profile-only orchestration;
+* runtime attempt/evidence audit;
+* scheduler/read-model timestamp separation;
+* legacy repeated-CAPS isolation;
+* direct-SQL privilege hardening; and
+* all blockers retained in INDEXER_CAPABILITY_ARCHITECTURE_PROPOSAL.txt.
+
+Other deferred issues remain:
+
+* Prowlarr-import canonical duplicate detection;
+* strict trailing-root parsing outside the new guarded path;
+* bounded migration/advisory-lock timeout;
+* deterministic forced transaction-overlap test hardening;
+* additional structural-fingerprint sensitivity assertions;
+* a dedicated complete-season year-boundary table test;
+* another harmless partial-overlap exact-secret test;
+* provider-contract expansion only through reviewed versioned Go code;
+* retrieval commissioning and grab budgeting;
+* DETAILS, NFO, file list, feeds, JSON, pagination, and enrichment;
+* automatic discovery, periodic probing, and background execution, which are
+  not currently planned; and
+* production profile-backed acquisition cutover.
+
+Explicit owner recovery of a lost-response accounting gate is separately
+reviewed work, not an automatic timeout or retry path. A/B intentionally keep
+that indexer blocked when its safe cooldown/accounting outcome is unknown.
+
+
+34. FINAL RECOMMENDATION
+
+Approve the A/B/C/D split with activation extracted into E.
+
+Obtain independent acceptance of this revised proposal and the narrow proposed
+migration design before implementing A. Keep A unreachable from production and
+prove it entirely with fake TLS and disposable PostgreSQL. A must solve the
+guarded-parser, exact-secret, initial-hop transport, durable-intent, no-resend,
+atomic accounting and crash-safe pacing problems.
+
+Only after A receives independent acceptance should B add the minimum owner API
+and production resolver adapter. B must execute exactly one explicitly
+authorized CAPS request and then stop.
+
+C may later execute no more than four separately previewed search probes, one
+owner action and one transmission at a time. D may generate an immutable draft.
+E may activate it. Production search cutover remains a separate milestone.
+
+This sequence is smaller and safer than combining a generic executor, live
+CAPS, live search, profile generation, and activation. It preserves the
+accepted offline foundation, keeps each first external effect reviewable, and
+makes crash and credential behavior testable before any configured indexer can
+be contacted.
