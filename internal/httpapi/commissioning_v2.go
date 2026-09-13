@@ -26,6 +26,7 @@ type CommissioningV2Service interface {
 	ExecuteStep(ctx context.Context, integrationID, runID, stepID uuid.UUID) (commissioningv2.LiveExecuteResult, error)
 	FinalizeDraft(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCommissioningRun, error)
 	Draft(ctx context.Context, integrationID, runID uuid.UUID) (postgres.IndexerCapabilityProfile, error)
+	ActivateProfile(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCapabilityProfile, error)
 }
 
 // requireOwnerMutation layers owner authentication with the Milestone-B
@@ -245,6 +246,27 @@ func (server *Server) getCommissioningV2Draft(writer http.ResponseWriter, reques
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: draft})
 }
 
+// activateCommissioningV2Profile is the Milestone-E explicit owner activation
+// action. The request binds the reviewed draft's exact profile revision; the
+// repository rechecks every freshness, evidence, category, and
+// provider-contract binding and writes the single activation audit event.
+func (server *Server) activateCommissioningV2Profile(writer http.ResponseWriter, request *http.Request) {
+	integrationID, runID, ok := commissioningV2PathIDs(writer, request)
+	if !ok {
+		return
+	}
+	expectedRevision, ok := decodeExpectedRevision(writer, request)
+	if !ok {
+		return
+	}
+	profile, err := server.config.CommissioningV2.ActivateProfile(request.Context(), integrationID, runID, expectedRevision)
+	if err != nil {
+		writeCommissioningV2Error(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: profile})
+}
+
 func (server *Server) executeCommissioningV2CAPS(writer http.ResponseWriter, request *http.Request) {
 	integrationID, runID, ok := commissioningV2PathIDs(writer, request)
 	if !ok {
@@ -293,8 +315,14 @@ func writeCommissioningV2Error(writer http.ResponseWriter, err error) {
 		writeError(writer, http.StatusConflict, "state_conflict", "the commissioning attempt state changed")
 	case errors.Is(err, postgres.ErrIndexerCommissioningDraftUnavailable):
 		writeError(writer, http.StatusConflict, "draft_unavailable", "the commissioning run is not ready for draft generation")
-	case errors.Is(err, postgres.ErrIndexerCommissioningConfigChanged):
+	case errors.Is(err, postgres.ErrIndexerCommissioningConfigChanged), errors.Is(err, postgres.ErrIndexerEndpointConfigurationChanged):
 		writeError(writer, http.StatusConflict, "configuration_changed", "the integration configuration changed")
+	case errors.Is(err, postgres.ErrIndexerCategoryReviewRequired):
+		writeError(writer, http.StatusConflict, "category_review_required", "the indexer category selection requires owner review")
+	case errors.Is(err, postgres.ErrIndexerProviderContractMismatch):
+		writeError(writer, http.StatusConflict, "contract_mismatch", "the indexer provider contract no longer matches the profile")
+	case errors.Is(err, postgres.ErrInvalidIndexerCapabilityProfile):
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_profile", "the capability profile is not activatable")
 	case errors.Is(err, commissioningv2.ErrLiveExecutorCredential):
 		writeError(writer, http.StatusServiceUnavailable, "credential_unavailable", "the commissioning credential is unavailable")
 	case errors.Is(err, postgres.ErrInvalidIndexerCommissioning):

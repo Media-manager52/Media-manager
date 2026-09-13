@@ -203,6 +203,42 @@ func (service *LiveCAPSService) Draft(ctx context.Context, integrationID, runID 
 	return service.Store.IndexerCapabilityProfile(ctx, *run.GeneratedProfileID)
 }
 
+// ActivateProfile is the Milestone-E explicit owner activation gate. It is a
+// second, separate owner action after draft generation and performs no
+// acquisition, retrieval, publication, scheduler, credential, or search work.
+//
+// It locates the immutable draft linked from the completed run, binds the
+// caller's expected profile revision, and delegates every freshness, evidence,
+// category, and provider-contract recheck to the existing atomic
+// ActivateIndexerCapabilityProfile repository transaction. An already-active
+// linked profile is returned unchanged (idempotent, no second audit event).
+func (service *LiveCAPSService) ActivateProfile(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCapabilityProfile, error) {
+	if service == nil || service.Store == nil {
+		return postgres.IndexerCapabilityProfile{}, errLiveCAPSNotConfigured
+	}
+	if integrationID == (uuid.UUID{}) || runID == (uuid.UUID{}) || expectedRevision == 0 {
+		return postgres.IndexerCapabilityProfile{}, postgres.ErrInvalidIndexerCapabilityProfile
+	}
+	run, err := service.Store.IndexerCommissioningRun(ctx, runID)
+	if err != nil {
+		return postgres.IndexerCapabilityProfile{}, err
+	}
+	if run.IndexerInstanceID != integrationID || run.GeneratedProfileID == nil || run.State != commissioningv2.RunCompleted {
+		return postgres.IndexerCapabilityProfile{}, postgres.ErrNotFound
+	}
+	profile, err := service.Store.IndexerCapabilityProfile(ctx, *run.GeneratedProfileID)
+	if err != nil {
+		return postgres.IndexerCapabilityProfile{}, err
+	}
+	// Profile revisions are immutable once persisted, so binding the observed
+	// revision here lets the repository's own locked lifecycle check enforce
+	// the rest of the activation gate atomically.
+	if profile.IndexerInstanceID != integrationID || profile.Revision != expectedRevision {
+		return postgres.IndexerCapabilityProfile{}, postgres.ErrConcurrentModification
+	}
+	return service.Store.ActivateIndexerCapabilityProfile(ctx, integrationID, profile.ID, "owner", service.now())
+}
+
 // ExecuteStep synchronously performs exactly one owner-authorized step (CAPS
 // or one semantic probe) and returns only after it reached a safe durable
 // state or failed closed. It never loops to a second step and never resends.
