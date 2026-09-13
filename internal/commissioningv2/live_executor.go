@@ -165,6 +165,13 @@ type LiveStepStore interface {
 	RequestRunCancellation(ctx context.Context, indexerID, runID string, expectedRevision uint64, now time.Time) (LiveStepState, error)
 	FinalizeCancelledRun(ctx context.Context, indexerID, runID string, expectedRevision uint64, now time.Time) (LiveStepState, error)
 	LoadAuthorizedStep(ctx context.Context, stepID string) (LiveAuthorizedStep, error)
+	// FinalizeReadyCommissioningDraft is the automatic, local, offline
+	// draft-finalization entry point invoked after a durable semantic
+	// completion. It reads authoritative durable state, is a no-op when the
+	// run is not yet ready, and performs no network, credential, or scheduler
+	// work. A failure leaves the run recoverable for the owner-triggered
+	// FinalizeDraft retry.
+	FinalizeReadyCommissioningDraft(ctx context.Context, indexerID, runID string, expectedRevision uint64, now time.Time) (bool, error)
 }
 
 // LiveStepClaim names the exact authorized step for the planned-to-intent

@@ -93,6 +93,14 @@ func TestLiveExecutorAbsentFromProductionDependencyGraph(t *testing.T) {
 		"CompleteLiveAttempt":                {liveExecutorPackage: true, liveStorePackage: true},
 		"ReserveCommissioningRequest":        {liveExecutorPackage: true, liveStorePackage: true},
 		"FetchCommissioningWithTransmission": {liveGuardPackage: true, liveExecutorPackage: true},
+		// Milestone D adds a purely offline draft derivation path. It may be
+		// referenced only by the durable store that captures the run/evidence
+		// and the single owner-authorized service that triggers finalization;
+		// acquisition, retrieval, workers, and unrelated schedulers must
+		// never reach it.
+		"FinalizeIndexerCommissioningDraft": {liveStorePackage: true, liveOwnerServicePackage: true},
+		"BuildCapabilityProfileDraft":       {liveExecutorPackage: true, liveStorePackage: true},
+		"FinalizeReadyCommissioningDraft":   {liveExecutorPackage: true, liveStorePackage: true},
 	}
 	// importAllowlist is the exact set of production packages permitted to
 	// import the live-executor domain package: the durable store (shared

@@ -30,8 +30,9 @@ type LiveReservationStore interface {
 }
 
 const (
-	liveExecutionLeaseWindow   = 30 * time.Second
-	liveExecutionMaxCredential = 4096
+	liveExecutionLeaseWindow     = 30 * time.Second
+	liveExecutionMaxCredential   = 4096
+	liveDraftFinalizationTimeout = 15 * time.Second
 )
 
 // safeCodeError carries a closed safe code through the Newznab guard
@@ -348,6 +349,23 @@ func (executor *LiveExecutor) Execute(ctx context.Context, command LiveExecuteCo
 	}
 	// Known commit: refresh the lane cache while still holding the permit.
 	_ = executor.CloseSucceededAfterKnownSuccessfulCompletion(ctx, snapshot.IndexerID, permit, nil)
+	// Normal completion path for a semantic search probe: once the durable
+	// completion has committed, attempt the local, offline draft
+	// finalization transaction. Only a search phase can complete a search
+	// plan; the CAPS completion transitions the run to category review and is
+	// not draft-eligible. The call reads authoritative durable state and is a
+	// no-op unless every authorized search step is now terminal safe. It uses
+	// a detached, bounded context so a client disconnect after the durable
+	// commit cannot strand an otherwise completed run, and it never resolves
+	// a credential, constructs a client, acquires a permit, or sends HTTP. A
+	// failure here is best-effort: the committed evidence remains intact and
+	// the owner-triggered FinalizeDraft path retries the same local
+	// transaction without any probe resend.
+	if snapshot.Phase == StepPhaseSearch {
+		finalizeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), liveDraftFinalizationTimeout)
+		_, _ = executor.deps.Steps.FinalizeReadyCommissioningDraft(finalizeContext, snapshot.IndexerID, snapshot.RunID, snapshot.RunRevision, completedAt)
+		cancel()
+	}
 	return LiveExecuteResult{State: StepCompleted, SafeOutcome: classified.SafeOutcome, SafeCode: classified.SafeCode, Sent: true}, nil
 }
 

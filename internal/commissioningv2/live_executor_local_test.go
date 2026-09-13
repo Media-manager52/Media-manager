@@ -62,6 +62,10 @@ func (store *stubLiveStepStore) LoadAuthorizedStep(_ context.Context, _ string) 
 	return LiveAuthorizedStep{}, ErrLiveExecutorStateConflict
 }
 
+func (store *stubLiveStepStore) FinalizeReadyCommissioningDraft(_ context.Context, _, _ string, _ uint64, _ time.Time) (bool, error) {
+	return false, nil
+}
+
 func testLiveSnapshot() LiveAuthorizedStep {
 	fingerprint := SumSHA256([]byte("structural"))
 	return LiveAuthorizedStep{

@@ -176,6 +176,33 @@ func (service *LiveCAPSService) SealSearchPlan(ctx context.Context, integrationI
 	return service.Store.IndexerCommissioningRun(ctx, runID)
 }
 
+// FinalizeDraft derives and persists one immutable capability-profile draft
+// from the durable run evidence. It is entirely local: it resolves no
+// credential, constructs no client, and performs no network work. A replay
+// against an already completed run returns the existing linked draft.
+func (service *LiveCAPSService) FinalizeDraft(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCommissioningRun, error) {
+	if service == nil || service.Store == nil {
+		return postgres.IndexerCommissioningRun{}, errLiveCAPSNotConfigured
+	}
+	return service.Store.FinalizeIndexerCommissioningDraft(ctx, integrationID, runID, expectedRevision, service.now())
+}
+
+// Draft reads the immutable draft linked from a completed run for exactly one
+// integration. It performs no network work.
+func (service *LiveCAPSService) Draft(ctx context.Context, integrationID, runID uuid.UUID) (postgres.IndexerCapabilityProfile, error) {
+	if service == nil || service.Store == nil {
+		return postgres.IndexerCapabilityProfile{}, errLiveCAPSNotConfigured
+	}
+	run, err := service.Store.IndexerCommissioningRun(ctx, runID)
+	if err != nil {
+		return postgres.IndexerCapabilityProfile{}, err
+	}
+	if run.IndexerInstanceID != integrationID || run.GeneratedProfileID == nil {
+		return postgres.IndexerCapabilityProfile{}, postgres.ErrNotFound
+	}
+	return service.Store.IndexerCapabilityProfile(ctx, *run.GeneratedProfileID)
+}
+
 // ExecuteStep synchronously performs exactly one owner-authorized step (CAPS
 // or one semantic probe) and returns only after it reached a safe durable
 // state or failed closed. It never loops to a second step and never resends.

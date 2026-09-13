@@ -24,6 +24,8 @@ type CommissioningV2Service interface {
 	SealSearchPlan(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64, movieCategories, seriesCategories []int, includeMovieFallback, includeSeasonFallback bool) (postgres.IndexerCommissioningRun, error)
 	AuthorizeSearches(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCommissioningRun, error)
 	ExecuteStep(ctx context.Context, integrationID, runID, stepID uuid.UUID) (commissioningv2.LiveExecuteResult, error)
+	FinalizeDraft(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCommissioningRun, error)
+	Draft(ctx context.Context, integrationID, runID uuid.UUID) (postgres.IndexerCapabilityProfile, error)
 }
 
 // requireOwnerMutation layers owner authentication with the Milestone-B
@@ -56,14 +58,15 @@ func (server *Server) requireOwnerMutation(next http.HandlerFunc) http.HandlerFu
 }
 
 type commissioningV2RunPreview struct {
-	RunID            string                       `json:"run_id"`
-	IndexerID        string                       `json:"indexer_id"`
-	State            string                       `json:"state"`
-	Revision         uint64                       `json:"revision"`
-	CapsAuthorizedAt *time.Time                   `json:"caps_authorized_at,omitempty"`
-	MaximumAPICalls  uint8                        `json:"maximum_api_calls"`
-	PlannedAPICalls  uint8                        `json:"planned_api_calls"`
-	Steps            []commissioningV2StepPreview `json:"steps"`
+	RunID              string                       `json:"run_id"`
+	IndexerID          string                       `json:"indexer_id"`
+	State              string                       `json:"state"`
+	Revision           uint64                       `json:"revision"`
+	CapsAuthorizedAt   *time.Time                   `json:"caps_authorized_at,omitempty"`
+	MaximumAPICalls    uint8                        `json:"maximum_api_calls"`
+	PlannedAPICalls    uint8                        `json:"planned_api_calls"`
+	GeneratedProfileID string                       `json:"generated_profile_id,omitempty"`
+	Steps              []commissioningV2StepPreview `json:"steps"`
 }
 
 type commissioningV2StepPreview struct {
@@ -85,6 +88,9 @@ func commissioningV2Preview(run postgres.IndexerCommissioningRun) commissioningV
 		MaximumAPICalls:  run.MaximumAPICalls,
 		PlannedAPICalls:  run.PlannedAPICalls,
 		Steps:            make([]commissioningV2StepPreview, 0, len(run.Steps)),
+	}
+	if run.GeneratedProfileID != nil {
+		preview.GeneratedProfileID = run.GeneratedProfileID.String()
 	}
 	for _, step := range run.Steps {
 		preview.Steps = append(preview.Steps, commissioningV2StepPreview{
@@ -205,6 +211,40 @@ func decodeExpectedRevision(writer http.ResponseWriter, request *http.Request) (
 	return input.ExpectedRevision, true
 }
 
+func (server *Server) finalizeCommissioningV2Draft(writer http.ResponseWriter, request *http.Request) {
+	integrationID, runID, ok := commissioningV2PathIDs(writer, request)
+	if !ok {
+		return
+	}
+	expectedRevision, ok := decodeExpectedRevision(writer, request)
+	if !ok {
+		return
+	}
+	run, err := server.config.CommissioningV2.FinalizeDraft(request.Context(), integrationID, runID, expectedRevision)
+	if err != nil {
+		writeCommissioningV2Error(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: commissioningV2Preview(run)})
+}
+
+func (server *Server) getCommissioningV2Draft(writer http.ResponseWriter, request *http.Request) {
+	if server.config.CommissioningV2 == nil {
+		writeError(writer, http.StatusServiceUnavailable, "not_configured", "commissioning v2 owner API is not configured")
+		return
+	}
+	integrationID, runID, ok := commissioningV2PathIDs(writer, request)
+	if !ok {
+		return
+	}
+	draft, err := server.config.CommissioningV2.Draft(request.Context(), integrationID, runID)
+	if err != nil {
+		writeCommissioningV2Error(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: draft})
+}
+
 func (server *Server) executeCommissioningV2CAPS(writer http.ResponseWriter, request *http.Request) {
 	integrationID, runID, ok := commissioningV2PathIDs(writer, request)
 	if !ok {
@@ -251,6 +291,8 @@ func writeCommissioningV2Error(writer http.ResponseWriter, err error) {
 		writeError(writer, http.StatusConflict, "not_authorized", "the exact run is not owner-authorized for CAPS")
 	case errors.Is(err, commissioningv2.ErrLiveExecutorStateConflict), errors.Is(err, postgres.ErrConcurrentModification):
 		writeError(writer, http.StatusConflict, "state_conflict", "the commissioning attempt state changed")
+	case errors.Is(err, postgres.ErrIndexerCommissioningDraftUnavailable):
+		writeError(writer, http.StatusConflict, "draft_unavailable", "the commissioning run is not ready for draft generation")
 	case errors.Is(err, postgres.ErrIndexerCommissioningConfigChanged):
 		writeError(writer, http.StatusConflict, "configuration_changed", "the integration configuration changed")
 	case errors.Is(err, commissioningv2.ErrLiveExecutorCredential):
