@@ -28,6 +28,7 @@ type StepEvidenceDocument struct {
 	PlausibleIdentityCount uint16                 `json:"plausible_identity_count,omitempty"`
 	BodySHA256             SHA256Digest           `json:"body_sha256"`
 	CAPS                   *newznab.CAPSRecord    `json:"caps,omitempty"`
+	Search                 *SearchProof           `json:"search_proof,omitempty"`
 }
 
 func ValidateStepEvidence(document StepEvidenceDocument) error {
@@ -36,11 +37,14 @@ func ValidateStepEvidence(document StepEvidenceDocument) error {
 	}
 	switch document.Target.Kind {
 	case newznab.EvidenceTargetCAPS:
-		if document.Target.RecipeKey != "" || document.SafeOutcome != OutcomeCAPSObserved || document.RawResultCount != 0 || document.PlausibleIdentityCount != 0 || document.CAPS == nil || document.CAPS.BodySHA256 != document.BodySHA256.String() || !document.CAPS.ObservedAt.Equal(document.ObservedAt) || validateCAPS(*document.CAPS) != nil {
+		if document.Target.RecipeKey != "" || document.SafeOutcome != OutcomeCAPSObserved || document.RawResultCount != 0 || document.PlausibleIdentityCount != 0 || document.CAPS == nil || document.Search != nil || document.CAPS.BodySHA256 != document.BodySHA256.String() || !document.CAPS.ObservedAt.Equal(document.ObservedAt) || validateCAPS(*document.CAPS) != nil {
 			return ErrInvalidCommissioningDocument
 		}
 	case newznab.EvidenceTargetSearchRecipe:
 		if !recipeKeyPattern.MatchString(document.Target.RecipeKey) || document.CAPS != nil {
+			return ErrInvalidCommissioningDocument
+		}
+		if document.Search != nil && ValidateSearchProof(*document.Search) != nil {
 			return ErrInvalidCommissioningDocument
 		}
 		// Explicit §9.4 evidence allowlist: evidence is permitted ONLY for
@@ -94,6 +98,12 @@ func DecodeStepEvidence(raw []byte) (StepEvidenceDocument, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return StepEvidenceDocument{}, ErrInvalidCommissioningDocument
 	}
+	if document.Target.Kind == newznab.EvidenceTargetSearchRecipe && document.Search != nil {
+		if err := validateSearchEvidenceShape(document); err != nil {
+			return StepEvidenceDocument{}, err
+		}
+		return document, nil
+	}
 	if err := ValidateStepEvidence(document); err != nil {
 		return StepEvidenceDocument{}, err
 	}
@@ -109,6 +119,23 @@ func CanonicalStepEvidence(document StepEvidenceDocument) ([]byte, error) {
 		return nil, ErrInvalidCommissioningDocument
 	}
 	return encoded, nil
+}
+
+// CanonicalStepEvidenceForTarget canonicalizes a search-recipe evidence
+// document with the Section-20 search rules and every other document with the
+// frozen generic validator. The generic classifier/validator is unchanged.
+func CanonicalStepEvidenceForTarget(document StepEvidenceDocument) ([]byte, error) {
+	if document.Target.Kind == newznab.EvidenceTargetSearchRecipe && document.Search != nil {
+		if err := validateSearchEvidenceShape(document); err != nil {
+			return nil, err
+		}
+		encoded, err := json.Marshal(document)
+		if err != nil {
+			return nil, ErrInvalidCommissioningDocument
+		}
+		return encoded, nil
+	}
+	return CanonicalStepEvidence(document)
 }
 
 // ValidateSearchPlanCAPSEvidence binds a sealed search plan to the exact safe

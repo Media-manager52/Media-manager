@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/commissioningv2"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"uuid"
@@ -475,11 +476,11 @@ func (store *Store) CompleteLiveAttempt(ctx context.Context, completion commissi
 		return commissioningv2.LiveStepState{}, ErrInvalidIndexerCommissioning
 	}
 	now = commissioningTime(now)
-	want, err := commissioningv2.ClassifyLiveAttempt(completion.Classified.Inputs)
+	want, err := commissioningv2.ClassifyLiveAttemptForTarget(completion.Classified.Inputs)
 	if err != nil {
 		return commissioningv2.LiveStepState{}, ErrInvalidIndexerCommissioning
 	}
-	if !commissioningv2.ClassifiedCompletionMatchesInputs(completion.Classified) || want.SafeOutcome != completion.Classified.SafeOutcome {
+	if !commissioningv2.ClassifiedCompletionMatchesInputsForTarget(completion.Classified) || want.SafeOutcome != completion.Classified.SafeOutcome {
 		return commissioningv2.LiveStepState{}, ErrInvalidIndexerCommissioning
 	}
 	classified := completion.Classified
@@ -702,6 +703,9 @@ func allowlistedGateOutcome(outcome commissioningv2.SafeOutcome) bool {
 }
 
 func validateCompletionEvidenceShape(classified commissioningv2.ClassifiedCompletion) error {
+	if classified.Inputs.TargetKind.Kind == newznab.EvidenceTargetSearchRecipe {
+		return commissioningv2.ValidateSearchCompletionEvidence(classified)
+	}
 	hasEvidence := classified.Evidence != nil
 	hasCounts := classified.RawResultCount != nil && classified.PlausibleIdentityCount != nil
 	hasDigests := len(classified.SafeResponseSHA256) != 0 || len(classified.RawBodySHA256) != 0
@@ -735,7 +739,7 @@ func completionEvidenceColumns(classified commissioningv2.ClassifiedCompletion, 
 	if classified.Evidence == nil {
 		return nil, nil, nil, nil, nil, nil, nil
 	}
-	document, err := commissioningv2.CanonicalStepEvidence(*classified.Evidence)
+	document, err := commissioningv2.CanonicalStepEvidenceForTarget(*classified.Evidence)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, ErrInvalidIndexerCommissioning
 	}
@@ -1175,11 +1179,22 @@ func (store *Store) LoadAuthorizedStep(ctx context.Context, stepID string) (comm
 		}
 		return commissioningv2.LiveAuthorizedStep{}, err
 	}
-	step, err := store.IndexerCommissioningStep(ctx, mustParseBoundaryUUID(runID), parsed)
+	runRecord, err := store.IndexerCommissioningRun(ctx, mustParseBoundaryUUID(runID))
 	if err != nil {
 		return commissioningv2.LiveAuthorizedStep{}, err
 	}
-	_ = step
+	var stepRecord IndexerCommissioningStep
+	foundStep := false
+	for _, candidate := range runRecord.Steps {
+		if candidate.ID == parsed {
+			stepRecord = candidate
+			foundStep = true
+			break
+		}
+	}
+	if !foundStep {
+		return commissioningv2.LiveAuthorizedStep{}, ErrNotFound
+	}
 	_ = structural
 	_ = fixtureDigest
 	_ = categoryIDs
@@ -1217,6 +1232,13 @@ func (store *Store) LoadAuthorizedStep(ctx context.Context, stepID string) (comm
 		Fingerprint:     fingerprint,
 		ConfigurationOK: true,
 		SecretReference: secretReference,
+		Request:         stepRecord.Request,
+		Target:          stepRecord.Target,
+		Scope:           stepRecord.Scope,
+		Role:            stepRecord.Role,
+		FixtureKey:      stepRecord.FixtureKey,
+		CategoryIDs:     append([]int(nil), stepRecord.CategoryIDs...),
+		Fixtures:        runRecord.Fixtures,
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		return commissioningv2.LiveAuthorizedStep{}, err

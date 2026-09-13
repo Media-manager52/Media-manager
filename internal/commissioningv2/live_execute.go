@@ -166,36 +166,43 @@ func liveCapsAttemptInputs(result newznab.CommissioningResult, fetchErr error, o
 			RawBodySHA256:          result.BodySHA256[:],
 		}, nil
 	}
+	return liveAttemptInputsFromError(fetchErr, capsTarget)
+}
+
+// liveAttemptInputsFromError maps one guarded transport failure to the closed
+// canonical classification input. An unclassifiable error is returned so the
+// caller closes the attempt indeterminate rather than fabricating a verdict.
+func liveAttemptInputsFromError(fetchErr error, target newznab.EvidenceTarget) (LiveAttemptInputs, error) {
 	code := newznabSafeCode(fetchErr)
 	switch code {
 	case "commissioning_dns_rejected", "commissioning_address_rejected":
-		return LiveAttemptInputs{Transport: TransportNoCompleteResponse, Failure: TransportFailureDNS, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportNoCompleteResponse, Failure: TransportFailureDNS, TargetKind: target}, nil
 	case "commissioning_tls_rejected", "commissioning_downgrade_rejected":
-		return LiveAttemptInputs{Transport: TransportNoCompleteResponse, Failure: TransportFailureTLS, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportNoCompleteResponse, Failure: TransportFailureTLS, TargetKind: target}, nil
 	case "commissioning_transport_failed", "commissioning_read_failed",
 		"commissioning_deadline_missing", "commissioning_deadline_expired",
 		"commissioning_invalid_probe", "commissioning_request_rejected", "commissioning_guard_missing",
 		"commissioning_http_error":
-		return LiveAttemptInputs{Transport: TransportNoCompleteResponse, Failure: TransportFailureConnection, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportNoCompleteResponse, Failure: TransportFailureConnection, TargetKind: target}, nil
 	case "commissioning_rate_limited":
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseRateLimited, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseRateLimited, TargetKind: target}, nil
 	case "commissioning_auth_failed":
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseAuthenticationFailure, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseAuthenticationFailure, TargetKind: target}, nil
 	case "commissioning_redirect_rejected":
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyUnsafeRedirect, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyUnsafeRedirect, TargetKind: target}, nil
 	case "commissioning_secret_echo":
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyCredentialEcho, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyCredentialEcho, TargetKind: target}, nil
 	case "commissioning_guard_rejected":
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyUnsafeText, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyUnsafeText, TargetKind: target}, nil
 	case "commissioning_xml_limit":
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyXMLLimit, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyXMLLimit, TargetKind: target}, nil
 	case "commissioning_body_limit", "commissioning_header_limit":
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyBodyLimit, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseSafetyBodyLimit, TargetKind: target}, nil
 	case "commissioning_malformed", "commissioning_trailing_root", "commissioning_content_encoding", "commissioning_media_type":
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseMalformed, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseMalformed, TargetKind: target}, nil
 	}
 	if strings.HasPrefix(code, "commissioning_http_") {
-		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseMalformed, TargetKind: capsTarget}, nil
+		return LiveAttemptInputs{Transport: TransportResponseReceived, Response: ResponseMalformed, TargetKind: target}, nil
 	}
 	return LiveAttemptInputs{}, fmt.Errorf("unclassifiable commissioning transport failure")
 }
@@ -222,10 +229,13 @@ func (executor *LiveExecutor) Execute(ctx context.Context, command LiveExecuteCo
 	if err != nil {
 		return LiveExecuteResult{}, err
 	}
-	if !snapshot.Authorized || snapshot.RunState != RunCAPSAuthorized {
+	if !snapshot.Authorized {
 		return LiveExecuteResult{}, ErrLiveExecutorNotAuthorized
 	}
-	if snapshot.Phase != StepPhaseCAPS || snapshot.SecretReference == "" {
+	if snapshot.Phase != StepPhaseCAPS && snapshot.Phase != StepPhaseSearch {
+		return LiveExecuteResult{}, ErrLiveExecutorNotAuthorized
+	}
+	if snapshot.SecretReference == "" {
 		return LiveExecuteResult{}, ErrLiveExecutorNotAuthorized
 	}
 	if command.RunID != snapshot.RunID || command.StepID != snapshot.StepID ||
@@ -286,21 +296,30 @@ func (executor *LiveExecutor) Execute(ctx context.Context, command LiveExecuteCo
 		return executor.closeDeferred(ctx, snapshot, OutcomeQuotaExhausted, nil)
 	}
 	// 6. Exactly one HTTP attempt through the M-5 one-use binding.
+	probe, _, probeErr := materializeCommissioningProbe(snapshot)
+	if probeErr != nil {
+		return executor.closeDeferred(ctx, snapshot, OutcomeConfigurationStale, nil)
+	}
 	capability := newznab.NewCommissioningTransmissionFromSnapshot(budget, executor.deps.Authorizer, snapshot.IndexerID, snapshot.StepID)
 	guard := liveTransmissionGuard{credential: credential}
-	probe := newznab.CommissioningProbe{Mode: "caps"}
 	result, fetchErr := executor.deps.Client.FetchCommissioningWithTransmission(ctx, capability,
 		newznab.CommissioningTransmitClaim{IndexerID: snapshot.IndexerID, StepID: snapshot.StepID},
 		probe, executor.deps.Destination, guard, deadline)
 	observedAt := executor.now()
-	inputs, inputErr := liveCapsAttemptInputs(result, fetchErr, observedAt, executor.evidenceKey())
+	var inputs LiveAttemptInputs
+	var inputErr error
+	if snapshot.Phase == StepPhaseSearch {
+		inputs, inputErr = classifySearchAttemptInputs(snapshot, result, fetchErr, observedAt, executor.evidenceKey())
+	} else {
+		inputs, inputErr = liveCapsAttemptInputs(result, fetchErr, observedAt, executor.evidenceKey())
+	}
 	if inputErr != nil {
 		if _, closeErr := executor.closeTransmittedIndeterminate(ctx, snapshot, permit); closeErr != nil {
 			return LiveExecuteResult{}, fmt.Errorf("classify after transmit: %w", errors.Join(inputErr, closeErr))
 		}
 		return LiveExecuteResult{}, fmt.Errorf("classify after transmit: %w", inputErr)
 	}
-	classified, classifyErr := ClassifyLiveAttempt(inputs)
+	classified, classifyErr := ClassifyLiveAttemptForTarget(inputs)
 	if classifyErr != nil {
 		return executor.closeTransmittedIndeterminate(ctx, snapshot, permit)
 	}
@@ -315,7 +334,8 @@ func (executor *LiveExecutor) Execute(ctx context.Context, command LiveExecuteCo
 		Classified:                    classified,
 		BudgetSnapshot:                budget,
 		ExpectedStructuralFingerprint: snapshot.Fingerprint,
-		ExpectedTargetKind:            TargetIdentity{Kind: string(newznab.EvidenceTargetCAPS)},
+		ExpectedTargetKind:            TargetIdentity{Kind: string(snapshot.Target.Kind), RecipeKey: snapshot.Target.RecipeKey},
+		ExpectedCategoryIDs:           append([]int(nil), snapshot.CategoryIDs...),
 		ApplyRunTransition:            true,
 	}
 	if _, err := executor.deps.Steps.CompleteLiveAttempt(ctx, completion, completedAt); err != nil {

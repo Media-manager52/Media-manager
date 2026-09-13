@@ -40,7 +40,17 @@ func (service *countingCommissioningV2) AuthorizeCAPS(context.Context, uuid.UUID
 	return service.run, nil
 }
 
-func (service *countingCommissioningV2) ExecuteCAPS(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (commissioningv2.LiveExecuteResult, error) {
+func (service *countingCommissioningV2) SealSearchPlan(context.Context, uuid.UUID, uuid.UUID, uint64, []int, []int, bool, bool) (postgres.IndexerCommissioningRun, error) {
+	service.authorizeCalls.Add(1)
+	return service.run, nil
+}
+
+func (service *countingCommissioningV2) AuthorizeSearches(context.Context, uuid.UUID, uuid.UUID, uint64) (postgres.IndexerCommissioningRun, error) {
+	service.authorizeCalls.Add(1)
+	return service.run, nil
+}
+
+func (service *countingCommissioningV2) ExecuteStep(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (commissioningv2.LiveExecuteResult, error) {
 	service.executeCalls.Add(1)
 	if service.executeErr != nil {
 		return commissioningv2.LiveExecuteResult{}, service.executeErr
@@ -139,6 +149,35 @@ func TestCommissioningV2OwnerAPIMissingOriginDisablesMutations(t *testing.T) {
 	}
 	if service.createCalls.Load() != 0 {
 		t.Fatal("unconfigured mutation reached the service")
+	}
+}
+
+func TestCommissioningV2OwnerAPISearchRoutes(t *testing.T) {
+	service := &countingCommissioningV2{}
+	testServer := commissioningV2TestServer(t, service, commissionV2TestOrigin)
+	base := testServer.URL + "/api/v1/settings/integrations/11111111-1111-4111-8111-111111111111/commissioning-v2/runs/22222222-2222-4222-8222-222222222222"
+	for _, testCase := range []struct{ path, body string }{
+		{"/categories", `{"expected_revision":1,"movie_category_ids":[2000],"series_category_ids":[5000],"include_movie_fallback":true,"include_complete_season_fallback":true}`},
+		{"/authorize-searches", `{"expected_revision":1}`},
+	} {
+		request, err := http.NewRequest(http.MethodPost, base+testCase.path, strings.NewReader(testCase.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+testOwnerToken)
+		request.Header.Set("Origin", commissionV2TestOrigin)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("%s status=%d, want 200", testCase.path, response.StatusCode)
+		}
+	}
+	if service.authorizeCalls.Load() != 2 {
+		t.Fatalf("search route service calls=%d, want 2", service.authorizeCalls.Load())
 	}
 }
 

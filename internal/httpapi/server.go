@@ -137,6 +137,8 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs", server.requireOwnerMutation(server.createCommissioningV2Run))
 	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}", server.requireOwner(server.getCommissioningV2Run))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-caps", server.requireOwnerMutation(server.authorizeCommissioningV2CAPS))
+	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/categories", server.requireOwnerMutation(server.sealCommissioningV2SearchPlan))
+	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-searches", server.requireOwnerMutation(server.authorizeCommissioningV2Searches))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/steps/{step}/execute", server.requireOwnerMutation(server.executeCommissioningV2CAPS))
 	server.mux.HandleFunc("GET /api/v1/settings/library-roots", server.requireOwner(server.listLibraryRoots))
 	server.mux.HandleFunc("POST /api/v1/settings/library-roots", server.requireOwner(server.createLibraryRoot))

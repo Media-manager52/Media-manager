@@ -21,7 +21,9 @@ type CommissioningV2Service interface {
 	CreateRun(ctx context.Context, integrationID uuid.UUID, fixtures commissioningv2.FixtureDocument) (postgres.IndexerCommissioningRun, error)
 	Run(ctx context.Context, runID uuid.UUID) (postgres.IndexerCommissioningRun, error)
 	AuthorizeCAPS(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCommissioningRun, error)
-	ExecuteCAPS(ctx context.Context, integrationID, runID, stepID uuid.UUID) (commissioningv2.LiveExecuteResult, error)
+	SealSearchPlan(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64, movieCategories, seriesCategories []int, includeMovieFallback, includeSeasonFallback bool) (postgres.IndexerCommissioningRun, error)
+	AuthorizeSearches(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCommissioningRun, error)
+	ExecuteStep(ctx context.Context, integrationID, runID, stepID uuid.UUID) (commissioningv2.LiveExecuteResult, error)
 }
 
 // requireOwnerMutation layers owner authentication with the Milestone-B
@@ -139,19 +141,68 @@ func (server *Server) authorizeCommissioningV2CAPS(writer http.ResponseWriter, r
 	if !ok {
 		return
 	}
-	var input struct {
-		ExpectedRevision uint64 `json:"expected_revision"`
-	}
-	if err := decodeJSON(request, &input, 8<<10); err != nil || input.ExpectedRevision == 0 {
-		writeError(writer, http.StatusBadRequest, "invalid_request", "expected_revision is required")
+	expectedRevision, ok := decodeExpectedRevision(writer, request)
+	if !ok {
 		return
 	}
-	run, err := server.config.CommissioningV2.AuthorizeCAPS(request.Context(), integrationID, runID, input.ExpectedRevision)
+	run, err := server.config.CommissioningV2.AuthorizeCAPS(request.Context(), integrationID, runID, expectedRevision)
 	if err != nil {
 		writeCommissioningV2Error(writer, err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: commissioningV2Preview(run)})
+}
+
+func (server *Server) sealCommissioningV2SearchPlan(writer http.ResponseWriter, request *http.Request) {
+	integrationID, runID, ok := commissioningV2PathIDs(writer, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		ExpectedRevision              uint64 `json:"expected_revision"`
+		MovieCategoryIDs              []int  `json:"movie_category_ids"`
+		SeriesCategoryIDs             []int  `json:"series_category_ids"`
+		IncludeMovieFallback          bool   `json:"include_movie_fallback"`
+		IncludeCompleteSeasonFallback bool   `json:"include_complete_season_fallback"`
+	}
+	if err := decodeJSON(request, &input, 64<<10); err != nil || input.ExpectedRevision == 0 {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "expected_revision is required")
+		return
+	}
+	run, err := server.config.CommissioningV2.SealSearchPlan(request.Context(), integrationID, runID, input.ExpectedRevision, input.MovieCategoryIDs, input.SeriesCategoryIDs, input.IncludeMovieFallback, input.IncludeCompleteSeasonFallback)
+	if err != nil {
+		writeCommissioningV2Error(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: commissioningV2Preview(run)})
+}
+
+func (server *Server) authorizeCommissioningV2Searches(writer http.ResponseWriter, request *http.Request) {
+	integrationID, runID, ok := commissioningV2PathIDs(writer, request)
+	if !ok {
+		return
+	}
+	expectedRevision, ok := decodeExpectedRevision(writer, request)
+	if !ok {
+		return
+	}
+	run, err := server.config.CommissioningV2.AuthorizeSearches(request.Context(), integrationID, runID, expectedRevision)
+	if err != nil {
+		writeCommissioningV2Error(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: commissioningV2Preview(run)})
+}
+
+func decodeExpectedRevision(writer http.ResponseWriter, request *http.Request) (uint64, bool) {
+	var input struct {
+		ExpectedRevision uint64 `json:"expected_revision"`
+	}
+	if err := decodeJSON(request, &input, 8<<10); err != nil || input.ExpectedRevision == 0 {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "expected_revision is required")
+		return 0, false
+	}
+	return input.ExpectedRevision, true
 }
 
 func (server *Server) executeCommissioningV2CAPS(writer http.ResponseWriter, request *http.Request) {
@@ -164,7 +215,7 @@ func (server *Server) executeCommissioningV2CAPS(writer http.ResponseWriter, req
 		writeError(writer, http.StatusBadRequest, "invalid_id", "step ID is invalid")
 		return
 	}
-	result, err := server.config.CommissioningV2.ExecuteCAPS(request.Context(), integrationID, runID, stepID)
+	result, err := server.config.CommissioningV2.ExecuteStep(request.Context(), integrationID, runID, stepID)
 	if err != nil {
 		writeCommissioningV2Error(writer, err)
 		return

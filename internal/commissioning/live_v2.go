@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -111,10 +112,74 @@ func (service *LiveCAPSService) AuthorizeCAPS(ctx context.Context, integrationID
 	return service.Store.AuthorizeIndexerCommissioningCAPS(ctx, integrationID, runID, expectedRevision, "owner", service.now())
 }
 
-// ExecuteCAPS synchronously performs exactly one owner-authorized CAPS
-// attempt and returns only after it reached a safe durable state or failed
-// closed. It never loops to a second step and never resends.
-func (service *LiveCAPSService) ExecuteCAPS(ctx context.Context, integrationID, runID, stepID uuid.UUID) (commissioningv2.LiveExecuteResult, error) {
+// AuthorizeSearches durably records the owner's explicit authorization of the
+// sealed search plan. It sends nothing and is a one-time transition.
+func (service *LiveCAPSService) AuthorizeSearches(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64) (postgres.IndexerCommissioningRun, error) {
+	if service == nil || service.Store == nil {
+		return postgres.IndexerCommissioningRun{}, errLiveCAPSNotConfigured
+	}
+	return service.Store.AuthorizeIndexerCommissioningSearches(ctx, integrationID, runID, expectedRevision, "owner", service.now())
+}
+
+// SealSearchPlan freezes the owner-reviewed categories and the exact offline
+// search plan (at most the hard four-probe ceiling) for one run. It sends
+// nothing and performs no transmission.
+func (service *LiveCAPSService) SealSearchPlan(ctx context.Context, integrationID, runID uuid.UUID, expectedRevision uint64, movieCategories, seriesCategories []int, includeMovieFallback, includeSeasonFallback bool) (postgres.IndexerCommissioningRun, error) {
+	_, values, err := service.loadedIntegration(ctx, integrationID)
+	if err != nil {
+		return postgres.IndexerCommissioningRun{}, err
+	}
+	run, err := service.Store.IndexerCommissioningRun(ctx, runID)
+	if err != nil {
+		return postgres.IndexerCommissioningRun{}, err
+	}
+	if run.Revision != expectedRevision || run.State != commissioningv2.RunAwaitingCategoryReview {
+		return postgres.IndexerCommissioningRun{}, postgres.ErrConcurrentModification
+	}
+	var capsEvidence *commissioningv2.StepEvidenceDocument
+	for index := range run.Steps {
+		if run.Steps[index].Phase == commissioningv2.StepPhaseCAPS && run.Steps[index].Evidence != nil {
+			capsEvidence = run.Steps[index].Evidence
+			break
+		}
+	}
+	if capsEvidence == nil {
+		return postgres.IndexerCommissioningRun{}, postgres.ErrInvalidIndexerCommissioning
+	}
+	digestBytes, err := service.Store.IndexerEndpointConfigurationDigest(ctx, integrationID)
+	if err != nil {
+		return postgres.IndexerCommissioningRun{}, err
+	}
+	digest, err := commissioningv2.SHA256DigestFromBytes(digestBytes)
+	if err != nil {
+		return postgres.IndexerCommissioningRun{}, err
+	}
+	categories := newznab.NewznabCategorySelection{Movie: append([]int(nil), movieCategories...), Series: append([]int(nil), seriesCategories...)}
+	plan, err := commissioningv2.BuildSearchPlan(commissioningv2.SearchPlanInput{
+		ConfigurationSHA256:  digest,
+		ProviderContract:     liveProviderContract(values),
+		Fixtures:             run.Fixtures,
+		CAPSEvidence:         *capsEvidence,
+		Categories:           categories,
+		Options:              commissioningv2.SearchProbeOptions{IncludeMovieFallback: includeMovieFallback, IncludeCompleteSeasonFallback: includeSeasonFallback},
+		ProfileSchemaVersion: newznab.CapabilityProfileSchemaVersion,
+	})
+	if err != nil {
+		return postgres.IndexerCommissioningRun{}, fmt.Errorf("build search plan: %w", err)
+	}
+	if len(plan.Steps) == 0 || len(plan.Steps) > int(commissioningv2.MaximumSearchCalls) {
+		return postgres.IndexerCommissioningRun{}, fmt.Errorf("search plan step count %d: %w", len(plan.Steps), commissioningv2.ErrInvalidCommissioningDocument)
+	}
+	if _, err := service.Store.SealIndexerCommissioningSearchPlan(ctx, integrationID, runID, expectedRevision, categories, plan, service.now()); err != nil {
+		return postgres.IndexerCommissioningRun{}, err
+	}
+	return service.Store.IndexerCommissioningRun(ctx, runID)
+}
+
+// ExecuteStep synchronously performs exactly one owner-authorized step (CAPS
+// or one semantic probe) and returns only after it reached a safe durable
+// state or failed closed. It never loops to a second step and never resends.
+func (service *LiveCAPSService) ExecuteStep(ctx context.Context, integrationID, runID, stepID uuid.UUID) (commissioningv2.LiveExecuteResult, error) {
 	integration, values, err := service.loadedIntegration(ctx, integrationID)
 	if err != nil {
 		return commissioningv2.LiveExecuteResult{}, err

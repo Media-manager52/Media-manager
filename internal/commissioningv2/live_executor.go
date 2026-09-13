@@ -283,6 +283,16 @@ type LiveAuthorizedStep struct {
 	Fingerprint     SHA256Digest
 	ConfigurationOK bool
 	SecretReference string
+	// Search-probe material for phase=search steps. Immutable and owner-
+	// trusted; resolved only from the durable run/step, never from caller
+	// input. Empty for CAPS steps.
+	Request     TypedRequest
+	Target      newznab.EvidenceTarget
+	Scope       newznab.SearchScope
+	Role        newznab.RecipeRole
+	FixtureKey  string
+	CategoryIDs []int
+	Fixtures    FixtureDocument
 }
 
 // DeriveRunTransition maps a classified completion onto the section 15 run
