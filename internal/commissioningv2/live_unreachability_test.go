@@ -50,27 +50,34 @@ const (
 	liveExecutorPackage = "github.com/media-manager/media-manager/internal/commissioningv2"
 	liveStorePackage    = "github.com/media-manager/media-manager/internal/postgres"
 	liveGuardPackage    = "github.com/media-manager/media-manager/internal/adapters/newznab"
+	// liveOwnerServicePackage is the SINGLE Milestone-B production package
+	// allowed to construct the live executor: the owner-authorized CAPS
+	// service. The HTTP layer only sees a narrow service interface.
+	liveOwnerServicePackage = "github.com/media-manager/media-manager/internal/commissioning"
+	liveOwnerAPIPackage     = "github.com/media-manager/media-manager/internal/httpapi"
 )
 
-// TestLiveExecutorAbsentFromProductionDependencyGraph is the Milestone A
-// production-unreachability structural guard (§20/§26.2 item 5 companion,
-// §28.1 "no production constructor wires the executor", §30.1 "Orchestrator
-// is unreachable from production").
+// TestLiveExecutorAbsentFromProductionDependencyGraph is the Milestone-A/B
+// production-reachability structural guard. In Milestone A NO production
+// package could import the executor. Milestone B deliberately opens exactly
+// ONE owner-authorized path:
 //
-// The guard walks the REAL transitive dependency closure of every production
-// root (not just the root's own files) and fails when:
+//   - internal/commissioning (LiveCAPSService) is the only production
+//     constructor of a LiveExecutor, and only for an explicitly
+//     owner-authorized CAPS step;
+//   - internal/httpapi exposes a narrow CommissioningV2Service interface and
+//     never constructs an executor itself.
+//
+// Every other production package (durable store, acquisition, retrieval,
+// workers, UI) must remain executor-free. The guard walks the REAL transitive
+// dependency closure of every production root and fails when:
 //
 //  1. any package in the closure directly imports the live-executor package
-//     other than the allowlisted durable store package (internal/postgres),
-//     which legitimately imports the shared commissioningv2 domain types; or
-//  2. any non-test file in the closure references a Milestone-A execution
-//     symbol from a package other than that symbol's defining packages.
-//
-// The commissioningv2 DOMAIN types (RunState, SafeOutcome, evidence) are
-// pre-existing offline planning types legitimately shared with production.
-// The EXECUTOR constructor, its method set, the durable boundary methods, and
-// the guarded transmission method must remain unreferenced outside their
-// defining packages.
+//     other than the allowlisted durable store, owner service, and owner API
+//     packages; or
+//  2. any non-test file in the closure references a Milestone-A/B execution
+//     symbol from a package other than that symbol's defining packages and
+//     the owner service.
 func TestLiveExecutorAbsentFromProductionDependencyGraph(t *testing.T) {
 	t.Parallel()
 	roots := []string{"cmd/media-manager", "internal/httpapi", "internal/acquisition"}
@@ -78,20 +85,25 @@ func TestLiveExecutorAbsentFromProductionDependencyGraph(t *testing.T) {
 	// packages that legitimately declare or select it. Any other non-test
 	// occurrence in the production closure is a wiring regression.
 	allowedReferrers := map[string]map[string]bool{
-		"NewLocalLiveExecutor":                         {liveExecutorPackage: true},
+		"NewLocalLiveExecutor":                         {liveExecutorPackage: true, liveOwnerServicePackage: true},
 		"CloseInterruptedAfterUncertainFinalization":   {liveExecutorPackage: true},
 		"CloseSucceededAfterKnownSuccessfulCompletion": {liveExecutorPackage: true},
 		"ClaimIntent":                        {liveExecutorPackage: true},
 		"MarkClaimedStepTransmitting":        {liveExecutorPackage: true, liveStorePackage: true},
 		"CompleteLiveAttempt":                {liveExecutorPackage: true, liveStorePackage: true},
 		"ReserveCommissioningRequest":        {liveExecutorPackage: true, liveStorePackage: true},
-		"FetchCommissioningWithTransmission": {liveGuardPackage: true},
+		"FetchCommissioningWithTransmission": {liveGuardPackage: true, liveExecutorPackage: true},
 	}
 	// importAllowlist is the exact set of production packages permitted to
-	// import the live-executor domain package. internal/postgres imports only
-	// the durable domain types; any other importer risks pulling the
-	// executor into a production binary and must be reviewed explicitly.
-	importAllowlist := map[string]bool{liveStorePackage: true}
+	// import the live-executor domain package: the durable store (shared
+	// domain types), the single owner-authorized CAPS service, and the owner
+	// HTTP API (narrow interface only). Any other importer risks pulling the
+	// executor into an unrelated production path and must be reviewed.
+	importAllowlist := map[string]bool{
+		liveStorePackage:        true,
+		liveOwnerServicePackage: true,
+		liveOwnerAPIPackage:     true,
+	}
 	// go list patterns resolve from the module root, not from this package
 	// directory: locate go.mod upward and run there.
 	directory, err := os.Getwd()

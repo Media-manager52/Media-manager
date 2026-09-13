@@ -145,6 +145,18 @@ func (store *Store) ReserveCommissioningRequest(ctx context.Context, indexerID, 
 	return CommissioningReservation{AlreadyHeld: true}, nil
 }
 
+// ReserveLiveStep adapts the durable reservation to the narrow
+// commissioningv2.LiveReservationStore surface used by the owner-authorized
+// CAPS executor. It shares the exact same advisory-lock namespace and ledger
+// as the legacy and v2 reservation paths.
+func (store *Store) ReserveLiveStep(ctx context.Context, indexerID, stepID string, budget indexers.CommissioningBudgetSnapshot, now time.Time) (commissioningv2.LiveReservation, error) {
+	reservation, err := store.ReserveCommissioningRequest(ctx, indexerID, stepID, budget, now)
+	if err != nil {
+		return commissioningv2.LiveReservation{}, err
+	}
+	return commissioningv2.LiveReservation{Granted: reservation.Granted, AlreadyHeld: reservation.AlreadyHeld, RetryAt: reservation.RetryAt}, nil
+}
+
 // ClaimAuthorizedStepIntent moves planned -> intent_committed with a bounded
 // executor lease. Cancellation is re-read from the locked run; no
 // caller-supplied cancellation field exists.
@@ -1142,20 +1154,22 @@ func (store *Store) LoadAuthorizedStep(ctx context.Context, stepID string) (comm
 	var plannerVersion, profileVersion int16
 	var categoryIDs []int
 	var capAuthorized, searchAuthorized any
+	var secretReference string
 	_ = capAuthorized
 	_ = searchAuthorized
 	if err := transaction.QueryRow(ctx, `SELECT step.run_id::text,run.indexer_instance_id::text,step.state,step.phase,
 		step.target_kind,COALESCE(step.recipe_key,''),COALESCE(step.scope,''),COALESCE(step.role,''),
 		COALESCE(step.fixture_key,''),step.ordinal,step.structural_request_sha256,step.fixture_sha256,
 		run.state,run.revision,run.planner_version,run.profile_schema_version,step.category_ids,
-		run.caps_authorized_at,run.search_authorized_at
+		run.caps_authorized_at,run.search_authorized_at,COALESCE(integration.secret_ref,'')
 		FROM indexer_commissioning_steps step
 		JOIN indexer_commissioning_runs run ON run.id=step.run_id
+		JOIN integration_instances integration ON integration.id=run.indexer_instance_id
 		WHERE step.id=$1`, parsed.String()).Scan(
 		&runID, &indexerID, &state, &phase, &targetKind, &recipeKey, &scope, &role,
 		&fixtureKey, &ordinal, &structural, &fixtureDigest,
 		&runState, &revision, &plannerVersion, &profileVersion, &categoryIDs,
-		&capAuthorized, &searchAuthorized); err != nil {
+		&capAuthorized, &searchAuthorized, &secretReference); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return commissioningv2.LiveAuthorizedStep{}, ErrNotFound
 		}
@@ -1202,6 +1216,7 @@ func (store *Store) LoadAuthorizedStep(ctx context.Context, stepID string) (comm
 		ProfileVersion:  uint16(profileVersion),
 		Fingerprint:     fingerprint,
 		ConfigurationOK: true,
+		SecretReference: secretReference,
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		return commissioningv2.LiveAuthorizedStep{}, err

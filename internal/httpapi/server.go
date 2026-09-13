@@ -37,6 +37,8 @@ type Config struct {
 	MetadataEnricher       *metadataservice.Service
 	MetadataProviderStates map[string]string
 	CommissionNewznab      func(context.Context, uuid.UUID) (postgres.Integration, error)
+	CommissioningV2        CommissioningV2Service
+	CommissioningV2Origin  string
 	BackupConfigured       bool
 	BackupDirectory        string
 }
@@ -132,6 +134,10 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/integrations", server.requireOwner(server.listIntegrations))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations", server.requireOwner(server.createIntegration))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commission", server.requireOwner(server.commissionIntegration))
+	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs", server.requireOwnerMutation(server.createCommissioningV2Run))
+	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}", server.requireOwner(server.getCommissioningV2Run))
+	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-caps", server.requireOwnerMutation(server.authorizeCommissioningV2CAPS))
+	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/steps/{step}/execute", server.requireOwnerMutation(server.executeCommissioningV2CAPS))
 	server.mux.HandleFunc("GET /api/v1/settings/library-roots", server.requireOwner(server.listLibraryRoots))
 	server.mux.HandleFunc("POST /api/v1/settings/library-roots", server.requireOwner(server.createLibraryRoot))
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))

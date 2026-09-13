@@ -84,6 +84,25 @@ type CredentialResolver interface {
 	ResolveCommissioningCredential(ctx context.Context, indexerInstanceID string, exactSecretRef string) ([]byte, error)
 }
 
+// EnvironmentCredentialResolver adapts an existing exact secret-reference
+// resolver (for example the process environment resolver) to the
+// commissioning CredentialResolver contract. It resolves only the exact
+// reference supplied by the durable run and returns bytes in memory only.
+type EnvironmentCredentialResolver struct {
+	Resolve func(reference string) (string, error)
+}
+
+func (resolver EnvironmentCredentialResolver) ResolveCommissioningCredential(_ context.Context, indexerInstanceID, exactSecretRef string) ([]byte, error) {
+	if resolver.Resolve == nil || exactSecretRef == "" || indexerInstanceID == "" {
+		return nil, ErrLiveExecutorCredential
+	}
+	value, err := resolver.Resolve(exactSecretRef)
+	if err != nil || value == "" || len(value) > maximumCredentialBytes {
+		return nil, ErrLiveExecutorCredential
+	}
+	return []byte(value), nil
+}
+
 // TestCredentialResolver is the TEST-ONLY CredentialResolver implementation.
 // It resolves only pre-registered (instanceID, secretRef) pairs and rejects
 // everything else. It never touches a production secret store.
@@ -121,15 +140,18 @@ func (resolver *TestCredentialResolver) ResolveCommissioningCredential(_ context
 // production constructor: nothing in cmd/media-manager, internal/httpapi,
 // acquisition, retrieval, or workers may construct a LiveExecutor.
 type LiveExecutorDeps struct {
-	Steps     LiveStepStore
-	Scheduler *indexers.Scheduler
-	Resolver  CredentialResolver
-	Client    *newznab.Client
-	Dial      func(ctx context.Context, network, address string) (net.Conn, error)
-	Resolve   func(ctx context.Context, hostname string) ([]netip.Addr, error)
-	Roots     interface{}
-	Now       func() time.Time
-	NewIDs    func() string
+	Steps        LiveStepStore
+	Scheduler    *indexers.Scheduler
+	Resolver     CredentialResolver
+	Client       *newznab.Client
+	Reservations LiveReservationStore
+	Authorizer   newznab.CommissioningTransmittingStepAuthorizer
+	Destination  newznab.CommissioningDestination
+	Dial         func(ctx context.Context, network, address string) (net.Conn, error)
+	Resolve      func(ctx context.Context, hostname string) ([]netip.Addr, error)
+	Roots        interface{}
+	Now          func() time.Time
+	NewIDs       func() string
 }
 
 // LiveStepStore is the narrow atomic repository surface the Milestone A
@@ -243,7 +265,9 @@ type LiveStepState struct {
 
 // LiveAuthorizedStep is the consistent run-plus-step snapshot loaded before
 // intent: exact revisions, phase authorization, ordinal, target,
-// fingerprint, and planned state.
+// fingerprint, and planned state. SecretReference is the exact integration
+// secret reference bound to the run; the executor resolves only that
+// reference and never accepts an alternative.
 type LiveAuthorizedStep struct {
 	RunID           string
 	StepID          string
@@ -258,6 +282,7 @@ type LiveAuthorizedStep struct {
 	ProfileVersion  uint16
 	Fingerprint     SHA256Digest
 	ConfigurationOK bool
+	SecretReference string
 }
 
 // DeriveRunTransition maps a classified completion onto the section 15 run
