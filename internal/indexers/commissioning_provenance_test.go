@@ -367,6 +367,63 @@ func TestCommissioningBudgetSnapshotCannotBeSubstituted(t *testing.T) {
 	negativeCompileProof(t)
 }
 
+// TestAuthoritativeReloadPublishesDurableRevision is the regression guard for
+// the AuthoritativeSnapshot revision-shadowing defect. The durable revision
+// must survive the authoritative reload into lane.snapshot, where
+// Snapshot.Revision is the exact persisted indexer_budget_state revision.
+func TestAuthoritativeReloadPublishesDurableRevision(t *testing.T) {
+	t.Parallel()
+	indexerID := "550e8400-e29b-41d4-a716-446655440000"
+	durableUpdatedAt := time.Unix(1_800_000_500, 0).UTC()
+	store := &recordingSaveStore{authority: AuthoritativeSnapshot{
+		Snapshot: Snapshot{
+			IndexerID:          indexerID,
+			NextAllowedAt:      durableUpdatedAt.Add(time.Minute),
+			CooldownUntil:      durableUpdatedAt.Add(2 * time.Minute),
+			ConsecutiveFailure: 3,
+			LastOutcome:        OutcomeRateLimited,
+			LastOutcomeAt:      durableUpdatedAt.Add(-time.Minute),
+			UpdatedAt:          durableUpdatedAt,
+			MinimumInterval:    7 * time.Second,
+			Revision:           42,
+		},
+		Gate: CommissioningGateClear,
+	}}
+	scheduler := NewScheduler(1, store)
+	if err := scheduler.Configure(indexerID, commissioningTestBudget()); err != nil {
+		t.Fatal(err)
+	}
+	scheduler.InvalidateLaneCache(indexerID, nil)
+	if err := scheduler.ReloadLaneCache(context.Background(), indexerID); err != nil {
+		t.Fatal(err)
+	}
+	published := scheduler.Snapshot(indexerID)
+	// The revision-shadowing defect dropped Revision to zero here even though
+	// the durable row carried 42; Snapshot.Revision is the exact persisted
+	// revision and must survive the authoritative reload.
+	if published.Revision != 42 {
+		t.Fatalf("authoritative reload dropped durable revision: got %d want 42", published.Revision)
+	}
+	if !published.UpdatedAt.Equal(durableUpdatedAt) || !published.NextAllowedAt.Equal(durableUpdatedAt.Add(time.Minute)) ||
+		!published.CooldownUntil.Equal(durableUpdatedAt.Add(2*time.Minute)) || published.ConsecutiveFailure != 3 ||
+		published.LastOutcome != OutcomeRateLimited || !published.LastOutcomeAt.Equal(durableUpdatedAt.Add(-time.Minute)) ||
+		published.MinimumInterval != 7*time.Second {
+		t.Fatalf("authoritative reload published a partial snapshot: %#v", published)
+	}
+	if scheduler.laneCacheUnknown(indexerID) {
+		t.Fatal("authoritative reload must clear cacheUnknown")
+	}
+	// Structural guard: AuthoritativeSnapshot must expose Revision ONLY as the
+	// promoted embedded Snapshot.Revision. A re-added outer Revision declaration
+	// would shadow the embedded field (Index path length 1 instead of 2) and
+	// recreate the defect where a loader writing the outer field is dropped by
+	// ReloadLaneCache's authoritative.Snapshot assignment.
+	revisionField, ok := reflect.TypeOf(AuthoritativeSnapshot{}).FieldByName("Revision")
+	if !ok || len(revisionField.Index) != 2 || revisionField.Index[0] != 0 {
+		t.Fatalf("AuthoritativeSnapshot.Revision must be promoted from embedded Snapshot, got index path %v", revisionField.Index)
+	}
+}
+
 func TestAcquireCommissioningV2RejectsNonCanonicalIdentity(t *testing.T) {
 	// E-66: table over BOTH fields (malformed indexerID with canonical
 	// stepID, and the reverse) x every non-canonical spelling, with nil store

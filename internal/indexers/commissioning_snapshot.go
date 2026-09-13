@@ -108,9 +108,13 @@ func (snapshot CommissioningBudgetSnapshot) MatchesAttempt(indexerID, stepID str
 // AuthoritativeSnapshot is the complete durable scheduling decision state for
 // one indexer lane: pacing, cooldown, failure history, outcome, revision, and
 // the unresolved-attempt gate with its referenced step state.
+//
+// The durable revision is the embedded Snapshot.Revision. There is deliberately
+// no separate Revision field: a second field would shadow the embedded one and
+// let a reload publish a snapshot whose Revision was silently dropped
+// (Snapshot.Revision is the exact persisted indexer_budget_state revision).
 type AuthoritativeSnapshot struct {
 	Snapshot
-	Revision        uint64
 	Gate            CommissioningGateState
 	GateStepID      string
 	GateStepState   string

@@ -26,8 +26,9 @@ import (
 // delegates to the real store while LoadAuthoritativeIndexerState calls are
 // counted.
 type countingAuthoritativeStore struct {
-	real  *postgres.Store
-	loads atomic.Int32
+	real      *postgres.Store
+	loads     atomic.Int32
+	failLoads atomic.Bool
 }
 
 func (store *countingAuthoritativeStore) LoadIndexerBudget(ctx context.Context, indexerID string) (indexers.Snapshot, error) {
@@ -40,6 +41,9 @@ func (store *countingAuthoritativeStore) SaveIndexerBudget(ctx context.Context, 
 
 func (store *countingAuthoritativeStore) LoadAuthoritativeIndexerState(ctx context.Context, indexerID string) (indexers.AuthoritativeSnapshot, error) {
 	store.loads.Add(1)
+	if store.failLoads.Load() {
+		return indexers.AuthoritativeSnapshot{}, context.DeadlineExceeded
+	}
 	return store.real.LoadAuthoritativeIndexerState(ctx, indexerID)
 }
 
@@ -380,6 +384,11 @@ func TestCloseInterruptedAfterUncertainFinalizationAgainstDurableStore(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Persist the authoritative-reload failure across the executor call AND
+	// the follow-up Acquire attempts: the cacheUnknown barrier must hold
+	// without relying on the durable gate (which is absent on this lane).
+	counting.failLoads.Store(true)
+	defer counting.failLoads.Store(false)
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 	if err := executor.CloseInterruptedAfterUncertainFinalization(cancelled, indexerFree.String(), freePermit, nil); err == nil {

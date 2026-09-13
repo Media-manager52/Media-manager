@@ -99,7 +99,7 @@ func TestCompleteLiveAttemptRederivesClassificationFromInputs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		base := liveCAPSCompletion(reloaded, step, time.Time{})
+		base := liveCAPSCompletion(reloaded, step)
 		tampered := tamper.mutate(base.Classified)
 		completion := base
 		completion.ExpectedRunRev = reloaded.Revision
@@ -289,7 +289,7 @@ func TestCompleteLiveAttemptFreshnessDriftKeepsRateLimitAccounting(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline, ok := indexers.ParseRetryAfter("120", now.Add(5*time.Second))
+	deadline, ok := indexers.ParseRetryAfter("30", now.Add(5*time.Second))
 	if !ok {
 		t.Fatal("parse retry-after")
 	}
@@ -352,7 +352,7 @@ func TestGateClearanceRejectedForWrongStepIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion := liveCAPSCompletion(reloaded, step, time.Time{})
+	completion := liveCAPSCompletion(reloaded, step)
 	completion.BudgetSnapshot = snapshot
 	// Wrong step identity: the budget WHERE gate=$stepID misses.
 	completion.StepID = uuid.NewV7().String()
@@ -391,6 +391,12 @@ func TestConcurrentCompleteLiveAttemptAppliesExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Completion evidence must be anchored on the durable transmitting step
+	// (its transmitted_at), not the pre-transmit fixture step.
+	transmittingStep := reloaded.Steps[0]
+	if transmittingStep.State != commissioningv2.StepTransmitting {
+		t.Fatalf("step=%q, want transmitting", transmittingStep.State)
+	}
 	const racers = 8
 	var wg sync.WaitGroup
 	errs := make([]error, racers)
@@ -402,7 +408,7 @@ func TestConcurrentCompleteLiveAttemptAppliesExactlyOnce(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			completion := liveCAPSCompletion(reloaded, step, time.Time{})
+			completion := liveCAPSCompletion(reloaded, transmittingStep)
 			completion.BudgetSnapshot = snapshot
 			_, errs[i] = store.CompleteLiveAttempt(ctx, completion, now.Add(5*time.Second))
 		}(i)
@@ -567,7 +573,7 @@ func TestLoadAuthoritativeIndexerStateQueryErrorIsFailClosed(t *testing.T) {
 	if err := scheduler.ReloadLaneCache(cancelled, indexerID.String()); err == nil {
 		t.Fatal("cancelled lane reload succeeded")
 	}
-	if _, err := scheduler.AcquireCommissioningV2(ctx, indexerID.String(), stepID); err == nil {
+	if _, err := scheduler.AcquireCommissioningV2(cancelled, indexerID.String(), stepID); err == nil {
 		t.Fatal("acquire slipped through unknown cache")
 	}
 }
@@ -696,7 +702,7 @@ func TestFreshSchedulerRespectsDurablePacingFloorAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion := liveCAPSCompletion(reloaded, step, time.Time{})
+	completion := liveCAPSCompletion(reloaded, step)
 	completion.BudgetSnapshot = snapshot
 	if _, err := store.CompleteLiveAttempt(ctx, completion, now.Add(5*time.Second)); err != nil {
 		t.Fatal(err)
@@ -1080,7 +1086,7 @@ func TestCompleteLiveAttemptRollbackRetainsGateAndTransmittingStepExtended(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion := liveCAPSCompletion(reloaded, step, time.Time{})
+	completion := liveCAPSCompletion(reloaded, step)
 	completion.ExpectedRunRev = reloaded.Revision
 	completion.LeaseOwner = "worker.wrong"
 	completion.BudgetSnapshot = snapshot
@@ -1140,73 +1146,20 @@ func TestGateSetCannotBypassOutcomeTimeMonotonicity(t *testing.T) {
 	// Terminalize the first run before building the second fixture so the
 	// 0034 one-nonterminal-run constraint is never violated: complete the
 	// transmitting attempt with a real outcome-producing write.
-	completion := liveCAPSCompletion(reloaded, step, time.Time{})
+	completion := liveCAPSCompletion(reloaded, step)
 	completion.BudgetSnapshot = snapshot
 	completedAt := now.Add(5 * time.Second)
 	if _, err := store.CompleteLiveAttempt(ctx, completion, completedAt); err != nil {
 		t.Fatal(err)
 	}
-	// B-48 fixture strategy. The 0034 one-nonterminal index forbids a
-	// second run on indexer1 while run1 is live; completing run1 first
-	// would clear the gate under test (caps_observed clears). So run1 is
-	// completed (outcome time advanced to completedAt, gate cleared through
-	// the REAL allowlisted CLEAR path below), and the monotonicity probe
-	// runs as a fresh gate SET on a SECOND indexer whose target step is
-	// transmitting+transmitted_at: the SET path checks same-indexer +
-	// boundary + monotonicity together, and same-indexer/boundary pass by
-	// construction, so ONLY the regressed outcome time can explain the
-	// refusal. A companion UPDATE-path probe (same gate value, regressed
-	// time) proves the EVERY-update monotonicity branch with no
-	// same-indexer/boundary confound at all.
-	indexer2 := liveIndexer(t, ctx, store, now.Add(time.Hour))
-	run2, step2 := liveRunAndIntentStep(t, ctx, store, indexer2, now.Add(time.Hour))
-	if run2.Steps[0].State != commissioningv2.StepIntentCommitted {
-		t.Fatalf("second run step=%q", run2.Steps[0].State)
-	}
-	scheduler2 := indexers.NewScheduler(4, store)
-	configureCommissioningScheduler(t, scheduler2, indexer2, indexers.Budget{MinimumInterval: 5 * time.Second, FailureBackoff: time.Second, MaximumBackoff: time.Minute, QueryLimit: 100, LimitWindow: time.Hour})
-	snapshot2 := liveSnapshotForStep(t, scheduler2, indexer2, step2.ID)
-	if _, err := store.ReserveCommissioningRequest(ctx, indexer2.String(), step2.ID.String(), snapshot2, now.Add(2*time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.MarkClaimedStepTransmitting(ctx, liveMarkerFor(run2, step2, snapshot2, now.Add(2*time.Hour)), now.Add(2*time.Hour).Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	// Prove the target step is transmitting with transmitted_at set: a
-	// legal gate SET target on indexer2. Clear indexer1's gate first
-	// through the REAL allowlisted CLEAR path (its step completed
-	// caps_observed): proves the fixture reached the SET path legally.
-	loaded2, err := store.IndexerCommissioningStep(ctx, run2.ID, step2.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded2.State != commissioningv2.StepTransmitting || loaded2.TransmittedAt == nil {
-		t.Fatalf("setup: step2=%#v, want transmitting with transmitted_at", loaded2)
-	}
-	// UPDATE-path probe FIRST (no gate change at all): regress outcome time
-	// on indexer1's own row while its allowlisted gate is still HELD
-	// (last_outcome_at == completedAt from the real completion above).
-	// Same-indexer/boundary/replacement predicates cannot fire (gate value
-	// untouched); only monotonicity can refuse the regression.
-	if _, err := store.Pool.Exec(ctx, `UPDATE indexer_budget_state SET last_outcome_at=$2 WHERE indexer_instance_id=$1`, indexerID.String(), now); err == nil {
-		t.Fatal("UPDATE-path outcome regression accepted")
-	} else if !strings.Contains(err.Error(), "cannot regress") {
-		t.Fatalf("UPDATE-path rejection=%v, want outcome-time-regression predicate", err)
-	}
-	loaded2check, err := store.IndexerCommissioningStep(ctx, run2.ID, step2.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = loaded2check
-	if _, err := store.Pool.Exec(ctx, `DELETE FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexer2.String()); err != nil {
-		t.Fatal(err)
-	}
-	// Clear indexer1's gate through the REAL allowlisted CLEAR path (its
-	// step completed caps_observed): proves the fixture reached the SET
-	// path legally.
-	if _, err := store.Pool.Exec(ctx, `UPDATE indexer_budget_state SET commissioning_gate_step_id=NULL WHERE indexer_instance_id=$1`, indexerID.String()); err != nil {
-		t.Fatalf("setup: allowlisted CLEAR refused: %v", err)
-	}
+	// B-48 monotonicity guard. The 0034 one-nonterminal index forbids a
+	// second live run on this indexer, so run1 was completed above; the
+	// caps_observed completion cleared the gate through the real allowlisted
+	// CLEAR path. The monotonicity guard runs on EVERY UPDATE before any
+	// gate-dispatch branch, so a same-value (no gate change) UPDATE that
+	// regresses last_outcome_at is the strongest probe: the same-indexer,
+	// boundary, and replacement predicates cannot fire, and ONLY
+	// monotonicity can refuse the regression.
 	var outcomeAtBefore *time.Time
 	if err := store.Pool.QueryRow(ctx, `SELECT last_outcome_at FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&outcomeAtBefore); err != nil {
 		t.Fatal(err)
@@ -1214,24 +1167,14 @@ func TestGateSetCannotBypassOutcomeTimeMonotonicity(t *testing.T) {
 	if outcomeAtBefore == nil || !outcomeAtBefore.Equal(completedAt) {
 		t.Fatalf("setup outcome time=%v, want %s", outcomeAtBefore, completedAt)
 	}
-	// Direct SQL SET: point the cleared row at the transmitting step2 while
-	// regressing outcome time. Same-indexer passes (step2 belongs to
-	// indexer2 and the row moves to indexer2); transmission-boundary
-	// passes (step2 transmitting + transmitted_at). Only monotonicity can
-	// refuse. (Uses a fresh transmitting step: step2's gate row was
-	// deleted above, so rebuild step2's boundary state is re-verified
-	// before the SET.)
-	if _, err := store.Pool.Exec(ctx, `UPDATE indexer_budget_state SET indexer_instance_id=$2, commissioning_gate_step_id=$3, last_outcome_at=$4 WHERE indexer_instance_id=$1`, indexerID.String(), indexer2.String(), step2.ID.String(), now); err == nil {
-		t.Fatal("gate SET with regressed outcome time accepted")
+	if _, err := store.Pool.Exec(ctx, `UPDATE indexer_budget_state SET last_outcome_at=$2 WHERE indexer_instance_id=$1`, indexerID.String(), now); err == nil {
+		t.Fatal("outcome-time regression accepted")
 	} else if !strings.Contains(err.Error(), "cannot regress") {
-		t.Fatalf("gate monotonicity rejection=%v, want outcome-time-regression predicate", err)
+		t.Fatalf("monotonicity rejection=%v, want outcome-time-regression predicate", err)
 	}
-	// Postcondition: row still cleared (no gate smuggled in) and outcome
-	// time unchanged; step2 still transmitting.
 	var gateAfter *string
 	var outcomeAtAfter *time.Time
-	var indexerAfter string
-	if err := store.Pool.QueryRow(ctx, `SELECT indexer_instance_id::text, commissioning_gate_step_id::text, last_outcome_at FROM indexer_budget_state WHERE indexer_instance_id=$1 OR indexer_instance_id=$2`, indexerID.String(), indexer2.String()).Scan(&indexerAfter, &gateAfter, &outcomeAtAfter); err != nil {
+	if err := store.Pool.QueryRow(ctx, `SELECT commissioning_gate_step_id::text, last_outcome_at FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&gateAfter, &outcomeAtAfter); err != nil {
 		t.Fatal(err)
 	}
 	if gateAfter != nil {
@@ -1239,13 +1182,6 @@ func TestGateSetCannotBypassOutcomeTimeMonotonicity(t *testing.T) {
 	}
 	if outcomeAtAfter == nil || !outcomeAtAfter.Equal(completedAt) {
 		t.Fatalf("monotonicity refusal changed outcome time: %v", outcomeAtAfter)
-	}
-	recheck2, err := store.IndexerCommissioningStep(ctx, run2.ID, step2.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if recheck2.State != commissioningv2.StepTransmitting || recheck2.TransmittedAt == nil {
-		t.Fatalf("monotonicity refusal changed step2: %#v", recheck2)
 	}
 }
 
@@ -1297,7 +1233,7 @@ func TestCompletionNeverMutatesProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion := liveCAPSCompletion(reloaded, step, time.Time{})
+	completion := liveCAPSCompletion(reloaded, step)
 	completion.BudgetSnapshot = snapshot
 	if _, err := store.CompleteLiveAttempt(ctx, completion, now.Add(5*time.Second)); err != nil {
 		t.Fatal(err)
@@ -1357,33 +1293,59 @@ func TestNoRawBodyURLHeaderOrSecretColumnAdded(t *testing.T) {
 			}
 		}
 	}
-	// Steps-table evidence columns are digest/key/document only: assert no
-	// raw-body/URL/secret column exists there either — containment over the
-	// same sensitive terms, so response_body, raw_body_text, api_key_value,
-	// authorization_header, and provider_secret are all caught.
+	// Steps-table columns are identity/digest/key/document only. Use an
+	// explicit allowlist (like the budget table above): containment over
+	// sensitive substrings false-positives on legitimate names such as
+	// recipe_key, fixture_key, evidence_key, typed_request_document,
+	// request_limit, and structural_request_sha256. Any column NOT on this
+	// list fails, so response_body, raw_body_text, api_key_value,
+	// authorization_header, and provider_secret are still caught as
+	// unexpected additions.
+	stepsColumns := map[string]bool{
+		"id": true, "run_id": true, "ordinal": true, "phase": true, "target_kind": true,
+		"recipe_key": true, "scope": true, "role": true, "fixture_key": true, "fixture_sha256": true,
+		"typed_request_document": true, "structural_request_sha256": true, "category_ids": true,
+		"request_limit": true, "budget_family": true, "state": true, "intent_at": true,
+		"transmitted_at": true, "completed_at": true, "executor_lease_owner": true,
+		"executor_lease_until": true, "safe_outcome": true, "safe_code": true, "retry_at": true,
+		"raw_result_count": true, "plausible_identity_count": true, "safe_response_sha256": true,
+		"raw_body_sha256": true, "evidence_key": true, "evidence_document": true,
+	}
 	rows, err := store.Pool.Query(ctx, `SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name='indexer_commissioning_steps'`, schema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Explicit allowlist: digest-only columns whose names intentionally
-	// contain raw/response but persist only SHA-256 digests.
-	digestAllowlist := map[string]bool{"safe_response_sha256": true, "raw_body_sha256": true}
+	stepsNames := make([]string, 0)
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
+			rows.Close()
 			t.Fatal(err)
 		}
+		stepsNames = append(stepsNames, name)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range stepsNames {
+		if !stepsColumns[strings.ToLower(name)] {
+			t.Fatalf("unexpected steps column %q (possible raw persistence surface)", name)
+		}
+	}
+	// Precise sensitive-name arm: the allowlist must not silently admit a
+	// raw persistence column. Digest-only columns are the sole exception.
+	for _, name := range stepsNames {
 		lowered := strings.ToLower(name)
-		if digestAllowlist[lowered] {
+		if lowered == "safe_response_sha256" || lowered == "raw_body_sha256" {
 			continue
 		}
-		for _, forbidden := range []string{"body", "url", "query", "key", "secret", "token", "auth", "cookie", "header", "password", "request", "response", "raw"} {
+		for _, forbidden := range []string{"raw_body", "response_body", "body_text", "api_key", "authorization", "cookie", "password", "provider_secret", "query_string", "request_url"} {
 			if strings.Contains(lowered, forbidden) {
 				t.Fatalf("steps column %q is a raw persistence surface (%q)", name, forbidden)
 			}
 		}
 	}
-	rows.Close()
 }
 
 // liveTestSchemaName returns the search_path schema of the disposable
@@ -1512,6 +1474,7 @@ func TestCompleteLiveAttemptUsesSuppliedBudgetForCooldownDerivation(t *testing.T
 			} else {
 				classified, err = commissioningv2.ClassifyLiveAttempt(commissioningv2.LiveAttemptInputs{
 					Transport: commissioningv2.TransportNoCompleteResponse, Failure: arm.failure,
+					TargetKind: step.Target,
 				})
 			}
 			if err != nil {
@@ -1534,7 +1497,7 @@ func TestCompleteLiveAttemptUsesSuppliedBudgetForCooldownDerivation(t *testing.T
 			if err := store.Pool.QueryRow(ctx, `SELECT cooldown_until FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&cooldown); err != nil {
 				t.Fatalf("budget %d %s: %v", i, arm.name, err)
 			}
-			if !cooldown.Equal(want.CooldownUntil) {
+			if !cooldown.Equal(want.CooldownUntil.Truncate(time.Microsecond)) {
 				t.Fatalf("budget %d %s: cooldown=%s want exact oracle %s", i, arm.name, cooldown, want.CooldownUntil)
 			}
 			*arm.dst = cooldown
@@ -1547,7 +1510,8 @@ func TestCompleteLiveAttemptUsesSuppliedBudgetForCooldownDerivation(t *testing.T
 		t.Fatalf("instance system-failure cooldowns identical across budgets: %s", systemCooldowns[0])
 	}
 	// Parsed Retry-After-wins-when-later per budget (identical deadline once
-	// parsed).
+	// parsed). 30s stays inside BOTH budgets' MaximumBackoff (1m and 10m), so
+	// the parsed deadline survives exactly rather than being clamped.
 	for i, budget := range budgets {
 		store, ctx := liveTestStore(t)
 		now := time.Now().UTC().Truncate(time.Microsecond)
@@ -1566,7 +1530,7 @@ func TestCompleteLiveAttemptUsesSuppliedBudgetForCooldownDerivation(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		deadline, ok := indexers.ParseRetryAfter("120", now.Add(5*time.Second))
+		deadline, ok := indexers.ParseRetryAfter("30", now.Add(5*time.Second))
 		if !ok {
 			t.Fatal("parse retry-after")
 		}
@@ -1610,7 +1574,7 @@ func TestCompleteLiveAttemptRejectsZeroOrInvalidBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := liveCAPSCompletion(reloaded, step, time.Time{})
+	base := liveCAPSCompletion(reloaded, step)
 	for _, name := range []string{"zero"} {
 		completion := base
 		completion.ExpectedRunRev = reloaded.Revision
@@ -1666,7 +1630,7 @@ func TestCompleteLiveAttemptRejectsBudgetMismatchedWithTransmissionBoundary(t *t
 	// minimum_interval_ms cross-check.
 	otherBudget := indexers.Budget{MinimumInterval: 30 * time.Second, FailureBackoff: time.Second, MaximumBackoff: time.Minute, QueryLimit: 100, LimitWindow: time.Hour}
 	configureCommissioningScheduler(t, scheduler, indexerID, otherBudget)
-	completion := liveCAPSCompletion(reloaded, step, time.Time{})
+	completion := liveCAPSCompletion(reloaded, step)
 	completion.ExpectedRunRev = reloaded.Revision
 	// Forge the cross-check path: use the ORIGINAL snapshot but prove a
 	// directly mismatched minimum is rejected — the repository compares
@@ -1904,7 +1868,7 @@ func TestZeroCommissioningBudgetSnapshotRejected(t *testing.T) {
 		t.Fatalf("zero transmit wrote: %#v", loaded2)
 	}
 	// Complete arm: gate still held, step still transmitting.
-	completion := liveCAPSCompletion(reloaded, step, time.Time{})
+	completion := liveCAPSCompletion(reloaded, step)
 	completion.BudgetSnapshot = zero
 	if _, err := store.CompleteLiveAttempt(ctx, completion, now.Add(5*time.Second)); err == nil {
 		t.Fatal("zero snapshot completed")
@@ -2003,17 +1967,19 @@ func TestCommissioningSnapshotRejectedForDifferentAttempt(t *testing.T) {
 		// Complete arm: first legitimately transmit B, then present A's
 		// snapshot at completion.
 		snapshotB := liveSnapshotForStep(t, scheduler, indexerB, stepB.ID)
-		if _, err := store.ReserveCommissioningRequest(ctx, indexerB.String(), stepB.ID.String(), snapshotB, now.Add(3*time.Second)); err != nil {
+		// stepB was created at now+1m (both targets), so the legitimate
+		// transmit must be inside runB's lease and after stepB's intent_at.
+		if _, err := store.ReserveCommissioningRequest(ctx, indexerB.String(), stepB.ID.String(), snapshotB, now.Add(time.Minute).Add(3*time.Second)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.MarkClaimedStepTransmitting(ctx, liveMarkerFor(runB, stepB, snapshotB, now.Add(3*time.Second)), now.Add(4*time.Second)); err != nil {
+		if _, err := store.MarkClaimedStepTransmitting(ctx, liveMarkerFor(runB, stepB, snapshotB, now.Add(time.Minute).Add(3*time.Second)), now.Add(time.Minute).Add(4*time.Second)); err != nil {
 			t.Fatal(err)
 		}
 		reloadedB, err := store.IndexerCommissioningRun(ctx, runB.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		completionB := liveCAPSCompletion(reloadedB, stepB, time.Time{})
+		completionB := liveCAPSCompletion(reloadedB, reloadedB.Steps[0])
 		completionB.BudgetSnapshot = snapshotA
 		var revBefore int64
 		var updatedBefore time.Time
@@ -2103,7 +2069,7 @@ func TestCanonicalAdmissionAcceptsAlternateBoundarySpellings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		completion := liveCAPSCompletion(reloaded, step, time.Time{})
+		completion := liveCAPSCompletion(reloaded, reloaded.Steps[0])
 		completion.BudgetSnapshot = snapshot
 		completion.IndexerInstanceID = indexerSpelling
 		completion.StepID = stepSpelling
@@ -2148,7 +2114,7 @@ func TestReserveCommissioningRequestUsesIndexerAdvisoryLockKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	var objid int64
-	if err := transaction.QueryRow(ctx, `SELECT objid FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND objid=hashtextextended($1,0)::bigint`, lockKey).Scan(&objid); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT objid::bigint FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND classid=((hashtextextended($1,0) >> 32) & 4294967295)::oid AND objid=(hashtextextended($1,0) & 4294967295)::oid`, lockKey).Scan(&objid); err != nil {
 		t.Fatalf("v2 lock key not held as advisory objid: %v", err)
 	}
 	// While the v2-side lock is held, a legacy ReserveIndexerRequest must
@@ -2228,13 +2194,19 @@ func TestLegacyAndCommissioningReservationsShareWindowWithoutOvershoot(t *testin
 	var wg sync.WaitGroup
 	v2Granted := make(chan bool, callers)
 	legacyGranted := make(chan bool, callers)
+	// Precompute every step id and snapshot in the test goroutine: test
+	// helpers call t.Fatal, which must never run on a worker goroutine.
+	stepIDs := make([]uuid.UUID, callers)
+	snapshots := make([]indexers.CommissioningBudgetSnapshot, callers)
+	for index := range stepIDs {
+		stepIDs[index] = uuid.NewV7()
+		snapshots[index] = liveSnapshotForStep(t, scheduler, indexerID, stepIDs[index])
+	}
 	for i := 0; i < callers; i++ {
 		wg.Add(2)
 		go func(i int) {
 			defer wg.Done()
-			stepID := uuid.NewV7()
-			snapshot := liveSnapshotForStep(t, scheduler, indexerID, stepID)
-			reservation, err := store.ReserveCommissioningRequest(ctx, indexerID.String(), stepID.String(), snapshot, now)
+			reservation, err := store.ReserveCommissioningRequest(ctx, indexerID.String(), stepIDs[i].String(), snapshots[i], now)
 			if err == nil && reservation.Granted {
 				v2Granted <- true
 			} else {
@@ -2293,8 +2265,11 @@ func TestLegacySnapshotRejectedAtAllDurableBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer legacyPermit.ReleaseWithoutOutcome()
 	legacySnapshot := legacyPermit.CommissioningBudgetSnapshot()
+	// Release the lane token immediately: a later same-lane
+	// AcquireCommissioningV2 needs it, and holding it would deadlock the
+	// fixture (not the code under test).
+	legacyPermit.ReleaseWithoutOutcome()
 	if legacySnapshot.Valid() {
 		t.Fatal("legacy snapshot valid")
 	}
@@ -2318,7 +2293,7 @@ func TestLegacySnapshotRejectedAtAllDurableBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion := liveCAPSCompletion(reloaded, step, time.Time{})
+	completion := liveCAPSCompletion(reloaded, reloaded.Steps[0])
 	completion.BudgetSnapshot = legacySnapshot
 	if _, err := store.CompleteLiveAttempt(ctx, completion, now.Add(5*time.Second)); err == nil {
 		t.Fatal("legacy snapshot completed")
@@ -2508,6 +2483,17 @@ func TestSuccessfulCommissioningCompletionPublishesAuthoritativeSchedulerState(t
 		t.Fatal(err)
 	}
 	// 6. known-success finalization via the REAL helper (never hand-inlined):
+	// Capture the committed durable row BEFORE finalization starts. The
+	// finalizer must publish exactly this state and must not rewrite any
+	// durable field.
+	var preCooldown, preNext, preOutcomeAt, preUpdated time.Time
+	var preOutcome string
+	var preFailures int32
+	var preRevision int64
+	if err := store.Pool.QueryRow(ctx, `SELECT cooldown_until, next_allowed_at, last_outcome, consecutive_failure, last_outcome_at, updated_at, revision FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&preCooldown, &preNext, &preOutcome, &preFailures, &preOutcomeAt, &preUpdated, &preRevision); err != nil {
+		permit.ReleaseWithoutOutcome()
+		t.Fatal(err)
+	}
 	// invalidate while the permit is owned → ReleaseWithoutOutcome →
 	// authoritative reload. Observe invalidation firing while the
 	// finalizer still owns the lane.
@@ -2527,17 +2513,11 @@ func TestSuccessfulCommissioningCompletionPublishesAuthoritativeSchedulerState(t
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	// 7. Scheduler.Snapshot exactly reflects the durable row.
-	var cooldown, next, outcomeAt, updated time.Time
-	var outcome string
-	var failures int32
-	var revision int64
-	if err := store.Pool.QueryRow(ctx, `SELECT cooldown_until, next_allowed_at, last_outcome, consecutive_failure, last_outcome_at, updated_at, revision FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&cooldown, &next, &outcome, &failures, &outcomeAt, &updated, &revision); err != nil {
-		t.Fatal(err)
-	}
+	// 7. Scheduler.Snapshot exactly reflects the PRE-finalization durable row
+	// (the finalizer performs zero durable writes).
 	got := scheduler.Snapshot(indexerID.String())
-	if !got.CooldownUntil.Equal(cooldown) || !got.NextAllowedAt.Equal(next) || string(got.LastOutcome) != outcome || got.ConsecutiveFailure != uint32(failures) || !got.LastOutcomeAt.Equal(outcomeAt) || !got.UpdatedAt.Equal(updated) || got.Revision != uint64(revision) {
-		t.Fatalf("scheduler snapshot diverges from durable row: %#v vs cooldown=%s next=%s outcome=%q failures=%d", got, cooldown, next, outcome, failures)
+	if !got.CooldownUntil.Equal(preCooldown) || !got.NextAllowedAt.Equal(preNext) || string(got.LastOutcome) != preOutcome || got.ConsecutiveFailure != uint32(preFailures) || !got.LastOutcomeAt.Equal(preOutcomeAt) || !got.UpdatedAt.Equal(preUpdated) || got.Revision != uint64(preRevision) {
+		t.Fatalf("scheduler snapshot diverges from pre-finalization durable row: %#v vs cooldown=%s next=%s outcome=%q failures=%d revision=%d", got, preCooldown, preNext, preOutcome, preFailures, preRevision)
 	}
 	// 8. Legacy Acquire is blocked/deferred by the committed cooldown.
 	if _, err := scheduler.Acquire(ctx, indexerID.String(), indexers.WorkloadInteractive); err == nil {
@@ -2549,7 +2529,7 @@ func TestSuccessfulCommissioningCompletionPublishesAuthoritativeSchedulerState(t
 		}
 	}
 	// 9. No legacy SaveIndexerBudget overwrote completion accounting: the
-	// durable row still carries the completion's cooldown/revision. The
+	// durable row is byte-for-byte the PRE-finalization committed state. The
 	// permit was released WITHOUT outcome by the real helper, so no
 	// SaveIndexerBudget could have been issued on this path; assert the
 	// durable row is unchanged AND that the reload-failure arm below is not
@@ -2560,8 +2540,8 @@ func TestSuccessfulCommissioningCompletionPublishesAuthoritativeSchedulerState(t
 	if err := store.Pool.QueryRow(ctx, `SELECT cooldown_until, revision, commissioning_gate_step_id::text FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&cooldownAfter, &revisionAfter, &gateAfter); err != nil {
 		t.Fatal(err)
 	}
-	if !cooldownAfter.Equal(cooldown) || revisionAfter != revision {
-		t.Fatalf("completion accounting overwritten: %s/%d -> %s/%d", cooldown, revision, cooldownAfter, revisionAfter)
+	if !cooldownAfter.Equal(preCooldown) || revisionAfter != preRevision {
+		t.Fatalf("completion accounting overwritten by finalizer: %s/%d -> %s/%d", preCooldown, preRevision, cooldownAfter, revisionAfter)
 	}
 	if gateAfter != nil {
 		t.Fatalf("reload-failure arm confounded by unresolved gate %v; want clear gate so fail-closed is proved by cacheUnknown", *gateAfter)

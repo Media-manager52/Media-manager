@@ -1022,7 +1022,7 @@ func (store *Store) LoadAuthoritativeIndexerState(ctx context.Context, indexerID
 		result.UpdatedAt = *updated
 	}
 	if revision != nil && *revision > 0 {
-		result.Revision = uint64(*revision)
+		result.Snapshot.Revision = uint64(*revision)
 	}
 	if gateStepID == nil {
 		result.Gate = indexers.CommissioningGateClear

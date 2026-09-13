@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -104,7 +105,7 @@ func liveRunAndIntentStep(t *testing.T, ctx context.Context, store *Store, index
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err = store.AuthorizeIndexerCommissioningCAPS(ctx, indexerID, run.ID, run.Revision, "owner", now.Add(time.Second))
+	run, err = store.AuthorizeIndexerCommissioningCAPS(ctx, indexerID, run.ID, run.Revision, "owner", now.Add(time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func liveRunAndIntentStep(t *testing.T, ctx context.Context, store *Store, index
 		ExpectedStepState: commissioningv2.StepPlanned, ExpectedRunRevision: run.Revision,
 		Fingerprint: fingerprintDigest, PlannerVersion: run.PlannerVersion,
 		LeaseOwner: "worker.test", LeaseUntil: now.Add(time.Hour),
-	}, now.Add(2*time.Second))
+	}, now.Add(2*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,12 +174,30 @@ func liveMarkerFor(run IndexerCommissioningRun, step IndexerCommissioningStep, s
 	}
 }
 
-func liveCAPSCompletion(run IndexerCommissioningRun, step IndexerCommissioningStep, retryAfter time.Time) commissioningv2.LiveCompletion {
-	evidence := commissioningRepositoryCAPSEvidence(time.Now().UTC().Truncate(time.Microsecond))
+func liveCAPSCompletion(run IndexerCommissioningRun, step IndexerCommissioningStep) commissioningv2.LiveCompletion {
+	// Evidence must be observed inside [transmitted_at, completed_at]: the
+	// read validator enforces that window, so a wall-clock stamp paired with
+	// synthetic step timestamps would produce a persisted-but-unreadable
+	// step. Prefer the passed step's transmitted_at, then the run's copy of
+	// the same step, and only fall back to wall clock when neither exists.
+	transmittedAt := step.TransmittedAt
+	if transmittedAt == nil {
+		for _, candidate := range run.Steps {
+			if candidate.ID == step.ID {
+				transmittedAt = candidate.TransmittedAt
+				break
+			}
+		}
+	}
+	observedAt := time.Now().UTC().Truncate(time.Microsecond)
+	if transmittedAt != nil {
+		observedAt = transmittedAt.UTC().Truncate(time.Microsecond)
+	}
+	evidence := commissioningRepositoryCAPSEvidence(observedAt)
 	classified, err := commissioningv2.ClassifyLiveAttempt(commissioningv2.LiveAttemptInputs{
 		Transport: commissioningv2.TransportResponseReceived, Response: commissioningv2.ResponseCAPSObserved,
-		RetryAfter: retryAfter, TargetKind: step.Target,
-		Evidence: &evidence, RawResultCount: uint16Ptr(0), PlausibleIdentityCount: uint16Ptr(0),
+		TargetKind: step.Target,
+		Evidence:   &evidence, RawResultCount: uint16Ptr(0), PlausibleIdentityCount: uint16Ptr(0),
 		RawBodySHA256: evidence.BodySHA256.Bytes(),
 	})
 	if err != nil {
@@ -521,7 +540,9 @@ func TestTransmitPostWriteBudgetConflictRollsBackBoundary(t *testing.T) {
 		t.Fatalf("second step=%q, want intent_committed", step2.State)
 	}
 	snapshot2 := liveSnapshotForStep(t, scheduler, indexerID, step2.ID)
-	if _, err := store.ReserveCommissioningRequest(ctx, indexerID.String(), step2.ID.String(), snapshot2, now.Add(2*time.Hour)); err != nil {
+	// Transmit inside run2's lease window (lease until now+2h): the fixture
+	// must fail on the held gate, not on an expired executor lease.
+	if _, err := store.ReserveCommissioningRequest(ctx, indexerID.String(), step2.ID.String(), snapshot2, now.Add(90*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	var floorBefore time.Time
@@ -534,8 +555,8 @@ func TestTransmitPostWriteBudgetConflictRollsBackBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	runRevBefore := reloaded2.Revision
-	marker2 := liveMarkerFor(run2, step2, snapshot2, now.Add(2*time.Hour))
-	if _, err := store.MarkClaimedStepTransmitting(ctx, marker2, now.Add(2*time.Hour).Add(time.Second)); err == nil {
+	marker2 := liveMarkerFor(run2, step2, snapshot2, now.Add(90*time.Minute))
+	if _, err := store.MarkClaimedStepTransmitting(ctx, marker2, now.Add(90*time.Minute).Add(time.Second)); err == nil {
 		t.Fatal("boundary while gate held accepted; no rollback to prove")
 	} else if !errors.Is(err, ErrCommissioningGateUnresolved) {
 		t.Fatalf("boundary while gate held err=%v, want ErrCommissioningGateUnresolved (post-write gate conflict)", err)
@@ -663,23 +684,39 @@ func TestCompleteLiveAttemptStoresParsedRetryAfterCooldownAndClearsGateAtomicall
 		t.Fatal(err)
 	}
 	marker := liveMarkerFor(run, step, snapshot, now.Add(3*time.Second))
-	transmitted, err := store.MarkClaimedStepTransmitting(ctx, marker, now.Add(4*time.Second))
-	if err != nil {
+	if _, err := store.MarkClaimedStepTransmitting(ctx, marker, now.Add(4*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	_ = transmitted
 	runReloaded, err := store.IndexerCommissioningRun(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	run = runReloaded
-	deadline, ok := indexers.ParseRetryAfter("120", now.Add(5*time.Second))
+	// A parsed Retry-After INSIDE the commissioning ceiling (MaximumBackoff
+	// = 1m) must survive as the exact durable cooldown: 30s is later than
+	// the base backoff fallback but earlier than now+MaximumBackoff, so the
+	// commissioning clamp does not apply. The response must be the real
+	// rate-limited class (a CAPS completion cannot carry Retry-After at all).
+	completedAt := now.Add(5 * time.Second)
+	deadline, ok := indexers.ParseRetryAfter("30", completedAt)
 	if !ok {
 		t.Fatal("parse retry-after")
 	}
-	completion := liveCAPSCompletion(run, step, deadline)
-	completion.BudgetSnapshot = snapshot
-	state, err := store.CompleteLiveAttempt(ctx, completion, now.Add(5*time.Second))
+	classified, err := commissioningv2.ClassifyLiveAttempt(commissioningv2.LiveAttemptInputs{
+		Transport: commissioningv2.TransportResponseReceived, Response: commissioningv2.ResponseRateLimited,
+		RetryAfter: deadline, TargetKind: step.Target,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if classified.SafeOutcome != commissioningv2.OutcomeRateLimited || classified.SchedulerResult.RetryAt.IsZero() || !classified.SchedulerResult.RetryAt.Equal(deadline) {
+		t.Fatalf("rate-limited classification lost Retry-After: %#v", classified)
+	}
+	if !classified.ClearGate {
+		t.Fatal("rate_limited must clear the gate")
+	}
+	completion := liveCompletionForStep(t, run, step, snapshot, classified)
+	state, err := store.CompleteLiveAttempt(ctx, completion, completedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -689,13 +726,17 @@ func TestCompleteLiveAttemptStoresParsedRetryAfterCooldownAndClearsGateAtomicall
 	var cooldown time.Time
 	var gate *string
 	var outcomeAt *time.Time
-	var retryAt *time.Time
-	if err := store.Pool.QueryRow(ctx, `SELECT cooldown_until,commissioning_gate_step_id::text,last_outcome_at FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&cooldown, &gate, &outcomeAt); err != nil {
+	var lastOutcome *string
+	if err := store.Pool.QueryRow(ctx, `SELECT cooldown_until,commissioning_gate_step_id::text,last_outcome_at,last_outcome FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&cooldown, &gate, &outcomeAt, &lastOutcome); err != nil {
 		t.Fatal(err)
 	}
-	if !cooldown.Equal(deadline) || gate != nil || outcomeAt == nil {
-		t.Fatalf("cooldown=%s gate=%v outcomeAt=%v", cooldown, gate, outcomeAt)
+	if !cooldown.Equal(deadline) || gate != nil || outcomeAt == nil || lastOutcome == nil || *lastOutcome != string(indexers.OutcomeRateLimited) {
+		t.Fatalf("cooldown=%s want %s gate=%v outcomeAt=%v lastOutcome=%v", cooldown, deadline, gate, outcomeAt, lastOutcome)
 	}
+	if !outcomeAt.Equal(completedAt) {
+		t.Fatalf("last_outcome_at=%s want %s", outcomeAt, completedAt)
+	}
+	var retryAt *time.Time
 	if err := store.Pool.QueryRow(ctx, `SELECT retry_at FROM indexer_commissioning_steps WHERE id=$1`, step.ID.String()).Scan(&retryAt); err != nil {
 		t.Fatal(err)
 	}
@@ -735,7 +776,7 @@ func TestCompleteLiveAttemptPreservesLongerExistingCooldownAndPacingFloor(t *tes
 		t.Fatal(err)
 	}
 	run = runReloaded
-	completion := liveCAPSCompletion(run, step, now.Add(time.Minute))
+	completion := liveCAPSCompletion(run, step)
 	completion.BudgetSnapshot = snapshot
 	// Pre-extend BOTH cooldown and pacing floor out of band to prove
 	// GREATEST preserves each: a longer cooldown AND a longer floor must
@@ -780,7 +821,7 @@ func TestCompleteLiveAttemptRollbackRetainsGateAndTransmittingStep(t *testing.T)
 		t.Fatal(err)
 	}
 	run = runReloaded
-	completion := liveCAPSCompletion(run, step, time.Time{})
+	completion := liveCAPSCompletion(run, step)
 	completion.LeaseOwner = "worker.wrong"
 	completion.BudgetSnapshot = snapshot
 	if _, err := store.CompleteLiveAttempt(ctx, completion, now.Add(5*time.Second)); err == nil {
@@ -832,6 +873,7 @@ func TestCompleteLiveAttemptRetainsGateWhenAccountingUnresolved(t *testing.T) {
 		run = reloaded
 		classified, err := commissioningv2.ClassifyLiveAttempt(commissioningv2.LiveAttemptInputs{
 			Transport: commissioningv2.TransportNoCompleteResponse, Failure: failure.failure,
+			TargetKind: step.Target,
 		})
 		if err != nil {
 			t.Fatalf("%s: classify: %v", failure.name, err)
@@ -983,7 +1025,7 @@ func TestLastOutcomeAtAdvancesOnlyOnOutcomeProducingWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	run = runReloaded
-	completion := liveCAPSCompletion(run, step, time.Time{})
+	completion := liveCAPSCompletion(run, step)
 	completion.BudgetSnapshot = snapshot
 	if _, err := store.CompleteLiveAttempt(ctx, completion, now.Add(5*time.Second)); err != nil {
 		t.Fatal(err)
@@ -1063,10 +1105,11 @@ func TestAuthoritativeSnapshotIsSingleConsistentRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Rate-limited completion with a parsed Retry-After: CooldownUntil is
-	// non-zero (== parsed deadline), so the CooldownUntil comparison below
-	// is meaningful.
-	retryDeadline, ok := indexers.ParseRetryAfter("120", now.Add(5*time.Second))
+	// Rate-limited completion with a parsed Retry-After inside the
+	// commissioning ceiling (MaximumBackoff = 1m): CooldownUntil is non-zero
+	// (== parsed deadline) without a clamp, so the CooldownUntil comparison
+	// below is meaningful.
+	retryDeadline, ok := indexers.ParseRetryAfter("30", now.Add(5*time.Second))
 	if !ok {
 		t.Fatal("parse retry-after")
 	}
@@ -1159,6 +1202,7 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 		indexerID uuid.UUID
 		runID     uuid.UUID
 		stepID    uuid.UUID
+		baseAt    time.Time
 		scheduler *indexers.Scheduler
 		snapshot  indexers.CommissioningBudgetSnapshot
 	}
@@ -1172,7 +1216,7 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 		scheduler := indexers.NewScheduler(4, store)
 		configureCommissioningScheduler(t, scheduler, indexerID, indexers.Budget{MinimumInterval: 5 * time.Second, FailureBackoff: time.Second, MaximumBackoff: time.Minute, QueryLimit: 100, LimitWindow: time.Hour})
 		snapshot := liveSnapshotForStep(t, scheduler, indexerID, step.ID)
-		shared[i] = sharedFixture{indexerID: indexerID, runID: run.ID, stepID: step.ID, scheduler: scheduler, snapshot: snapshot}
+		shared[i] = sharedFixture{indexerID: indexerID, runID: run.ID, stepID: step.ID, baseAt: at, scheduler: scheduler, snapshot: snapshot}
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
@@ -1202,11 +1246,18 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			fixture := shared[index%poolSize]
-			at := now.Add(time.Duration(index) * time.Millisecond)
+			// Case and fixture must be INDEPENDENT so each shared fixture is
+			// hit by a MIX of operations; index%poolSize for both would pin
+			// every fixture to a single case and never test mixed contention.
+			caseIndex := (index / poolSize) % 5
+			// Worker times must be AFTER the fixture step's intent_at
+			// (baseAt+2s), otherwise transmitted_at < intent_at violates the
+			// 0034 check30 constraint before the contention being tested.
+			at := fixture.baseAt.Add(time.Duration(index) * time.Millisecond)
 			report := func(err error) {
 				if err != nil {
 					select {
-					case errs <- err:
+					case errs <- fmt.Errorf("worker %d (case %d): %w", index, caseIndex, err):
 					case <-workerCtx.Done():
 					}
 				}
@@ -1240,7 +1291,7 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 				report(checkDeadlock(err, deadlocks))
 				return true
 			}
-			switch index % 5 {
+			switch caseIndex {
 			case 0: // transmit then complete (caps_observed clears gate)
 				if _, err := store.ReserveCommissioningRequest(workerCtx, fixture.indexerID.String(), fixture.stepID.String(), fixture.snapshot, at.Add(3*time.Second)); err != nil {
 					if !tolerateConflict("reserve", err) {
@@ -1264,15 +1315,15 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 				}
 				reloaded, err := store.IndexerCommissioningRun(workerCtx, fixture.runID)
 				if err != nil {
-					report(err)
+					report(fmt.Errorf("case0 run reload: %w", err))
 					return
 				}
 				stepReloaded, err := store.IndexerCommissioningStep(workerCtx, fixture.runID, fixture.stepID)
 				if err != nil {
-					report(err)
+					report(fmt.Errorf("case0 step reload: %w", err))
 					return
 				}
-				completion := liveCAPSCompletion(reloaded, stepReloaded, time.Time{})
+				completion := liveCAPSCompletion(reloaded, stepReloaded)
 				completion.BudgetSnapshot = fixture.snapshot
 				if _, err := store.CompleteLiveAttempt(workerCtx, completion, at.Add(5*time.Second)); err != nil {
 					if !tolerateConflict("complete", err) {
@@ -1282,7 +1333,7 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 				}
 				loaded, err := store.IndexerCommissioningStep(workerCtx, fixture.runID, fixture.stepID)
 				if err != nil {
-					report(err)
+					report(fmt.Errorf("case0 final step read: %w", err))
 					return
 				}
 				if loaded.State != commissioningv2.StepCompleted {
@@ -1460,7 +1511,7 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 			t.Fatalf("fixture %d incoherent step state %q", i, step.State)
 		}
 		var gate *string
-		if err := store.Pool.QueryRow(ctx, `SELECT commissioning_gate_step_id::text FROM indexer_budget_state WHERE indexer_instance_id=$1`, shared[i].indexerID.String()).Scan(&gate); err != nil {
+		if err := store.Pool.QueryRow(ctx, `SELECT (SELECT commissioning_gate_step_id::text FROM indexer_budget_state WHERE indexer_instance_id=$1)`, shared[i].indexerID.String()).Scan(&gate); err != nil {
 			t.Fatal(err)
 		}
 		if gate != nil {
@@ -1656,7 +1707,7 @@ func TestCompleteLiveAttemptRejectsIncoherentClassification(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		base := liveCAPSCompletion(reloaded, step, time.Time{})
+		base := liveCAPSCompletion(reloaded, step)
 		tampered := permutation.mutate(base.Classified)
 		completion := base
 		completion.ExpectedRunRev = reloaded.Revision

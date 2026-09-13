@@ -2,6 +2,7 @@ package commissioningv2
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -123,6 +124,101 @@ func TestStalePlannerVersionRejectedBeforeAnySideEffect(t *testing.T) {
 		t.Fatal("stale authorization caused a side effect")
 	}
 	_ = command
+}
+
+// TestClaimIntentStalePolicyPrecedesEveryOtherGate exercises the REAL
+// ClaimIntent orchestration (not the standalone checkPolicyVersion helper):
+// an unsupported persisted policy must be rejected before the durable claim,
+// and the policy gate must run before the state/identity/authorization gates
+// so a stale authorization can never reach the store. Every rejected call
+// must leave the store and resolver untouched.
+func TestClaimIntentStalePolicyPrecedesEveryOtherGate(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		mutate func(snapshot *LiveAuthorizedStep, command *LiveExecuteCommand)
+	}{
+		{
+			name: "stale command planner",
+			mutate: func(_ *LiveAuthorizedStep, command *LiveExecuteCommand) {
+				command.PlannerVersion = PlannerVersion + 1
+			},
+		},
+		{
+			name: "stale snapshot planner",
+			mutate: func(snapshot *LiveAuthorizedStep, _ *LiveExecuteCommand) {
+				snapshot.PlannerVersion = PlannerVersion + 1
+			},
+		},
+		{
+			name: "command/snapshot policy mismatch",
+			mutate: func(snapshot *LiveAuthorizedStep, command *LiveExecuteCommand) {
+				snapshot.PlannerVersion = PlannerVersion
+				command.PlannerVersion = PlannerVersion + 1
+			},
+		},
+		{
+			name: "stale policy beats state conflict",
+			mutate: func(snapshot *LiveAuthorizedStep, command *LiveExecuteCommand) {
+				command.PlannerVersion = PlannerVersion + 1
+				command.StepID = snapshot.StepID + "-conflict"
+			},
+		},
+		{
+			name: "stale policy beats authorization failure",
+			mutate: func(snapshot *LiveAuthorizedStep, command *LiveExecuteCommand) {
+				command.PlannerVersion = PlannerVersion + 1
+				snapshot.Authorized = false
+			},
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			store := &stubLiveStepStore{}
+			resolver := &TestCredentialResolver{}
+			resolver.RegisterTestCredential("indexer-local", "LOCAL_REF", []byte("secret"))
+			executor := &LiveExecutor{deps: LiveExecutorDeps{Steps: store, Resolver: resolver, Now: time.Now}}
+			snapshot := testLiveSnapshot()
+			command := testLiveCommand(snapshot)
+			testCase.mutate(&snapshot, &command)
+			_, err := executor.ClaimIntent(context.Background(), command, snapshot)
+			if !errors.Is(err, ErrLiveExecutorStalePolicy) {
+				t.Fatalf("ClaimIntent err=%v, want ErrLiveExecutorStalePolicy", err)
+			}
+			if store.claimed != 0 {
+				t.Fatalf("stale policy reached the durable claim: claimed=%d", store.claimed)
+			}
+			if resolver.Calls != 0 {
+				t.Fatalf("stale policy resolved a credential: calls=%d", resolver.Calls)
+			}
+		})
+	}
+}
+
+// TestClaimIntentSupportedPolicyReachesDurableClaim is the companion that
+// proves the same REAL ClaimIntent path actually claims when the policy is
+// supported, so the stale-policy rejection above is not a tautological
+// always-fail.
+func TestClaimIntentSupportedPolicyReachesDurableClaim(t *testing.T) {
+	t.Parallel()
+	store := &stubLiveStepStore{}
+	resolver := &TestCredentialResolver{}
+	executor := &LiveExecutor{deps: LiveExecutorDeps{Steps: store, Resolver: resolver, Now: time.Now}}
+	snapshot := testLiveSnapshot()
+	command := testLiveCommand(snapshot)
+	state, err := executor.ClaimIntent(context.Background(), command, snapshot)
+	if err != nil {
+		t.Fatalf("supported policy ClaimIntent: %v", err)
+	}
+	if state.State != StepIntentCommitted {
+		t.Fatalf("state=%q, want intent_committed", state.State)
+	}
+	if store.claimed != 1 {
+		t.Fatalf("claimed=%d, want exactly 1", store.claimed)
+	}
+	if resolver.Calls != 0 {
+		t.Fatalf("claim resolved a credential: calls=%d", resolver.Calls)
+	}
 }
 
 func TestSupportedPolicyClaimSucceedsWithoutNetwork(t *testing.T) {

@@ -2,11 +2,13 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/commissioningv2"
@@ -90,7 +92,7 @@ func TestMigration35AppliesCleanlyFrom34(t *testing.T) {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	var hasGate, hasOutcomeAt bool
-	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=$1 AND table_name='indexer_budget_state' AND column_name='commissioning_gate_step_id'), EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=$1 AND table_name='indexer_budget_state' AND column_name='last_outcome_at')`, schema, schema).Scan(&hasGate, &hasOutcomeAt); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=$1 AND table_name='indexer_budget_state' AND column_name='commissioning_gate_step_id'), EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=$1 AND table_name='indexer_budget_state' AND column_name='last_outcome_at')`, schema).Scan(&hasGate, &hasOutcomeAt); err != nil {
 		t.Fatal(err)
 	}
 	if !hasGate || !hasOutcomeAt {
@@ -384,7 +386,7 @@ func TestMigration35IsAdditiveOnly(t *testing.T) {
 func migrationGateFixtures(t *testing.T, ctx context.Context, store *Store, indexerID uuid.UUID, now time.Time) (IndexerCommissioningRun, IndexerCommissioningStep) {
 	t.Helper()
 	run, step := liveRunAndIntentStep(t, ctx, store, indexerID, now)
-	_, err := store.TransitionIndexerCommissioningStep(ctx, indexerID, run.ID, step.ID, commissioningv2.StepIntentCommitted, IndexerCommissioningStepTransition{State: commissioningv2.StepTransmitting}, now.Add(time.Second))
+	_, err := store.TransitionIndexerCommissioningStep(ctx, indexerID, run.ID, step.ID, commissioningv2.StepIntentCommitted, IndexerCommissioningStepTransition{State: commissioningv2.StepTransmitting}, now.Add(500*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +542,8 @@ func TestGateRejectsNonTransmittingStep(t *testing.T) {
 	// transmitting, so still rejected at SET).
 	indexerCompleted := migrationIndexer(t, ctx, pool, now.Add(2*time.Minute))
 	_, completedStepBase := migrationGateFixtures(t, ctx, store, indexerCompleted, now.Add(2*time.Minute))
-	_, err = store.TransitionIndexerCommissioningStep(ctx, indexerCompleted, completedStepBase.RunID, completedStepBase.ID, commissioningv2.StepTransmitting, IndexerCommissioningStepTransition{State: commissioningv2.StepCompleted, SafeOutcome: commissioningv2.OutcomeCAPSObserved, RawResultCount: uint16PtrTest(0), PlausibleIdentityCount: uint16PtrTest(0), RawBodySHA256: completedEvidenceDigest(t, now), Evidence: completedEvidenceDoc(t, now)}, now.Add(3*time.Minute))
+	completedEvidenceAt := now.Add(2 * time.Minute).Add(time.Second)
+	_, err = store.TransitionIndexerCommissioningStep(ctx, indexerCompleted, completedStepBase.RunID, completedStepBase.ID, commissioningv2.StepTransmitting, IndexerCommissioningStepTransition{State: commissioningv2.StepCompleted, SafeOutcome: commissioningv2.OutcomeCAPSObserved, RawResultCount: uint16PtrTest(0), PlausibleIdentityCount: uint16PtrTest(0), RawBodySHA256: completedEvidenceDigest(t, completedEvidenceAt), Evidence: completedEvidenceDoc(t, completedEvidenceAt)}, now.Add(3*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -655,13 +658,16 @@ func TestGatedIntegrationCannotBeDeleted(t *testing.T) {
 }
 
 // A-11: one budget row per gate step (partial unique index
-// indexer_budget_state_one_gate_per_step). A trigger error must never be
-// claimed as index proof: assert the exact partial unique index definition
-// from the catalog AND a same-indexer duplicate refusal carrying SQLSTATE
-// 23505 for that index. Same-indexer duplicates are reachable in SQL (the
-// trigger's same-indexer predicate passes; only the index refuses), because
-// the (indexer_instance_id) PK forbids two budget rows for one indexer but
-// the catalog-level duplicate is proved structurally below.
+// indexer_budget_state_one_gate_per_step). The index proof is (1) the
+// catalog assertion of the exact partial unique index definition below:
+// exact index name, UNIQUE, the commissioning_gate_step_id target and the
+// IS NOT NULL partial predicate read from pg_get_expr(indpred, indrelid);
+// and (2) a behavioral proof that the INDEX (not the 0035 trigger) refuses
+// a duplicate: the trigger is disabled inside a rolled-back transaction and
+// the cross-indexer duplicate must fail with SQLSTATE 23505 naming the
+// index. The trigger-enabled cross-indexer duplicate is also asserted (it
+// fails on the trigger's same-indexer predicate) so a trigger regression
+// fails loudly; that refusal is NOT credited as index evidence.
 func TestOneBudgetRowPerGateStep(t *testing.T) {
 	pool, schema, ctx := migrationTestPool(t, 35)
 	store := &Store{Pool: pool}
@@ -682,15 +688,15 @@ func TestOneBudgetRowPerGateStep(t *testing.T) {
 		t.Fatalf("partial unique index definition wrong: %s", indexDef)
 	}
 	var isUnique bool
-	var hasPredicate bool
-	if err := pool.QueryRow(ctx, `SELECT indisunique, indexprs IS NOT NULL FROM pg_index WHERE indexrelid=$1::regclass`, schema+`.indexer_budget_state_one_gate_per_step`).Scan(&isUnique, &hasPredicate); err != nil {
+	var predicate *string
+	if err := pool.QueryRow(ctx, `SELECT indisunique, pg_get_expr(indpred, indrelid) FROM pg_index WHERE indexrelid=$1::regclass`, schema+`.indexer_budget_state_one_gate_per_step`).Scan(&isUnique, &predicate); err != nil {
 		t.Fatalf("pg_index proof: %v", err)
 	}
 	if !isUnique {
 		t.Fatal("indexer_budget_state_one_gate_per_step is not unique")
 	}
-	if !hasPredicate {
-		t.Fatal("indexer_budget_state_one_gate_per_step is not partial (no predicate)")
+	if predicate == nil || !strings.Contains(strings.ToLower(*predicate), "commissioning_gate_step_id is not null") {
+		t.Fatalf("indexer_budget_state_one_gate_per_step predicate=%v, want commissioning_gate_step_id IS NOT NULL", predicate)
 	}
 	// Behavioral proof on the legal path: the cross-indexer duplicate is
 	// refused (trigger same-indexer predicate), and the refusal is NOT
@@ -701,6 +707,38 @@ func TestOneBudgetRowPerGateStep(t *testing.T) {
 		t.Fatal("second budget row for same gate step accepted")
 	} else if !strings.Contains(err.Error(), "same indexer") {
 		t.Fatalf("duplicate refused by unexpected predicate: %v (catalog index proof above still holds)", err)
+	}
+	// Behavioral index proof: the catalog assertion above proves the index
+	// DEFINITION. To prove the index itself (not the trigger) refuses the
+	// duplicate, disable the 0035 trigger INSIDE a transaction (the disable
+	// is transactional and rolls back), then repeat the cross-indexer
+	// duplicate. The only remaining guard is the partial unique index, which
+	// must refuse with SQLSTATE 23505 naming the index. This is the genuine
+	// behavioral proof the catalog definition alone cannot supply.
+	transaction, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transaction.Rollback(ctx)
+	if _, err := transaction.Exec(ctx, `ALTER TABLE `+schema+`.indexer_budget_state DISABLE TRIGGER indexer_budget_state_commissioning_gate`); err != nil {
+		t.Fatal(err)
+	}
+	_, duplicateErr := transaction.Exec(ctx, `INSERT INTO indexer_budget_state(indexer_instance_id,minimum_interval_ms,revision,updated_at,commissioning_gate_step_id) VALUES($1,3000,1,$2,$3)`, indexerB.String(), now, step.ID.String())
+	if duplicateErr == nil {
+		_ = transaction.Rollback(ctx)
+		t.Fatal("partial unique index accepted a second budget row for the same gate step with the trigger disabled")
+	}
+	var pgError *pgconn.PgError
+	if !errors.As(duplicateErr, &pgError) || pgError.Code != "23505" {
+		_ = transaction.Rollback(ctx)
+		t.Fatalf("duplicate with trigger disabled err=%v, want SQLSTATE 23505 unique violation", duplicateErr)
+	}
+	if !strings.Contains(pgError.ConstraintName, "indexer_budget_state_one_gate_per_step") {
+		_ = transaction.Rollback(ctx)
+		t.Fatalf("duplicate refused by constraint %q, want indexer_budget_state_one_gate_per_step", pgError.ConstraintName)
+	}
+	if err := transaction.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -771,6 +809,37 @@ func closedStepWithOutcome(t *testing.T, ctx context.Context, store *Store, pool
 		t.Fatalf("close step with %q: %v", outcome, err)
 	}
 	return step.ID
+}
+
+// closedSearchStepWithOutcome drives a SEARCH-phase gated transmitting step to
+// completed with the given search-only safe outcome through the 0034
+// repository API. Search-only outcomes (recipe_verified, no_results,
+// no_plausible_match) and count-bearing evidence outcomes (unsupported,
+// permission_restricted, contradicted) cannot be represented on a CAPS step,
+// so they need a real sealed/authorized search plan.
+func closedSearchStepWithOutcome(t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool, indexerID uuid.UUID, now time.Time, outcome commissioningv2.SafeOutcome) uuid.UUID {
+	t.Helper()
+	run, categories, searchPlan := commissioningRepositoryAwaitingCategoryReview(t, ctx, store, indexerID, now)
+	run = sealAndAuthorizeCommissioningSearchPlan(t, ctx, store, indexerID, run, categories, searchPlan, now.Add(6*time.Second))
+	searchStep := transitionCommissioningStepToTransmission(t, ctx, store, indexerID, run.ID, run.Steps[1], now.Add(8*time.Second))
+	if _, err := pool.Exec(ctx, `INSERT INTO indexer_budget_state(indexer_instance_id,minimum_interval_ms,revision,updated_at,commissioning_gate_step_id) VALUES($1,3000,1,$2,$3) ON CONFLICT(indexer_instance_id) DO UPDATE SET commissioning_gate_step_id=EXCLUDED.commissioning_gate_step_id`, indexerID.String(), now, searchStep.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	observedAt := now.Add(10 * time.Second)
+	evidence := searchEvidenceForOutcome(t, outcome, observedAt)
+	evidence.Target = searchStep.Target
+	body := commissioningv2.SumSHA256([]byte("a3-search-" + string(outcome)))
+	evidence.BodySHA256 = body
+	if _, err := store.TransitionIndexerCommissioningStep(ctx, indexerID, searchStep.RunID, searchStep.ID, commissioningv2.StepTransmitting, IndexerCommissioningStepTransition{
+		State: commissioningv2.StepCompleted, SafeOutcome: outcome,
+		RawResultCount:         &evidence.RawResultCount,
+		PlausibleIdentityCount: &evidence.PlausibleIdentityCount,
+		RawBodySHA256:          body.Bytes(),
+		Evidence:               &evidence,
+	}, now.Add(11*time.Second)); err != nil {
+		t.Fatalf("close search step with %q: %v", outcome, err)
+	}
+	return searchStep.ID
 }
 
 func searchEvidenceForOutcome(t *testing.T, outcome commissioningv2.SafeOutcome, observedAt time.Time) commissioningv2.StepEvidenceDocument {
@@ -909,11 +978,13 @@ func TestRetainedGateOutcomesCannotClearGate(t *testing.T) {
 					t.Fatalf("cancelled clearance refused by %v, want retained-outcome predicate", err)
 				}
 			} else {
-				// 0034 forbids completed+cancelled: the schema refusal IS
-				// the proof that cancelled can never satisfy the 0035
-				// CLEAR allowlist (which requires state completed AND an
-				// allowlisted outcome — cancelled meets neither).
-				if !strings.Contains(transitionErr.Error(), "cancelled") && !strings.Contains(transitionErr.Error(), "Cancelled") {
+				// 0034's repository validator forbids completed+cancelled
+				// (ErrInvalidIndexerCommissioning): the schema refusal IS the
+				// proof that cancelled can never satisfy the 0035 CLEAR
+				// allowlist (which requires state completed AND an allowlisted
+				// outcome — cancelled meets neither). Assert the exact closed
+				// error, not a substring of a generic message.
+				if !errors.Is(transitionErr, ErrInvalidIndexerCommissioning) {
 					t.Fatalf("cancelled transition refused by unexpected predicate: %v", transitionErr)
 				}
 				// And the transmitting gate is still retained via the
@@ -949,6 +1020,55 @@ func TestRetainedGateOutcomesCannotClearGate(t *testing.T) {
 	}
 }
 
+// A-14 cancelled arm: a legally cancelled step (intent_committed ->
+// cancelled through the real 0034 repository API) can never hold the gate. A gate may
+// only be ESTABLISHED at the transmission boundary, so a gate SET pointing
+// at the cancelled step is refused by the trigger's state predicate. This
+// proves the cancelled terminal state is durable and cannot be used to
+// smuggle unresolved accounting past the gate.
+func TestCancelledStepCannotEstablishGate(t *testing.T) {
+	pool, _, ctx := migrationTestPool(t, 35)
+	store := &Store{Pool: pool}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	indexerID := migrationIndexer(t, ctx, pool, now)
+	run, step := liveRunAndIntentStep(t, ctx, store, indexerID, now)
+	if _, err := store.RequestRunCancellation(ctx, indexerID.String(), run.ID.String(), run.Revision, now.Add(time.Second)); err != nil {
+		t.Fatalf("request run cancellation: %v", err)
+	}
+	reloaded, err := store.IndexerCommissioningRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.State != commissioningv2.RunCancelRequested {
+		t.Fatalf("run state=%q, want cancel_requested", reloaded.State)
+	}
+	if _, err := store.FinalizeCancelledRun(ctx, indexerID.String(), run.ID.String(), reloaded.Revision, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("finalize cancelled run: %v", err)
+	}
+	loaded, err := store.IndexerCommissioningStep(ctx, run.ID, step.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.State != commissioningv2.StepCancelled || loaded.SafeOutcome != commissioningv2.OutcomeCancelled || loaded.CompletedAt == nil {
+		t.Fatalf("cancelled setup=%#v", loaded)
+	}
+	// Gate SET pointing at the cancelled step must be refused by the
+	// transmission-boundary predicate (state != transmitting).
+	if _, err := pool.Exec(ctx, `INSERT INTO indexer_budget_state(indexer_instance_id,minimum_interval_ms,revision,updated_at,commissioning_gate_step_id) VALUES($1,3000,1,$2,$3)`, indexerID.String(), now, step.ID.String()); err == nil {
+		t.Fatal("gate established on a cancelled step")
+	} else if !strings.Contains(err.Error(), "transmission boundary") {
+		t.Fatalf("cancelled gate SET refused by %v, want transmission-boundary predicate", err)
+	}
+	// No budget row was written by the refused SET.
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("refused cancelled gate SET left %d budget rows", count)
+	}
+}
+
 // A-15: every one of the 18 allowlist members clears the gate.
 func TestAllowlistedOutcomesClearGate(t *testing.T) {
 	allowlist := []commissioningv2.SafeOutcome{
@@ -975,7 +1095,19 @@ func TestAllowlistedOutcomesClearGate(t *testing.T) {
 		store := &Store{Pool: pool}
 		now := time.Now().UTC().Truncate(time.Microsecond)
 		indexerID := migrationIndexer(t, ctx, pool, now)
-		stepID := closedStepWithOutcome(t, ctx, store, pool, indexerID, now, outcome)
+		// Search-only outcomes and count-bearing evidence outcomes cannot be
+		// represented on a CAPS step (0034 check3/check18 plus the CAPS-phase
+		// transition validator), so they are driven through a real
+		// sealed/authorized search plan.
+		var stepID uuid.UUID
+		switch outcome {
+		case commissioningv2.OutcomeRecipeVerified, commissioningv2.OutcomeNoResults,
+			commissioningv2.OutcomeNoPlausibleMatch, commissioningv2.OutcomeUnsupported,
+			commissioningv2.OutcomePermissionRestricted, commissioningv2.OutcomeContradicted:
+			stepID = closedSearchStepWithOutcome(t, ctx, store, pool, indexerID, now, outcome)
+		default:
+			stepID = closedStepWithOutcome(t, ctx, store, pool, indexerID, now, outcome)
+		}
 		result, err := pool.Exec(ctx, `UPDATE indexer_budget_state SET commissioning_gate_step_id=NULL WHERE indexer_instance_id=$1`, indexerID.String())
 		if err != nil {
 			t.Fatalf("%q did not clear the gate: %v", outcome, err)

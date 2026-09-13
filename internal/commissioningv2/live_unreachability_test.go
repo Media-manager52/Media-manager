@@ -9,40 +9,27 @@ import (
 	"testing"
 )
 
-func transitiveProductionDeps(t *testing.T, moduleRoot, root string) map[string]bool {
-	t.Helper()
-	command := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", "./"+root)
-	command.Dir = moduleRoot
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go list -deps %s: %v\n%s", root, err, output)
-	}
-	deps := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			deps[line] = true
-		}
-	}
-	if len(deps) == 0 {
-		t.Fatalf("no transitive deps for %s", root)
-	}
-	return deps
-}
-
+// listedPackage is the subset of `go list -json` shape this guard needs. It
+// is intentionally limited to non-test inputs: go list reports GoFiles
+// WITHOUT _test.go files, so scanning these files is a production-only scan.
 type listedPackage struct {
 	ImportPath string
 	Dir        string
 	GoFiles    []string
+	Imports    []string
 }
 
-func packagesInTree(t *testing.T, moduleRoot, tree string) []listedPackage {
+// transitiveProductionClosure returns the full transitive dependency closure
+// of a production root, including the root package itself. This is the real
+// `go list -deps` graph the acceptance criterion requires; it is consumed
+// (not discarded) by the guard below.
+func transitiveProductionClosure(t *testing.T, moduleRoot, root string) []listedPackage {
 	t.Helper()
-	command := exec.Command("go", "list", "-json", "./"+tree+"/...")
+	command := exec.Command("go", "list", "-deps", "-json", "./"+root)
 	command.Dir = moduleRoot
 	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("go list %s: %v\n%s", tree, err, output)
+		t.Fatalf("go list -deps -json %s: %v\n%s", root, err, output)
 	}
 	var packages []listedPackage
 	decoder := json.NewDecoder(strings.NewReader(string(output)))
@@ -54,45 +41,57 @@ func packagesInTree(t *testing.T, moduleRoot, tree string) []listedPackage {
 		packages = append(packages, pkg)
 	}
 	if len(packages) == 0 {
-		t.Fatalf("no packages under %s", tree)
+		t.Fatalf("no transitive dependencies for %s", root)
 	}
 	return packages
 }
 
+const (
+	liveExecutorPackage = "github.com/media-manager/media-manager/internal/commissioningv2"
+	liveStorePackage    = "github.com/media-manager/media-manager/internal/postgres"
+	liveGuardPackage    = "github.com/media-manager/media-manager/internal/adapters/newznab"
+)
+
 // TestLiveExecutorAbsentFromProductionDependencyGraph is the Milestone A
-// production-unreachability structural guard (§20/§26.2 item 5 companion).
-// The Milestone-A DURABLE EXECUTION surface is the live-executor method set
-// (NewLocalLiveExecutor, CloseInterruptedAfterUncertainFinalization,
-// CloseSucceededAfterKnownSuccessfulCompletion, ClaimIntent) plus the three
-// durable boundaries (MarkClaimedStepTransmitting, CompleteLiveAttempt,
-// ReserveCommissioningRequest) and FetchCommissioningWithTransmission.
-// The commissioningv2 DOMAIN types (RunState, SafeOutcome, evidence) are
-// pre-existing offline planning types legitimately shared with production;
-// the EXECUTOR constructor and its method set must remain unreachable.
+// production-unreachability structural guard (§20/§26.2 item 5 companion,
+// §28.1 "no production constructor wires the executor", §30.1 "Orchestrator
+// is unreachable from production").
 //
-// The test therefore uses a narrowly scoped AST/import analysis over the
-// production entry/runtime packages: it fails when NewLocalLiveExecutor or
-// the Milestone-A durable execution APIs are referenced (imported AND
-// selected) from production non-test code. It is not a tautology: it
-// executes real package analysis and asserts the absence per root.
+// The guard walks the REAL transitive dependency closure of every production
+// root (not just the root's own files) and fails when:
+//
+//  1. any package in the closure directly imports the live-executor package
+//     other than the allowlisted durable store package (internal/postgres),
+//     which legitimately imports the shared commissioningv2 domain types; or
+//  2. any non-test file in the closure references a Milestone-A execution
+//     symbol from a package other than that symbol's defining packages.
+//
+// The commissioningv2 DOMAIN types (RunState, SafeOutcome, evidence) are
+// pre-existing offline planning types legitimately shared with production.
+// The EXECUTOR constructor, its method set, the durable boundary methods, and
+// the guarded transmission method must remain unreferenced outside their
+// defining packages.
 func TestLiveExecutorAbsentFromProductionDependencyGraph(t *testing.T) {
 	t.Parallel()
 	roots := []string{"cmd/media-manager", "internal/httpapi", "internal/acquisition"}
-	symbols := []string{
-		"NewLocalLiveExecutor",
-		"CloseInterruptedAfterUncertainFinalization",
-		"CloseSucceededAfterKnownSuccessfulCompletion",
-		"MarkClaimedStepTransmitting",
-		"CompleteLiveAttempt",
-		"ReserveCommissioningRequest",
-		"FetchCommissioningWithTransmission",
+	// allowedReferrers maps each Milestone-A execution symbol to the exact
+	// packages that legitimately declare or select it. Any other non-test
+	// occurrence in the production closure is a wiring regression.
+	allowedReferrers := map[string]map[string]bool{
+		"NewLocalLiveExecutor":                         {liveExecutorPackage: true},
+		"CloseInterruptedAfterUncertainFinalization":   {liveExecutorPackage: true},
+		"CloseSucceededAfterKnownSuccessfulCompletion": {liveExecutorPackage: true},
+		"ClaimIntent":                        {liveExecutorPackage: true},
+		"MarkClaimedStepTransmitting":        {liveExecutorPackage: true, liveStorePackage: true},
+		"CompleteLiveAttempt":                {liveExecutorPackage: true, liveStorePackage: true},
+		"ReserveCommissioningRequest":        {liveExecutorPackage: true, liveStorePackage: true},
+		"FetchCommissioningWithTransmission": {liveGuardPackage: true},
 	}
-	// Milestone-A live execution packages: no production runtime root may
-	// depend on them, even indirectly through the transitive closure.
-	livePackages := []string{
-		"github.com/media-manager/media-manager/internal/commissioningv2",
-		"github.com/media-manager/media-manager/internal/adapters/newznab",
-	}
+	// importAllowlist is the exact set of production packages permitted to
+	// import the live-executor domain package. internal/postgres imports only
+	// the durable domain types; any other importer risks pulling the
+	// executor into a production binary and must be reviewed explicitly.
+	importAllowlist := map[string]bool{liveStorePackage: true}
 	// go list patterns resolve from the module root, not from this package
 	// directory: locate go.mod upward and run there.
 	directory, err := os.Getwd()
@@ -110,25 +109,29 @@ func TestLiveExecutorAbsentFromProductionDependencyGraph(t *testing.T) {
 		directory = parent
 	}
 	for _, root := range roots {
-		// USE the transitive dependency graph (not a discarded go-list
-		// output): fail if the closure contains a live execution package.
-		deps := transitiveProductionDeps(t, directory, root)
-		// The commissioningv2 domain package legitimately exposes shared
-		// offline planning types; the EXECUTION surface is the constructor
-		// plus the durable-boundary symbols. A transitive import edge alone
-		// is therefore reported with the importing chain only when a
-		// production file actually selects a live-execution symbol; but the
-		// direct live-package membership of non-test production code is
-		// still asserted structurally below.
-		_ = deps
-		_ = livePackages
-		packages := packagesInTree(t, directory, root)
-		for _, pkg := range packages {
-			// A production package must never BE a live execution package.
-			for _, live := range livePackages {
-				if pkg.ImportPath == live {
-					t.Fatalf("production root %s contains live execution package %s", root, pkg.ImportPath)
+		closure := transitiveProductionClosure(t, directory, root)
+		// Positive control: the closure must actually contain the live
+		// execution packages, otherwise the scan below is vacuous.
+		foundLive := false
+		for _, pkg := range closure {
+			if pkg.ImportPath == liveExecutorPackage {
+				foundLive = true
+			}
+			// Import-edge guard: no production package may import the
+			// live-executor package unless explicitly allowlisted.
+			for _, imported := range pkg.Imports {
+				if imported == liveExecutorPackage && !importAllowlist[pkg.ImportPath] {
+					t.Fatalf("production root %s: package %s imports live-executor package %s (not allowlisted)", root, pkg.ImportPath, liveExecutorPackage)
 				}
+			}
+		}
+		if !foundLive {
+			t.Fatalf("production root %s closure does not reach %s; unreachability guard is vacuous", root, liveExecutorPackage)
+		}
+		// Symbol guard over EVERY non-test file in the closure.
+		for _, pkg := range closure {
+			if pkg.Dir == "" {
+				continue
 			}
 			for _, file := range pkg.GoFiles {
 				if strings.HasSuffix(file, "_test.go") {
@@ -138,36 +141,15 @@ func TestLiveExecutorAbsentFromProductionDependencyGraph(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, symbol := range symbols {
+				for symbol, referrers := range allowedReferrers {
+					if referrers[pkg.ImportPath] {
+						continue
+					}
 					if strings.Contains(string(source), symbol) {
-						t.Fatalf("production package %s references Milestone-A execution API %q (%s/%s)", pkg.ImportPath, symbol, root, file)
+						t.Fatalf("production root %s: package %s references Milestone-A execution API %q (%s)", root, pkg.ImportPath, symbol, file)
 					}
 				}
 			}
-		}
-		// Transitive-closure assertion: walk the -deps closure and fail if
-		// any NON-TEST package in the closure both imports a live execution
-		// API symbol and is reachable from a production root. Concretely,
-		// resolve each dep's directory and grep its non-test files for the
-		// live symbols combined with a live-package import.
-		for dep := range deps {
-			isLive := false
-			for _, live := range livePackages {
-				if dep == live {
-					isLive = true
-				}
-			}
-			if !isLive {
-				continue
-			}
-			// The closure contains a live package: this is expected ONLY
-			// for the shared domain types. Prove the production root does
-			// not select the execution symbols by re-scanning the root's
-			// own non-test files (done above) — and fail here if the root
-			// itself IS the live package (caught above). Record the edge
-			// explicitly so a future production wiring of the executor
-			// constructor changes this test's outcome.
-			t.Logf("production root %s transitively reaches %s (shared domain types; execution symbols unreferenced per scan above)", root, dep)
 		}
 	}
 	// Positive control: the leaf package itself must exist and provide the

@@ -186,7 +186,10 @@ func (store *Store) IndexerCommissioningRun(ctx context.Context, runID uuid.UUID
 	}
 	result.ConfigurationCurrent = digestCurrent && commissioningRunConfigurationCurrent(configuration, result.EndpointConfigSHA256, result)
 	result.Steps, err = listIndexerCommissioningSteps(ctx, transaction, result.ID)
-	if err != nil || validateCommissioningRunSteps(result, result.Steps) != nil {
+	if err != nil {
+		return IndexerCommissioningRun{}, err
+	}
+	if validateCommissioningRunSteps(result, result.Steps) != nil {
 		return IndexerCommissioningRun{}, ErrInvalidIndexerCommissioning
 	}
 	if err := transaction.Commit(ctx); err != nil {
