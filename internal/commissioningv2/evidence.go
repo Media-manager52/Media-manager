@@ -43,6 +43,12 @@ func ValidateStepEvidence(document StepEvidenceDocument) error {
 		if !recipeKeyPattern.MatchString(document.Target.RecipeKey) || document.CAPS != nil {
 			return ErrInvalidCommissioningDocument
 		}
+		// Explicit §9.4 evidence allowlist: evidence is permitted ONLY for
+		// recipe_verified, no_results, no_plausible_match, unsupported,
+		// permission_restricted, contradicted. CAPS carries evidence only on
+		// the caps_observed target above. Every other outcome — including
+		// all safety_*, transport, deferral, stale, cancelled, indeterminate
+		// and unknown labels — returns ErrInvalidCommissioningDocument.
 		switch document.SafeOutcome {
 		case OutcomeNoResults:
 			if document.RawResultCount != 0 || document.PlausibleIdentityCount != 0 {
@@ -52,11 +58,20 @@ func ValidateStepEvidence(document StepEvidenceDocument) error {
 			if document.RawResultCount == 0 || document.PlausibleIdentityCount != 0 {
 				return ErrInvalidCommissioningDocument
 			}
+		case OutcomeRecipeVerified, OutcomeUnsupported, OutcomePermissionRestricted, OutcomeContradicted:
+			// General evidence invariant (§9.4/M-1): verified claims require
+			// a plausible identity (PlausibleIdentityCount > 0) with every
+			// raw result plausibly matching (PlausibleIdentityCount ==
+			// RawResultCount); otherwise the claim is no_plausible_match,
+			// not verified. Unsupported/permission-restricted/contradicted
+			// carry exact-target proof in the bounded count fields; the
+			// global PlausibleIdentityCount <= RawResultCount bound (checked
+			// above) plus the outcome/target/shape checks are the coherent
+			// invariant.
+			if document.SafeOutcome == OutcomeRecipeVerified && (document.PlausibleIdentityCount == 0 || document.PlausibleIdentityCount != document.RawResultCount) {
+				return ErrInvalidCommissioningDocument
+			}
 		default:
-			// The offline milestone has no semantic verifier or closed proof
-			// payload. It therefore cannot persist verified, unsupported,
-			// permission-restricted, or contradicted capability claims from
-			// counts alone. The live milestone must add that proof first.
 			return ErrInvalidCommissioningDocument
 		}
 	default:

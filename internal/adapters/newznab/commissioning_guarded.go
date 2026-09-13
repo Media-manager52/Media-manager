@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/media-manager/media-manager/internal/indexers"
 )
 
 const (
@@ -150,10 +152,129 @@ func commissioningOrigin(target *url.URL) (requestOrigin, error) {
 	return exactOrigin(target)
 }
 
-// FetchCommissioning performs exactly one guarded HTTP transmission with a
-// fresh non-reusing HTTP/1-only transport. Redirects are forbidden, transport
-// replay is forbidden, and the one-use invocation is consumed even on error.
-func (client *Client) FetchCommissioning(ctx context.Context, probe CommissioningProbe, dest CommissioningDestination, guard CommissioningGuard, deadline time.Time) (CommissioningResult, error) {
+// CommissioningTransmission is the M-5 one-use permit-bound transmission
+// capability (provenance + durable-state + one shared consumption cell).
+//
+// A usable value carries the concrete indexers.CommissioningBudgetSnapshot
+// issued by AcquireCommissioningV2 for the exact (indexer, step) attempt:
+// arbitrary strings alone never mint authority, and no forged snapshot type
+// is accepted (the constructor takes the concrete type, whose unexported
+// fields cannot be set outside internal/indexers). Before the network send,
+// the capability verifies through
+// CommissioningTransmittingStepAuthorizer that the same exact indexer/step
+// has crossed the durable transmission boundary (transmitting,
+// transmitted_at set, exact attempt identity, unresolved gate as required).
+// The attempt-scoped send cell lives on the SNAPSHOT (allocated exactly once
+// at admission): every mint from the same snapshot — including mints from
+// snapshot copies — shares that one cell, so only one successful consume
+// can occur for the entire admitted attempt. The cell is consumed even on
+// validation/network failure, so value copies of the capability alias the
+// same consumed state, two racing goroutines yield at most one network
+// request, and a consumed capability is never reusable.
+type CommissioningTransmission struct {
+	snapshot   indexers.CommissioningBudgetSnapshot
+	authorizer CommissioningTransmittingStepAuthorizer
+	// indexerID/stepID are the canonical attempt identity the snapshot was
+	// bound to; consume compares the claim against MatchesAttempt, not raw
+	// strings, but retains these for the durable-authorizer call.
+	indexerID string
+	stepID    string
+}
+
+// CommissioningTransmittingStepAuthorizer is the narrow durable-authorizer
+// interface: it reports whether the exact (indexer, step) attempt has
+// crossed the durable transmission boundary. *postgres.Store satisfies it.
+type CommissioningTransmittingStepAuthorizer interface {
+	AuthorizedTransmittingCommissioningStep(ctx context.Context, indexerID, stepID string) bool
+}
+
+// NewCommissioningTransmissionFromSnapshot is the sole public mint path. The
+// snapshot must be a genuine indexers.CommissioningBudgetSnapshot from
+// AcquireCommissioningV2 and must MatchesAttempt(indexerID, stepID);
+// arbitrary strings alone never mint authority. The returned capability
+// shares the snapshot's attempt-scoped send cell: minting any number of
+// capabilities from one snapshot (or its copies) still permits exactly one
+// successful transmission for the whole admitted attempt.
+func NewCommissioningTransmissionFromSnapshot(snapshot indexers.CommissioningBudgetSnapshot, authorizer CommissioningTransmittingStepAuthorizer, indexerID, stepID string) *CommissioningTransmission {
+	if !snapshot.Valid() || !snapshot.MatchesAttempt(indexerID, stepID) {
+		return nil
+	}
+	return &CommissioningTransmission{snapshot: snapshot, authorizer: authorizer, indexerID: indexerID, stepID: stepID}
+}
+
+// CommissioningTransmitClaim carries the durable transmitting-step identity
+// asserted by the caller for this single transmission.
+type CommissioningTransmitClaim struct {
+	IndexerID string
+	StepID    string
+}
+
+// consume checks provenance, durable transmitting-step state, and the
+// SNAPSHOT's attempt-scoped one-use cell. It consumes the snapshot cell on
+// EVERY path (including validation failure and nil capability state) so a
+// failed claim cannot be retried, a second capability minted from the same
+// snapshot cannot yield a second send, a copied value cannot yield a second
+// send, and two racing goroutines yield at most one network request.
+func (capability *CommissioningTransmission) consume(ctx context.Context, claim CommissioningTransmitClaim) error {
+	if capability == nil {
+		return commissioningClassified("commissioning_transmission_rejected", ErrCommissioningTransport)
+	}
+	// One attempt-scoped consumption cell, owned by the snapshot: the first
+	// claim wins across every mint from the snapshot, and every later claim
+	// (same or copied value, same or racing goroutine, same or second
+	// mint) is reused-rejected with zero additional network I/O.
+	if !capability.snapshot.ConsumeCommissioningTransmission() {
+		return commissioningClassified("commissioning_transmission_reused", ErrCommissioningTransport)
+	}
+	// From here the attempt cell is consumed even on validation failure.
+	snapshot := capability.snapshot
+	if !snapshot.Valid() {
+		return commissioningClassified("commissioning_transmission_rejected", ErrCommissioningTransport)
+	}
+	if !snapshot.MatchesAttempt(claim.IndexerID, claim.StepID) || !snapshot.MatchesAttempt(capability.indexerID, capability.stepID) {
+		return commissioningClassified("commissioning_transmission_rejected", ErrCommissioningTransport)
+	}
+	if claim.IndexerID != capability.indexerID || claim.StepID != capability.stepID {
+		return commissioningClassified("commissioning_transmission_rejected", ErrCommissioningTransport)
+	}
+	if capability.authorizer == nil || !capability.authorizer.AuthorizedTransmittingCommissioningStep(ctx, capability.indexerID, capability.stepID) {
+		return commissioningClassified("commissioning_transmission_rejected", ErrCommissioningTransport)
+	}
+	return nil
+}
+
+// Consumed reports whether the attempt's transmission authority has been
+// consumed. It is a non-mutating load of the snapshot's attempt cell: a
+// fresh capability reports false, and once ANY consume attempt runs against
+// any mint from the same snapshot (success or failure), every capability
+// sharing that snapshot reports true.
+func (capability *CommissioningTransmission) Consumed() bool {
+	if capability == nil {
+		return false
+	}
+	return capability.snapshot.TransmissionConsumed()
+}
+
+// FetchCommissioningWithTransmission is the M-5 structural one-use binding:
+// the same guarded transmission as fetchCommissioning, but gated on the
+// permit-bound one-use capability carrying the durable transmitting-step
+// identity. The capability is consumed even on error.
+func (client *Client) FetchCommissioningWithTransmission(ctx context.Context, capability *CommissioningTransmission, claim CommissioningTransmitClaim, probe CommissioningProbe, dest CommissioningDestination, guard CommissioningGuard, deadline time.Time) (CommissioningResult, error) {
+	var zero CommissioningResult
+	if err := capability.consume(ctx, claim); err != nil {
+		return zero, err
+	}
+	return client.fetchCommissioning(ctx, probe, dest, guard, deadline)
+}
+
+// fetchCommissioning is the single guarded HTTP transmission implementation
+// (fresh non-reusing HTTP/1-only transport; redirects forbidden; transport
+// replay forbidden). It is unexported so the commissioning live-send path
+// cannot bypass the permit-bound one-use capability: commissioning sends go
+// through FetchCommissioningWithTransmission. Test-only callers in this
+// package's _test.go files use fetchCommissioningRawForTest (defined in
+// export_test.go); there is no exported raw commissioning sender.
+func (client *Client) fetchCommissioning(ctx context.Context, probe CommissioningProbe, dest CommissioningDestination, guard CommissioningGuard, deadline time.Time) (CommissioningResult, error) {
 	var zero CommissioningResult
 	if err := validateCommissioningProbe(probe); err != nil {
 		return zero, err
@@ -596,10 +717,14 @@ func strictSingleRootScan(body []byte) (attrs [][]byte, texts [][]byte, err erro
 			_, _ = currentText.Write(typed)
 			currentIsText = true
 		case xml.Comment:
-			flushText()
+			// Do NOT flush the logical text run: a credential split across
+			// a comment (SECRET_PART_1<!-- -->SECRET_PART_2) is one
+			// logical element value and must reach InspectSecret joined.
+			// StartElement/EndElement remain the logical boundaries.
 			currentIsText = true
 		case xml.ProcInst:
-			flushText()
+			// Same as Comment: a processing instruction does not break the
+			// logical text run.
 			target := strings.ToLower(strings.TrimSpace(typed.Target))
 			if target == "doctype" {
 				return nil, nil, commissioningClassified("commissioning_malformed", ErrCommissioningMalformedXML)

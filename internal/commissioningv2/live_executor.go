@@ -47,7 +47,6 @@ package commissioningv2
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"net"
 	"net/http"
@@ -141,29 +140,31 @@ type LiveStepStore interface {
 	MarkClaimedStepTransmitting(ctx context.Context, marker LiveTransmitMarker, now time.Time) (LiveStepState, error)
 	CompleteLiveAttempt(ctx context.Context, completion LiveCompletion, now time.Time) (LiveStepState, error)
 	MarkInterruptedAttemptIndeterminate(ctx context.Context, recovery LiveRecovery, now time.Time) (LiveStepState, error)
-	RequestRunCancellation(ctx context.Context, runID string, now time.Time) error
-	FinalizeCancelledRun(ctx context.Context, runID string, now time.Time) error
+	RequestRunCancellation(ctx context.Context, indexerID, runID string, expectedRevision uint64, now time.Time) (LiveStepState, error)
+	FinalizeCancelledRun(ctx context.Context, indexerID, runID string, expectedRevision uint64, now time.Time) (LiveStepState, error)
 	LoadAuthorizedStep(ctx context.Context, stepID string) (LiveAuthorizedStep, error)
 }
 
 // LiveStepClaim names the exact authorized step for the planned-to-intent
-// transition with optimistic concurrency.
+// transition with optimistic concurrency. Cancellation is re-read from the
+// locked run; no caller-supplied cancellation field exists.
 type LiveStepClaim struct {
 	RunID               string
 	StepID              string
+	IndexerInstanceID   string
 	ExpectedStepState   StepState
 	ExpectedRunRevision uint64
 	Fingerprint         SHA256Digest
 	PlannerVersion      uint16
 	LeaseOwner          string
 	LeaseUntil          time.Time
-	CancelRequested     bool
 }
 
 // LiveStepDeferral finishes a claimed step before send with a closed outcome.
 type LiveStepDeferral struct {
 	RunID             string
 	StepID            string
+	IndexerInstanceID string
 	ExpectedStepState StepState
 	SafeOutcome       SafeOutcome
 	SafeCode          SafeCode
@@ -173,37 +174,56 @@ type LiveStepDeferral struct {
 // LiveTransmitMarker commits the transmission boundary atomically.
 type LiveTransmitMarker struct {
 	RunID             string
-	StepID            string
-	ExpectedStepState StepState
+	StepID            string // also the reservation row id
+	IndexerInstanceID string
+	ExpectedStepState StepState // must be StepIntentCommitted
+	ExpectedRunRev    uint64
 	LeaseOwner        string
 	ExecutionDeadline time.Time
-	MinimumInterval   time.Duration
-	ExistingNextAllow time.Time
-	CancelRequested   bool
-	ReservationValid  bool
+	BudgetSnapshot    indexers.CommissioningBudgetSnapshot
 }
 
 // LiveCompletion closes a transmitted attempt atomically.
 type LiveCompletion struct {
-	RunID           string
-	StepID          string
-	LeaseOwner      string
-	SafeOutcome     SafeOutcome
-	SafeCode        SafeCode
-	RawResultCount  *uint16
-	EvidenceKey     string
-	EvidencePresent bool
-	BodySHA256      [sha256.Size]byte
-	CooldownUntil   time.Time
-	NextAllowedAt   time.Time
+	RunID             string
+	StepID            string
+	IndexerInstanceID string
+	ExpectedRunRev    uint64
+	LeaseOwner        string
+
+	Classified     ClassifiedCompletion
+	BudgetSnapshot indexers.CommissioningBudgetSnapshot
+
+	// ExpectedStructuralFingerprint is the authorized/claimed request
+	// identity carried from the claim (NOT re-derived from the locked step):
+	// §10.4 requires comparing it against the locked durable step's
+	// structural_request_sha256.
+	ExpectedStructuralFingerprint SHA256Digest
+	// ExpectedTargetKind and ExpectedCategoryIDs are the locked durable
+	// target identity revalidated before any run transition; caller-derived
+	// transition identity is never trusted.
+	ExpectedTargetKind  TargetIdentity
+	ExpectedCategoryIDs []int
+
+	ApplyRunTransition bool
+}
+
+// TargetIdentity is the minimal durable target identity revalidated at
+// completion: target kind plus category ids.
+type TargetIdentity struct {
+	Kind        string
+	RecipeKey   string
+	CategoryIDs []int
 }
 
 // LiveRecovery closes a transmitted-but-unclosed attempt indeterminate.
 type LiveRecovery struct {
-	RunID    string
-	StepID   string
-	Cause    SafeCode
-	AckKnown bool
+	RunID             string
+	StepID            string
+	IndexerInstanceID string
+	ExpectedRunRev    uint64
+	Cause             SafeCode
+	AckKnown          bool
 }
 
 // LiveStepState is the durable post-transition step snapshot.
@@ -225,20 +245,46 @@ type LiveStepState struct {
 // intent: exact revisions, phase authorization, ordinal, target,
 // fingerprint, and planned state.
 type LiveAuthorizedStep struct {
-	RunID              string
-	StepID             string
-	RunRevision        uint64
-	StepState          StepState
-	PhaseAuthorized    bool
-	Ordinal            uint8
-	Target             newznab.EvidenceTarget
-	Fingerprint        SHA256Digest
-	PlannerVersion     uint16
-	ProfileVersion     uint16
-	IndexerInstanceID  string
-	SecretRef          string
-	CancelRequested    bool
-	CategoryDigestHeld bool
+	RunID           string
+	StepID          string
+	IndexerID       string
+	RunRevision     uint64
+	StepState       StepState
+	Phase           StepPhase
+	Authorized      bool
+	RunState        RunState
+	Ordinal         uint8
+	PlannerVersion  uint16
+	ProfileVersion  uint16
+	Fingerprint     SHA256Digest
+	ConfigurationOK bool
+}
+
+// DeriveRunTransition maps a classified completion onto the section 15 run
+// transition. ok=false means NO transition (the run row is untouched and its
+// revision is not advanced).
+func DeriveRunTransition(classified ClassifiedCompletion, runState RunState) (to RunState, code SafeCode, terminal bool, setStale bool, ok bool) {
+	switch classified.SafeOutcome {
+	case OutcomeSafetyCredentialEcho:
+		return RunSafetyBlocked, SafeCodeCredentialEcho, true, false, true
+	case OutcomeConfigurationStale:
+		return RunStale, SafeCodeConfigurationChanged, true, true, true
+	case OutcomeRateLimited, OutcomeQuotaExhausted, OutcomeAuthenticationFailure,
+		OutcomeMalformedResponse, OutcomeSafetyUnsafeRedirect, OutcomeSafetyUnsafeText,
+		OutcomeSafetyBodyLimit, OutcomeSafetyXMLLimit:
+		return RunOwnerAttention, "", true, false, true
+	case OutcomeCAPSObserved:
+		if classified.Inputs.TargetKind.Kind == "caps" {
+			return RunAwaitingCategoryReview, "", false, false, true
+		}
+		return "", "", false, false, false
+	case OutcomeRecipeVerified, OutcomeNoResults, OutcomeNoPlausibleMatch,
+		OutcomeUnsupported, OutcomePermissionRestricted, OutcomeContradicted,
+		OutcomeSemanticAmbiguity:
+		return "", "", false, false, false
+	default:
+		return "", "", false, false, false
+	}
 }
 
 // LiveExecuteCommand names the exact authorized step for one execute action.
@@ -321,11 +367,8 @@ func (executor *LiveExecutor) ClaimIntent(ctx context.Context, command LiveExecu
 	if command.ExpectedRunRev != snapshot.RunRevision {
 		return LiveStepState{}, ErrLiveExecutorStateConflict
 	}
-	if !snapshot.PhaseAuthorized {
+	if !snapshot.Authorized {
 		return LiveStepState{}, ErrLiveExecutorNotAuthorized
-	}
-	if snapshot.CancelRequested {
-		return LiveStepState{}, ErrLiveExecutorCancelled
 	}
 	leaseUntil := executor.now().Add(30 * time.Second)
 	owner := command.LeaseOwner
@@ -335,6 +378,7 @@ func (executor *LiveExecutor) ClaimIntent(ctx context.Context, command LiveExecu
 	return executor.deps.Steps.ClaimAuthorizedStepIntent(ctx, LiveStepClaim{
 		RunID:               command.RunID,
 		StepID:              command.StepID,
+		IndexerInstanceID:   snapshot.IndexerID,
 		ExpectedStepState:   StepPlanned,
 		ExpectedRunRevision: command.ExpectedRunRev,
 		Fingerprint:         command.Fingerprint,
@@ -349,7 +393,37 @@ func (executor *LiveExecutor) ClaimIntent(ctx context.Context, command LiveExecu
 // scheduling cache while still owning the lane, release without an
 // outcome-recording write, then reload authoritative state. Reload failure
 // keeps acquisitions blocked; the network request is never retried.
+//
+// The cache barrier MUST hold while the commissioning permit is still owned:
+// InvalidateLaneCache fires before ReleaseWithoutOutcome, so no release path
+// exposes stale lane state as usable. NEVER Record/Close here: that would
+// issue a legacy SaveIndexerBudget from stale memory and overwrite the
+// just-committed commissioning accounting.
 func (executor *LiveExecutor) CloseInterruptedAfterUncertainFinalization(ctx context.Context, indexerID string, permit *indexers.Permit, signal *indexers.LaneCacheInvalidation) error {
+	if permit == nil {
+		return ErrLiveExecutorMisconfigured
+	}
+	executor.deps.Scheduler.InvalidateLaneCache(indexerID, signal)
+	permit.ReleaseWithoutOutcome()
+	return executor.deps.Scheduler.ReloadLaneCache(ctx, indexerID)
+}
+
+// CloseSucceededAfterKnownSuccessfulCompletion finalizes the KNOWN-successful
+// completion path (reviews A/B success-path finding). After CompleteLiveAttempt
+// has committed, the durable cooldown/outcome must be published into
+// lane.snapshot so the next same-indexer acquisition observes authoritative
+// state. While the commissioning permit is still owned:
+//
+//  1. InvalidateLaneCache(indexerID, signal)
+//  2. ReleaseWithoutOutcome()
+//  3. ReloadLaneCache(ctx, indexerID)
+//
+// NEVER Permit.Record/Close after a committed CompleteLiveAttempt: a legacy
+// SaveIndexerBudget from stale lane state would overwrite the just-committed
+// commissioning accounting. Never resend, never write a second scheduler
+// outcome here: the authoritative reload publishes the actual SQL GREATEST
+// result; reload failure leaves cacheUnknown/fail-closed.
+func (executor *LiveExecutor) CloseSucceededAfterKnownSuccessfulCompletion(ctx context.Context, indexerID string, permit *indexers.Permit, signal *indexers.LaneCacheInvalidation) error {
 	if permit == nil {
 		return ErrLiveExecutorMisconfigured
 	}

@@ -137,7 +137,7 @@ func TestCommissioningGuardedTransportSendsOnceOverFreshHTTP1Transport(t *testin
 		t.Fatal(err)
 	}
 	_ = client
-	result, err := pinned.FetchCommissioning(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
+	result, err := pinned.fetchCommissioningRawForTest(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestCommissioningGuardedTransportRejectsEveryRedirectWithoutSecondRequest(t
 	dest := localLoopbackDest(t, server, func(ctx context.Context, network, address string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
 	})
-	_, err = client.FetchCommissioning(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
+	_, err = client.fetchCommissioningRawForTest(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
 	var coded interface{ SafeCode() string }
 	if !errors.As(err, &coded) || coded.SafeCode() != "commissioning_redirect_rejected" {
 		t.Fatalf("error=%v", err)
@@ -200,7 +200,7 @@ func TestCommissioningGuardedTransportRejectsPrivateMixedDNSAndProxyEnv(t *testi
 		TestLoopback: false,
 		Timeout:      5 * time.Second,
 	}
-	_, err = client.FetchCommissioning(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
+	_, err = client.fetchCommissioningRawForTest(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
 	var coded interface{ SafeCode() string }
 	if !errors.As(err, &coded) || coded.SafeCode() != "commissioning_address_rejected" {
 		t.Fatalf("error=%v", err)
@@ -217,7 +217,7 @@ func TestCommissioningGuardedTransportRejectsDowngradeAndEnforcesIdentityEncodin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.FetchCommissioning(context.Background(), CommissioningProbe{Mode: "caps"}, CommissioningDestination{TestLoopback: true, Timeout: time.Second}, allowGuard{}, time.Now().Add(10*time.Second))
+	_, err = client.fetchCommissioningRawForTest(context.Background(), CommissioningProbe{Mode: "caps"}, CommissioningDestination{TestLoopback: true, Timeout: time.Second}, allowGuard{}, time.Now().Add(10*time.Second))
 	var coded interface{ SafeCode() string }
 	if !errors.As(err, &coded) || coded.SafeCode() != "commissioning_downgrade_rejected" {
 		t.Fatalf("downgrade error=%v", err)
@@ -240,7 +240,7 @@ func TestCommissioningGuardedTransportRejectsDowngradeAndEnforcesIdentityEncodin
 	dest := localLoopbackDest(t, compressed, func(ctx context.Context, network, address string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, compressed.Listener.Addr().String())
 	})
-	_, err = compressedClient.FetchCommissioning(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
+	_, err = compressedClient.fetchCommissioningRawForTest(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
 	if !errors.As(err, &coded) || coded.SafeCode() != "commissioning_content_encoding" {
 		t.Fatalf("encoding error=%v", err)
 	}
@@ -284,7 +284,7 @@ func TestCommissioningStrictXMLRejectsTrailingRootAndNonWhitespace(t *testing.T)
 	dest := localLoopbackDest(t, server, func(ctx context.Context, network, address string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
 	})
-	_, err = client.FetchCommissioning(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
+	_, err = client.fetchCommissioningRawForTest(context.Background(), CommissioningProbe{Mode: "caps"}, dest, allowGuard{}, time.Now().Add(10*time.Second))
 	var coded interface{ SafeCode() string }
 	if !errors.As(err, &coded) || coded.SafeCode() != "commissioning_body_limit" {
 		t.Fatalf("limit error=%v", err)
@@ -333,7 +333,7 @@ func TestCommissioningGuardInspectsSecretBeforeDigestAndLeaksNothing(t *testing.
 		}
 		return nil
 	}}
-	_, err = client.FetchCommissioning(context.Background(), CommissioningProbe{Mode: "caps"}, dest, guard, time.Now().Add(10*time.Second))
+	_, err = client.fetchCommissioningRawForTest(context.Background(), CommissioningProbe{Mode: "caps"}, dest, guard, time.Now().Add(10*time.Second))
 	var coded interface{ SafeCode() string }
 	if !errors.As(err, &coded) || coded.SafeCode() != "credential.echo" {
 		t.Fatalf("echo error=%v", err)
@@ -351,7 +351,7 @@ func TestCommissioningTransportErrorsAreClosedAndSanitized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.FetchCommissioning(context.Background(), CommissioningProbe{Mode: "caps"}, CommissioningDestination{
+	_, err = client.fetchCommissioningRawForTest(context.Background(), CommissioningProbe{Mode: "caps"}, CommissioningDestination{
 		Resolve: func(context.Context, string) ([]netip.Addr, error) {
 			return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
 		},

@@ -256,10 +256,11 @@ func (store *Store) TransitionWorkflow(ctx context.Context, id uuid.UUID, expect
 
 func (store *Store) LoadIndexerBudget(ctx context.Context, indexerID string) (indexers.Snapshot, error) {
 	var snapshot indexers.Snapshot
-	var next, cooldown *time.Time
+	var next, cooldown, outcomeAt *time.Time
 	var lastOutcome *string
 	var minimumIntervalMS int64
-	err := store.Pool.QueryRow(ctx, `SELECT minimum_interval_ms,next_allowed_at,cooldown_until,consecutive_failure,last_outcome,updated_at FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID).Scan(&minimumIntervalMS, &next, &cooldown, &snapshot.ConsecutiveFailure, &lastOutcome, &snapshot.UpdatedAt)
+	var revision *int64
+	err := store.Pool.QueryRow(ctx, `SELECT minimum_interval_ms,next_allowed_at,cooldown_until,consecutive_failure,last_outcome,last_outcome_at,updated_at,revision FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID).Scan(&minimumIntervalMS, &next, &cooldown, &snapshot.ConsecutiveFailure, &lastOutcome, &outcomeAt, &snapshot.UpdatedAt, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return indexers.Snapshot{IndexerID: indexerID}, nil
 	}
@@ -271,21 +272,31 @@ func (store *Store) LoadIndexerBudget(ctx context.Context, indexerID string) (in
 	if lastOutcome != nil {
 		snapshot.LastOutcome = indexers.Outcome(*lastOutcome)
 	}
+	if outcomeAt != nil {
+		snapshot.LastOutcomeAt = *outcomeAt
+	}
 	if next != nil {
 		snapshot.NextAllowedAt = *next
 	}
 	if cooldown != nil {
 		snapshot.CooldownUntil = *cooldown
 	}
+	if revision != nil && *revision > 0 {
+		snapshot.Revision = uint64(*revision)
+	}
 	return snapshot, nil
 }
 
+// SaveIndexerBudget is LEGACY-ONLY persistence for the legacy Record path,
+// which holds the lane while writing. It MUST NEVER be used for commissioning
+// transmission or finalization: MarkClaimedStepTransmitting and
+// CompleteLiveAttempt go through their own transactional SQL (M-7).
 func (store *Store) SaveIndexerBudget(ctx context.Context, snapshot indexers.Snapshot) error {
 	minimumIntervalMS := snapshot.MinimumInterval.Milliseconds()
 	if minimumIntervalMS < 0 {
 		minimumIntervalMS = 0
 	}
-	_, err := store.Pool.Exec(ctx, `INSERT INTO indexer_budget_state(indexer_instance_id,minimum_interval_ms,next_allowed_at,cooldown_until,consecutive_failure,last_outcome,revision,updated_at) VALUES($1,$2,$3,$4,$5,$6,1,$7) ON CONFLICT(indexer_instance_id) DO UPDATE SET minimum_interval_ms=EXCLUDED.minimum_interval_ms,next_allowed_at=EXCLUDED.next_allowed_at,cooldown_until=EXCLUDED.cooldown_until,consecutive_failure=EXCLUDED.consecutive_failure,last_outcome=EXCLUDED.last_outcome,revision=indexer_budget_state.revision+1,updated_at=EXCLUDED.updated_at`, snapshot.IndexerID, minimumIntervalMS, nullableTime(snapshot.NextAllowedAt), nullableTime(snapshot.CooldownUntil), snapshot.ConsecutiveFailure, snapshot.LastOutcome, snapshot.UpdatedAt)
+	_, err := store.Pool.Exec(ctx, `INSERT INTO indexer_budget_state(indexer_instance_id,minimum_interval_ms,next_allowed_at,cooldown_until,consecutive_failure,last_outcome,last_outcome_at,revision,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,1,$8) ON CONFLICT(indexer_instance_id) DO UPDATE SET minimum_interval_ms=EXCLUDED.minimum_interval_ms,next_allowed_at=EXCLUDED.next_allowed_at,cooldown_until=EXCLUDED.cooldown_until,consecutive_failure=EXCLUDED.consecutive_failure,last_outcome=EXCLUDED.last_outcome,last_outcome_at=GREATEST(indexer_budget_state.last_outcome_at,EXCLUDED.last_outcome_at),revision=indexer_budget_state.revision+1,updated_at=EXCLUDED.updated_at`, snapshot.IndexerID, minimumIntervalMS, nullableTime(snapshot.NextAllowedAt), nullableTime(snapshot.CooldownUntil), snapshot.ConsecutiveFailure, snapshot.LastOutcome, nullableTime(snapshot.LastOutcomeAt), snapshot.UpdatedAt)
 	return err
 }
 
@@ -298,7 +309,7 @@ func (store *Store) ReserveIndexerRequest(ctx context.Context, indexerID, family
 		return time.Time{}, err
 	}
 	defer transaction.Rollback(ctx)
-	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "indexer-request-budget:"+indexerID); err != nil {
+	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, reservationLockKey(indexerID)); err != nil {
 		return time.Time{}, err
 	}
 	windowStart := now.UTC().Add(-window)

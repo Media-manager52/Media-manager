@@ -103,27 +103,49 @@ func (scheduler *Scheduler) InvalidateLaneCache(indexerID string, signal *LaneCa
 // scheduling decision state (NextAllowedAt, CooldownUntil, unresolved gate,
 // remaining budget/outcome state) and publishes the complete snapshot under
 // the lane mutex before marking it valid. A failed or cancelled reload leaves
-// the cache unknown and permits zero transmissions.
+// the cache unknown and permits zero transmissions. A definite no-row result
+// is a valid authoritative clear zero snapshot (no gate can exist without a
+// boundary commit, which always creates the row), so it publishes and clears
+// unknown rather than failing.
 func (scheduler *Scheduler) ReloadLaneCache(ctx context.Context, indexerID string) error {
 	lane := scheduler.getLane(indexerID)
-	if scheduler.store == nil {
-		return context.DeadlineExceeded
+	store, ok := scheduler.store.(AuthoritativeStore)
+	if !ok || store == nil {
+		if scheduler.store == nil {
+			return context.DeadlineExceeded
+		}
+		snapshot, err := scheduler.store.LoadIndexerBudget(ctx, indexerID)
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if snapshot.IndexerID == "" {
+			snapshot.IndexerID = indexerID
+		}
+		lane.mu.Lock()
+		lane.snapshot = snapshot
+		lane.loaded = true
+		lane.cacheUnknown = false
+		lane.mu.Unlock()
+		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	snapshot, err := scheduler.store.LoadIndexerBudget(ctx, indexerID)
+	authoritative, err := store.LoadAuthoritativeIndexerState(ctx, indexerID)
 	if err != nil {
 		return err
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if snapshot.IndexerID == "" {
-		snapshot.IndexerID = indexerID
+	if authoritative.IndexerID == "" {
+		authoritative.IndexerID = indexerID
 	}
 	lane.mu.Lock()
-	lane.snapshot = snapshot
+	lane.snapshot = authoritative.Snapshot
 	lane.loaded = true
 	lane.cacheUnknown = false
 	lane.mu.Unlock()

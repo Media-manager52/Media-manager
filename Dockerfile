@@ -32,7 +32,7 @@ COPY components ./components
 COPY hooks ./hooks
 COPY lib ./lib
 COPY public ./public
-COPY vendor ./vendor
+COPY third_party ./third_party
 COPY worker ./worker
 COPY .openai ./.openai
 COPY cloudflare-env.d.ts components.json eslint.config.mjs next.config.ts postcss.config.mjs tsconfig.json vite.config.ts ./
