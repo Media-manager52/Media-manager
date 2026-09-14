@@ -151,3 +151,108 @@ func TestLegacyExhaustedRoundRecoveryMigrationSchedulesDiscovery(t *testing.T) {
 		t.Fatalf("schema version=%d, want 37", version)
 	}
 }
+
+// TestHeldWorkflowRetryRecoveryMigrationNudgesOnlyStrandedHeld proves that a
+// held workflow with an open round and no pending event receives exactly one
+// search retry at its current revision, while a held workflow that already has
+// a pending event and a non-held workflow are left untouched.
+func TestHeldWorkflowRetryRecoveryMigrationNudgesOnlyStrandedHeld(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	schema := "mm_held_recovery_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	admin, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		cleanup, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := admin.Exec(cleanup, `DROP SCHEMA `+schema+` CASCADE`); err != nil {
+			t.Errorf("drop test schema: %v", err)
+		}
+	}()
+
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("search_path", schema)
+	parsed.RawQuery = query.Encode()
+	store, err := Open(ctx, parsed.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := migrateThrough(ctx, store.Pool, 37); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	clientID, rootID, profileID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO integration_instances(id,kind,name,enabled,is_default,config,created_at,updated_at) VALUES($1,'altmount','Held Recovery AltMount',true,true,'{}',$2,$2)`, clientID.String(), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO library_roots(id,media_kind,name,destination_root,plex_visible_root,source_visible_root,is_default,enabled) VALUES($1,'movie','Held Recovery Movies','/library','/library','/output',true,true)`, rootID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO quality_profiles(id,media_kind,name,policy_version,policy,upgrades_enabled,is_default,enabled) VALUES($1,'movie','Held Recovery Profile',1,'{}',true,true,true)`, profileID.String()); err != nil {
+		t.Fatal(err)
+	}
+	seed := func(title, state string, revision int) uuid.UUID {
+		t.Helper()
+		mediaID, workflowID := uuid.NewV7(), uuid.NewV7()
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO media_items(id,kind,title,year,revision,created_at,updated_at) VALUES($1,'movie',$2,2026,1,$3,$3)`, mediaID.String(), title, now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,'default',$7,$8,$8)`, workflowID.String(), mediaID.String(), state, rootID.String(), profileID.String(), clientID.String(), revision, now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,upgrade_baseline_link_versions,opened_at) VALUES($1,$2,1,'open',2,0,1,'{}','',$3)`, uuid.NewV7().String(), workflowID.String(), now); err != nil {
+			t.Fatal(err)
+		}
+		return workflowID
+	}
+	stranded := seed("Stranded Held", "held", 9)
+	retrying := seed("Already Retrying Held", "held", 4)
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,4,'workflow.search_requested','{}',$3,$3)`, uuid.NewV7().String(), retrying.String(), now); err != nil {
+		t.Fatal(err)
+	}
+	active := seed("Active Waiting", "waiting", 3)
+
+	if err := migrateThrough(ctx, store.Pool, 38); err != nil {
+		t.Fatal(err)
+	}
+
+	var strandedEvents int
+	var strandedRevision int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*),COALESCE(max(aggregate_revision),0) FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.search_requested' AND completed_at IS NULL`, stranded.String()).Scan(&strandedEvents, &strandedRevision); err != nil {
+		t.Fatal(err)
+	}
+	if strandedEvents != 1 || strandedRevision != 9 {
+		t.Fatalf("stranded held events=%d revision=%d, want one event at revision 9", strandedEvents, strandedRevision)
+	}
+	var retryingEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND completed_at IS NULL`, retrying.String()).Scan(&retryingEvents); err != nil {
+		t.Fatal(err)
+	}
+	if retryingEvents != 1 {
+		t.Fatalf("already retrying held events=%d, want 1", retryingEvents)
+	}
+	var activeEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND completed_at IS NULL`, active.String()).Scan(&activeEvents); err != nil {
+		t.Fatal(err)
+	}
+	if activeEvents != 0 {
+		t.Fatalf("non-held workflow events=%d, want 0", activeEvents)
+	}
+}
