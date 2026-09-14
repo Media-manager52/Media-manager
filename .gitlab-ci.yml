@@ -3,7 +3,14 @@ stages:
 
 workflow:
   rules:
+    # A merge request runs once, as a merge_request_event pipeline.
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    # Do not also run a branch pipeline for a branch that already has an open
+    # merge request. Without this guard GitLab creates two identical pipelines
+    # for the same commit.
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # A branch without an open merge request still runs normally, including main.
     - if: "$CI_COMMIT_BRANCH"
     - if: "$CI_COMMIT_TAG"
 
