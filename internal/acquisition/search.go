@@ -30,19 +30,22 @@ type SearchService struct {
 }
 
 type indexerConfig struct {
-	BaseURL           string                 `json:"base_url"`
-	AllowHTTP         bool                   `json:"allow_http"`
-	MinimumIntervalMS int64                  `json:"minimum_interval_ms"`
-	Mode              string                 `json:"mode"`
-	ModeVerified      bool                   `json:"mode_verified"`
-	Categories        []int                  `json:"categories"`
-	Extended          bool                   `json:"extended"`
-	SearchDialects    newznab.SearchDialects `json:"search_dialects"`
-	DefaultLimit      int                    `json:"default_limit"`
-	MaximumLimit      int                    `json:"maximum_limit"`
-	QueryLimit        int                    `json:"query_limit"`
-	GrabLimit         int                    `json:"grab_limit"`
-	BudgetWindow      int64                  `json:"budget_window_seconds"`
+	BaseURL                         string                 `json:"base_url"`
+	AllowHTTP                       bool                   `json:"allow_http"`
+	MinimumIntervalMS               int64                  `json:"minimum_interval_ms"`
+	Mode                            string                 `json:"mode"`
+	ModeVerified                    bool                   `json:"mode_verified"`
+	Categories                      []int                  `json:"categories"`
+	MovieCategoryIDs                []int                  `json:"movie_category_ids"`
+	SeriesCategoryIDs               []int                  `json:"series_category_ids"`
+	CategorySelectionReviewRequired bool                   `json:"category_selection_review_required"`
+	Extended                        bool                   `json:"extended"`
+	SearchDialects                  newznab.SearchDialects `json:"search_dialects"`
+	DefaultLimit                    int                    `json:"default_limit"`
+	MaximumLimit                    int                    `json:"maximum_limit"`
+	QueryLimit                      int                    `json:"query_limit"`
+	GrabLimit                       int                    `json:"grab_limit"`
+	BudgetWindow                    int64                  `json:"budget_window_seconds"`
 }
 
 const requiredSubtitleEvidenceWeight = 100_000
@@ -189,15 +192,31 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				return err
 			}
 		}
-		request := buildRequest(search, config)
-		var observations []releases.Observation
-		if recovery {
-			observations, err = client.BackgroundSearchGuarded(ctx, request, func(guardCtx context.Context) error {
-				return service.Store.ValidateRecoveryDiscovery(guardCtx, event.AggregateID, int64(event.AggregateRevision))
-			})
-		} else {
-			observations, err = client.Search(ctx, request)
+		executeSearch := func(request newznab.SearchRequest) ([]releases.Observation, error) {
+			if recovery {
+				return client.BackgroundSearchGuarded(ctx, request, func(guardCtx context.Context) error {
+					return service.Store.ValidateRecoveryDiscovery(guardCtx, event.AggregateID, int64(event.AggregateRevision))
+				})
+			}
+			return client.Search(ctx, request)
 		}
+		// Prefer the immutable active capability profile. When it is unavailable
+		// or cannot satisfy this item, keep the legacy commissioned dialect so an
+		// indexer that has not completed profile-backed commissioning still works.
+		// Only the primary recipe is executed here: the scheduler enforces the
+		// per-indexer minimum interval, so a second same-call fallback would be
+		// deferred back to the same zero-result state forever. A future milestone
+		// may schedule the fallback as its own paced attempt.
+		request := buildRequest(search, config)
+		if plan, planErr := service.searchProfilePlan(ctx, integration.ID, search, config); planErr == nil {
+			request = plan.Primary.Request
+		} else if !errors.Is(planErr, errNoActiveSearchProfile) {
+			outcome.Detail = safeIndexerOutcomeCode(planErr)
+			outcomes = append(outcomes, outcome)
+			continue
+		}
+		var observations []releases.Observation
+		observations, err = executeSearch(request)
 		if err != nil {
 			if recovery && errors.Is(err, postgres.ErrConcurrentModification) {
 				return nil

@@ -149,7 +149,7 @@ func (store *Store) GetWorkflow(ctx context.Context, id uuid.UUID) (workflows.Wo
 	var clientText *string
 	var selectedText, attemptText *string
 	var revision int64
-	err := store.Pool.QueryRow(ctx, `SELECT id::text,media_id::text,state,root_id::text,quality_profile_id::text,download_client_id::text,selected_release_id::text,grab_attempt_id::text,revision,created_at,updated_at FROM workflows WHERE id=$1`, id.String()).Scan(&idText, &mediaText, &workflow.State, &rootText, &profileText, &clientText, &selectedText, &attemptText, &revision, &workflow.CreatedAt, &workflow.UpdatedAt)
+	err := store.Pool.QueryRow(ctx, `SELECT id::text,media_id::text,state,root_id::text,quality_profile_id::text,download_client_id::text,selected_release_id::text,grab_attempt_id::text,revision,created_at,updated_at,COALESCE(attention_code,''),COALESCE(attention_detail,''),EXISTS(SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=workflows.id) FROM workflows WHERE id=$1`, id.String()).Scan(&idText, &mediaText, &workflow.State, &rootText, &profileText, &clientText, &selectedText, &attemptText, &revision, &workflow.CreatedAt, &workflow.UpdatedAt, &workflow.AttentionCode, &workflow.AttentionDetail, &workflow.ReleaseAttemptFailed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return workflows.Workflow{}, ErrNotFound
 	}

@@ -29,6 +29,12 @@ const (
 	StateCancelled         State = "cancelled"
 )
 
+// AttentionRoundExhaustedWaitingNewIdentity is the durable attention code for
+// a workflow that used both release-attributable acquisition slots and is
+// parked in waiting so low-priority discovery can continue. It requires an
+// explicit owner action before another acquisition round.
+const AttentionRoundExhaustedWaitingNewIdentity = "round_exhausted_waiting_new_identity"
+
 type Workflow struct {
 	ID               uuid.UUID  `json:"id"`
 	MediaID          uuid.UUID  `json:"media_id"`
@@ -38,9 +44,30 @@ type Workflow struct {
 	DownloadClientID uuid.UUID  `json:"download_client_id"`
 	SelectedRelease  *uuid.UUID `json:"selected_release_id,omitempty"`
 	GrabAttemptID    *uuid.UUID `json:"grab_attempt_id,omitempty"`
-	Revision         uint64     `json:"revision"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	AttentionCode    string     `json:"attention_code,omitempty"`
+	AttentionDetail  string     `json:"attention_detail,omitempty"`
+	// ReleaseAttemptFailed reports that this workflow has at least one durable
+	// release-attributable failure exclusion. It is an internal read-model fact
+	// and is never serialized.
+	ReleaseAttemptFailed bool      `json:"-"`
+	Revision             uint64    `json:"revision"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+// OwnerAttentionState reports the state an owner-facing read should show. A
+// workflow that is parked in waiting after a release-attributable failure (and
+// therefore cannot advance without an explicit owner action or a later
+// discovery-complete rescan) is reported as needs_attention. This keeps the
+// durable waiting state that discovery depends on while making the required
+// owner action visible to callers that only inspect State (for example the
+// real-acceptance driver, which treats waiting as still in progress and
+// needs_attention as terminal).
+func (workflow Workflow) OwnerAttentionState() State {
+	if workflow.State == StateWaiting && (workflow.AttentionCode == AttentionRoundExhaustedWaitingNewIdentity || workflow.ReleaseAttemptFailed) {
+		return StateNeedsAttention
+	}
+	return workflow.State
 }
 
 type Transition struct {

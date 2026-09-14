@@ -33,6 +33,7 @@ type Config struct {
 	SeerrWebhookSecret     string
 	SeerrInstanceID        string
 	Version                string
+	Commit                 string
 	MetadataProvider       *seerr.Client
 	MetadataEnricher       *metadataservice.Service
 	MetadataProviderStates map[string]string
@@ -980,6 +981,8 @@ func (server *Server) listTasks(writer http.ResponseWriter, request *http.Reques
 func (server *Server) systemInfo(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{
 		"version":                  server.config.Version,
+		"commit":                   server.config.Commit,
+		"schema_version":           postgres.CurrentSchemaVersion,
 		"owner_only":               true,
 		"browser_auth":             "gateway_basic_auth",
 		"api_auth":                 "server_injected_owner_bearer",
@@ -1552,6 +1555,12 @@ func (server *Server) getWorkflow(writer http.ResponseWriter, request *http.Requ
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load workflow")
 		return
 	}
+	// A workflow that exhausted its acquisition round stays durably in waiting
+	// so the low-priority discovery rescan can continue, but it needs an
+	// explicit owner action before another acquisition. Surface that as
+	// needs_attention to owner-facing readers without changing the durable
+	// waiting state that discovery depends on.
+	workflow.State = workflow.OwnerAttentionState()
 	writer.Header().Set("ETag", `"`+strconv.FormatUint(workflow.Revision, 10)+`"`)
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: workflow})
 }

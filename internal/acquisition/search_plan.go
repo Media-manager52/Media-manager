@@ -63,9 +63,10 @@ func (plan SearchPlan) FallbackFor(trigger newznab.FallbackTrigger) (PlannedSear
 	return PlannedSearch{}, false
 }
 
-// PlanSearch is pure and is intentionally not connected to the production
-// search worker in profile schema v1. It emits an in-memory request containing
-// no endpoint, credential, secret reference, output choice, or locator.
+// PlanSearch is pure. The production search worker calls it for an indexer
+// with a usable active capability profile; an indexer without one keeps the
+// legacy commissioned dialect. It emits an in-memory request containing no
+// endpoint, credential, secret reference, output choice, or locator.
 func PlanSearch(profile newznab.CapabilityProfile, input SearchPlanInput, categories newznab.NewznabCategorySelection) (SearchPlan, error) {
 	if err := newznab.ValidateCapabilityProfile(profile); err != nil {
 		return SearchPlan{}, err

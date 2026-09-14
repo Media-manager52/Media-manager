@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -505,12 +506,16 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 		t.Fatalf("adopted recycle evidence=%+v", recycleEntry)
 	}
 	files, err = store.ListManagedFiles(ctx, 100)
-	var adoptedPlanned, replacementCurrent bool
+	var adoptedPlanned, replacementCurrent, managedPlexPath bool
 	for _, file := range files {
 		adoptedPlanned = adoptedPlanned || file.ID == adoptionItem.ID && file.State == "recycle_planned" && file.DisplacedAt != nil
 		replacementCurrent = replacementCurrent || file.ID == replacementVersionID && file.State == "current" && file.PlexConfirmed
+		// The stored symlink target (/mnt/altmount/...) escapes the library, so
+		// the files API reports the real managed library directory that contains
+		// the publication instead of the escaping target.
+		managedPlexPath = managedPlexPath || file.ID == replacementVersionID && file.PlexVisibleTarget == filepath.Dir("/libraries/movies/"+replacementRelative)
 	}
-	if err != nil || len(files) != 2 || !adoptedPlanned || !replacementCurrent {
+	if err != nil || len(files) != 2 || !adoptedPlanned || !replacementCurrent || !managedPlexPath {
 		t.Fatalf("planned adopted-file read model=%+v err=%v", files, err)
 	}
 	if err := store.MarkRecycleRetained(ctx, recycleEntry.ID, displacementAt.Add(time.Minute)); err != nil {

@@ -14,6 +14,28 @@ func TestWorkflowCannotSkipVerification(t *testing.T) {
 	}
 }
 
+func TestOwnerAttentionStateMakesExhaustedRoundTerminal(t *testing.T) {
+	exhausted := Workflow{State: StateWaiting, AttentionCode: AttentionRoundExhaustedWaitingNewIdentity}
+	if got := exhausted.OwnerAttentionState(); got != StateNeedsAttention {
+		t.Fatalf("exhausted round reported %q, want %q", got, StateNeedsAttention)
+	}
+	releaseFailed := Workflow{State: StateWaiting, ReleaseAttemptFailed: true}
+	if got := releaseFailed.OwnerAttentionState(); got != StateNeedsAttention {
+		t.Fatalf("release-failed waiting round reported %q, want %q", got, StateNeedsAttention)
+	}
+	plainWaiting := Workflow{State: StateWaiting}
+	if got := plainWaiting.OwnerAttentionState(); got != StateWaiting {
+		t.Fatalf("plain waiting round reported %q, want %q", got, StateWaiting)
+	}
+	searching := Workflow{State: StateSearching, ReleaseAttemptFailed: true}
+	if got := searching.OwnerAttentionState(); got != StateSearching {
+		t.Fatalf("searching workflow reported %q, want %q", got, StateSearching)
+	}
+	if got := (Workflow{State: StatePlexConfirmed, AttentionCode: AttentionRoundExhaustedWaitingNewIdentity}).OwnerAttentionState(); got != StatePlexConfirmed {
+		t.Fatalf("completed workflow reported %q, want %q", got, StatePlexConfirmed)
+	}
+}
+
 func TestWorkflowHappyPath(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	workflow := New(uuid.NewV7(), uuid.NewV7(), uuid.NewV7(), now)

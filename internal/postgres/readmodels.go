@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -128,10 +129,29 @@ type ManagedFile struct {
 	OriginalSourceRoot   string            `json:"original_source_root,omitempty"`
 	AdoptionBatchID      *uuid.UUID        `json:"adoption_batch_id,omitempty"`
 	PlexProviderGUID     string            `json:"plex_provider_guid,omitempty"`
+	// PlexTargetInsideLibrary reports whether the stored symlink target already
+	// lies inside the Plex-visible library root. When it does not, the managed
+	// library directory is the only truthful path that is contained by the
+	// library, so the read model reports that directory instead of a target
+	// that escapes the root.
+	PlexTargetInsideLibrary bool `json:"-"`
 }
 
 func (store *Store) ListManagedFiles(ctx context.Context, limit int) ([]ManagedFile, error) {
 	return store.managedFiles(ctx, nil, nil, limit)
+}
+
+// managedPublicationPath is the files-API presentation rule. A managed symlink
+// whose stored target escapes the Plex-visible library cannot be reported as a
+// contained publication path, so the real managed library directory (which is
+// inside the library) is reported instead. Adoption rows always carry the
+// real library file path and are returned unchanged. The stored symlink
+// target and every removal check keep using the durable column.
+func managedPublicationPath(origin, plexVisibleTarget string, targetInsideLibrary bool) string {
+	if origin == "altmount" && !targetInsideLibrary && plexVisibleTarget != "" {
+		return filepath.Dir(plexVisibleTarget)
+	}
+	return plexVisibleTarget
 }
 
 func (store *Store) ManagedFile(ctx context.Context, id uuid.UUID) (ManagedFile, error) {
@@ -161,10 +181,11 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 		item.source_relative,item.plex_visible_target,item.state,item.generation,item.plex_confirmed,
 		item.verified_at,item.displaced_at,item.removed_at,item.variant,item.origin,item.quality_profile,
 		item.quality_evidence_state,item.quality_evidence,item.source_size_bytes,item.source_modified_at,
-		item.original_source_root,item.adoption_batch_id,item.plex_provider_guid
+		item.original_source_root,item.adoption_batch_id,item.plex_provider_guid,item.plex_target_inside_library
 		FROM (
 			SELECT version.id::text AS id,media.id::text AS media_id,media.kind AS media_kind,media.title,media.year,
-				root.name AS root_name,link.destination_relative,version.source_relative,version.plex_visible_target,
+				root.name AS root_name,link.destination_relative,version.source_relative,
+				root.plex_visible_root || '/' || link.destination_relative AS plex_visible_target,
 				version.state,version.generation,(confirmation.provider_namespace IS NOT NULL) AS plex_confirmed,
 				version.verified_at,version.displaced_at,removal.removed_at,workflow.variant,'altmount'::text AS origin,
 				profile.name AS quality_profile,
@@ -173,6 +194,7 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 				asset.size_bytes AS source_size_bytes,NULL::timestamptz AS source_modified_at,''::text AS original_source_root,
 				NULL::text AS adoption_batch_id,
 				COALESCE(confirmation.provider_namespace || '://' || confirmation.provider_value,'') AS plex_provider_guid,
+				(version.plex_visible_target = root.plex_visible_root OR version.plex_visible_target LIKE root.plex_visible_root || '/%') AS plex_target_inside_library,
 				COALESCE(version.verified_at,workflow.updated_at) AS sort_at
 			FROM library_link_versions version
 			JOIN library_links link ON link.id=version.library_link_id
@@ -194,7 +216,7 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 				adopted.state,1,true,adopted.verified_at,adopted.displaced_at,adopted.purged_at,
 				adopted.variant,'adoption'::text,profile.name,adopted.quality_evidence_state,
 				adopted.quality_evidence,adopted.source_size,to_timestamp(adopted.source_modtime_ns / 1000000000.0),
-				adopted.original_source_root,adopted.adoption_batch_id::text,adopted.provider_guid,adopted.verified_at
+				adopted.original_source_root,adopted.adoption_batch_id::text,adopted.provider_guid,true,adopted.verified_at
 			FROM adopted_files adopted
 			JOIN media_items media ON media.id=adopted.media_id
 			JOIN library_roots root ON root.id=adopted.root_id
@@ -215,9 +237,10 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 		var adoptionBatchText *string
 		var year *int16
 		var qualityEvidence []byte
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.RootName, &item.DestinationRelative, &item.SourceRelative, &item.PlexVisibleTarget, &item.State, &item.Generation, &item.PlexConfirmed, &item.VerifiedAt, &item.DisplacedAt, &item.RemovedAt, &item.Variant, &item.Origin, &item.QualityProfile, &item.QualityEvidenceState, &qualityEvidence, &item.SourceSizeBytes, &item.SourceModifiedAt, &item.OriginalSourceRoot, &adoptionBatchText, &item.PlexProviderGUID); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.RootName, &item.DestinationRelative, &item.SourceRelative, &item.PlexVisibleTarget, &item.State, &item.Generation, &item.PlexConfirmed, &item.VerifiedAt, &item.DisplacedAt, &item.RemovedAt, &item.Variant, &item.Origin, &item.QualityProfile, &item.QualityEvidenceState, &qualityEvidence, &item.SourceSizeBytes, &item.SourceModifiedAt, &item.OriginalSourceRoot, &adoptionBatchText, &item.PlexProviderGUID, &item.PlexTargetInsideLibrary); err != nil {
 			return nil, err
 		}
+		item.PlexVisibleTarget = managedPublicationPath(item.Origin, item.PlexVisibleTarget, item.PlexTargetInsideLibrary)
 		item.ID, _ = uuid.Parse(idText)
 		item.MediaID, _ = uuid.Parse(mediaText)
 		if year != nil {

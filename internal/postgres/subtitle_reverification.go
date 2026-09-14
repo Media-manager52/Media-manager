@@ -74,7 +74,7 @@ func (store *Store) RequestRetainedSubtitleReverification(ctx context.Context, w
 	if err != nil {
 		return err
 	}
-	if state != workflows.StateWaiting || attentionCode != "round_exhausted_waiting_new_identity" || jobState != "needs_attention" || jobErrorCode != "subtitle_requirements_unverified" || alreadyRequested || hasPublication {
+	if state != workflows.StateWaiting || attentionCode != workflows.AttentionRoundExhaustedWaitingNewIdentity || jobState != "needs_attention" || jobErrorCode != "subtitle_requirements_unverified" || alreadyRequested || hasPublication {
 		return ErrConcurrentModification
 	}
 	if _, err := uuid.Parse(candidateText); err != nil {
