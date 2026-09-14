@@ -1,12 +1,59 @@
 # Media Manager core release status
 
-Assessed against the live stack on 2026-09-02. The deployed API and UI were
-built from `1a4d53f197fc6d5647ee97e63a24d0eb5b93d256`. The database schema is 32.
+Assessed against the live stack on 2026-09-02 and updated at the V1 release
+closeout on 2026-09-14. The deployed API and UI now run the released V1 source
+`e339208d0f052b166f14e4beb08bdea9bd69485b` at schema 36; see the V1 release
+closeout below. Earlier sections are retained as historical evidence for the
+schema-32 and schema-35 milestones.
 
 “Implemented” means that the core behavior exists in the real application.
 “Synthetic tested” means that its local deterministic tests pass. “Live tested”
 means that the configured services completed the real operation; health checks
 alone do not qualify.
+
+## V1 release closeout (2026-09-14)
+
+Media Manager V1 is complete and released. The functional release source is
+`e339208d0f052b166f14e4beb08bdea9bd69485b` (`test(requests): cover live Requests
+filters, search, and detail`), fast-forward merged from `feat/v1-final-regression`
+into `main` with history preserved and no force push. Production already ran this
+exact source and was not redeployed. The database schema is 36
+(`0036_seerr_request_display.sql`, additive).
+
+Accepted V1 scope:
+
+- Movie end-to-end accepted.
+- Complete-season-pack end-to-end accepted as one acquisition job.
+- Failure/recovery accepted: a failed output stays retained, unpublished, and
+  owner-visible, and cannot be recorded as success.
+- Plex publication accepted through managed Plex-safe symlinks confirmed by exact
+  Plex identity and path.
+- Final regression accepted against a disposable PostgreSQL 18.6 cluster.
+- Cosmos-only public architecture: Cosmos Cloud is the only public edge. The
+  redundant Caddy gateway was removed and `/api` plus `/health` route directly to
+  the API with the owner bearer injected server-side.
+- Functional owner UI across library, workflows, wanted, files, sources, settings,
+  health, audit, adoption, and release evidence.
+- Requests/Seerr management UI with filters, search, and exact detail.
+- Live read-only browser acceptance 117/117 across desktop, tablet, and mobile,
+  including the Requests interactions.
+
+Release verification at the closeout source: `gofmt` and `git diff --check`
+clean; `go vet` pass; `go test -count=1` and `go test -count=1 -race` pass
+against a disposable PostgreSQL 18.6 cluster (including the commissioning
+capability activation, concurrent-activation rollback, migration, season-pack,
+and Plex publication tests); frontend TypeScript, ESLint, production build, 26
+unit/artifact tests, and 10 local Chromium/axe tests pass; loopback API smoke and
+Cosmos public-edge routing smoke pass; Seerr webhook authentication remains
+valid.
+
+GitLab pipeline #2847605585 for `e339208` passed the `browser` and `backend` jobs.
+The `frontend` job passed lint, typecheck, tests, and build but failed its extra
+`npm audit --omit=dev` step on one pre-existing moderate transitive advisory
+(`baseline-browser-mapping`, GHSA-w5vr-8v7q-w6rv), which is not part of the V1
+release gates. No release tag was created because the repository has no
+established tag convention. No known V1 product blockers remain; OldBoys stays
+intentionally disabled.
 
 ## V1 release candidate (2026-09-14 terminal regression)
 
@@ -32,8 +79,9 @@ a disposable PostgreSQL 18.6 cluster, including the required commissioning
 capability activation and concurrent-activation rollback tests, together with
 the repository frontend lint, typecheck, production build, unit/artifact,
 benchmark, and Chromium/axe suites. No concrete behavioral regression was found,
-so this section records the candidate without changing runtime behavior. The live
-deployment remains schema 32 until the owner promotes the candidate.
+so this section records the candidate without changing runtime behavior. That
+candidate was subsequently promoted to `main` at schema 36; see the V1 release
+closeout above.
 
 ## Deployed schema-32 recovery milestone
 
