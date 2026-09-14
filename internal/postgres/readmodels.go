@@ -272,6 +272,8 @@ type MediaSeason struct {
 	WorkflowID        *uuid.UUID `json:"workflow_id,omitempty"`
 	WorkflowState     string     `json:"workflow_state,omitempty"`
 	WaitingReason     string     `json:"waiting_reason,omitempty"`
+	LastSearchAt      *time.Time `json:"last_search_at,omitempty"`
+	NextSearchAt      *time.Time `json:"next_search_at,omitempty"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
@@ -297,7 +299,7 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 		return MediaDetail{}, err
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT monitoring.season_number,monitoring.monitored,monitoring.prefer_season_pack,monitoring.search_immediately,monitoring.state,
-		COALESCE(expectation.expected_episodes,0),COALESCE(expectation.released_episodes,0),COALESCE(expectation.future_episodes,0),workflow.id::text,COALESCE(workflow.state,''),COALESCE(workflow.attention_detail,''),monitoring.updated_at
+		COALESCE(expectation.expected_episodes,0),COALESCE(expectation.released_episodes,0),COALESCE(expectation.future_episodes,0),workflow.id::text,COALESCE(workflow.state,''),COALESCE(workflow.attention_detail,''),search_state.last_search_at,search_state.next_search_at,monitoring.updated_at
 		FROM season_monitoring monitoring
 		LEFT JOIN LATERAL (
 			SELECT item.id,item.state,item.attention_detail FROM workflows item
@@ -312,6 +314,23 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 			JOIN pack_expectation_sets set_row ON set_row.id=episode.expectation_id
 			WHERE set_row.workflow_id=workflow.id
 		) expectation ON true
+		LEFT JOIN LATERAL (
+			SELECT max(run.started_at) AS last_search_at,
+				(SELECT min(event.available_at) FROM outbox_events event
+					WHERE event.event_type='workflow.search_requested' AND event.completed_at IS NULL
+					AND event.aggregate_id IN (
+						SELECT candidate.id FROM workflows candidate
+						WHERE candidate.media_id=monitoring.media_id
+						AND (candidate.variant='season:' || lpad(monitoring.season_number::text,2,'0')
+							OR candidate.variant LIKE 'season:' || lpad(monitoring.season_number::text,2,'0') || ':episode:%')
+					)
+				) AS next_search_at
+			FROM search_runs run
+			JOIN workflows scoped ON scoped.id=run.workflow_id
+			WHERE scoped.media_id=monitoring.media_id
+			AND (scoped.variant='season:' || lpad(monitoring.season_number::text,2,'0')
+				OR scoped.variant LIKE 'season:' || lpad(monitoring.season_number::text,2,'0') || ':episode:%')
+		) search_state ON true
 		WHERE monitoring.media_id=$1 ORDER BY monitoring.season_number`, mediaID.String())
 	if err != nil {
 		return MediaDetail{}, err
@@ -321,7 +340,7 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 		var season MediaSeason
 		var number int16
 		var workflowText *string
-		if err := rows.Scan(&number, &season.Monitored, &season.PreferSeasonPack, &season.SearchImmediately, &season.State, &season.ExpectedEpisodes, &season.ReleasedEpisodes, &season.FutureEpisodes, &workflowText, &season.WorkflowState, &season.WaitingReason, &season.UpdatedAt); err != nil {
+		if err := rows.Scan(&number, &season.Monitored, &season.PreferSeasonPack, &season.SearchImmediately, &season.State, &season.ExpectedEpisodes, &season.ReleasedEpisodes, &season.FutureEpisodes, &workflowText, &season.WorkflowState, &season.WaitingReason, &season.LastSearchAt, &season.NextSearchAt, &season.UpdatedAt); err != nil {
 			return MediaDetail{}, err
 		}
 		season.Number = uint16(number)

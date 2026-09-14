@@ -190,7 +190,7 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 		created = append(created, episodeWorkflowID)
 	}
 
-	detail := fmt.Sprintf("Airing season coordination: %d released episode(s) actionable, %d in progress, %d covered, %d future.", len(releasedMissing), len(inProgress), len(covered), len(futureEpisodes))
+	detail := "Airing season: released episodes are acquired individually as they air; future episodes are not searched before their release date."
 	observation := AiringDispatchResult{
 		Dispatched:       true,
 		SeasonComplete:   seasonComplete,
