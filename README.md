@@ -9,7 +9,8 @@ The first production path is deliberately narrow: **Seerr + Media Manager + Newz
 - Go 1.27 API and durable outbox workers
 - PostgreSQL 18
 - React 19, TypeScript 5.9, Next 16 UI through Vinext/Vite
-- Caddy same-origin gateway; the owner token stays server-side
+- Cosmos Cloud public edge: owner OpenID authentication with path-direct routing to the UI and the API; the owner token is injected server-side per Cosmos route and never reaches browser JavaScript
+- Optional loopback Caddy gateway for local credential-based acceptance and rollback only; it is not in the public request path
 - Docker Compose for the supported deployment
 
 ## Start
@@ -66,14 +67,29 @@ its provider. Traces and video are disabled so authentication headers cannot be
 written to artifacts. Results stay under
 `.sites-runtime/live-playwright-results/`.
 
-Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, UI, and Caddy use isolated private networks; only the authenticated API also joins the external integrations network. No service port except the loopback gateway is published. Caddy proxies `/api/*` and injects the owner credential only after its own owner login. Do not change `MEDIA_MANAGER_BIND` to a LAN address unless another authenticated TLS proxy protects that listener.
+Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, the UI, and the optional loopback Caddy gateway use isolated private networks; only the authenticated API also joins the external integrations network. Cosmos Cloud terminates TLS and authenticates the owner, then routes `/api/*` and `/health/*` to the API and every other path to the UI on one origin. The Cosmos `/api` route injects the owner bearer token server-side. The loopback Caddy gateway (`http://127.0.0.1:${MEDIA_MANAGER_PORT}`) is retained only for local credential-based acceptance and rollback; it is not in the public path. Do not change `MEDIA_MANAGER_BIND` to a LAN address unless another authenticated TLS proxy protects that listener.
 
-### Public edge route
+### Public edge routing
 
-The public reverse proxy (for example a Cosmos Cloud route) must target the
-authenticated Caddy gateway at `http://127.0.0.1:${MEDIA_MANAGER_PORT}`, never
-the `ui` container. Caddy owns the UI document and `/api/*` on one origin and
-injects the owner token server-side. A route pointed at the `ui` container
+Cosmos Cloud is the public edge and the owner authentication layer. The owner
+token never reaches browser JavaScript. Cosmos registers proxy routes in
+reverse configuration order (the last list entry is registered first and wins
+for a shared host), so the catch-all UI route must be the last Media Manager
+entry in the list:
+
+| Path prefix | Target | Cosmos auth | Injected request header |
+| --- | --- | --- | --- |
+| `/api` | `http://media-manager-api-1:8080` | owner login | `Authorization: Bearer <OWNER_TOKEN>` |
+| `/health` | `http://media-manager-api-1:8080` | owner login | none |
+| `/` (catch-all) | `http://media-manager-ui-1:3000` | owner login | none |
+
+The `/api` route's `ExtraHeaders` entry overwrites any inbound
+`Authorization` header on the upstream request, so the browser can neither
+supply nor read the token. Cosmos resolves both container names to their
+private network addresses. The Seerr webhook posts directly to
+`http://media-manager-api-1:8080/api/v1/integrations/seerr/webhook` over the
+shared Docker network with its own secret, independent of Cosmos, so it never
+requires an interactive login. A route pointed only at the `ui` container
 serves the document but answers `/api/v1/*` with a bare HTTP 404, which the
 browser surfaces as "Media Manager returned HTTP 404".
 
@@ -83,10 +99,10 @@ Verify the deployed public origin without changing server state:
 scripts/smoke-public-edge.sh https://media-manager.example.com
 ```
 
-Add `--authenticated` to also confirm, with the existing owner password, that
-the public origin serves the UI document and the API from the same gateway
-origin. The check fails loudly if the public route reaches the `ui` container
-directly.
+The unauthenticated check fails if `/api/v1/*` reaches the `ui` container (a
+bare HTTP 404). Add `--authenticated` only when the origin is the local loopback
+Caddy gateway (or another HTTP Basic origin) to confirm with the existing owner
+password that the origin serves the UI document and the API from one place.
 
 Compose passes PostgreSQL credentials as discrete `PG*` variables, so a strong database password does not need URL escaping. A standalone API deployment may instead provide `DATABASE_URL`.
 

@@ -8,24 +8,28 @@ usage() {
   cat <<'EOF'
 Usage: scripts/smoke-public-edge.sh <public-origin> [--authenticated]
 
-Verify that the public Media Manager origin (for example a Cosmos Cloud route)
-is proxied to the authenticated same-origin gateway, and NOT directly to the UI
-container. The check is read-only and never mutates server state.
+Verify that the public Media Manager origin is protected by an authentication
+gate and that /api/v1/* does NOT reach the UI container directly. The check is
+read-only and never mutates server state.
 
   <public-origin>   e.g. https://media-manager.example.com
-  --authenticated   also prompt for the owner password and verify that the
-                    public origin serves the UI document and the API from the
-                    same origin (the exact browser path).
+  --authenticated   also prompt for the owner password and verify, for an
+                    HTTP Basic origin only, that the public origin serves the
+                    UI document and the API from the same origin. Cosmos Cloud
+                    uses OpenID, so use the read-only routing check there and
+                    verify the authenticated browser separately.
 
 Environment:
   MEDIA_MANAGER_PUBLIC_ORIGIN    alternative to the positional argument
   MEDIA_MANAGER_PUBLIC_INSECURE  set to 1 to accept a self-signed TLS chain
 
-A correct public route targets http://127.0.0.1:${MEDIA_MANAGER_PORT}, the
-Caddy gateway. Caddy owns both the UI document and /api/* on one origin and
-injects the owner token server-side. A public route pointed at the ui container
-serves the UI document but returns a bare HTTP 404 for /api/v1/*, which the
-browser reports as "Media Manager returned HTTP 404".
+The supported public architecture is Cosmos Cloud as the owner-authenticated
+edge: /api and /health route to http://media-manager-api-1:8080 and / routes to
+http://media-manager-ui-1:3000, with the owner token injected server-side on the
+/api route. The legacy loopback Caddy gateway (http://127.0.0.1:${MEDIA_MANAGER_PORT})
+still works for local acceptance. In every case a public origin pointed at the
+ui container serves the UI document but returns a bare HTTP 404 for /api/v1/*,
+which the browser reports as "Media Manager returned HTTP 404".
 EOF
 }
 
@@ -137,8 +141,8 @@ case "${status}" in
     ;;
   404)
     printf 'FAIL: %s/api/v1/dashboard returned HTTP 404.\n' "${origin}" >&2
-    printf 'The public route is reaching the UI container directly. Point the route\n' >&2
-    printf 'target at the gateway (http://127.0.0.1:${MEDIA_MANAGER_PORT}), not the ui service.\n' >&2
+    printf 'The public route is reaching the UI container directly. Route /api and /health\n' >&2
+    printf 'to the API (or the legacy loopback gateway) and keep only / on the ui container.\n' >&2
     exit 1
     ;;
   200)
@@ -150,7 +154,7 @@ case "${status}" in
     fi
     ;;
   301|302|303|307|308)
-    printf 'PASS: %s/api/v1/dashboard is behind an external auth gate (HTTP %s); the gateway cannot be inspected without a session.\n' "${origin}" "${status}"
+    printf 'PASS: %s/api/v1/dashboard is behind an authentication gate (HTTP %s); the API route is not the UI container. Authenticated content cannot be inspected without a session.\n' "${origin}" "${status}"
     ;;
   000)
     printf 'FAIL: could not reach %s.\n' "${origin}" >&2
