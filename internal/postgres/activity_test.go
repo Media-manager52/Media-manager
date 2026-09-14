@@ -6,6 +6,34 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
+func TestWorkflowOwnerActionRequiredUsesOnlyStopStates(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		item WorkflowSummary
+		want bool
+	}{
+		{name: "needs attention", item: WorkflowSummary{State: workflows.StateNeedsAttention}, want: true},
+		{name: "blocked", item: WorkflowSummary{State: workflows.StateBlocked}, want: true},
+		{name: "quarantined", item: WorkflowSummary{State: workflows.StateQuarantined}, want: true},
+		{name: "transport unknown", item: WorkflowSummary{State: workflows.StateTransportUnknown}, want: true},
+		{name: "waiting with ready discovery", item: WorkflowSummary{State: workflows.StateWaiting, RetryDiscoveryState: "ready"}, want: true},
+		{name: "waiting with scheduled discovery", item: WorkflowSummary{State: workflows.StateWaiting, RetryDiscoveryState: "waiting"}},
+		{name: "plain waiting", item: WorkflowSummary{State: workflows.StateWaiting}},
+		{name: "held is recoverable", item: WorkflowSummary{State: workflows.StateHeld}},
+		{name: "searching", item: WorkflowSummary{State: workflows.StateSearching}},
+		{name: "queued", item: WorkflowSummary{State: workflows.StateQueued}},
+		{name: "import complete", item: WorkflowSummary{State: workflows.StateImportComplete}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := workflowOwnerActionRequired(test.item); got != test.want {
+				t.Fatalf("workflowOwnerActionRequired(%+v)=%v, want %v", test.item, got, test.want)
+			}
+		})
+	}
+}
+
 func TestWorkflowSearchReadinessMatchesRecoveryGuards(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

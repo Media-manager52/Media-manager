@@ -12,41 +12,47 @@ import (
 )
 
 type WorkflowSummary struct {
-	ID                                     uuid.UUID         `json:"id"`
-	MediaID                                uuid.UUID         `json:"media_id"`
-	MediaKind                              catalog.MediaKind `json:"media_kind"`
-	Title                                  string            `json:"title"`
-	Year                                   *uint16           `json:"year,omitempty"`
-	Variant                                string            `json:"variant"`
-	State                                  workflows.State   `json:"state"`
-	Revision                               uint64            `json:"revision"`
-	AttentionCode                          string            `json:"attention_code,omitempty"`
-	AttentionDetail                        string            `json:"attention_detail,omitempty"`
-	AcquisitionAttempts                    int               `json:"acquisition_attempts"`
-	RoundOrdinal                           int               `json:"round_ordinal"`
-	RoundState                             string            `json:"round_state,omitempty"`
-	RoundSlotsUsed                         int               `json:"round_slots_used"`
-	RoundAttemptLimit                      int               `json:"round_attempt_limit"`
-	RetryDiscoveryState                    string            `json:"retry_discovery_state,omitempty"`
-	NextRescanAt                           *time.Time        `json:"next_rescan_at,omitempty"`
-	LastDiscoveryAt                        *time.Time        `json:"last_discovery_at,omitempty"`
-	LastDiscoveryComplete                  *bool             `json:"last_discovery_complete,omitempty"`
-	CompleteNoNewScans                     int               `json:"complete_no_new_scans"`
-	NewReleaseReady                        bool              `json:"new_release_ready"`
-	ReadyCandidateID                       *uuid.UUID        `json:"ready_candidate_id,omitempty"`
-	ReadyReleaseTitle                      string            `json:"ready_release_title,omitempty"`
-	ReadyIndexerName                       string            `json:"ready_indexer_name,omitempty"`
-	ReadyFirstObservedAt                   *time.Time        `json:"ready_first_observed_at,omitempty"`
-	OpenNextRoundAllowed                   bool              `json:"open_next_round_allowed"`
-	RetainedOutputCount                    int               `json:"retained_output_count"`
-	RetainedOutputBytes                    int64             `json:"retained_output_bytes"`
-	ExcludedReleaseCount                   int               `json:"excluded_release_count"`
-	SearchAllowed                          bool              `json:"search_allowed"`
-	SearchBlockedReason                    string            `json:"search_blocked_reason,omitempty"`
-	AdoptedReplacementConfirmationRequired bool              `json:"adopted_replacement_confirmation_required"`
-	TerminalAt                             *time.Time        `json:"terminal_at,omitempty"`
-	CreatedAt                              time.Time         `json:"created_at"`
-	UpdatedAt                              time.Time         `json:"updated_at"`
+	ID                    uuid.UUID         `json:"id"`
+	MediaID               uuid.UUID         `json:"media_id"`
+	MediaKind             catalog.MediaKind `json:"media_kind"`
+	Title                 string            `json:"title"`
+	Year                  *uint16           `json:"year,omitempty"`
+	Variant               string            `json:"variant"`
+	State                 workflows.State   `json:"state"`
+	Revision              uint64            `json:"revision"`
+	AttentionCode         string            `json:"attention_code,omitempty"`
+	AttentionDetail       string            `json:"attention_detail,omitempty"`
+	AcquisitionAttempts   int               `json:"acquisition_attempts"`
+	RoundOrdinal          int               `json:"round_ordinal"`
+	RoundState            string            `json:"round_state,omitempty"`
+	RoundSlotsUsed        int               `json:"round_slots_used"`
+	RoundAttemptLimit     int               `json:"round_attempt_limit"`
+	RetryDiscoveryState   string            `json:"retry_discovery_state,omitempty"`
+	NextRescanAt          *time.Time        `json:"next_rescan_at,omitempty"`
+	LastDiscoveryAt       *time.Time        `json:"last_discovery_at,omitempty"`
+	LastDiscoveryComplete *bool             `json:"last_discovery_complete,omitempty"`
+	CompleteNoNewScans    int               `json:"complete_no_new_scans"`
+	NewReleaseReady       bool              `json:"new_release_ready"`
+	ReadyCandidateID      *uuid.UUID        `json:"ready_candidate_id,omitempty"`
+	ReadyReleaseTitle     string            `json:"ready_release_title,omitempty"`
+	ReadyIndexerName      string            `json:"ready_indexer_name,omitempty"`
+	ReadyFirstObservedAt  *time.Time        `json:"ready_first_observed_at,omitempty"`
+	OpenNextRoundAllowed  bool              `json:"open_next_round_allowed"`
+	RetainedOutputCount   int               `json:"retained_output_count"`
+	RetainedOutputBytes   int64             `json:"retained_output_bytes"`
+	ExcludedReleaseCount  int               `json:"excluded_release_count"`
+	SearchAllowed         bool              `json:"search_allowed"`
+	SearchBlockedReason   string            `json:"search_blocked_reason,omitempty"`
+	// OwnerActionRequired is the single owner-facing "needs attention"
+	// predicate. It is true only when the workflow cannot advance without the
+	// owner: an unresolved failure state, or a waiting workflow whose paced
+	// discovery found a new eligible release that the owner must approve.
+	// Self-recovering states (held, searching, normal waiting) are false.
+	OwnerActionRequired                    bool       `json:"owner_action_required"`
+	AdoptedReplacementConfirmationRequired bool       `json:"adopted_replacement_confirmation_required"`
+	TerminalAt                             *time.Time `json:"terminal_at,omitempty"`
+	CreatedAt                              time.Time  `json:"created_at"`
+	UpdatedAt                              time.Time  `json:"updated_at"`
 }
 
 func (store *Store) GetMedia(ctx context.Context, id uuid.UUID) (catalog.MediaItem, error) {
@@ -87,7 +93,7 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 	if mediaID != nil {
 		mediaIDValue = mediaID.String()
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(workflow.attention_detail,''),
+	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(NULLIF(workflow.attention_detail,''),(SELECT transition.reason FROM workflow_transitions transition WHERE transition.workflow_id=workflow.id AND transition.to_state='needs_attention' ORDER BY transition.to_revision DESC LIMIT 1),''),
 		COALESCE((SELECT max(job.attempt_generation) FROM altmount_jobs job WHERE job.workflow_id=workflow.id),0),
 		COALESCE((SELECT round.round_ordinal FROM acquisition_rounds round WHERE round.workflow_id=workflow.id ORDER BY round.round_ordinal DESC LIMIT 1),0),
 		COALESCE((SELECT round.state FROM acquisition_rounds round WHERE round.workflow_id=workflow.id ORDER BY round.round_ordinal DESC LIMIT 1),''),
@@ -144,10 +150,28 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 			item.Year = &converted
 		}
 		item.SearchAllowed, item.SearchBlockedReason = workflowSearchReadiness(item, publicationStarted, currentJobNeedsAttention)
+		item.OwnerActionRequired = workflowOwnerActionRequired(item)
 		item.OpenNextRoundAllowed = item.State == workflows.StateWaiting && item.RetryDiscoveryState == "ready" && item.NewReleaseReady && item.RetainedOutputCount < 4
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+// workflowOwnerActionRequired is the read-model definition of "needs
+// attention": the owner must act before the workflow can advance. A waiting
+// workflow only counts once paced discovery has produced a ready candidate the
+// owner must approve; while discovery is still waiting, the system is still
+// working. Held is a recoverable, paced no-selection state and never requires
+// owner action on its own.
+func workflowOwnerActionRequired(item WorkflowSummary) bool {
+	switch item.State {
+	case workflows.StateNeedsAttention, workflows.StateBlocked, workflows.StateQuarantined, workflows.StateTransportUnknown:
+		return true
+	case workflows.StateWaiting:
+		return item.RetryDiscoveryState == "ready"
+	default:
+		return false
+	}
 }
 
 func workflowSearchReadiness(item WorkflowSummary, publicationStarted, currentJobNeedsAttention bool) (bool, string) {

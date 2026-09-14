@@ -35,7 +35,10 @@ func (store *Store) Dashboard(ctx context.Context, now time.Time) (DashboardSnap
 		count(*) FILTER (WHERE kind='movie' AND deleted_at IS NULL),
 		count(*) FILTER (WHERE kind='series' AND deleted_at IS NULL),
 		(SELECT count(*) FROM workflows WHERE terminal_at IS NULL),
-		(SELECT count(*) FROM workflows WHERE terminal_at IS NULL AND state IN ('needs_attention','held','blocked','quarantined','transport_unknown')),
+		(SELECT count(*) FROM workflows WHERE terminal_at IS NULL AND (
+			state IN ('needs_attention','blocked','quarantined','transport_unknown')
+			OR (state='waiting' AND EXISTS(SELECT 1 FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=workflows.id AND discovery.state='ready'))
+		)),
 		(SELECT count(*) FROM library_link_versions WHERE state='current') +
 			(SELECT count(*) FROM adopted_files WHERE state='current'),
 		(SELECT count(*) FROM recycle_entries WHERE state NOT IN ('restored','purged')),
@@ -371,7 +374,10 @@ type WantedItem struct {
 	TargetProfile   string            `json:"target_profile"`
 	UpgradesEnabled bool              `json:"upgrades_enabled"`
 	AttentionDetail string            `json:"attention_detail,omitempty"`
-	UpdatedAt       time.Time         `json:"updated_at"`
+	// OwnerActionRequired mirrors WorkflowSummary.OwnerActionRequired for the
+	// wanted read model so every owner-facing list shares one predicate.
+	OwnerActionRequired bool      `json:"owner_action_required"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type CalendarEntry struct {
@@ -428,7 +434,9 @@ func (store *Store) ListWanted(ctx context.Context, limit int) ([]WantedItem, er
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,media.id::text,media.kind,media.title,media.year,workflow.variant,
 		CASE WHEN current_link.present THEN 'upgrade' ELSE 'missing' END,workflow.state,profile.name,profile.upgrades_enabled,
-		COALESCE(workflow.attention_detail,''),workflow.updated_at
+		COALESCE(workflow.attention_detail,''),
+		(workflow.state IN ('needs_attention','blocked','quarantined','transport_unknown') OR (workflow.state='waiting' AND EXISTS(SELECT 1 FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=workflow.id AND discovery.state='ready'))),
+		workflow.updated_at
 		FROM workflows workflow
 		JOIN media_items media ON media.id=workflow.media_id
 		JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
@@ -456,7 +464,7 @@ func (store *Store) ListWanted(ctx context.Context, limit int) ([]WantedItem, er
 		var item WantedItem
 		var workflowText, mediaText string
 		var year *int16
-		if err := rows.Scan(&workflowText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Gap, &item.CurrentState, &item.TargetProfile, &item.UpgradesEnabled, &item.AttentionDetail, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&workflowText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Gap, &item.CurrentState, &item.TargetProfile, &item.UpgradesEnabled, &item.AttentionDetail, &item.OwnerActionRequired, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.WorkflowID, _ = uuid.Parse(workflowText)

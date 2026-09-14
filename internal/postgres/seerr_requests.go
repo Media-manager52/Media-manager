@@ -96,7 +96,8 @@ const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 	LEFT JOIN quality_profiles profile ON profile.id=primary_workflow.quality_profile_id
 	LEFT JOIN LATERAL (
 		SELECT count(*)::int AS workflow_count,
-			count(*) FILTER (WHERE workflow.state IN ('needs_attention','quarantined','held','blocked','transport_unknown'))::int AS attention_count,
+			count(*) FILTER (WHERE workflow.state IN ('needs_attention','quarantined','blocked','transport_unknown')
+				OR (workflow.state='waiting' AND EXISTS(SELECT 1 FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=workflow.id AND discovery.state='ready')))::int AS attention_count,
 			count(*) FILTER (WHERE workflow.state='plex_confirmed')::int AS confirmed_count
 		FROM seerr_request_workflows link
 		JOIN workflows workflow ON workflow.id=link.workflow_id

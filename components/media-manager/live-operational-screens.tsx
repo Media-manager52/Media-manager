@@ -568,7 +568,7 @@ export function LiveWantedScreen() {
   const items = data ?? []
   const missing = items.filter((item) => item.gap === "missing").length
   const upgrades = items.filter((item) => item.gap === "upgrade").length
-  const attention = items.filter((item) => ["needs_attention", "held", "blocked", "quarantined", "transport_unknown"].includes(item.current_state)).length
+  const attention = items.filter((item) => item.owner_action_required).length
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
     <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Missing" value={String(missing)} note="Active scope has no current publication" tone={missing ? "info" : "good"} icon={Search} /><MetricCard label="Upgrades" value={String(upgrades)} note="Current publication remains until replacement verification" tone={upgrades ? "info" : "good"} icon={Gauge} /><MetricCard label="Needs attention" value={String(attention)} note="Persisted workflow state, not a global failure" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>

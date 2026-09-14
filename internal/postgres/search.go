@@ -400,6 +400,13 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		selectedValue = selected.String()
 	}
 	var attentionCode, attentionDetail any
+	if to == workflows.StateHeld {
+		// Held means at least one candidate was observed but none satisfied
+		// the required release evidence. That is a recoverable, paced no-
+		// selection outcome, not a terminal failure, so it schedules the same
+		// bounded retry as waiting and records why the owner is seeing held.
+		attentionDetail = "Releases were observed but none satisfied the required release evidence; a paced retry is scheduled."
+	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state=$2,selected_release_id=$3,revision=$4,updated_at=$5,attention_code=$7,attention_detail=$8 WHERE id=$1 AND revision=$6`, search.Workflow.ID.String(), to, selectedValue, newRevision, now.UTC(), revision, attentionCode, attentionDetail); err != nil {
 		return workflows.Workflow{}, err
 	}
@@ -414,8 +421,12 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'release.retrieve_requested',$4,$5,$5) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), newRevision, string(payload), now.UTC()); err != nil {
 			return workflows.Workflow{}, err
 		}
-	} else if to == workflows.StateWaiting {
-		payload, _ := json.Marshal(map[string]string{"workflow_id": search.Workflow.ID.String(), "reason": "no eligible release yet"})
+	} else if to == workflows.StateWaiting || to == workflows.StateHeld {
+		retryReason := "no eligible release yet"
+		if to == workflows.StateHeld {
+			retryReason = "observed releases were held by required evidence; retrying"
+		}
+		payload, _ := json.Marshal(map[string]string{"workflow_id": search.Workflow.ID.String(), "reason": retryReason})
 		nextSearchAt := now.UTC().Add(30 * time.Minute)
 		var priorSubmissions int
 		if err := transaction.QueryRow(ctx, `SELECT count(*) FROM altmount_jobs WHERE workflow_id=$1`, search.Workflow.ID.String()).Scan(&priorSubmissions); err != nil {

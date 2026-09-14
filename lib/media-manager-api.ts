@@ -22,6 +22,7 @@ export type APIWorkflow = {
   complete_no_new_scans?: number; new_release_ready?: boolean; ready_candidate_id?: string; ready_release_title?: string; ready_indexer_name?: string; ready_first_observed_at?: string; open_next_round_allowed?: boolean
   retained_output_count?: number; retained_output_bytes?: number; excluded_release_count?: number
   search_allowed?: boolean; search_blocked_reason?: string; adopted_replacement_confirmation_required: boolean
+  owner_action_required?: boolean
   terminal_at?: string; created_at: string; updated_at: string
 }
 export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string; created_at: string; updated_at: string }
@@ -44,7 +45,7 @@ export type APISourceStatus = APIIntegration & { configuration_state: "configure
 export type APISystemHealth = { database_state: string; database_latency_ms: number; schema_version: number; expected_schema: number; outbox: { pending: number; due: number; retrying: number; oldest_due_at?: string }; components: APISourceStatus[]; checked_at: string }
 export type APIMediaSeason = { number: number; monitored: boolean; prefer_season_pack: boolean; search_immediately: boolean; state: string; expected_episodes: number; released_episodes?: number; future_episodes?: number; workflow_id?: string; workflow_state?: string; waiting_reason?: string; last_search_at?: string; next_search_at?: string; updated_at: string }
 export type APIMediaDetail = { media: APIMedia; workflows: APIWorkflow[]; seasons: APIMediaSeason[]; files: APIManagedFile[] }
-export type APIWantedItem = { workflow_id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; gap: "missing" | "upgrade"; current_state: string; target_profile: string; upgrades_enabled: boolean; attention_detail?: string; updated_at: string }
+export type APIWantedItem = { workflow_id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; gap: "missing" | "upgrade"; current_state: string; target_profile: string; upgrades_enabled: boolean; attention_detail?: string; owner_action_required?: boolean; updated_at: string }
 export type APIRequestSeason = { number: number; availability: number; requested: boolean; monitored?: boolean; workflow_id?: string; workflow_state?: string }
 export type APIRequest = {
   id: string; request_id: string; seerr_instance_id: string

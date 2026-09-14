@@ -136,7 +136,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			return nil
 		}
 	} else {
-		if search.Workflow.State != workflows.StateMonitored && search.Workflow.State != workflows.StateWaiting || search.Workflow.Revision != event.AggregateRevision {
+		if search.Workflow.State != workflows.StateMonitored && search.Workflow.State != workflows.StateWaiting && search.Workflow.State != workflows.StateHeld || search.Workflow.Revision != event.AggregateRevision {
 			return nil
 		}
 		search.Workflow, err = service.Store.TransitionWorkflow(ctx, search.Workflow.ID, search.Workflow.Revision, workflows.StateSearching, "targeted search requested", "worker", time.Now().UTC())

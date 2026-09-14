@@ -124,7 +124,7 @@ export function LiveDashboardScreen() {
       .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load the overview") })
     return () => controller.abort()
   }, [])
-  const attention = workflows.filter((workflow) => ["needs_attention", "held", "blocked", "quarantined"].includes(workflow.state)).length
+  const attention = workflows.filter((workflow) => workflow.owner_action_required).length
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
