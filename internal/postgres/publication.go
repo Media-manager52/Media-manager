@@ -124,11 +124,7 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 	if err != nil {
 		return PublicationContext{}, err
 	}
-	text := workflow.SelectedRelease.String()
-	if len(text) > 8 {
-		text = text[:8]
-	}
-	result.ReleaseToken = "MM-" + text
+	result.ReleaseToken = releaseToken(*workflow.SelectedRelease)
 	var factsBody []byte
 	if factErr := store.Pool.QueryRow(ctx, `SELECT observation.normalized_facts FROM release_candidates candidate JOIN release_observations observation ON observation.id=candidate.observation_id WHERE candidate.id=$1`, workflow.SelectedRelease.String()).Scan(&factsBody); factErr == nil {
 		var facts []releases.Fact
@@ -1002,6 +998,14 @@ func samplePublicationAsset(path string) bool {
 		}
 	}
 	return false
+}
+
+// releaseToken derives the durable, deterministic filename token for a
+// selected release. It embeds the full release UUID because the leading bytes
+// of a UUIDv7 are a timestamp: truncating them would make two releases selected
+// around the same time share a token and collide during an upgrade.
+func releaseToken(releaseID uuid.UUID) string {
+	return "MM-" + strings.ReplaceAll(releaseID.String(), "-", "")
 }
 
 func splitPlexGUID(guid string) (string, string) {
