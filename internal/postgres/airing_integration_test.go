@@ -276,3 +276,28 @@ func assertEpisodeIntentUnchanged(t *testing.T, ctx context.Context, store *Stor
 func episodeVariantForTest(season, episode uint16) string {
 	return workflows.EpisodeVariant(season, episode)
 }
+
+func TestDispatchSeasonWithoutExpectationKeepsLegacyPackSearch(t *testing.T) {
+	store, rootID, profileID, clientID := openAiringTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	series, workflowID := createAiringSeries(t, ctx, store, rootID, profileID, clientID, "No Expectation", []ManualEpisode{
+		{Number: 1, ProviderID: "tmdb:1", AirDate: now.AddDate(0, 0, -3).Format("2006-01-02")},
+	})
+	if _, err := store.Pool.Exec(ctx, `DELETE FROM pack_expected_episodes WHERE expectation_id IN (SELECT id FROM pack_expectation_sets WHERE workflow_id=$1)`, workflowID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `DELETE FROM pack_expectation_sets WHERE workflow_id=$1`, workflowID.String()); err != nil {
+		t.Fatal(err)
+	}
+	dispatched, err := store.DispatchAiringSeason(ctx, workflowID, now)
+	if err != nil {
+		t.Fatalf("dispatch without an expectation errored: %v", err)
+	}
+	if dispatched {
+		t.Fatal("a season without an expectation must keep the legacy pack search")
+	}
+	if got := countEpisodeWorkflows(t, ctx, store, series.ID, 1); got != 0 {
+		t.Fatalf("unexpected episode workflows=%d", got)
+	}
+}

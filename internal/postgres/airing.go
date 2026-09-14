@@ -85,6 +85,11 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 	var expectationText, seriesIdentity string
 	var sourceRevision int64
 	if err := transaction.QueryRow(ctx, `SELECT id::text,series_identity,source_revision FROM pack_expectation_sets WHERE workflow_id=$1 ORDER BY frozen_at DESC,id DESC LIMIT 1`, workflowID.String()).Scan(&expectationText, &seriesIdentity, &sourceRevision); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// A season without a frozen expectation keeps the legacy pack
+			// search; it is not an airing coordination failure.
+			return false, nil
+		}
 		return false, err
 	}
 	rows, err := transaction.Query(ctx, `SELECT season,episode,COALESCE(provider_episode_id,''),title,air_date FROM pack_expected_episodes WHERE expectation_id=$1 ORDER BY episode`, expectationText)
