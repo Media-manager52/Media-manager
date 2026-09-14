@@ -68,6 +68,26 @@ written to artifacts. Results stay under
 
 Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, UI, and Caddy use isolated private networks; only the authenticated API also joins the external integrations network. No service port except the loopback gateway is published. Caddy proxies `/api/*` and injects the owner credential only after its own owner login. Do not change `MEDIA_MANAGER_BIND` to a LAN address unless another authenticated TLS proxy protects that listener.
 
+### Public edge route
+
+The public reverse proxy (for example a Cosmos Cloud route) must target the
+authenticated Caddy gateway at `http://127.0.0.1:${MEDIA_MANAGER_PORT}`, never
+the `ui` container. Caddy owns the UI document and `/api/*` on one origin and
+injects the owner token server-side. A route pointed at the `ui` container
+serves the document but answers `/api/v1/*` with a bare HTTP 404, which the
+browser surfaces as "Media Manager returned HTTP 404".
+
+Verify the deployed public origin without changing server state:
+
+```sh
+scripts/smoke-public-edge.sh https://media-manager.example.com
+```
+
+Add `--authenticated` to also confirm, with the existing owner password, that
+the public origin serves the UI document and the API from the same gateway
+origin. The check fails loudly if the public route reaches the `ui` container
+directly.
+
 Compose passes PostgreSQL credentials as discrete `PG*` variables, so a strong database password does not need URL escaping. A standalone API deployment may instead provide `DATABASE_URL`.
 
 ## Mount contract
