@@ -3,6 +3,7 @@ package acquisition
 import (
 	"reflect"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
@@ -125,6 +126,42 @@ func TestBuildRequestUsesVerifiedTVPackDialect(t *testing.T) {
 	}
 	if !reflect.DeepEqual(request, want) {
 		t.Fatalf("request=%#v, want %#v", request, want)
+	}
+}
+
+func TestBuildRequestUsesVerifiedTVEpisodeDialect(t *testing.T) {
+	year := uint16(2026)
+	search := postgres.SearchContext{Variant: "season:01:episode:04", Media: catalog.MediaItem{
+		Kind:  catalog.KindSeries,
+		Title: "Rivalerne",
+		Year:  &year,
+		Identities: []catalog.ExternalIdentity{
+			{Namespace: "tvdb", Value: "481455", State: catalog.IdentityVerified},
+		},
+	}}
+	config := indexerConfig{
+		Categories:     []int{5000, 5040},
+		Extended:       true,
+		MaximumLimit:   250,
+		SearchDialects: newznab.SearchDialects{Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "tvdbid", "season", "ep", "year"}}},
+	}
+	request := buildRequest(search, config)
+	want := newznab.SearchRequest{
+		Mode:       "tvsearch",
+		Params:     []newznab.Param{{Name: "q", Value: "Rivalerne"}, {Name: "tvdbid", Value: "481455"}, {Name: "season", Value: "1"}, {Name: "ep", Value: "4"}, {Name: "year", Value: "2026"}},
+		Categories: []int{5000, 5040},
+		Limit:      100,
+		Extended:   true,
+	}
+	if !reflect.DeepEqual(request, want) {
+		t.Fatalf("request=%#v, want %#v", request, want)
+	}
+
+	// A general-search dialect keeps the exact episode token inside the query
+	// rather than emitting unsupported parameters.
+	general := buildRequest(search, indexerConfig{Mode: "search", ModeVerified: true})
+	if !reflect.DeepEqual(general.Params, []newznab.Param{{Name: "q", Value: "Rivalerne S01E04"}}) {
+		t.Fatalf("general episode params=%#v", general.Params)
 	}
 }
 
@@ -289,5 +326,48 @@ func TestWorkflowReleaseExclusionOnlyRejectsExactNativeRelease(t *testing.T) {
 				t.Fatalf("verdict=%q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestWorkflowScopeRulesSeparateEpisodeAndPackScope(t *testing.T) {
+	now := time.Unix(1, 0).UTC()
+	evaluate := func(t *testing.T, variant, title string) releases.Verdict {
+		t.Helper()
+		rules, err := workflowScopeRules(variant)
+		if err != nil {
+			t.Fatalf("rules for %q: %v", variant, err)
+		}
+		observation := releases.InferTitleFacts(releases.Observation{Title: title}, now)
+		evaluation, err := releases.Evaluate(observation, rules)
+		if err != nil {
+			t.Fatalf("evaluate %q: %v", title, err)
+		}
+		return evaluation.Verdict
+	}
+
+	// Airing episode workflow: exactly the released episode is eligible.
+	if verdict := evaluate(t, "season:01:episode:01", "Rivalerne.2026.S01E01.DANiSH.1080p.WEB-DL.H.264.AAC2.0-SHOWTiME"); verdict != releases.VerdictEligible {
+		t.Fatalf("released E01 verdict=%q, want eligible", verdict)
+	}
+	if verdict := evaluate(t, "season:01:episode:01", "Rivalerne.S01E02.DANiSH.1080p.WEB-DL.H.264.AAC2.0-SHOWTiME"); verdict != releases.VerdictRejected {
+		t.Fatalf("future E02 verdict=%q, want rejected for the E01 workflow", verdict)
+	}
+	if verdict := evaluate(t, "season:01:episode:01", "Rivalerne.S01.DANiSH.1080p.WEB-DL.H.264.AAC2.0-SHOWTiME"); verdict != releases.VerdictRejected {
+		t.Fatalf("season pack verdict=%q, want rejected for an episode workflow", verdict)
+	}
+
+	// Complete entirely-missing season workflow: only a pack is eligible.
+	if verdict := evaluate(t, "season:01", "Rivalerne.S01.DANiSH.1080p.WEB-DL.H.264.AAC2.0-SHOWTiME"); verdict != releases.VerdictEligible {
+		t.Fatalf("season pack verdict=%q, want eligible", verdict)
+	}
+	if verdict := evaluate(t, "season:01", "Rivalerne.S01E01.DANiSH.1080p.WEB-DL.H.264.AAC2.0-SHOWTiME"); verdict != releases.VerdictRejected {
+		t.Fatalf("single episode verdict=%q, want rejected for a season workflow", verdict)
+	}
+
+	if rules, err := workflowScopeRules("default"); err != nil || len(rules) != 0 {
+		t.Fatalf("default rules=%v err=%v", rules, err)
+	}
+	if _, err := workflowScopeRules("season:bad"); err == nil {
+		t.Fatal("invalid season variant was accepted")
 	}
 }

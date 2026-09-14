@@ -113,6 +113,21 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		}
 		return errors.New("no enabled commissioned Newznab indexer is available for this search")
 	}
+	if !recovery && search.Media.Kind == catalog.KindSeries && search.Workflow.Revision == event.AggregateRevision {
+		if scope, ok := workflows.ParseVariant(search.Variant); ok && scope.Kind == workflows.VariantSeason {
+			dispatched, dispatchErr := service.Store.DispatchAiringSeason(ctx, search.Workflow.ID, time.Now().UTC())
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			if dispatched {
+				// A currently airing or partially acquired season is coordinated as
+				// individual released episodes. The season workflow does not search
+				// for a complete pack until the season is complete and entirely
+				// missing.
+				return nil
+			}
+		}
+	}
 	if recovery {
 		// Recovery discovery is an evidence-only sub-workflow. It never changes
 		// the acquisition workflow to searching or selects a release.
@@ -138,17 +153,11 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		return err
 	}
 	rules = appendSubtitleRules(rules, subtitlePolicy)
-	if strings.HasPrefix(search.Variant, "season:") {
-		season := seasonNumber(search.Variant)
-		if season < 0 {
-			return errors.New("season workflow has an invalid variant")
-		}
-		rules = append([]releases.Rule{
-			{Name: "Requested season", Fact: "season_number", AllowedValues: []string{strconv.Itoa(season)}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold},
-			{Name: "Complete season pack", Fact: "release_scope", AllowedValues: []string{"season_pack"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold},
-			{Name: "Prefer complete season pack", Fact: "release_scope", AllowedValues: []string{"season_pack"}, Kind: releases.RulePreferred, Weight: 10000, Unknown: releases.UnknownAllow},
-		}, rules...)
+	scopeRules, scopeErr := workflowScopeRules(search.Variant)
+	if scopeErr != nil {
+		return scopeErr
 	}
+	rules = append(scopeRules, rules...)
 	var currentEvaluation *releases.Evaluation
 	if search.CurrentRelease != nil {
 		evaluatedCurrent, evaluateErr := releases.Evaluate(*search.CurrentRelease, rules)
@@ -435,19 +444,27 @@ func buildRequest(search postgres.SearchContext, config indexerConfig) newznab.S
 	}
 	mode := dialect.Mode
 	params := []newznab.Param{}
-	season := seasonNumber(search.Variant)
-	if search.Media.Kind == catalog.KindSeries && season >= 0 {
+	scope, scopeOK := workflows.ParseVariant(search.Variant)
+	if search.Media.Kind == catalog.KindSeries && scopeOK && (scope.Kind == workflows.VariantSeason || scope.Kind == workflows.VariantEpisode) {
+		season := int(scope.Season)
 		if mode == "tvsearch" {
 			params = appendSupported(params, dialect, "q", search.Media.Title)
 			params = appendIdentity(params, dialect, search.Media, "tvdb", "tvdbid")
 			params = appendIdentity(params, dialect, search.Media, "tmdb", "tmdbid")
 			params = appendIdentity(params, dialect, search.Media, "imdb", "imdbid")
 			params = appendSupported(params, dialect, "season", strconv.Itoa(season))
+			if scope.Kind == workflows.VariantEpisode {
+				params = appendSupported(params, dialect, "ep", strconv.Itoa(int(scope.Episode)))
+			}
 			if search.Media.Year != nil {
 				params = appendSupported(params, dialect, "year", strconv.Itoa(int(*search.Media.Year)))
 			}
 		} else {
-			params = append(params, newznab.Param{Name: "q", Value: fmt.Sprintf("%s S%02d", search.Media.Title, season)})
+			token := fmt.Sprintf("%s S%02d", search.Media.Title, season)
+			if scope.Kind == workflows.VariantEpisode {
+				token = fmt.Sprintf("%s S%02dE%02d", search.Media.Title, season, scope.Episode)
+			}
+			params = append(params, newznab.Param{Name: "q", Value: token})
 		}
 	} else {
 		query := search.Media.Title
@@ -535,4 +552,35 @@ func seasonNumber(variant string) int {
 		return -1
 	}
 	return value
+}
+
+// workflowScopeRules returns the durable scope rules that are prepended to a
+// workflow's quality policy. A complete-season workflow still requires a season
+// pack. An episode workflow requires the exact released episode and a single
+// episode release, so a currently airing season never downloads unrelated
+// future episodes and never waits for a pack that cannot exist yet.
+func workflowScopeRules(variant string) ([]releases.Rule, error) {
+	scope, ok := workflows.ParseVariant(variant)
+	if !ok {
+		if strings.HasPrefix(variant, "season:") {
+			return nil, errors.New("season workflow has an invalid variant")
+		}
+		return nil, nil
+	}
+	switch scope.Kind {
+	case workflows.VariantSeason:
+		return []releases.Rule{
+			{Name: "Requested season", Fact: "season_number", AllowedValues: []string{strconv.Itoa(int(scope.Season))}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold},
+			{Name: "Complete season pack", Fact: "release_scope", AllowedValues: []string{"season_pack"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold},
+			{Name: "Prefer complete season pack", Fact: "release_scope", AllowedValues: []string{"season_pack"}, Kind: releases.RulePreferred, Weight: 10000, Unknown: releases.UnknownAllow},
+		}, nil
+	case workflows.VariantEpisode:
+		return []releases.Rule{
+			{Name: "Requested season", Fact: "season_number", AllowedValues: []string{strconv.Itoa(int(scope.Season))}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold},
+			{Name: "Requested episode", Fact: "episode_number", AllowedValues: []string{strconv.Itoa(int(scope.Episode))}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold},
+			{Name: "Single episode release", Fact: "release_scope", AllowedValues: []string{"episode"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold},
+		}, nil
+	default:
+		return nil, nil
+	}
 }

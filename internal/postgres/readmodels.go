@@ -267,8 +267,11 @@ type MediaSeason struct {
 	SearchImmediately bool       `json:"search_immediately"`
 	State             string     `json:"state"`
 	ExpectedEpisodes  int        `json:"expected_episodes"`
+	ReleasedEpisodes  int        `json:"released_episodes"`
+	FutureEpisodes    int        `json:"future_episodes"`
 	WorkflowID        *uuid.UUID `json:"workflow_id,omitempty"`
 	WorkflowState     string     `json:"workflow_state,omitempty"`
+	WaitingReason     string     `json:"waiting_reason,omitempty"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
@@ -294,15 +297,18 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 		return MediaDetail{}, err
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT monitoring.season_number,monitoring.monitored,monitoring.prefer_season_pack,monitoring.search_immediately,monitoring.state,
-		COALESCE(expectation.expected_episodes,0),workflow.id::text,COALESCE(workflow.state,''),monitoring.updated_at
+		COALESCE(expectation.expected_episodes,0),COALESCE(expectation.released_episodes,0),COALESCE(expectation.future_episodes,0),workflow.id::text,COALESCE(workflow.state,''),COALESCE(workflow.attention_detail,''),monitoring.updated_at
 		FROM season_monitoring monitoring
 		LEFT JOIN LATERAL (
-			SELECT item.id,item.state FROM workflows item
+			SELECT item.id,item.state,item.attention_detail FROM workflows item
 			WHERE item.media_id=monitoring.media_id AND item.variant='season:' || lpad(monitoring.season_number::text,2,'0')
 			ORDER BY item.updated_at DESC,item.id DESC LIMIT 1
 		) workflow ON true
 		LEFT JOIN LATERAL (
-			SELECT count(*)::int AS expected_episodes FROM pack_expected_episodes episode
+			SELECT count(*)::int AS expected_episodes,
+				count(*) FILTER (WHERE episode.air_date < CURRENT_DATE)::int AS released_episodes,
+				count(*) FILTER (WHERE episode.air_date IS NULL OR episode.air_date >= CURRENT_DATE)::int AS future_episodes
+			FROM pack_expected_episodes episode
 			JOIN pack_expectation_sets set_row ON set_row.id=episode.expectation_id
 			WHERE set_row.workflow_id=workflow.id
 		) expectation ON true
@@ -315,7 +321,7 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 		var season MediaSeason
 		var number int16
 		var workflowText *string
-		if err := rows.Scan(&number, &season.Monitored, &season.PreferSeasonPack, &season.SearchImmediately, &season.State, &season.ExpectedEpisodes, &workflowText, &season.WorkflowState, &season.UpdatedAt); err != nil {
+		if err := rows.Scan(&number, &season.Monitored, &season.PreferSeasonPack, &season.SearchImmediately, &season.State, &season.ExpectedEpisodes, &season.ReleasedEpisodes, &season.FutureEpisodes, &workflowText, &season.WorkflowState, &season.WaitingReason, &season.UpdatedAt); err != nil {
 			return MediaDetail{}, err
 		}
 		season.Number = uint16(number)

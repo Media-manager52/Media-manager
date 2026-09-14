@@ -54,6 +54,31 @@ func TestEpisodeEncodingTokenDoesNotBecomeSeasonPack(t *testing.T) {
 	t.Fatal("episode scope was not inferred")
 }
 
+func TestInferTitleFactsRecordsEpisodeNumberForSingleEpisode(t *testing.T) {
+	observation := InferTitleFacts(Observation{Title: "Rivalerne.S01E04.DANiSH.1080p.WEB-DL.H.264.AAC2.0-GROUP"}, time.Unix(1, 0))
+	want := map[string]string{"season_number": "1", "episode_number": "4", "release_scope": "episode"}
+	for _, fact := range observation.Facts {
+		if value, exists := want[fact.Name]; exists && len(fact.Values) == 1 && fact.Values[0] == value {
+			delete(want, fact.Name)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("single episode facts missing: %v", want)
+	}
+}
+
+func TestInferTitleFactsDoesNotRecordEpisodeNumberForRange(t *testing.T) {
+	observation := InferTitleFacts(Observation{Title: "Example.Show.S01E01-E10.2160p.WEB-DL"}, time.Unix(1, 0))
+	for _, fact := range observation.Facts {
+		if fact.Name == "episode_number" {
+			t.Fatalf("ranged release exposed an episode number: %+v", fact)
+		}
+		if fact.Name == "release_scope" && len(fact.Values) == 1 && fact.Values[0] != "season_pack" {
+			t.Fatalf("range scope=%q, want season_pack", fact.Values[0])
+		}
+	}
+}
+
 func TestTitleMatchesCanonicalPrefixAndYear(t *testing.T) {
 	if !TitleMatches("Blade.Runner.2049.2017.2160p", "Blade Runner 2049") || !TitleContainsYear("Blade.Runner.2049.2017.2160p", 2017) {
 		t.Fatal("canonical title and year were not recognized")

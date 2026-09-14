@@ -13,6 +13,7 @@ var (
 	seasonToken     = regexp.MustCompile(`(?i)(?:^|[ ._\-])S(\d{1,3})(?:$|[ ._\-]|E)`)
 	episodeToken    = regexp.MustCompile(`(?i)S\d{1,3}E\d{1,3}`)
 	episodeRange    = regexp.MustCompile(`(?i)S\d{1,3}E\d{1,3}(?:-E?\d{1,3}|E\d{1,3})(?:$|[ ._\-])`)
+	episodeNumber   = regexp.MustCompile(`(?i)S\d{1,3}E(\d{1,3})`)
 	titleSeparator  = regexp.MustCompile(`[^\pL\pN]+`)
 	audioTrueHD     = regexp.MustCompile(`(?i)(?:^|[ ._\-])true[ ._\-]?hd(?:$|[ ._\-])`)
 	audioDTSHDMA    = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts[ ._\-]?hd[ ._\-]?(?:ma|master[ ._\-]?audio)(?:$|[ ._\-])`)
@@ -130,6 +131,14 @@ func InferTitleFacts(observation Observation, observedAt time.Time) Observation 
 		inferred = append(inferred, Fact{Name: "release_scope", Values: []string{"season_pack"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	} else if episodeToken.MatchString(observation.Title) {
 		inferred = append(inferred, Fact{Name: "release_scope", Values: []string{"episode"}, State: FactInferred, ObservedAt: observedAt.UTC()})
+		// A single-episode release exposes an explicit episode number so an
+		// airing-season episode workflow can require the exact released episode
+		// instead of accepting an unrelated episode from the same season.
+		if match := episodeNumber.FindStringSubmatch(observation.Title); len(match) == 2 {
+			if number, err := strconv.Atoi(match[1]); err == nil && number > 0 {
+				inferred = append(inferred, Fact{Name: "episode_number", Values: []string{strconv.Itoa(number)}, State: FactInferred, ObservedAt: observedAt.UTC()})
+			}
+		}
 	} else if seasonToken.MatchString(observation.Title) || strings.Contains(lower, "complete season") || strings.Contains(lower, "season complete") {
 		inferred = append(inferred, Fact{Name: "release_scope", Values: []string{"season_pack"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	}
