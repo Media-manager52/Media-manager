@@ -258,3 +258,36 @@ func TestApplyReleaseBlocksUsesNarrowScope(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkflowReleaseExclusionOnlyRejectsExactNativeRelease pins the durable
+// exclusion scope: a failed release is rejected by exact indexer plus native
+// key, while a different release on the same indexer and the same native key
+// on a different indexer remain eligible.
+func TestWorkflowReleaseExclusionOnlyRejectsExactNativeRelease(t *testing.T) {
+	t.Parallel()
+	indexerID, otherIndexerID, candidateID := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	search := postgres.SearchContext{Exclusions: []postgres.WorkflowReleaseExclusion{{
+		CandidateID:       candidateID,
+		IndexerInstanceID: indexerID,
+		NativeKey:         "bad-guid",
+		FailureKind:       "release_retrieval",
+		Reason:            "provider rejected retrieval",
+	}}}
+	eligible := releases.Evaluation{Verdict: releases.VerdictEligible}
+	tests := []struct {
+		name        string
+		observation releases.Observation
+		want        releases.Verdict
+	}{
+		{name: "exact excluded release", observation: releases.Observation{IndexerID: indexerID, NativeGUID: "bad-guid"}, want: releases.VerdictRejected},
+		{name: "different release same indexer", observation: releases.Observation{IndexerID: indexerID, NativeGUID: "good-guid"}, want: releases.VerdictEligible},
+		{name: "same native key other indexer", observation: releases.Observation{IndexerID: otherIndexerID, NativeGUID: "bad-guid"}, want: releases.VerdictEligible},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := applyWorkflowExclusions(test.observation, eligible, search).Verdict; got != test.want {
+				t.Fatalf("verdict=%q, want %q", got, test.want)
+			}
+		})
+	}
+}
