@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 	"uuid"
 
@@ -31,10 +32,13 @@ type SeerrIntake struct {
 	InstanceID   string
 	RequestID    string
 	UpdatedAt    time.Time
+	RequestedAt  time.Time
 	RequestState string
 	Kind         catalog.MediaKind
 	Title        string
 	Year         *uint16
+	Requester    string
+	PosterURL    string
 	Identities   []catalog.ExternalIdentity
 	Metadata     *catalog.MediaMetadata
 	Seasons      []SeerrSeason
@@ -69,10 +73,10 @@ func (store *Store) UpsertSeerrSnapshot(ctx context.Context, intake SeerrIntake)
 	}
 	defer transaction.Rollback(ctx)
 	var revision int64
-	err = transaction.QueryRow(ctx, `INSERT INTO seerr_request_snapshots(seerr_instance_id,request_id,external_updated_at,state,identities,payload_sha256,last_delivery_id,revision,reconciled_at) VALUES($1,$2,$3,$4,$5,$6,$7,1,now())
-		ON CONFLICT(seerr_instance_id,request_id) DO UPDATE SET external_updated_at=EXCLUDED.external_updated_at,state=EXCLUDED.state,identities=EXCLUDED.identities,payload_sha256=EXCLUDED.payload_sha256,last_delivery_id=EXCLUDED.last_delivery_id,revision=seerr_request_snapshots.revision+1,reconciled_at=now()
+	err = transaction.QueryRow(ctx, `INSERT INTO seerr_request_snapshots(seerr_instance_id,request_id,external_updated_at,state,identities,payload_sha256,last_delivery_id,revision,reconciled_at,title,year,media_kind,poster_url,requested_at,requester) VALUES($1,$2,$3,$4,$5,$6,$7,1,now(),$8,$9,$10,$11,$12,$13)
+		ON CONFLICT(seerr_instance_id,request_id) DO UPDATE SET external_updated_at=EXCLUDED.external_updated_at,state=EXCLUDED.state,identities=EXCLUDED.identities,payload_sha256=EXCLUDED.payload_sha256,last_delivery_id=EXCLUDED.last_delivery_id,title=EXCLUDED.title,year=EXCLUDED.year,media_kind=EXCLUDED.media_kind,poster_url=EXCLUDED.poster_url,requested_at=EXCLUDED.requested_at,requester=EXCLUDED.requester,revision=seerr_request_snapshots.revision+1,reconciled_at=now()
 		WHERE seerr_request_snapshots.external_updated_at IS NULL OR (EXCLUDED.external_updated_at IS NOT NULL AND EXCLUDED.external_updated_at > seerr_request_snapshots.external_updated_at)
-		RETURNING revision`, intake.InstanceID, intake.RequestID, nullableTime(intake.UpdatedAt), intake.RequestState, string(identities), intake.PayloadHash, intake.DeliveryID.String()).Scan(&revision)
+		RETURNING revision`, intake.InstanceID, intake.RequestID, nullableTime(intake.UpdatedAt), intake.RequestState, string(identities), intake.PayloadHash, intake.DeliveryID.String(), nullString(intake.Title), nullableYear(intake.Year), nullString(string(intake.Kind)), nullString(intake.PosterURL), nullableTime(intake.RequestedAt), nullString(intake.Requester)).Scan(&revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var existingUpdated *time.Time
 		var existingHash []byte
@@ -478,6 +482,20 @@ func (store *Store) ReconcileSeerrRevocation(ctx context.Context, instanceID, re
 		}
 	}
 	return needsAttention, transaction.Commit(ctx)
+}
+
+func nullString(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableYear(value *uint16) any {
+	if value == nil {
+		return nil
+	}
+	return int16(*value)
 }
 
 func packExpectationDigest(mediaID uuid.UUID, season SeerrSeason) []byte {

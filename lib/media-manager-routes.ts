@@ -6,6 +6,7 @@ export const routeTitles: Record<string, { area: string; title: string; subtitle
   "/collections": { area: "Library", title: "Collections", subtitle: "Franchises, smart rules, and custom media groupings." },
   "/calendar": { area: "Library", title: "Calendar", subtitle: "Future releases and episodes that Media Manager is monitoring." },
   "/wanted": { area: "Library", title: "Wanted & Upgrades", subtitle: "Missing media and independent quality, language, audio, and subtitle goals." },
+  "/requests": { area: "Library", title: "Requests", subtitle: "Seerr-originated requests and their exact Media Manager lifecycle, from intake to Plex confirmation." },
   "/import": { area: "Library", title: "Import", subtitle: "Build a reviewed, reversible plan before adopting or publishing files." },
   "/activity/queue": { area: "Activity", title: "Queue", subtitle: "Live work across AltMount, import, verification, and Plex publication." },
   "/activity/recycle": { area: "Activity", title: "Recycle", subtitle: "Restore managed links during the 30-day retention window; AltMount source files remain untouched." },

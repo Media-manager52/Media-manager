@@ -114,6 +114,8 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/blocklist", server.requireOwner(server.createReleaseBlock))
 	server.mux.HandleFunc("DELETE /api/v1/blocklist/{id}", server.requireOwner(server.deleteReleaseBlock))
 	server.mux.HandleFunc("GET /api/v1/wanted", server.requireOwner(server.listWanted))
+	server.mux.HandleFunc("GET /api/v1/requests", server.requireOwner(server.listRequests))
+	server.mux.HandleFunc("GET /api/v1/requests/{id}", server.requireOwner(server.getRequest))
 	server.mux.HandleFunc("GET /api/v1/sources", server.requireOwner(server.listSources))
 	server.mux.HandleFunc("GET /api/v1/import-lists", server.requireOwner(server.listImportLists))
 	server.mux.HandleFunc("POST /api/v1/import-lists", server.requireOwner(server.createImportList))
@@ -961,6 +963,44 @@ func (server *Server) listWanted(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) listRequests(writer http.ResponseWriter, request *http.Request) {
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(request.URL.Query().Get("offset"))
+	items, err := server.store.ListSeerrRequests(request.Context(), server.config.SeerrInstanceID, limit, offset)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load requests")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]any{
+		"limit":            limit,
+		"offset":           offset,
+		"count":            len(items),
+		"seerr_configured": server.config.SeerrInstanceID != "",
+	}})
+}
+
+func (server *Server) getRequest(writer http.ResponseWriter, request *http.Request) {
+	id := strings.TrimSpace(request.PathValue("id"))
+	if id == "" {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request id is required")
+		return
+	}
+	if server.config.SeerrInstanceID == "" {
+		writeError(writer, http.StatusNotFound, "not_found", "request was not found")
+		return
+	}
+	detail, err := server.store.SeerrRequest(request.Context(), server.config.SeerrInstanceID, id)
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "request was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load request")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: detail})
 }
 
 func (server *Server) listTasks(writer http.ResponseWriter, request *http.Request) {

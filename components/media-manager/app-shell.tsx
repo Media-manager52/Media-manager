@@ -16,6 +16,7 @@ import {
   Globe2,
   HardDrive,
   HeartPulse,
+  Inbox,
   Library,
   ListChecks,
   MonitorCog,
@@ -92,6 +93,7 @@ import {
   LiveNotificationsScreen,
   LiveOperationalDashboardScreen,
   LiveReleaseIntelligenceScreen,
+  LiveRequestsScreen,
   LiveSourcesScreen,
   LiveSystemInfoScreen,
   LiveTasksScreen,
@@ -110,6 +112,7 @@ const liveNavigation: NavGroup[] = [
     { label: "Collections", href: "/collections", icon: BookOpenCheck },
     { label: "Calendar", href: "/calendar", icon: FileClock },
     { label: "Wanted & Upgrades", href: "/wanted", icon: ListChecks },
+    { label: "Requests", href: "/requests", icon: Inbox },
     { label: "File Manager", href: "/files", icon: Files },
     { label: "Adoption Review", href: "/import", icon: DatabaseBackup },
     { label: "Add media", href: "/discover", icon: Plus },
@@ -275,6 +278,7 @@ function RouteContent({ path }: { path: string }) {
   if (path === "/collections") return <LiveCollectionsScreen />
   if (path === "/calendar") return <LiveCalendarScreen />
   if (path === "/wanted") return <LiveWantedScreen />
+  if (path === "/requests") return <LiveRequestsScreen />
   if (normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId") return <LiveMediaDetailScreen mediaId={path.split("/").at(-1) ?? ""} />
   if (path === "/files") return <LiveFilesScreen />
   if (path === "/import") return <LiveAdoptionScreen />

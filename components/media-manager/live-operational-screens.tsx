@@ -12,6 +12,7 @@ import {
   Database,
   DatabaseBackup,
   Download,
+  ExternalLink,
   FileCheck2,
   Files,
   Film,
@@ -57,11 +58,13 @@ import {
   loadBackups,
   loadReleaseCandidates,
   loadReleaseBlocks,
+  loadRequest,
   loadSources,
   loadSystemHealth,
   loadSystemInfo,
   loadTasks,
   loadWanted,
+  loadRequests,
   loadWorkflows,
   refreshMediaMetadata,
   setNotificationDestinationEnabled,
@@ -73,6 +76,8 @@ import {
   type APISystemInfo,
   type APITasks,
   type APIImportList,
+  type APIRequest,
+  type APIRequestDetail,
 } from "@/lib/media-manager-api"
 import { cn } from "@/lib/utils"
 import {
@@ -84,6 +89,7 @@ import {
   type MediaLibraryRecord,
   type MediaLibrarySummary,
 } from "@/lib/media-library"
+import { filterRequests, requestFilterCounts, requestLifecycleLabel, requestLifecycleTone, seerrStateLabel, type RequestFilter } from "@/lib/media-manager-requests"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
 import { InlineNotice, KeyValue, MetricCard, Panel, StatusChip } from "./ui"
 
@@ -463,6 +469,98 @@ function InspectorRow({ label, value }: { label: string; value: string }) {
 
 function InspectorEmpty({ children }: { children: React.ReactNode }) {
   return <div className="rounded-[5px] border border-dashed border-[#283447] px-3 py-6 text-center text-[10px] text-[#9ba5b2]">{children}</div>
+}
+
+const requestsLoader = (signal: AbortSignal) => loadRequests(signal)
+
+export function RequestInspector({ request, detail, loading, error }: { request: APIRequest; detail: APIRequestDetail | null; loading: boolean; error: string }) {
+  const mediaHref = request.media_id ? (request.media_kind === "series" ? `/media/series/${request.media_id}` : `/media/movies/${request.media_id}`) : null
+  return <Panel title="Request detail" subtitle="Durable Seerr intake and Media Manager lifecycle state." action={mediaHref ? <Button asChild size="sm" variant="outline"><Link href={mediaHref}><ExternalLink /> Open media</Link></Button> : undefined}>
+    <div className="flex items-start gap-3">
+      <MetadataArtwork src={request.poster_url} fallback={request.media_kind === "series" ? "/media/series-placeholder.svg" : "/media/movie-placeholder.svg"} alt="" width={108} height={162} className="aspect-[2/3] w-[72px] shrink-0 rounded border border-[#303c50] object-cover" />
+      <div className="min-w-0">
+        <div className="text-[13px] font-bold text-[#f4f6fa]">{request.title || `Request ${request.request_id}`}</div>
+        <div className="text-[10px] text-[#929dac]">{request.year ?? "Year unknown"} · {request.media_kind === "series" ? "TV series" : "Movie"}</div>
+        <div className="mt-1.5 flex flex-wrap gap-1"><StatusChip tone={requestLifecycleTone(request.lifecycle)}>{requestLifecycleLabel(request.lifecycle)}</StatusChip><StatusChip tone="neutral">Seerr {seerrStateLabel(request.seerr_state)}</StatusChip></div>
+      </div>
+    </div>
+    {request.attention_detail || request.intake_error ? <div className="mt-3"><InlineNotice tone="warn" title="Needs attention">{request.attention_detail || request.intake_error}</InlineNotice></div> : null}
+    <div className="mt-3">
+      <KeyValue label="Seerr request ID" value={request.request_id} />
+      <KeyValue label="Requester" value={request.requester || "Not persisted"} />
+      <KeyValue label="Requested" value={request.requested_at ? new Date(request.requested_at).toLocaleString() : "Unknown"} />
+      <KeyValue label="Last updated" value={new Date(request.updated_at).toLocaleString()} />
+      <KeyValue label="Intake outcome" value={request.intake_outcome ? pretty(request.intake_outcome) : "—"} />
+      <KeyValue label="Quality profile" value={request.quality_profile || "Not assigned"} />
+      {request.media_kind === "series" ? <KeyValue label="Seasons" value={`${request.available_seasons} available of ${request.season_count} requested`} /> : null}
+    </div>
+    {loading ? <div className="mt-3 text-[10px] text-[#748090]">Loading linked workflows…</div> : null}
+    {error ? <div className="mt-3 text-[10px] text-[#f1a6a6]">{error}</div> : null}
+    {detail ? <>
+      {detail.workflows.length ? <div className="mt-4"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#9ba5b2]">Workflows</div><div className="space-y-2">{detail.workflows.map((workflow) => <div key={workflow.id} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="flex items-center justify-between gap-2"><StatusChip tone={workflowTone(workflow.state)}>{pretty(workflow.state)}</StatusChip><span className="text-[9px] text-[#929dac]">{timeAgo(workflow.updated_at)}</span></div><div className="mt-1 font-mono text-[9px] text-[#9ba5b2]">{workflow.variant}</div><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-[#748090]"><span>Attempts {workflow.acquisition_attempts}</span><span>Round {workflow.round_ordinal}/{workflow.round_attempt_limit}</span></div>{workflow.ready_release_title ? <div className="mt-1 truncate text-[9px] text-[#806eb8]">Ready: {workflow.ready_release_title}</div> : null}{workflow.attention_detail ? <div className="mt-1 text-[9px] text-[#d6b36d]">{workflow.attention_detail}</div> : null}</div>)}</div></div> : null}
+      {detail.seasons.length ? <div className="mt-4"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#9ba5b2]">Seasons</div><div className="space-y-1">{detail.seasons.map((season) => <div key={season.number} className="flex items-center justify-between gap-2 rounded-[5px] border border-[#202a39] bg-[#111925] px-2 py-1.5 text-[10px]"><span className="font-semibold text-[#dce1e7]">Season {String(season.number).padStart(2, "0")}</span><span className="text-[#929dac]">{season.availability === 5 ? "Available in Seerr" : season.workflow_state ? pretty(season.workflow_state) : "Requested"}</span></div>)}</div></div> : null}
+      {detail.files.length ? <div className="mt-4"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#9ba5b2]">Published files</div><div className="space-y-1">{detail.files.slice(0, 6).map((file) => <Link key={file.id} href={`/files/${file.id}`} className="block rounded-[5px] border border-[#202a39] bg-[#111925] px-2 py-1.5 text-[9px] hover:border-[#344155]"><div className="flex items-center justify-between gap-2"><span className="truncate text-[#dce1e7]">{file.variant}</span><StatusChip tone={file.state === "current" && file.plex_confirmed ? "good" : "neutral"}>{pretty(file.state)}</StatusChip></div><div className="mt-0.5 truncate font-mono text-[9px] text-[#748090]">{file.destination_relative}</div></Link>)}</div></div> : null}
+    </> : null}
+  </Panel>
+}
+
+export function LiveRequestsScreen() {
+  const { data, error, refresh } = useLiveData(requestsLoader)
+  const items = React.useMemo(() => data ?? [], [data])
+  const [filter, setFilter] = React.useState<RequestFilter>("all")
+  const [query, setQuery] = React.useState("")
+  const [selectedID, setSelectedID] = React.useState<string | null>(null)
+
+  const selected = items.find((item) => item.id === selectedID) ?? null
+  const detailLoader = React.useCallback((signal: AbortSignal) => (selectedID ? loadRequest(selectedID, signal) : Promise.resolve(null)), [selectedID])
+  const detail = useLiveData<APIRequestDetail | null>(detailLoader)
+
+  const counts = React.useMemo(() => requestFilterCounts(items), [items])
+  const filtered = React.useMemo(() => filterRequests(items, filter, query), [items, filter, query])
+
+  const filterOptions: Array<{ key: RequestFilter; label: string; count: number }> = [
+    { key: "all", label: "All", count: counts.total },
+    { key: "active", label: "Active", count: counts.active },
+    { key: "completed", label: "Completed", count: counts.completed },
+    { key: "attention", label: "Needs attention", count: counts.attention },
+    { key: "movie", label: "Movies", count: counts.movie },
+    { key: "series", label: "TV", count: counts.series },
+  ]
+
+  return <div className="space-y-4">
+    {error ? <ErrorNotice error={error} /> : null}
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <MetricCard label="Requests" value={String(counts.total)} note="Persisted Seerr requests" icon={Search} />
+      <MetricCard label="Active" value={String(counts.active)} note="Intake or acquisition in progress" tone={counts.active ? "info" : "neutral"} icon={Activity} />
+      <MetricCard label="Completed" value={String(counts.completed)} note="Plex confirmed or already available" tone="good" icon={CheckCircle2} />
+      <MetricCard label="Needs attention" value={String(counts.attention)} note="Owner-visible failures and held work" tone={counts.attention ? "warn" : "good"} icon={AlertTriangle} />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
+      <Panel className="!p-0" title="Seerr requests" subtitle="Every row maps to persisted Media Manager state; waiting and failed requests never look successful." action={<RefreshButton onClick={refresh} />}>
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-white/[0.06] p-3">
+          {filterOptions.map((option) => <button key={option.key} type="button" aria-pressed={filter === option.key} onClick={() => setFilter(option.key)} className={cn("rounded-full border px-2.5 py-1 text-[10px] font-semibold transition", filter === option.key ? "border-[#6d3add] bg-[#211b36] text-[#c6b5ff]" : "border-[#283447] bg-[#111925] text-[#9ba5b2] hover:border-[#344155]")}>{option.label} <span className="opacity-70">{option.count}</span></button>)}
+          <label className="relative ml-auto block w-full max-w-[230px]">
+            <span className="sr-only">Search requests</span>
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#8d99aa]" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, requester, ID" className="h-8 border-[#202a39] bg-[#0e141e] pl-8 text-[11px] shadow-none" />
+          </label>
+        </div>
+        {!data && !error ? <div className="p-10 text-center text-[11px] text-[#7f8a9a]">Loading persisted requests…</div>
+          : filtered.length === 0 ? <div className="p-10 text-center text-[11px] text-[#7f8a9a]">{items.length === 0 ? "No Seerr-originated requests are persisted yet." : "No requests match the active filter."}</div>
+          : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead>Profile</TableHead><TableHead>Requester</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>
+            {filtered.map((item) => <TableRow key={item.id} onClick={() => setSelectedID(item.id)} className={cn("cursor-pointer", selectedID === item.id && "bg-[#171428]")}>
+              <TableCell><div className="flex items-center gap-2"><MetadataArtwork src={item.poster_url} fallback={item.media_kind === "series" ? "/media/series-placeholder.svg" : "/media/movie-placeholder.svg"} alt="" width={48} height={72} className="h-12 w-8 rounded-[3px] border border-[#283447] object-cover" /><div className="min-w-0"><div className="truncate text-[11px] font-bold text-[#f4f6fa]">{item.title || `Request ${item.request_id}`}</div><div className="text-[9px] text-[#929dac]">{item.year ?? "Year unknown"} · Seerr #{item.request_id}</div>{item.media_kind === "series" && item.season_count ? <div className="text-[9px] text-[#748090]">{item.available_seasons}/{item.season_count} seasons available</div> : null}</div></div></TableCell>
+              <TableCell><StatusChip tone={item.media_kind === "series" ? "info" : "neutral"}>{item.media_kind === "series" ? "TV" : "Movie"}</StatusChip></TableCell>
+              <TableCell><StatusChip tone={requestLifecycleTone(item.lifecycle)}>{requestLifecycleLabel(item.lifecycle)}</StatusChip>{item.attention_detail || item.intake_error ? <div className="mt-1 max-w-xs text-[9px] text-[#d6b36d]">{item.attention_detail || item.intake_error}</div> : null}</TableCell>
+              <TableCell className="text-[10px]">{item.quality_profile || "—"}</TableCell>
+              <TableCell className="text-[10px]">{item.requester || "—"}</TableCell>
+              <TableCell className="whitespace-nowrap text-[10px] text-[#748090]">{timeAgo(item.updated_at)}</TableCell>
+            </TableRow>)}
+          </TableBody></Table></div>}
+      </Panel>
+      {selected ? <RequestInspector request={selected} detail={detail.data} loading={detail.data === null && !detail.error} error={detail.error} /> : <Panel title="Request detail" subtitle="Select a request to inspect its exact intake and lifecycle state."><div className="rounded-[5px] border border-dashed border-[#283447] px-3 py-10 text-center text-[10px] text-[#9ba5b2]">No request is selected.</div></Panel>}
+    </div>
+  </div>
 }
 
 export function LiveWantedScreen() {

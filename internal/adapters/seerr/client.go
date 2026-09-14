@@ -60,15 +60,19 @@ type statusSeason struct {
 type statusRequest struct {
 	Seasons []statusSeason `json:"seasons,omitempty"`
 }
+type RequestedBy struct {
+	DisplayName string `json:"displayName"`
+}
 type Request struct {
-	ID        int64     `json:"id"`
-	Status    int       `json:"status"`
-	Type      string    `json:"type"`
-	Is4K      bool      `json:"is4k"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	Media     Media     `json:"media"`
-	Seasons   []Season  `json:"seasons"`
+	ID          int64        `json:"id"`
+	Status      int          `json:"status"`
+	Type        string       `json:"type"`
+	Is4K        bool         `json:"is4k"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	UpdatedAt   time.Time    `json:"updatedAt"`
+	Media       Media        `json:"media"`
+	Seasons     []Season     `json:"seasons"`
+	RequestedBy *RequestedBy `json:"requestedBy"`
 }
 type ExternalIDs struct {
 	IMDbID string `json:"imdbId"`

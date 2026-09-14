@@ -58,7 +58,10 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 	if err != nil {
 		return err
 	}
-	intake := postgres.SeerrIntake{InstanceID: service.InstanceID, RequestID: payload.RequestID, UpdatedAt: request.UpdatedAt, RequestState: strconv.Itoa(request.Status), DeliveryID: deliveryID}
+	intake := postgres.SeerrIntake{InstanceID: service.InstanceID, RequestID: payload.RequestID, UpdatedAt: request.UpdatedAt, RequestedAt: request.CreatedAt, RequestState: strconv.Itoa(request.Status), DeliveryID: deliveryID}
+	if request.RequestedBy != nil {
+		intake.Requester = strings.TrimSpace(request.RequestedBy.DisplayName)
+	}
 	if request.Type == "movie" || request.Media.MediaType == "movie" {
 		intake.Kind = catalog.KindMovie
 	} else {
@@ -110,6 +113,7 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		}
 		intake.Metadata = enriched.Metadata
 		intake.Identities = enriched.Identities
+		intake.PosterURL = enriched.Metadata.PosterURL
 		if intake.Kind == catalog.KindSeries {
 			for seasonIndex := range intake.Seasons {
 				details, detailsErr := service.Client.SeasonMetadata(ctx, *request.Media.TMDBID, intake.Seasons[seasonIndex].Number)

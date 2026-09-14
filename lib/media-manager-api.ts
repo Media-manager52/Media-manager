@@ -45,6 +45,20 @@ export type APISystemHealth = { database_state: string; database_latency_ms: num
 export type APIMediaSeason = { number: number; monitored: boolean; prefer_season_pack: boolean; search_immediately: boolean; state: string; expected_episodes: number; workflow_id?: string; workflow_state?: string; updated_at: string }
 export type APIMediaDetail = { media: APIMedia; workflows: APIWorkflow[]; seasons: APIMediaSeason[]; files: APIManagedFile[] }
 export type APIWantedItem = { workflow_id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; gap: "missing" | "upgrade"; current_state: string; target_profile: string; upgrades_enabled: boolean; attention_detail?: string; updated_at: string }
+export type APIRequestSeason = { number: number; availability: number; requested: boolean; monitored?: boolean; workflow_id?: string; workflow_state?: string }
+export type APIRequest = {
+  id: string; request_id: string; seerr_instance_id: string
+  media_kind: "movie" | "series" | ""; title: string; year?: number; poster_url?: string; requester?: string
+  requested_at?: string; updated_at: string
+  seerr_state: string; intake_outcome?: string; intake_error?: string
+  media_id?: string
+  workflow_count: number; confirmed_count: number; attention_count: number
+  current_state?: string; quality_profile?: string; variant?: string
+  attention_code?: string; attention_detail?: string
+  lifecycle: string
+  season_count: number; available_seasons: number
+}
+export type APIRequestDetail = { request: APIRequest; workflows: APIWorkflow[]; seasons: APIRequestSeason[]; files: APIManagedFile[] }
 export type APITaskStatus = { event_type: string; pending: number; due: number; retrying: number; completed: number; highest_attempts: number; oldest_due_at?: string; latest_at: string }
 export type APITasks = { event_types: APITaskStatus[]; recurring: Array<{ name: string; schedule: string; automatic: boolean }> }
 export type APISystemInfo = { version: string; owner_only: boolean; browser_auth: string; api_auth: string; seerr_webhook_enabled: boolean; metadata_providers: Record<"tmdb" | "tvdb" | "simkl" | "imdb", string>; altmount_source_policy: string; publication_type: string; upgrade_replacement_gate: string; recycle_retention_days: number; public_edge_owner: string; machine_api_keys: boolean; api_prefix: string; checked_at: string }
@@ -130,6 +144,8 @@ export const loadSources = async (signal?: AbortSignal) => await requestJSON<API
 export const loadSystemHealth = (signal?: AbortSignal) => requestJSON<APISystemHealth>("/api/v1/system/health", { signal })
 export const loadMediaDetail = (id: string, signal?: AbortSignal) => requestJSON<APIMediaDetail>(`/api/v1/media/${encodeURIComponent(id)}/detail`, { signal })
 export const loadWanted = async (signal?: AbortSignal) => await requestJSON<APIWantedItem[] | null>("/api/v1/wanted?limit=300", { signal }) ?? []
+export const loadRequests = async (signal?: AbortSignal) => await requestJSON<APIRequest[] | null>("/api/v1/requests?limit=300", { signal }) ?? []
+export const loadRequest = (id: string, signal?: AbortSignal) => requestJSON<APIRequestDetail>(`/api/v1/requests/${encodeURIComponent(id)}`, { signal })
 export const loadTasks = (signal?: AbortSignal) => requestJSON<APITasks>("/api/v1/system/tasks", { signal })
 export const loadSystemInfo = (signal?: AbortSignal) => requestJSON<APISystemInfo>("/api/v1/system/info", { signal })
 export const searchMetadata = (query: string, page = 1, signal?: AbortSignal) => requestJSON<APIDiscoverySearchPage>(`/api/v1/discovery/search?query=${encodeURIComponent(query)}&page=${page}`, { signal })
