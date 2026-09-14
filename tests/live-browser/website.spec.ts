@@ -197,6 +197,30 @@ for (const library of [
   })
 }
 
+test("exercises safe Requests interactions", async ({ page }) => {
+  await visit(page, "/requests")
+  const section = page.locator("section").filter({ hasText: "Seerr requests" }).first()
+  await expect(section.getByRole("button", { name: /^All / })).toHaveAttribute("aria-pressed", "true")
+
+  await section.getByRole("button", { name: /Needs attention/ }).click()
+  await expect(section.getByRole("button", { name: /Needs attention/ })).toHaveAttribute("aria-pressed", "true")
+  await verifyViewport(page)
+
+  const search = page.getByPlaceholder("Search title, requester, ID")
+  await search.fill("__media_manager_live_test_no_match__")
+  await expect(page.getByText("No requests match the active filter.", { exact: true })).toBeVisible()
+  await search.fill("")
+  await section.getByRole("button", { name: /^All / }).click()
+
+  const rows = section.locator("tbody tr")
+  if ((await rows.count()) > 0) {
+    await rows.first().click()
+    await expect(page.getByText("Request detail", { exact: true })).toBeVisible()
+    await expect(page.getByText("Seerr request ID", { exact: true })).toBeVisible()
+  }
+  await verifyViewport(page)
+})
+
 test("opens navigation controls without changing server state", async ({ page }, testInfo) => {
   await visit(page, "/")
   await page.keyboard.press("Control+K")
