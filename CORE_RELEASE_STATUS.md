@@ -8,6 +8,33 @@ built from `1a4d53f197fc6d5647ee97e63a24d0eb5b93d256`. The database schema is 32
 means that the configured services completed the real operation; health checks
 alone do not qualify.
 
+## V1 release candidate (2026-09-14 terminal regression)
+
+The repository source at this milestone is the V1 release candidate at schema 35.
+Commissioning A-E remain intact, and the accepted V1 workflow milestones below
+are preserved without behavioral change. The four V1 real-acceptance runs passed
+against the configured stack:
+
+- V1-1 movie end-to-end (`3f0a547`): one successful workflow with exact Plex
+  confirmation and zero acquisition, publication, verification, or Plex
+  failures.
+- V1-2 season-pack end-to-end (`220a08c`): one complete season pack published
+  seven files with exact episode coverage and Plex confirmation, with zero
+  failures.
+- V1-3 failure/recovery (`022daf1`): one successful movie workflow with zero
+  acquisition, publication, verification, or Plex failures.
+- V1-4 Plex publication (`09ab2f2`): four movies and one season pack confirmed
+  by exact Plex identity and path, with zero publication or recognition
+  failures.
+
+The terminal V1-5 regression re-ran the full Go suite and the race suite against
+a disposable PostgreSQL 18.6 cluster, including the required commissioning
+capability activation and concurrent-activation rollback tests, together with
+the repository frontend lint, typecheck, production build, unit/artifact,
+benchmark, and Chromium/axe suites. No concrete behavioral regression was found,
+so this section records the candidate without changing runtime behavior. The live
+deployment remains schema 32 until the owner promotes the candidate.
+
 ## Deployed schema-32 recovery milestone
 
 The deployed source adds durable fixed two-slot acquisition rounds,
