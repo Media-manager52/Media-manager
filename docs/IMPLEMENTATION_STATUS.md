@@ -82,7 +82,7 @@ running-commit checks then passed without initiating media work.
 
 | Capability | Status | Evidence and gap |
 | --- | --- | --- |
-| Owner-only browser administration | Real | Caddy Basic Auth protects all owner routes and injects the API owner bearer token; every owner API handler independently checks it. The Seerr webhook is the only explicit exception and has separate authentication. |
+| Owner-only browser administration | Real | Cosmos Cloud OpenID authenticates the owner and its `/api` route injects the owner bearer token server-side; every owner API handler independently checks that token. The Seerr webhook posts directly to the API over the internal Docker network with its own secret and does not require an interactive login. |
 | Media Manager and Seerr request intake only | Real | Manual API and authenticated Seerr webhook/poll intake are implemented. Compose and runtime contain no Radarr or Sonarr dependency. |
 | Manual movie and exact-season requests | Real | Catalog, identities, root/profile/client overrides, season monitoring, immutable episode expectations, and workflows are transactionally persisted. |
 | Metadata discovery and identity verification | Partial | Owner-triggered Seerr search/detail APIs return only movie/TV results. Configured direct TMDB, TheTVDB, and Simkl clients perform bounded exact-ID enrichment, reject redirect/identity drift, strip all Simkl redirect queries before validation/persistence, and persist rich provider-separated metadata plus provenance. IMDb identity is exact; rating evidence through Simkl is labeled as indirect and no IMDb scraping exists. Series and movie refreshes have been live-tested with existing verified identities; TheTVDB remains neutral when an exact movie identity is unavailable. Per-item owner refresh is real and audited; automated Seerr intake uses the same merge path. Licensed direct IMDb access, search pagination, artwork locks, and bulk refresh review remain. |
@@ -119,16 +119,14 @@ for smoke testing without explicit approval.
 
 ## Infrastructure and verification status
 
-- The four Compose services are healthy: PostgreSQL, API, UI, and gateway. Schema 31 preserves the schema-27/28 credential sanitization, schema-29 metadata protections, and schema-30 durable rolling Newznab query/grab reservation ledger while adding bounded retained-output reverification state.
-- The gateway is bound to `127.0.0.1:28080` through its dedicated publish
-  network and retains `NET_BIND_SERVICE` only.
-- Cosmos 0.23.2 now points the Media Manager domain at
-  `http://127.0.0.1:28080`. The change used the supported route-detail/PUT API;
-  the authoritative route list contains no old-target reference, and canonical
-  before/after comparison proved all 35 unrelated route fields stayed unchanged.
-  The protected hostname returns Cosmos authentication, while the loopback target
-  returns the Media Manager gateway's expected authentication response and
-  security headers.
+- The three Compose services are healthy: PostgreSQL, API, and UI. Schema 31 preserves the schema-27/28 credential sanitization, schema-29 metadata protections, and schema-30 durable rolling Newznab query/grab reservation ledger while adding bounded retained-output reverification state.
+- Cosmos 0.23.4 is the public edge and the owner authentication layer. It
+  authenticates the owner with OpenID and routes `/api/*` and `/health/*` to the
+  API container and every other path to the UI container on one origin. The
+  `/api` route injects the owner bearer token server-side, so the browser never
+  sees it. The former loopback Caddy gateway and its Basic Auth are removed; the
+  API is also reachable on the host at `127.0.0.1:${MEDIA_MANAGER_API_PORT}` with
+  the owner token for machine checks.
 - Baseline verification passed: ESLint, TypeScript, UI unit and Chromium tests,
   production builds, deterministic library benchmark, Go formatting, vet and
   race tests, PostgreSQL lifecycle tests, and Compose validation. All nine

@@ -41,6 +41,7 @@ services:
       OWNER_TOKEN: ${OWNER_TOKEN:?set a random OWNER_TOKEN of at least 32 characters}
       AUTO_MIGRATE: "true"
       LISTEN_ADDR: 0.0.0.0:8080
+      COMMISSIONING_V2_OWNER_ORIGIN: ${COMMISSIONING_V2_OWNER_ORIGIN:-}
       SEERR_BASE_URL: ${SEERR_BASE_URL:-}
       SEERR_API_KEY: ${SEERR_API_KEY:-}
       SEERR_INSTANCE_ID: ${SEERR_INSTANCE_ID:-}
@@ -60,6 +61,8 @@ services:
       - ${MOVIES_HOST_PATH:?set MOVIES_HOST_PATH}:/libraries/movies:rw
       - ${TV_HOST_PATH:?set TV_HOST_PATH}:/libraries/tv:rw
       - ./data/backups:/var/lib/media-manager/backups:rw
+    ports:
+      - "127.0.0.1:${MEDIA_MANAGER_API_PORT:-28081}:8080"
     networks: [frontend, backend, integrations]
 
   ui:
@@ -72,27 +75,6 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [frontend]
-
-  gateway:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    cap_drop: [ALL]
-    cap_add: [NET_BIND_SERVICE]
-    security_opt: [no-new-privileges:true]
-    depends_on:
-      api:
-        condition: service_healthy
-      ui:
-        condition: service_healthy
-    environment:
-      OWNER_TOKEN: ${OWNER_TOKEN:?set OWNER_TOKEN}
-      OWNER_USERNAME: ${OWNER_USERNAME:?set OWNER_USERNAME}
-      OWNER_PASSWORD_HASH: ${OWNER_PASSWORD_HASH:?set OWNER_PASSWORD_HASH}
-    ports:
-      - ${MEDIA_MANAGER_BIND:-127.0.0.1}:${MEDIA_MANAGER_PORT:-8080}:8080
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    networks: [frontend, gateway_publish]
 
 volumes:
   postgres-data:
@@ -108,8 +90,6 @@ secrets:
 networks:
   frontend:
     internal: true
-  gateway_publish:
-    driver: bridge
   backend:
     internal: true
   integrations:

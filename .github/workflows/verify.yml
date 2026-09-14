@@ -63,24 +63,22 @@ jobs:
           mkdir -p /tmp/media-manager-ci/altmount /tmp/media-manager-ci/movies /tmp/media-manager-ci/tv
           export POSTGRES_PASSWORD=media-manager-ci-database-password
           export OWNER_TOKEN=0123456789abcdef0123456789abcdef
-          export OWNER_USERNAME=owner
-          export OWNER_PASSWORD_HASH="$(docker run --rm caddy:2-alpine caddy hash-password --plaintext owner-test)"
+          export COMMISSIONING_V2_OWNER_ORIGIN=http://127.0.0.1:28081
           export ALTMOUNT_HOST_PATH=/tmp/media-manager-ci/altmount
           export MOVIES_HOST_PATH=/tmp/media-manager-ci/movies
           export TV_HOST_PATH=/tmp/media-manager-ci/tv
           export MEDIA_NETWORK=media-manager-ci-${GITHUB_RUN_ID}
-          export MEDIA_MANAGER_PORT=18080
+          export MEDIA_MANAGER_API_PORT=28081
           export MEDIA_MANAGER_VERSION=ci-${GITHUB_RUN_ID}
           export MEDIA_MANAGER_COMMIT=${GITHUB_SHA}
           docker network create "${MEDIA_NETWORK}"
           trap 'docker compose down -v; docker network rm "${MEDIA_NETWORK}"' EXIT
-          docker compose config >/dev/null
-          docker run --rm -e OWNER_TOKEN -e OWNER_USERNAME -e OWNER_PASSWORD_HASH -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
+          docker compose config --quiet
           docker compose build
           docker compose up -d --wait
-          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/)" = 401
-          test "$(curl -sS -u owner:owner-test -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/)" = 200
-          test "$(curl -sS -u owner:owner-test -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health/ready)" = 200
-          test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18080/api/v1/integrations/seerr/webhook)" = 503
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:28081/api/v1/dashboard)" = 401
+          test "$(curl -sS -H "Authorization: Bearer ${OWNER_TOKEN}" -o /dev/null -w '%{http_code}' http://127.0.0.1:28081/health/ready)" = 200
+          test "$(curl -sS -H "Authorization: Bearer ${OWNER_TOKEN}" -o /dev/null -w '%{http_code}' http://127.0.0.1:28081/api/v1/dashboard)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:28081/api/v1/integrations/seerr/webhook)" = 503
           docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >/tmp/media-manager-ci.dump
           test -s /tmp/media-manager-ci.dump

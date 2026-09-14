@@ -1,6 +1,6 @@
 # Contributing to Media Manager
 
-Media Manager is an owner-operated, safety-sensitive application. Keep changes small, reviewable, and grounded in the existing architecture. Do not introduce new infrastructure or abstractions when the current Go, PostgreSQL, React, Vinext/Vite, Caddy, and Docker Compose stack can express the change directly.
+Media Manager is an owner-operated, safety-sensitive application. Keep changes small, reviewable, and grounded in the existing architecture. Do not introduce new infrastructure or abstractions when the current Go, PostgreSQL, React, Vinext/Vite, Cosmos Cloud edge, and Docker Compose stack can express the change directly.
 
 ## Before changing code
 

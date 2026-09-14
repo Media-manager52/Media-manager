@@ -10,12 +10,11 @@ The first production path is deliberately narrow: **Seerr + Media Manager + Newz
 - PostgreSQL 18
 - React 19, TypeScript 5.9, Next 16 UI through Vinext/Vite
 - Cosmos Cloud public edge: owner OpenID authentication with path-direct routing to the UI and the API; the owner token is injected server-side per Cosmos route and never reaches browser JavaScript
-- Optional loopback Caddy gateway for local credential-based acceptance and rollback only; it is not in the public request path
 - Docker Compose for the supported deployment
 
 ## Start
 
-1. Copy `.env.example` to `.env` and `.env.integrations.example` to `.env.integrations`; replace every placeholder. Generate the owner password hash with the command shown in `.env.example`.
+1. Copy `.env.example` to `.env` and `.env.integrations.example` to `.env.integrations`; replace every placeholder.
 2. Make the three host paths in `.env` point to the AltMount output, movie library, and TV library. Set `MEDIA_MANAGER_UID`/`MEDIA_MANAGER_GID` to an account that can read AltMount and create links in both library directories (often the output of `id -u` and `id -g`).
 3. Create the shared Docker network once, then attach the existing AltMount container to it (replace the container name if needed):
 
@@ -31,43 +30,44 @@ The first production path is deliberately narrow: **Seerr + Media Manager + Newz
    docker compose up -d --build
    ```
 
-5. Open the HTTPS address configured in Cosmos and sign in with `OWNER_USERNAME` and the password used to create `OWNER_PASSWORD_HASH`. On the Docker host itself, use the loopback origin configured by `MEDIA_MANAGER_PORT` (port 8080 by default).
+5. Open the HTTPS Media Manager address configured in Cosmos and sign in with your Cosmos account. Cosmos is the only public edge. On the Docker host the API is also reachable directly at `127.0.0.1:${MEDIA_MANAGER_API_PORT}` (port 28081 by default) with the owner bearer token for machine checks.
 
-### Authenticated local smoke test
+### Acceptance checks
 
-The gateway correctly stores only the owner's password hash, so an HTTP client
-cannot derive a login from the deployment configuration. Run the local smoke
-helper from an interactive terminal:
+Three read-only checks cover the deployed architecture. None of them prints the
+owner token.
+
+Verify the public Cosmos edge is behind an authentication gate and routes
+`/api/*` to the API rather than the UI container:
 
 ```sh
-scripts/smoke-gateway-auth.sh
+scripts/smoke-public-edge.sh https://media-manager.example.com
 ```
 
-It prompts silently for the existing owner password, keeps it only in process
-memory for the duration of the check, and never passes it as a command argument.
-The check is locked to `127.0.0.1`, does not follow redirects, and verifies the
-unauthenticated boundary, authenticated UI rendering, and authenticated API
-readiness. Nothing is added to `.env`, the repository, or local credential
-storage.
+Verify the owner-authenticated API read models directly on the loopback
+listener (the token is read from the running API container):
 
-For a comprehensive read-only acceptance pass against the deployed website,
-run:
+```sh
+scripts/smoke-api-direct.sh
+```
+
+Run the read-only browser acceptance suite against the deployed UI and API. The
+helper resolves the running containers, starts a loopback same-origin proxy
+that reproduces the Cosmos route shape, and runs Playwright:
 
 ```sh
 npm run test:live-browser
 ```
 
-This separate Playwright suite prompts for the password the same way, visits
-every static route at desktop, tablet, and mobile sizes, checks available detail
-routes and safe interactions, captures core-page screenshots, and audits layout,
-accessibility, browser errors, and failed local requests. It blocks every
-state-changing request and every non-loopback request before transmission;
-external artwork therefore exercises the local placeholder without contacting
-its provider. Traces and video are disabled so authentication headers cannot be
-written to artifacts. Results stay under
-`.sites-runtime/live-playwright-results/`.
+The suite visits every static route at desktop, tablet, and mobile sizes, checks
+available detail routes and safe interactions, captures core-page screenshots,
+and audits layout, accessibility, browser errors, and failed local requests. It
+blocks every state-changing request and every non-loopback request before
+transmission; external artwork therefore exercises the local placeholder
+without contacting its provider. Traces and video are disabled. Results stay
+under `.sites-runtime/live-playwright-results/`.
 
-Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, the UI, and the optional loopback Caddy gateway use isolated private networks; only the authenticated API also joins the external integrations network. Cosmos Cloud terminates TLS and authenticates the owner, then routes `/api/*` and `/health/*` to the API and every other path to the UI on one origin. The Cosmos `/api` route injects the owner bearer token server-side. The loopback Caddy gateway (`http://127.0.0.1:${MEDIA_MANAGER_PORT}`) is retained only for local credential-based acceptance and rollback; it is not in the public path. Do not change `MEDIA_MANAGER_BIND` to a LAN address unless another authenticated TLS proxy protects that listener.
+Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, the UI, and the API use isolated private networks; only the authenticated API also joins the external integrations network. Cosmos Cloud terminates TLS and authenticates the owner, then routes `/api/*` and `/health/*` to the API and every other path to the UI on one origin. The Cosmos `/api` route injects the owner bearer token server-side. The loopback API listener is bound to `127.0.0.1:${MEDIA_MANAGER_API_PORT}` and is never published to a LAN or public address.
 
 ### Public edge routing
 
@@ -99,10 +99,9 @@ Verify the deployed public origin without changing server state:
 scripts/smoke-public-edge.sh https://media-manager.example.com
 ```
 
-The unauthenticated check fails if `/api/v1/*` reaches the `ui` container (a
-bare HTTP 404). Add `--authenticated` only when the origin is the local loopback
-Caddy gateway (or another HTTP Basic origin) to confirm with the existing owner
-password that the origin serves the UI document and the API from one place.
+The check fails if `/api/v1/*` reaches the `ui` container (a bare HTTP 404) or
+if the API answers without an authentication gate. Use
+`scripts/smoke-api-direct.sh` for the owner-authenticated read-model checks.
 
 Compose passes PostgreSQL credentials as discrete `PG*` variables, so a strong database password does not need URL escaping. A standalone API deployment may instead provide `DATABASE_URL`.
 
