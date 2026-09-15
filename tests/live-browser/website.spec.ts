@@ -224,7 +224,7 @@ test("exercises safe Requests interactions", async ({ page }) => {
 test("opens navigation controls without changing server state", async ({ page }, testInfo) => {
   await visit(page, "/")
   await page.keyboard.press("Control+K")
-  await expect(page.getByRole("dialog", { name: "Search Media Manager" })).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "Go to page" })).toBeVisible()
   await page.keyboard.press("Escape")
 
   if (testInfo.project.name === "mobile") {
@@ -256,8 +256,8 @@ test("validates configured movie and TV add forms without submitting", async ({ 
 
 test("renders available live detail routes", async ({ page }) => {
   const detailLists = [
-    { list: "/media", selector: 'a[href^="/media/movies/"]', heading: "Movie details" },
-    { list: "/media/series", selector: 'a[href^="/media/series/"]', heading: "Series details" },
+    { list: "/media", selector: 'a[href^="/media/movies/"]' },
+    { list: "/media/series", selector: 'a[href^="/media/series/"]' },
     { list: "/files", selector: 'a[href^="/files/"]', heading: "File inspector" },
     { list: "/sources/indexers", selector: 'a[href^="/sources/indexers/"]', heading: "Indexer details" },
   ]
@@ -267,7 +267,10 @@ test("renders available live detail routes", async ({ page }) => {
     const href = await page.locator(detail.selector).first().getAttribute("href")
     if (!href) continue
     await visit(page, href)
-    await expect(page.getByRole("heading", { level: 1, name: detail.heading, exact: true })).toBeVisible()
+    const heading = page.getByRole("heading", { level: 1 })
+    await expect(heading).toBeVisible()
+    if (detail.heading) await expect(heading).toHaveText(detail.heading)
+    else await expect(heading).not.toHaveText(/details/i)
     await verifyViewport(page)
   }
 })

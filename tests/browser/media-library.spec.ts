@@ -125,6 +125,7 @@ const wanted = [
   { workflow_id: "55555555-5555-4555-8555-555555555555", media_id: firstID, media_kind: "movie", title: "First Browser Movie", year: 2024, gap: "upgrade", current_state: "plex_confirmed", target_profile: "Movie 1080p Danish", upgrades_enabled: true, variant: "movie", updated_at: "2026-09-01T00:00:00Z" },
   { workflow_id: "66666666-6666-4666-8666-666666666666", media_id: secondID, media_kind: "movie", title: "Second Browser Movie", year: 2022, gap: "missing", current_state: "monitored", target_profile: "Movie 1080p Danish", upgrades_enabled: true, variant: "movie", updated_at: "2026-09-01T00:00:00Z" },
   { workflow_id: "88888888-8888-4888-8888-888888888888", media_id: seriesID, media_kind: "series", title: "First Browser Series", year: 2021, gap: "upgrade", current_state: "plex_confirmed", target_profile: "TV 1080p Danish", upgrades_enabled: true, variant: "season:01", updated_at: "2026-09-01T00:00:00Z" },
+  { workflow_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", media_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", media_kind: "movie", title: "Attention Browser Movie", year: 2023, gap: "missing", current_state: "needs_attention", target_profile: "Movie 1080p Danish", upgrades_enabled: true, owner_action_required: true, attention_detail: "Required Danish subtitles were not verified", variant: "movie", updated_at: "2026-09-02T00:00:00Z" },
 ]
 
 const workflows = [
@@ -156,6 +157,7 @@ async function installLocalAPI(page: Page) {
     else if (path === "/api/v1/files?limit=300") data = files
     else if (path === "/api/v1/wanted?limit=300") data = wanted
     else if (path === "/api/v1/workflows?limit=300&active=false") data = workflows
+    else if (path === "/api/v1/workflows?limit=300&active=true") data = workflows
     else if (path === "/api/v1/system/health") data = { database_state: "ready", schema_version: 30, expected_schema: 30 }
     else if (path === "/api/v1/system/info") data = { version: "browser-test" }
     else {
@@ -285,4 +287,25 @@ test("library exposes density control, advanced filters, and one-click reset", a
   await page.getByRole("button", { name: "Clear all" }).click()
   await expect(page.getByRole("button", { name: /Availability: Available/ })).toHaveCount(0)
   await expect(page.getByText("3 movies", { exact: true })).toBeVisible()
+})
+
+test("command palette navigates pages and the bell shows real owner attention", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 853 })
+  await page.goto("/media")
+  await expect(page.getByRole("heading", { name: "Movies" })).toBeVisible()
+
+  await page.getByRole("button", { name: /Go to page…/ }).click()
+  const palette = page.getByRole("dialog", { name: "Go to page" })
+  await expect(palette).toBeVisible()
+  await expect(palette.getByText("TV Shows", { exact: true })).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(palette).toBeHidden()
+
+  await page.getByRole("button", { name: "Owner attention" }).click()
+  const popover = page.getByText("Owner attention", { exact: true })
+  await expect(popover).toBeVisible()
+  await expect(page.getByText("Attention Browser Movie", { exact: false })).toBeVisible()
+  await expect(page.getByText("Required Danish subtitles were not verified", { exact: false })).toBeVisible()
+  const viewAll = page.getByRole("link", { name: "View all in Wanted" })
+  await expect(viewAll).toHaveAttribute("href", "/wanted")
 })

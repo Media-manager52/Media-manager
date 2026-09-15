@@ -99,13 +99,14 @@ test("renders sidebar skeletons deterministically", async () => {
 });
 
 test("does not present the Indexer Lab preview as a real run", async () => {
-  const source = await readFile(
-    path.join(root, "components/media-manager/operational-screens.tsx"),
-    "utf8",
-  );
+  const [liveScreens, liveOperational] = await Promise.all([
+    readFile(path.join(root, "components/media-manager/live-screens.tsx"), "utf8"),
+    readFile(path.join(root, "components/media-manager/live-operational-screens.tsx"), "utf8"),
+  ]);
 
-  assert.match(source, /no indexer requests were sent/i);
-  assert.doesNotMatch(source, /commissioning fixture completed/i);
+  assert.match(liveOperational, /Opening this screen never contacts the indexer/);
+  assert.match(liveScreens, /Prowlarr is used only as a one-time source of indexer settings/);
+  assert.doesNotMatch(`${liveScreens}\n${liveOperational}`, /commissioning fixture completed/i);
 });
 
 test("maps persisted operational read models into the live route switch", async () => {

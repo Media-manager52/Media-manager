@@ -102,19 +102,21 @@ export function MetricCard({
 }
 
 const toneText: Record<StatusTone, string> = {
-  good: "text-[#62d0a0]",
-  info: "text-[#9cafef]",
-  warn: "text-[#efc36f]",
-  bad: "text-[#ee8b8b]",
-  neutral: "text-[#9ba6b5]",
+  good: "text-[color:var(--status-good)]",
+  info: "text-[color:var(--status-info)]",
+  warn: "text-[color:var(--status-warn)]",
+  bad: "text-[color:var(--status-bad)]",
+  neutral: "text-[color:var(--status-wait)]",
 }
 
+// One semantic palette for every tone. These reference the canonical
+// --status-* tokens in globals.css so a tone can never drift into a new hex.
 const toneBadge: Record<StatusTone, string> = {
-  good: "border-[#285142] bg-[#10201b] text-[#99e1c3]",
-  info: "border-[#30446d] bg-[#131c31] text-[#b6c6ff]",
-  warn: "border-[#594923] bg-[#211b10] text-[#ebcf8c]",
-  bad: "border-[#5c3339] bg-[#221316] text-[#f1a6a6]",
-  neutral: "border-[#303844] bg-[#141920] text-[#b7c0cb]",
+  good: "border-[color:var(--status-good-border)] bg-[color:var(--status-good-bg)] text-[color:var(--status-good)]",
+  info: "border-[color:var(--status-info-border)] bg-[color:var(--status-info-bg)] text-[color:var(--status-info)]",
+  warn: "border-[color:var(--status-warn-border)] bg-[color:var(--status-warn-bg)] text-[color:var(--status-warn)]",
+  bad: "border-[color:var(--status-bad-border)] bg-[color:var(--status-bad-bg)] text-[color:var(--status-bad)]",
+  neutral: "border-[color:var(--status-wait-border)] bg-[color:var(--status-wait-bg)] text-[color:var(--status-wait)]",
 }
 
 /**
@@ -133,6 +135,7 @@ const statusVocabulary: Record<string, StatusDescriptor> = {
   current: { label: "Available", tone: "good", icon: CheckCircle2 },
   plex_confirmed: { label: "Plex confirmed", tone: "good", icon: ShieldCheck, hint: "Plex confirmed the exact managed path and provider identity." },
   verified: { label: "Verified", tone: "good", icon: CheckCircle2 },
+  delivering: { label: "Delivering", tone: "info", icon: Upload },
   delivered: { label: "Delivered", tone: "good", icon: CheckCircle2 },
   succeeded: { label: "Succeeded", tone: "good", icon: CheckCircle2 },
   success: { label: "Succeeded", tone: "good", icon: CheckCircle2 },
@@ -141,8 +144,26 @@ const statusVocabulary: Record<string, StatusDescriptor> = {
   configured: { label: "Configured", tone: "good", icon: CheckCircle2 },
   enabled: { label: "Enabled", tone: "good", icon: CheckCircle2 },
   monitored: { label: "Monitored", tone: "info", icon: SearchCheck, hint: "Monitoring is on; Media Manager will search within indexer pacing." },
+  unmonitored: { label: "Unmonitored", tone: "neutral", icon: CircleDashed },
+  missing: { label: "Missing", tone: "warn", icon: CircleDashed },
+  upgradable: { label: "Upgrade wanted", tone: "info", icon: Download },
+  upgrade: { label: "Upgrade", tone: "info", icon: Download },
   available_in_seerr: { label: "Available in Seerr", tone: "good", icon: CheckCircle2 },
   available_seerr: { label: "Available in Seerr", tone: "good", icon: CheckCircle2 },
+  eligible: { label: "Eligible", tone: "good", icon: CheckCircle2 },
+  media_info: { label: "Media info", tone: "info", icon: ShieldCheck },
+  release_evidence: { label: "Release evidence", tone: "info", icon: ShieldCheck },
+  unassessed: { label: "Unassessed", tone: "warn", icon: CircleAlert },
+  pending_review: { label: "Pending review", tone: "warn", icon: Clock3 },
+  already_cataloged: { label: "Already cataloged", tone: "good", icon: CheckCircle2 },
+  approved: { label: "Approved", tone: "good", icon: CheckCircle2 },
+  pending: { label: "Pending", tone: "neutral", icon: Clock3 },
+  executing: { label: "Executing", tone: "info", icon: Clock3 },
+  complete: { label: "Complete", tone: "good", icon: CheckCircle2 },
+  unsupported: { label: "Unsupported", tone: "neutral", icon: CircleDashed },
+  awaiting_validation: { label: "Awaiting validation", tone: "warn", icon: CircleAlert },
+  not_approved: { label: "Not approved", tone: "neutral", icon: CircleDashed },
+  expired: { label: "Expired", tone: "neutral", icon: Archive },
 
   // Waiting / in progress (not a warning)
   waiting: { label: "Waiting", tone: "neutral", icon: Clock3, hint: "Waiting normally. No owner action is required." },
@@ -211,7 +232,7 @@ export function StateBadge({ state, label, className }: { state: string; label?:
 
 export function StatusChip({ children, tone = "neutral", className }: { children: React.ReactNode; tone?: StatusTone; className?: string }) {
   return (
-    <Badge variant="outline" className={cn("h-6 gap-1 rounded-full px-2 text-[10.5px] font-bold tracking-[0.01em]", toneBadge[tone], className)}>
+    <Badge variant="outline" className={cn("h-6 gap-1 rounded-full px-2 text-[11px] font-bold tracking-[0.01em]", toneBadge[tone], className)}>
       {children}
     </Badge>
   )

@@ -7,9 +7,6 @@ export const metadata: Metadata = {
     template: "%s · Media Manager",
   },
   description: "A self-hosted movie and TV media manager with evidence-backed release decisions, first-class season packs, AltMount, Seerr, and Plex.",
-  other: {
-    "codex-preview": "development",
-  },
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

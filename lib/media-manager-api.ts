@@ -1,9 +1,5 @@
 "use client"
 
-import type { MediaRecord } from "@/lib/media-manager-data"
-
-export const liveMode = process.env.NEXT_PUBLIC_MEDIA_MANAGER_MODE === "live"
-
 export type APIIdentity = { namespace: string; value: string; state?: "verified" | "candidate" | "rejected"; source?: string }
 export type APIMetadataAlias = { name: string; language?: string; source: string }
 export type APIMetadataNetwork = { name: string; country?: string; kind?: string; source: string }
@@ -98,22 +94,6 @@ async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 204) return undefined as T
   const envelope = await response.json() as Envelope<T>
   return envelope.data
-}
-
-export async function loadMedia(signal?: AbortSignal): Promise<MediaRecord[]> {
-	const items = await loadCatalogMedia(signal)
-	return items.map((item) => ({
-    id: item.id,
-    kind: item.kind === "movie" ? "Movie" : "Series",
-    title: item.title,
-    year: item.year ?? 0,
-    poster: item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg",
-    state: "Cataloged",
-    profile: "Open workflow details",
-    root: "Open workflow details",
-    quality: "Persisted workflow state is shown in details",
-    externalIds: (item.identities ?? []).map((identity) => `${identity.namespace.toUpperCase()} ${identity.value}`),
-  }))
 }
 
 const catalogPageSize = 200
