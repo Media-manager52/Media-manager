@@ -55,6 +55,24 @@ func TestSplitSeerrRequestIDOnlyAcceptsInstanceQualifiedKeys(t *testing.T) {
 	}
 }
 
+func TestArchiveMediaRouteRequiresOwner(t *testing.T) {
+	server, err := New(Config{OwnerToken: testOwnerToken}, &postgres.Store{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testServer := httptest.NewServer(server.Handler())
+	t.Cleanup(testServer.Close)
+
+	response, err := http.Post(testServer.URL+"/api/v1/media/01a05529-6fd8-7704-b0ec-a6ef3309acb7/archive", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("archive status=%d, want 401", response.StatusCode)
+	}
+}
+
 func TestRequestDetailWithoutSeerrConfigurationIsNotFound(t *testing.T) {
 	server, err := New(Config{OwnerToken: testOwnerToken}, &postgres.Store{})
 	if err != nil {

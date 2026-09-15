@@ -97,6 +97,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/media/{id}/metadata/refresh", server.requireOwner(server.refreshMediaMetadata))
 	server.mux.HandleFunc("DELETE /api/v1/media/{id}", server.requireOwner(server.recycleMedia))
 	server.mux.HandleFunc("POST /api/v1/media/{id}/workflows", server.requireOwner(server.createMediaWorkflow))
+	server.mux.HandleFunc("POST /api/v1/media/{id}/archive", server.requireOwner(server.archiveMedia))
 	server.mux.HandleFunc("GET /api/v1/workflows", server.requireOwner(server.listWorkflows))
 	server.mux.HandleFunc("GET /api/v1/workflows/{id}", server.requireOwner(server.getWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/search", server.requireOwner(server.searchWorkflow))
@@ -1607,6 +1608,35 @@ func (server *Server) getWorkflow(writer http.ResponseWriter, request *http.Requ
 	workflow.State = workflow.OwnerAttentionState()
 	writer.Header().Set("ETag", `"`+strconv.FormatUint(workflow.Revision, 10)+`"`)
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: workflow})
+}
+
+// archiveMedia retires a confirmed unwanted media record (for example test or
+// acceptance residue) from the active catalog. It cancels the media's
+// non-terminal workflows and soft-deletes the media row, but never deletes a
+// file, AltMount source, or durable history. It refuses when the media has
+// current published files or in-flight work, so legitimate media is protected.
+func (server *Server) archiveMedia(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "media ID is invalid")
+		return
+	}
+	result, err := server.store.ArchiveMedia(request.Context(), id, time.Now().UTC())
+	switch {
+	case errors.Is(err, postgres.ErrNotFound):
+		writeError(writer, http.StatusNotFound, "not_found", "media was not found")
+		return
+	case errors.Is(err, postgres.ErrMediaHasPublishedFiles):
+		writeError(writer, http.StatusConflict, "archive_refused", "media has current published files; resolve the publication before archiving")
+		return
+	case errors.Is(err, postgres.ErrMediaHasInFlightWork):
+		writeError(writer, http.StatusConflict, "archive_refused", "media has in-flight work that cannot be archived safely")
+		return
+	case err != nil:
+		writeError(writer, http.StatusInternalServerError, "database_error", "media could not be archived")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: result})
 }
 
 func (server *Server) recycleMedia(writer http.ResponseWriter, request *http.Request) {
