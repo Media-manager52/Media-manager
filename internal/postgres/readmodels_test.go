@@ -1,6 +1,35 @@
 package postgres
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestIntegrationConfigurationStateDistinguishesDisabledFromUncommissioned(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		kind    string
+		enabled bool
+		config  json.RawMessage
+		want    string
+	}{
+		{name: "enabled newznab is configured", kind: "newznab", enabled: true, config: json.RawMessage(`{"mode_verified":true}`), want: "configured"},
+		{name: "commissioned then disabled is disabled", kind: "newznab", enabled: false, config: json.RawMessage(`{"mode_verified":true}`), want: "disabled"},
+		{name: "never commissioned is awaiting commission", kind: "newznab", enabled: false, config: json.RawMessage(`{"mode_verified":false}`), want: "awaiting_commission"},
+		{name: "missing config is awaiting commission", kind: "newznab", enabled: false, config: json.RawMessage(`{}`), want: "awaiting_commission"},
+		{name: "invalid config is awaiting commission", kind: "newznab", enabled: false, config: json.RawMessage(`not-json`), want: "awaiting_commission"},
+		{name: "disabled non-newznab is disabled", kind: "plex", enabled: false, config: json.RawMessage(`{}`), want: "disabled"},
+		{name: "enabled non-newznab is configured", kind: "altmount", enabled: true, config: json.RawMessage(`{}`), want: "configured"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := integrationConfigurationState(test.kind, test.enabled, test.config); got != test.want {
+				t.Fatalf("integrationConfigurationState(%q,%v,%s)=%q, want %q", test.kind, test.enabled, test.config, got, test.want)
+			}
+		})
+	}
+}
 
 func TestManagedPublicationPathStaysInsideLibraryRoot(t *testing.T) {
 	tests := []struct {

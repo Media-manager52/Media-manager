@@ -617,17 +617,31 @@ func (store *Store) ListSourceStatuses(ctx context.Context) ([]SourceStatus, err
 		}
 		item.ID, _ = uuid.Parse(idText)
 		item.Config = append(json.RawMessage(nil), config...)
-		switch {
-		case item.Kind == "newznab" && !item.Enabled:
-			item.ConfigurationState = "awaiting_commission"
-		case !item.Enabled:
-			item.ConfigurationState = "disabled"
-		default:
-			item.ConfigurationState = "configured"
-		}
+		item.ConfigurationState = integrationConfigurationState(item.Kind, item.Enabled, config)
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+// integrationConfigurationState is the owner-facing configuration state. A
+// Newznab endpoint that was commissioned and then intentionally disabled is
+// "disabled", not "awaiting_commission": the health UI must not present a
+// retired indexer as one that still needs its first validation. A Newznab row
+// that has never been commissioned remains "awaiting_commission".
+func integrationConfigurationState(kind string, enabled bool, config json.RawMessage) string {
+	if enabled {
+		return "configured"
+	}
+	if kind != "newznab" {
+		return "disabled"
+	}
+	var settings struct {
+		ModeVerified bool `json:"mode_verified"`
+	}
+	if json.Unmarshal(config, &settings) == nil && settings.ModeVerified {
+		return "disabled"
+	}
+	return "awaiting_commission"
 }
 
 type OutboxHealth struct {
