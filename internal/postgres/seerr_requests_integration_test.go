@@ -14,6 +14,77 @@ import (
 	"github.com/media-manager/media-manager/internal/releases"
 )
 
+// TestSeerrRequestsReadModelSpansInstances proves the owner-facing request
+// history survives a change of configured intake instance: an empty instance
+// lists every Seerr source, each row carries its source name, and colliding
+// request IDs stay distinct through the instance-qualified key.
+func TestSeerrRequestsReadModelSpansInstances(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	store := subtitleIntegrationStore(t, ctx, databaseURL)
+	defer store.Close()
+
+	production, err := store.CreateIntegration(ctx, Integration{Kind: "seerr", Name: "Production Seerr", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://seerr:5055","allow_http":true}`), SecretRef: "SEERR_API_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testInstance, err := store.CreateIntegration(ctx, Integration{Kind: "seerr", Name: "Seerr - Media Manager Test", Enabled: true, Config: json.RawMessage(`{"base_url":"http://seerr-media-manager-test:5055","allow_http":true}`), SecretRef: "SEERR_API_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	insertRequest := func(t *testing.T, instanceID, title string, payload byte) {
+		t.Helper()
+		deliveryID := uuid.NewV7()
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO seerr_deliveries(id,seerr_instance_id,source,event_id,request_id,payload_sha256,payload,received_at) VALUES($1,$2,'webhook',$3,'1',$4,'{}',$5)`, deliveryID.String(), instanceID, "event-"+title, []byte{payload}, now); err != nil {
+			t.Fatal(err)
+		}
+		intake := SeerrIntake{InstanceID: instanceID, RequestID: "1", UpdatedAt: now, RequestState: "2", Kind: catalog.KindMovie, Title: title, PayloadHash: []byte{payload}, DeliveryID: deliveryID}
+		if changed, err := store.UpsertSeerrSnapshot(ctx, intake); err != nil || !changed {
+			t.Fatalf("snapshot changed=%v err=%v", changed, err)
+		}
+	}
+	insertRequest(t, production.ID.String(), "Production Request", 11)
+	insertRequest(t, testInstance.ID.String(), "Historical Test Request", 22)
+
+	all, err := store.ListSeerrRequests(ctx, "", 100, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("cross-instance requests=%d, want 2", len(all))
+	}
+	byKey := map[string]SeerrRequestSummary{}
+	for _, item := range all {
+		if item.ID != item.SeerrInstanceID+":"+item.RequestID {
+			t.Fatalf("request key=%q is not instance-qualified", item.ID)
+		}
+		byKey[item.ID] = item
+	}
+	productionKey := production.ID.String() + ":1"
+	testKey := testInstance.ID.String() + ":1"
+	if byKey[productionKey].SeerrInstanceName != "Production Seerr" || byKey[productionKey].Title != "Production Request" {
+		t.Fatalf("production row=%+v", byKey[productionKey])
+	}
+	if byKey[testKey].SeerrInstanceName != "Seerr - Media Manager Test" || byKey[testKey].Title != "Historical Test Request" {
+		t.Fatalf("test row=%+v", byKey[testKey])
+	}
+
+	onlyProduction, err := store.ListSeerrRequests(ctx, production.ID.String(), 100, 0)
+	if err != nil || len(onlyProduction) != 1 || onlyProduction[0].SeerrInstanceName != "Production Seerr" {
+		t.Fatalf("scoped production requests=%+v err=%v", onlyProduction, err)
+	}
+	onlyUnused, err := store.ListSeerrRequests(ctx, uuid.New().String(), 100, 0)
+	if err != nil || len(onlyUnused) != 0 {
+		t.Fatalf("unknown instance requests=%+v err=%v", onlyUnused, err)
+	}
+}
+
 func TestSeerrRequestsReadModel(t *testing.T) {
 	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
 	if databaseURL == "" {

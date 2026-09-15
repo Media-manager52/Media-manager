@@ -24,31 +24,32 @@ type SeerrRequestSeason struct {
 // joins the durable request snapshot with the linked media/workflows and the
 // last intake outcome; it never invents a success state.
 type SeerrRequestSummary struct {
-	ID               string     `json:"id"`
-	RequestID        string     `json:"request_id"`
-	SeerrInstanceID  string     `json:"seerr_instance_id"`
-	MediaKind        string     `json:"media_kind"`
-	Title            string     `json:"title"`
-	Year             *uint16    `json:"year,omitempty"`
-	PosterURL        string     `json:"poster_url,omitempty"`
-	Requester        string     `json:"requester,omitempty"`
-	RequestedAt      *time.Time `json:"requested_at,omitempty"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	SeerrState       string     `json:"seerr_state"`
-	IntakeOutcome    string     `json:"intake_outcome,omitempty"`
-	IntakeError      string     `json:"intake_error,omitempty"`
-	MediaID          *uuid.UUID `json:"media_id,omitempty"`
-	WorkflowCount    int        `json:"workflow_count"`
-	ConfirmedCount   int        `json:"confirmed_count"`
-	AttentionCount   int        `json:"attention_count"`
-	CurrentState     string     `json:"current_state,omitempty"`
-	QualityProfile   string     `json:"quality_profile,omitempty"`
-	Variant          string     `json:"variant,omitempty"`
-	AttentionCode    string     `json:"attention_code,omitempty"`
-	AttentionDetail  string     `json:"attention_detail,omitempty"`
-	Lifecycle        string     `json:"lifecycle"`
-	SeasonCount      int        `json:"season_count"`
-	AvailableSeasons int        `json:"available_seasons"`
+	ID                string     `json:"id"`
+	RequestID         string     `json:"request_id"`
+	SeerrInstanceID   string     `json:"seerr_instance_id"`
+	SeerrInstanceName string     `json:"seerr_instance_name,omitempty"`
+	MediaKind         string     `json:"media_kind"`
+	Title             string     `json:"title"`
+	Year              *uint16    `json:"year,omitempty"`
+	PosterURL         string     `json:"poster_url,omitempty"`
+	Requester         string     `json:"requester,omitempty"`
+	RequestedAt       *time.Time `json:"requested_at,omitempty"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	SeerrState        string     `json:"seerr_state"`
+	IntakeOutcome     string     `json:"intake_outcome,omitempty"`
+	IntakeError       string     `json:"intake_error,omitempty"`
+	MediaID           *uuid.UUID `json:"media_id,omitempty"`
+	WorkflowCount     int        `json:"workflow_count"`
+	ConfirmedCount    int        `json:"confirmed_count"`
+	AttentionCount    int        `json:"attention_count"`
+	CurrentState      string     `json:"current_state,omitempty"`
+	QualityProfile    string     `json:"quality_profile,omitempty"`
+	Variant           string     `json:"variant,omitempty"`
+	AttentionCode     string     `json:"attention_code,omitempty"`
+	AttentionDetail   string     `json:"attention_detail,omitempty"`
+	Lifecycle         string     `json:"lifecycle"`
+	SeasonCount       int        `json:"season_count"`
+	AvailableSeasons  int        `json:"available_seasons"`
 }
 
 type SeerrRequestDetail struct {
@@ -58,7 +59,7 @@ type SeerrRequestDetail struct {
 	Files     []ManagedFile        `json:"files"`
 }
 
-const seerrRequestSummaryColumns = `s.seerr_instance_id::text,s.request_id,
+const seerrRequestSummaryColumns = `s.seerr_instance_id::text,COALESCE(instance.name,''),s.request_id,
 	COALESCE(NULLIF(s.title,''),media.title,''),
 	COALESCE(s.year,media.year),
 	COALESCE(NULLIF(s.media_kind,''),media.kind,''),
@@ -82,6 +83,7 @@ const seerrRequestSummaryColumns = `s.seerr_instance_id::text,s.request_id,
 	COALESCE(seasons.available_count,0)`
 
 const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
+	JOIN integration_instances instance ON instance.id=s.seerr_instance_id
 	LEFT JOIN seerr_deliveries delivery ON delivery.id=s.last_delivery_id
 	LEFT JOIN LATERAL (
 		SELECT workflow.media_id,workflow.state,workflow.quality_profile_id,workflow.variant,workflow.attention_code,workflow.attention_detail,workflow.updated_at
@@ -119,7 +121,7 @@ func scanSeerrRequestSummary(row seerrRequestScanner) (SeerrRequestSummary, erro
 	var requestedAt *time.Time
 	var mediaText *string
 	if err := row.Scan(
-		&item.SeerrInstanceID, &item.RequestID, &item.Title, &year, &item.MediaKind, &item.PosterURL,
+		&item.SeerrInstanceID, &item.SeerrInstanceName, &item.RequestID, &item.Title, &year, &item.MediaKind, &item.PosterURL,
 		&requestedAt, &item.Requester, &item.SeerrState, &item.IntakeOutcome, &item.IntakeError,
 		&mediaText, &item.WorkflowCount, &item.AttentionCount, &item.ConfirmedCount,
 		&item.CurrentState, &item.QualityProfile, &item.Variant, &item.AttentionCode, &item.AttentionDetail, &item.UpdatedAt,
@@ -127,7 +129,11 @@ func scanSeerrRequestSummary(row seerrRequestScanner) (SeerrRequestSummary, erro
 	); err != nil {
 		return SeerrRequestSummary{}, err
 	}
-	item.ID = item.RequestID
+	// The read model spans every Seerr instance so switching the configured
+	// intake instance never hides historical requests. The instance-qualified
+	// key keeps colliding request IDs (both Seerr instances number from 1)
+	// addressable by the detail route.
+	item.ID = item.SeerrInstanceID + ":" + item.RequestID
 	if year != nil {
 		converted := uint16(*year)
 		item.Year = &converted
@@ -188,8 +194,12 @@ func (store *Store) ListSeerrRequests(ctx context.Context, instanceID string, li
 	if offset < 0 {
 		offset = 0
 	}
+	// An empty instance selects every Seerr instance. The owner-facing request
+	// history must survive a change of configured intake instance, so the list
+	// is deliberately not scoped to the runtime instance alone.
 	rows, err := store.Pool.Query(ctx, `SELECT `+seerrRequestSummaryColumns+` `+seerrRequestSummaryJoins+
-		` WHERE s.seerr_instance_id=$1 ORDER BY COALESCE(primary_workflow.updated_at,s.reconciled_at) DESC,s.request_id DESC LIMIT $2 OFFSET $3`,
+		` WHERE ($1::text='' OR s.seerr_instance_id=NULLIF($1::text,'')::uuid)
+		ORDER BY COALESCE(primary_workflow.updated_at,s.reconciled_at) DESC,s.seerr_instance_id DESC,s.request_id DESC LIMIT $2 OFFSET $3`,
 		instanceID, limit, offset)
 	if err != nil {
 		return nil, err

@@ -48,7 +48,7 @@ export type APIMediaDetail = { media: APIMedia; workflows: APIWorkflow[]; season
 export type APIWantedItem = { workflow_id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; gap: "missing" | "upgrade"; current_state: string; target_profile: string; upgrades_enabled: boolean; attention_detail?: string; owner_action_required?: boolean; updated_at: string }
 export type APIRequestSeason = { number: number; availability: number; requested: boolean; monitored?: boolean; workflow_id?: string; workflow_state?: string }
 export type APIRequest = {
-  id: string; request_id: string; seerr_instance_id: string
+  id: string; request_id: string; seerr_instance_id: string; seerr_instance_name?: string
   media_kind: "movie" | "series" | ""; title: string; year?: number; poster_url?: string; requester?: string
   requested_at?: string; updated_at: string
   seerr_state: string; intake_outcome?: string; intake_error?: string

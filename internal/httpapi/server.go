@@ -968,7 +968,7 @@ func (server *Server) listWanted(writer http.ResponseWriter, request *http.Reque
 func (server *Server) listRequests(writer http.ResponseWriter, request *http.Request) {
 	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(request.URL.Query().Get("offset"))
-	items, err := server.store.ListSeerrRequests(request.Context(), server.config.SeerrInstanceID, limit, offset)
+	items, err := server.store.ListSeerrRequests(request.Context(), "", limit, offset)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load requests")
 		return
@@ -987,11 +987,15 @@ func (server *Server) getRequest(writer http.ResponseWriter, request *http.Reque
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request id is required")
 		return
 	}
-	if server.config.SeerrInstanceID == "" {
+	instanceID, requestID := server.config.SeerrInstanceID, id
+	if qualifiedInstance, qualifiedRequest, ok := splitSeerrRequestID(id); ok {
+		instanceID, requestID = qualifiedInstance, qualifiedRequest
+	}
+	if instanceID == "" {
 		writeError(writer, http.StatusNotFound, "not_found", "request was not found")
 		return
 	}
-	detail, err := server.store.SeerrRequest(request.Context(), server.config.SeerrInstanceID, id)
+	detail, err := server.store.SeerrRequest(request.Context(), instanceID, requestID)
 	if errors.Is(err, postgres.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, "not_found", "request was not found")
 		return
@@ -1890,6 +1894,21 @@ func (server *Server) security(next http.Handler) http.Handler {
 func secureEqual(actual, expected string) bool {
 	left, right := sha256.Sum256([]byte(actual)), sha256.Sum256([]byte(expected))
 	return subtle.ConstantTimeCompare(left[:], right[:]) == 1
+}
+
+// splitSeerrRequestID splits the instance-qualified request key returned by the
+// read model ("<seerr-instance-uuid>:<request-id>") into its parts. A bare
+// request ID (for example a legacy bookmark) is not qualified and falls back to
+// the configured instance.
+func splitSeerrRequestID(value string) (string, string, bool) {
+	instance, requestID, found := strings.Cut(value, ":")
+	if !found || instance == "" || requestID == "" {
+		return "", "", false
+	}
+	if _, err := uuid.Parse(instance); err != nil {
+		return "", "", false
+	}
+	return instance, requestID, true
 }
 
 func optionalUUID(value string) (*uuid.UUID, error) {

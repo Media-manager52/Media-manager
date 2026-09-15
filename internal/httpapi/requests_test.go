@@ -28,6 +28,33 @@ func TestRequestsRoutesRequireOwner(t *testing.T) {
 	}
 }
 
+func TestSplitSeerrRequestIDOnlyAcceptsInstanceQualifiedKeys(t *testing.T) {
+	t.Parallel()
+	const instance = "01a05529-6fd8-7704-b0ec-a6ef3309acb7"
+	tests := []struct {
+		name         string
+		value        string
+		wantOK       bool
+		wantInstance string
+		wantRequest  string
+	}{
+		{name: "qualified", value: instance + ":1001", wantOK: true, wantInstance: instance, wantRequest: "1001"},
+		{name: "bare request id", value: "1001"},
+		{name: "empty", value: ""},
+		{name: "empty instance", value: ":1001"},
+		{name: "empty request", value: instance + ":"},
+		{name: "non-uuid instance", value: "not-a-uuid:1001"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			instance, request, ok := splitSeerrRequestID(test.value)
+			if ok != test.wantOK || instance != test.wantInstance || request != test.wantRequest {
+				t.Fatalf("splitSeerrRequestID(%q)=(%q,%q,%v), want (%q,%q,%v)", test.value, instance, request, ok, test.wantInstance, test.wantRequest, test.wantOK)
+			}
+		})
+	}
+}
+
 func TestRequestDetailWithoutSeerrConfigurationIsNotFound(t *testing.T) {
 	server, err := New(Config{OwnerToken: testOwnerToken}, &postgres.Store{})
 	if err != nil {
