@@ -212,12 +212,16 @@ function attentionReason(item: { attention_detail?: string; current_state?: stri
  * exact persisted reason, whether automatic retry exists, and the safest next
  * step, rather than exposing raw audit events.
  */
-function OwnerAttention({ items, workflows }: { items: APIWantedItem[]; workflows: APIWorkflow[] }) {
+export function OwnerAttention({ items, workflows, limit }: { items: APIWantedItem[]; workflows: APIWorkflow[]; limit?: number }) {
   const attentionItems = items.filter((item) => item.owner_action_required)
   const attentionWorkflows = workflows.filter((workflow) => (workflow.owner_action_required || ["needs_attention", "blocked", "quarantined", "transport_unknown"].includes(workflow.state)) && !attentionItems.some((item) => item.workflow_id === workflow.id))
-  if (attentionItems.length === 0 && attentionWorkflows.length === 0) return <div className="flex items-center gap-2.5 rounded-lg border border-[#285142] bg-[#10201b] px-3.5 py-3 text-[12px] text-[#99e1c3]"><CheckCircle2 className="size-4" aria-hidden />Nothing needs your attention. Waiting and searching continue automatically.</div>
+  const total = attentionItems.length + attentionWorkflows.length
+  if (total === 0) return <div className="flex items-center gap-2.5 rounded-lg border border-[#285142] bg-[#10201b] px-3.5 py-3 text-[12px] text-[#99e1c3]"><CheckCircle2 className="size-4" aria-hidden />Nothing needs your attention. Waiting and searching continue automatically.</div>
+  const shownItems = limit ? attentionItems.slice(0, limit) : attentionItems
+  const shownWorkflows = limit ? attentionWorkflows.slice(0, Math.max(0, limit - shownItems.length)) : attentionWorkflows
+  const hidden = total - shownItems.length - shownWorkflows.length
   return <div className="space-y-2.5">
-    {attentionItems.map((item) => {
+    {shownItems.map((item) => {
       const workflow = workflows.find((entry) => entry.id === item.workflow_id)
       const href = item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`
       const retry = workflow?.retry_discovery_state === "ready" ? "A new eligible release is ready for your approval" : workflow?.next_rescan_at ? `Next paced discovery ${new Date(workflow.next_rescan_at).toLocaleString()}` : workflow?.retry_discovery_state === "waiting" ? "Automatic discovery is waiting for a new eligible release" : "No automatic retry is scheduled"
@@ -233,7 +237,7 @@ function OwnerAttention({ items, workflows }: { items: APIWantedItem[]; workflow
         <div className="mt-3 flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href={href}>Review media</Link></Button><Button asChild size="sm" variant="ghost"><Link href="/activity/queue">Owner actions</Link></Button></div>
       </div>
     })}
-    {attentionWorkflows.map((workflow) => {
+    {shownWorkflows.map((workflow) => {
       const href = workflow.media_kind === "movie" ? `/media/movies/${workflow.media_id}` : `/media/series/${workflow.media_id}`
       const retry = workflow.retry_discovery_state === "ready" ? "A new eligible release is ready for approval" : workflow.next_rescan_at ? `Next paced discovery ${new Date(workflow.next_rescan_at).toLocaleString()}` : "No automatic retry is scheduled"
       return <div key={workflow.id} className="rounded-[10px] border border-[#4a3f22] bg-[#1a160c] p-3.5">
@@ -243,6 +247,7 @@ function OwnerAttention({ items, workflows }: { items: APIWantedItem[]; workflow
         <div className="mt-3"><Button asChild size="sm" variant="outline"><Link href="/activity/queue">Open owner actions</Link></Button></div>
       </div>
     })}
+    {hidden > 0 ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-[#2e3744] bg-[#0c1015] px-3.5 py-2.5 text-[12px] text-[#9ba5b2]"><span>Showing {total - hidden} of {total} items that need attention.</span><Button asChild size="sm" variant="ghost"><Link href="/wanted">View all in Wanted</Link></Button></div> : null}
   </div>
 }
 
@@ -277,7 +282,7 @@ export function LiveOperationalDashboardScreen() {
       <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
         <div className="space-y-4">
           <Panel title="Needs your attention" subtitle="Real holds that require an owner decision — not a global failure state." action={counts.needs_attention ? <Button asChild variant="outline" size="sm"><Link href="/activity/queue">Open workflows</Link></Button> : undefined}>
-            <OwnerAttention items={data?.wanted ?? []} workflows={workflows} />
+            <OwnerAttention items={data?.wanted ?? []} workflows={workflows} limit={5} />
           </Panel>
 
           <Panel title="Currently acquiring" subtitle="Live workflow state from PostgreSQL; no invented percentages." action={<RefreshButton onClick={refresh} />}>
@@ -719,7 +724,7 @@ export function LiveWantedScreen() {
     {error ? <ErrorNotice error={error} /> : null}
     <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Missing" value={String(missing)} note="Active scope has no current publication" tone={missing ? "info" : "good"} icon={Search} /><MetricCard label="Upgrades" value={String(upgrades)} note="Current publication remains until replacement verification" tone={upgrades ? "info" : "good"} icon={Gauge} /><MetricCard label="Needs attention" value={String(attention)} note="Persisted workflow state, not a global failure" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
     <Panel title="Owner attention" subtitle="The exact persisted reason, retry state, and safest next step for this item.">
-      <OwnerAttention items={items} workflows={[]} />
+      <OwnerAttention items={items} workflows={[]} limit={6} />
     </Panel>
     {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Panel className="!p-0" title="Wanted and upgrades" subtitle="Derived from active workflows, current publications, and persisted quality policy." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Scope</TableHead><TableHead>Gap</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.workflow_id}><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link></TableCell><TableCell className="font-mono text-[10px]">{item.variant}</TableCell><TableCell><StatusChip tone={item.gap === "upgrade" ? "info" : "warn"}>{pretty(item.gap)}</StatusChip></TableCell><TableCell><StateBadge state={item.current_state} />{item.attention_detail ? <div className="mt-1 max-w-sm text-[11px] leading-4 text-[#d6b36d]">{item.attention_detail}</div> : null}</TableCell><TableCell>{item.target_profile}<div className="mt-1 text-[10px] text-[#748090]">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell>{timeAgo(item.updated_at)}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No active missing or upgrade workflows.</div> : null}<div className="border-t border-white/[0.06] p-3 text-[11px] text-[#748090]">An existing current file is never replaced here. Replacement occurs only after the new generation is verified and Plex confirms its exact path and identity.</div></Panel>}
   </div>

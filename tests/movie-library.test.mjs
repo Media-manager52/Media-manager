@@ -396,3 +396,32 @@ test("movie and series library loaders make only the expected same-origin API re
     globalThis.fetch = originalFetch;
   }
 });
+
+test("bounded owner attention summarizes the remainder instead of flooding the panel", async () => {
+  const { OwnerAttention } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+  const items = Array.from({ length: 9 }, (_, index) => ({
+    workflow_id: `w${index}`,
+    media_id: `m${index}`,
+    media_kind: "movie",
+    title: `Attention Movie ${index}`,
+    variant: "default",
+    gap: "missing",
+    current_state: "needs_attention",
+    target_profile: "UHD Reference",
+    upgrades_enabled: true,
+    attention_detail: `Persisted reason ${index}`,
+    owner_action_required: true,
+    updated_at: "2026-09-01T00:00:00Z",
+  }));
+
+  const bounded = renderToStaticMarkup(React.createElement(OwnerAttention, { items, workflows: [], limit: 3 }));
+  assert.match(bounded, /Attention Movie 0/);
+  assert.match(bounded, /Attention Movie 2/);
+  assert.doesNotMatch(bounded, /Attention Movie 3/);
+  assert.match(bounded, /Showing 3 of 9 items that need attention/);
+  assert.match(bounded, /View all in Wanted/);
+
+  const full = renderToStaticMarkup(React.createElement(OwnerAttention, { items, workflows: [] }));
+  assert.match(full, /Attention Movie 8/);
+  assert.doesNotMatch(full, /Showing 3 of 9/);
+});
