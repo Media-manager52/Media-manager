@@ -70,6 +70,7 @@ import {
   setNotificationDestinationEnabled,
   uploadImportListSnapshot,
   type APIActivity,
+  type APIManagedFile,
   type APIReleaseCandidate,
   type APISourceStatus,
   type APISystemHealth,
@@ -78,6 +79,8 @@ import {
   type APIImportList,
   type APIRequest,
   type APIRequestDetail,
+  type APIWantedItem,
+  type APIWorkflow,
 } from "@/lib/media-manager-api"
 import { cn } from "@/lib/utils"
 import {
@@ -91,7 +94,7 @@ import {
 } from "@/lib/media-library"
 import { filterRequests, requestFilterCounts, requestLifecycleLabel, requestLifecycleTone, seerrStateLabel, type RequestFilter } from "@/lib/media-manager-requests"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
-import { InlineNotice, KeyValue, MetricCard, Panel, StatusChip } from "./ui"
+import { InlineNotice, KeyValue, MetricCard, Panel, SectionLabel, StateBadge, StatusChip } from "./ui"
 
 export { buildMediaLibraryRecords, filterMediaLibraryRecords } from "@/lib/media-library"
 export type { MediaLibraryFilters, MediaLibraryRecord } from "@/lib/media-library"
@@ -136,14 +139,6 @@ function timeAgo(value: string) {
   return `${Math.floor(seconds / 86400)}d ago`
 }
 
-function workflowTone(state: string): Tone {
-  if (state === "plex_confirmed") return "good"
-  if (["needs_attention", "held", "blocked", "quarantined", "transport_unknown"].includes(state)) return "warn"
-  if (state === "cancelled") return "bad"
-  if (["searching", "submitting", "queued", "streaming_ready", "verifying", "publishing", "plex_scanning"].includes(state)) return "info"
-  return "neutral"
-}
-
 function fileTone(state: string, confirmed: boolean): Tone {
   if (state === "current" && confirmed) return "good"
   if (["planned", "publishing", "verified"].includes(state)) return "info"
@@ -177,7 +172,6 @@ function qualityFact(evidence: Record<string, unknown>, key: string) {
   return ""
 }
 
-const dashboardLoader = (signal: AbortSignal) => loadDashboard(signal)
 const activityLoader = (signal: AbortSignal) => loadActivity(signal)
 const calendarLoader = (signal: AbortSignal) => loadCalendar(signal)
 const filesLoader = (signal: AbortSignal) => loadManagedFiles(signal)
@@ -192,28 +186,133 @@ const notificationDestinationsLoader = (signal: AbortSignal) => loadNotification
 const notificationDeliveriesLoader = (signal: AbortSignal) => loadNotificationDeliveries(signal)
 const importListsLoader = (signal: AbortSignal) => loadImportLists(signal)
 const backupsLoader = (signal: AbortSignal) => loadBackups(signal)
+const requestsLoader = (signal: AbortSignal) => loadRequests(signal)
+
+// The overview reads only existing bounded read models. It never invents a
+// statistic and it never triggers a search, scan, or publication.
+const dashboardOverviewLoader = async (signal: AbortSignal) => {
+  const [dashboard, wanted, calendar, requests, health] = await Promise.all([
+    loadDashboard(signal),
+    loadWanted(signal),
+    loadCalendar(signal),
+    loadRequests(signal),
+    loadSystemHealth(signal),
+  ])
+  return { dashboard, wanted, calendar, requests, health }
+}
+
+const acquiringStates = new Set(["searching", "candidate_selected", "submitting", "queued", "streaming_ready", "import_complete", "verifying", "publishing", "plex_scanning", "monitored", "waiting", "held"])
+
+function attentionReason(item: { attention_detail?: string; current_state?: string }) {
+  return item.attention_detail?.trim() || "Media Manager paused this workstream for an owner decision."
+}
+
+/**
+ * A single owner-action surface used by the overview and Wanted. It shows the
+ * exact persisted reason, whether automatic retry exists, and the safest next
+ * step, rather than exposing raw audit events.
+ */
+function OwnerAttention({ items, workflows }: { items: APIWantedItem[]; workflows: APIWorkflow[] }) {
+  const attentionItems = items.filter((item) => item.owner_action_required)
+  const attentionWorkflows = workflows.filter((workflow) => (workflow.owner_action_required || ["needs_attention", "blocked", "quarantined", "transport_unknown"].includes(workflow.state)) && !attentionItems.some((item) => item.workflow_id === workflow.id))
+  if (attentionItems.length === 0 && attentionWorkflows.length === 0) return <div className="flex items-center gap-2.5 rounded-lg border border-[#285142] bg-[#10201b] px-3.5 py-3 text-[12px] text-[#99e1c3]"><CheckCircle2 className="size-4" aria-hidden />Nothing needs your attention. Waiting and searching continue automatically.</div>
+  return <div className="space-y-2.5">
+    {attentionItems.map((item) => {
+      const workflow = workflows.find((entry) => entry.id === item.workflow_id)
+      const href = item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`
+      const retry = workflow?.retry_discovery_state === "ready" ? "A new eligible release is ready for your approval" : workflow?.next_rescan_at ? `Next paced discovery ${new Date(workflow.next_rescan_at).toLocaleString()}` : workflow?.retry_discovery_state === "waiting" ? "Automatic discovery is waiting for a new eligible release" : "No automatic retry is scheduled"
+      return <div key={item.workflow_id} className="rounded-[10px] border border-[#4a3f22] bg-[#1a160c] p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2"><Link href={href} className="text-[13.5px] font-bold text-[#eef2f7] hover:text-[#d8c48f]">{item.title}{item.year ? ` (${item.year})` : ""}</Link><StateBadge state={item.current_state || "needs_attention"} /></div>
+        <div className="mt-1.5 text-[12.5px] leading-5 text-[#dcc9a0]">{attentionReason(item)}</div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#b3ab8c]">
+          <span>Scope {item.variant}</span>
+          <span>Target {item.target_profile}</span>
+          <span>{retry}</span>
+        </div>
+        {workflow?.ready_release_title ? <div className="mt-2 truncate text-[12px] text-[#d8c48f]">Candidate: {workflow.ready_release_title}{workflow.ready_indexer_name ? ` · ${workflow.ready_indexer_name}` : ""}</div> : null}
+        <div className="mt-3 flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href={href}>Review media</Link></Button><Button asChild size="sm" variant="ghost"><Link href="/activity/queue">Owner actions</Link></Button></div>
+      </div>
+    })}
+    {attentionWorkflows.map((workflow) => {
+      const href = workflow.media_kind === "movie" ? `/media/movies/${workflow.media_id}` : `/media/series/${workflow.media_id}`
+      const retry = workflow.retry_discovery_state === "ready" ? "A new eligible release is ready for approval" : workflow.next_rescan_at ? `Next paced discovery ${new Date(workflow.next_rescan_at).toLocaleString()}` : "No automatic retry is scheduled"
+      return <div key={workflow.id} className="rounded-[10px] border border-[#4a3f22] bg-[#1a160c] p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2"><Link href={href} className="text-[13.5px] font-bold text-[#eef2f7] hover:text-[#d8c48f]">{workflow.title}{workflow.year ? ` (${workflow.year})` : ""}</Link><StateBadge state={workflow.state} /></div>
+        <div className="mt-1.5 text-[12.5px] leading-5 text-[#dcc9a0]">{workflow.attention_detail || pretty(workflow.attention_code ?? workflow.state)}</div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#b3ab8c]"><span>Scope {workflow.variant}</span>{workflow.ready_release_title ? <span>Candidate {workflow.ready_release_title}</span> : null}<span>{retry}</span></div>
+        <div className="mt-3"><Button asChild size="sm" variant="outline"><Link href="/activity/queue">Open owner actions</Link></Button></div>
+      </div>
+    })}
+  </div>
+}
 
 export function LiveOperationalDashboardScreen() {
-  const { data, error, refresh } = useLiveData(dashboardLoader)
+  const { data, error, refresh } = useLiveData(dashboardOverviewLoader)
   if (!data && !error) return <LoadingPanel label="Loading the live overview…" />
+  const dashboard = data?.dashboard
+  const now = new Date().getTime()
+  const workflows = dashboard?.recent_workflows ?? []
+  const acquiring = workflows.filter((workflow) => acquiringStates.has(workflow.state))
+  const completed = workflows.filter((workflow) => workflow.state === "plex_confirmed")
+  const upcoming = (data?.calendar ?? [])
+    .filter((entry) => new Date(entry.air_date).getTime() >= now)
+    .sort((left, right) => new Date(left.air_date).getTime() - new Date(right.air_date).getTime())
+    .slice(0, 6)
+  const recentRequests = [...(data?.requests ?? [])].sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()).slice(0, 5)
+  const integrationWarnings = (data?.health.components ?? []).filter((component) => component.configuration_state !== "configured")
+  const outbox = data?.health.outbox
+  const outboxAttention = Boolean(outbox && outbox.due > 0 && outbox.retrying > 0)
+  const counts = dashboard?.counts
+
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
-    {data ? <>
+    {dashboard && counts ? <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Library" value={String(data.counts.movies + data.counts.series)} note={`${data.counts.movies} movies · ${data.counts.series} series`} icon={Library} />
-        <MetricCard label="Managed files" value={String(data.counts.current_files)} note="Plex-confirmed current links" tone="good" icon={FileCheck2} />
-        <MetricCard label="Active work" value={String(data.counts.active_workflows)} note={`${data.counts.pending_events} persisted worker events`} tone="info" icon={Activity} />
-        <MetricCard label="Needs attention" value={String(data.counts.needs_attention)} note={`${data.counts.recycle_entries} retained recycle entries`} tone={data.counts.needs_attention ? "warn" : "good"} icon={AlertTriangle} />
+        <MetricCard label="Library" value={String(counts.movies + counts.series)} note={`${counts.movies} movies · ${counts.series} series cataloged`} icon={Library} />
+        <MetricCard label="Available" value={String(counts.current_files)} note="Plex-confirmed current files" tone={counts.current_files ? "good" : "neutral"} icon={FileCheck2} />
+        <MetricCard label="Active work" value={String(counts.active_workflows)} note={`${counts.pending_events} persisted worker events`} tone={counts.active_workflows ? "info" : "neutral"} icon={Activity} />
+        <MetricCard label="Needs attention" value={String(counts.needs_attention)} note={counts.needs_attention ? "Owner decisions waiting" : "Nothing is waiting on you"} tone={counts.needs_attention ? "warn" : "good"} icon={AlertTriangle} />
       </div>
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
-        <Panel className="!p-0" title="Recent workflows" subtitle="Persisted lifecycle state; no invented percentages." action={<RefreshButton onClick={refresh} />}>
-          <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Scope</TableHead><TableHead>State</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>{data.recent_workflows.map((workflow) => <TableRow key={workflow.id}><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={workflow.media_kind === "movie" ? `/media/movies/${workflow.media_id}` : `/media/series/${workflow.media_id}`}>{workflow.title}</Link></TableCell><TableCell className="font-mono text-[9px]">{workflow.variant}</TableCell><TableCell><StatusChip tone={workflowTone(workflow.state)}>{pretty(workflow.state)}</StatusChip></TableCell><TableCell>{timeAgo(workflow.updated_at)}</TableCell></TableRow>)}</TableBody></Table></div>
-          {data.recent_workflows.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No workflows have been created.</div> : null}
-        </Panel>
-        <Panel title="Recent durable activity" subtitle="Audit writes and workflow transitions.">
-          <ActivityList items={data.recent_activity} />
-          <Button asChild variant="outline" size="sm" className="mt-4"><Link href="/activity/history">Open full history</Link></Button>
-        </Panel>
+
+      <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+        <div className="space-y-4">
+          <Panel title="Needs your attention" subtitle="Real holds that require an owner decision — not a global failure state." action={counts.needs_attention ? <Button asChild variant="outline" size="sm"><Link href="/activity/queue">Open workflows</Link></Button> : undefined}>
+            <OwnerAttention items={data?.wanted ?? []} workflows={workflows} />
+          </Panel>
+
+          <Panel title="Currently acquiring" subtitle="Live workflow state from PostgreSQL; no invented percentages." action={<RefreshButton onClick={refresh} />}>
+            {acquiring.length === 0 ? <div className="py-6 text-center text-[12px] text-[#838f9f]">Nothing is downloading right now.</div>
+              : <div className="space-y-2">
+                {acquiring.slice(0, 6).map((workflow) => <Link key={workflow.id} href={workflow.media_kind === "movie" ? `/media/movies/${workflow.media_id}` : `/media/series/${workflow.media_id}`} className="flex items-center justify-between gap-3 rounded-[10px] border border-[#202a39] bg-[#0c1016] px-3.5 py-2.5 outline-none transition hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c5cf0]">
+                  <div className="min-w-0"><div className="truncate text-[12.5px] font-semibold text-[#e6eaf0]">{workflow.title}</div><div className="mt-0.5 truncate font-mono text-[10.5px] text-[#7f8a9a]">{workflow.variant} · updated {timeAgo(workflow.updated_at)}</div></div>
+                  <StateBadge state={workflow.state} />
+                </Link>)}
+              </div>}
+          </Panel>
+        </div>
+
+        <div className="space-y-4">
+          <Panel title="Recently completed" subtitle="Plex confirmed the exact managed file and provider identity." action={completed.length ? <Button asChild variant="ghost" size="sm"><Link href="/activity/history">History</Link></Button> : undefined}>
+            {completed.length === 0 ? <div className="py-6 text-center text-[12px] text-[#838f9f]">No completed publication yet.</div>
+              : <div className="space-y-2">{completed.slice(0, 5).map((workflow) => <Link key={workflow.id} href={workflow.media_kind === "movie" ? `/media/movies/${workflow.media_id}` : `/media/series/${workflow.media_id}`} className="flex items-center gap-2.5 rounded-[10px] border border-[#202a39] bg-[#0c1016] px-3 py-2 outline-none transition hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c5cf0]"><CheckCircle2 className="size-4 shrink-0 text-[#62d0a0]" aria-hidden /><div className="min-w-0 flex-1"><div className="truncate text-[12.5px] font-semibold text-[#e6eaf0]">{workflow.title}</div><div className="mt-0.5 truncate font-mono text-[10.5px] text-[#7f8a9a]">{workflow.variant} · {timeAgo(workflow.updated_at)}</div></div></Link>)}</div>}
+          </Panel>
+
+          <Panel title="Coming up" subtitle="Persisted provider dates only; a date never triggers a search." action={<Button asChild variant="ghost" size="sm"><Link href="/calendar">Calendar</Link></Button>}>
+            {upcoming.length === 0 ? <div className="py-6 text-center text-[12px] text-[#838f9f]">No exact future air dates are persisted.</div>
+              : <div className="mm-timeline">{upcoming.map((entry) => <div key={`${entry.workflow_id}:${entry.season}:${entry.episode}`} className="mm-timeline-event"><Link href={`/media/series/${entry.media_id}`} className="text-[12.5px] font-bold text-[#e5eaf0] hover:text-[#aebdff]">{entry.media_title}</Link><div className="mt-1 text-[11px] text-[#7f8a9a]">S{String(entry.season).padStart(2, "0")}E{String(entry.episode).padStart(2, "0")} · {new Date(entry.air_date).toLocaleDateString()}</div></div>)}</div>}
+          </Panel>
+
+          <Panel title="Recent requests" subtitle="Seerr intake mapped to durable lifecycle state." action={<Button asChild variant="ghost" size="sm"><Link href="/requests">All requests</Link></Button>}>
+            {recentRequests.length === 0 ? <div className="py-6 text-center text-[12px] text-[#838f9f]">No Seerr requests are persisted yet.</div>
+              : <div className="space-y-1.5">{recentRequests.map((request) => <Link key={request.id} href="/requests" className="flex items-center justify-between gap-3 rounded-[8px] px-2 py-1.5 outline-none hover:bg-[#111925] focus-visible:ring-2 focus-visible:ring-[#7c5cf0]"><div className="min-w-0"><div className="truncate text-[12px] font-semibold text-[#e6eaf0]">{request.title || `Request ${request.request_id}`}</div><div className="mt-0.5 text-[10.5px] text-[#7f8a9a]">{request.requester || "Unknown requester"} · {timeAgo(request.updated_at)}</div></div><StateBadge state={request.lifecycle} /></Link>)}</div>}
+          </Panel>
+
+          {(integrationWarnings.length > 0 || outboxAttention) ? <Panel title="Integrations" subtitle="Configuration and worker state that may need attention.">
+            {outboxAttention ? <InlineNotice tone="warn" title="Worker outbox is retrying">{outbox?.due} events are due and {outbox?.retrying} are retrying. Work is not lost; it remains durable.</InlineNotice> : null}
+            <div className={cn(outboxAttention && "mt-3")}>{integrationWarnings.map((component) => <div key={component.id} className="flex items-center justify-between gap-3 border-b border-[#202a39] py-2.5 last:border-0"><div className="min-w-0"><div className="truncate text-[12.5px] font-semibold text-[#dfe4ea]">{component.name}</div><div className="text-[10.5px] text-[#7f8a9a]">{component.kind} · {component.last_outcome ? pretty(component.last_outcome) : "No live operation observed"}</div></div><StateBadge state={component.configuration_state} /></div>)}</div>
+            <Button asChild variant="outline" size="sm" className="mt-3"><Link href="/system/health">Open health</Link></Button>
+          </Panel> : null}
+        </div>
       </div>
     </> : null}
   </div>
@@ -242,12 +341,12 @@ function compactValues(values: string[], limit = 6) {
 }
 
 function mediaAvailability(item: MediaLibraryRecord) {
-  if (item.kind === "series" && item.available && item.missing) return { label: "Partially available", tone: "text-[#e1ad63]", dot: "bg-[#d99a4e]" }
-  if (item.available && item.upgradable) return { label: "Available · upgrade wanted", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
-  if (item.available) return { label: "Available", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
-  if (item.missing) return { label: "Missing", tone: "text-[#e89b65]", dot: "bg-[#df8752]" }
-  if (item.monitoring) return { label: "Monitoring", tone: "text-[#b59af7]", dot: "bg-[#8b5cf6]" }
-  return { label: "Cataloged", tone: "text-[#929dac]", dot: "bg-[#667085]" }
+  if (item.kind === "series" && item.available && item.missing) return { label: "Partially available", short: "Partial", tone: "text-[#e1ad63]", dot: "bg-[#d99a4e]" }
+  if (item.available && item.upgradable) return { label: "Available · upgrade wanted", short: "Upgrade wanted", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
+  if (item.available) return { label: "Available", short: "Available", tone: "text-[#63d29f]", dot: "bg-[#54c48e]" }
+  if (item.missing) return { label: "Missing", short: "Missing", tone: "text-[#e89b65]", dot: "bg-[#df8752]" }
+  if (item.monitoring) return { label: "Monitoring", short: "Monitoring", tone: "text-[#b59af7]", dot: "bg-[#8b5cf6]" }
+  return { label: "Cataloged", short: "Cataloged", tone: "text-[#929dac]", dot: "bg-[#667085]" }
 }
 
 const libraryCopy = {
@@ -260,6 +359,7 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
   const loader = mediaKind === "movie" ? movieLibraryLoader : seriesLibraryLoader
   const [filters, setFilters] = React.useState<MediaLibraryFilters>(initialMediaFilters)
   const [view, setView] = React.useState<"grid" | "list">("grid")
+  const [density, setDensity] = React.useState<"comfortable" | "compact">("compact")
   const [moreOpen, setMoreOpen] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [selectedID, setSelectedID] = React.useState<string | null | undefined>(undefined)
@@ -281,7 +381,7 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
     monitoring: records.filter((item) => item.monitoring).length,
     upgradable: records.filter((item) => item.upgradable).length,
   }), [records])
-  const pageSize = 10
+  const pageSize = 24
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const currentPage = Math.min(page, pageCount)
   const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -299,6 +399,18 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
     setDetailTab("overview")
   }
 
+  function clearAllFilters() {
+    setFilters(initialMediaFilters)
+    setPage(1)
+    setDetailTab("overview")
+  }
+
+  function clearFilter(key: keyof MediaLibraryFilters) {
+    setFilters((current) => ({ ...current, [key]: initialMediaFilters[key] }))
+    setPage(1)
+    setDetailTab("overview")
+  }
+
   const summaryItems: Array<{ key: MediaLibrarySummary; label: string; count: number }> = [
     { key: "all", label: copy.all, count: counts.all },
     { key: "available", label: "Available", count: counts.available },
@@ -307,63 +419,76 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
     { key: "upgradable", label: "Upgradable", count: counts.upgradable },
   ]
 
-  return <div className={cn("mm-library-root grid h-full min-h-0 bg-[#080b12]", selected && "xl:grid-cols-[minmax(0,1fr)_245px]")}>
+  const activeFilterChips: Array<{ key: keyof MediaLibraryFilters; label: string }> = []
+  if (filters.quality) activeFilterChips.push({ key: "quality", label: `Quality: ${pretty(filters.quality)}` })
+  if (filters.resolution) activeFilterChips.push({ key: "resolution", label: `Resolution: ${pretty(filters.resolution)}` })
+  if (filters.audio) activeFilterChips.push({ key: "audio", label: `Audio: ${pretty(filters.audio)}` })
+  if (filters.language) activeFilterChips.push({ key: "language", label: `Language: ${pretty(filters.language)}` })
+  if (filters.availability !== "all") activeFilterChips.push({ key: "availability", label: `Availability: ${pretty(filters.availability)}` })
+  if (filters.root) activeFilterChips.push({ key: "root", label: `Root: ${filters.root}` })
+  if (filters.plexConfirmedOnly) activeFilterChips.push({ key: "plexConfirmedOnly", label: "Plex confirmed" })
+  if (filters.managedOnly) activeFilterChips.push({ key: "managedOnly", label: "Has managed file" })
+
+  return <div className={cn("mm-library-root grid h-full min-h-0 bg-[#07090f]", selected && "xl:grid-cols-[minmax(0,1fr)_320px]")}>
     <section className="flex min-h-0 min-w-0 flex-col px-3 pb-12 pt-3 sm:px-4 sm:pb-3 sm:pt-3" aria-labelledby={`${mediaKind}-library-title`}>
-      <div className="mb-2 flex min-h-8 items-center gap-2">
+      <div className="mb-3 flex min-h-9 items-center gap-3">
         <div className="min-w-0">
-          <div className="flex items-baseline gap-2">
-            <h1 id={`${mediaKind}-library-title`} className="text-[18px] font-[800] tracking-[-0.025em] text-[#f4f6fa]">{copy.title}</h1>
-            <span className="text-[10px] font-semibold text-[#929dac]" aria-label={`${records.length} ${records.length === 1 ? copy.singular : copy.plural}`}>{records.length}</span>
+          <div className="flex items-baseline gap-2.5">
+            <h1 id={`${mediaKind}-library-title`} className="text-[21px] font-[820] tracking-[-0.03em] text-[#f4f6fa]">{copy.title}</h1>
+            <span className="rounded-full border border-[#202a39] bg-[#0d121b] px-2 py-0.5 text-[11px] font-bold text-[#9ba5b2]" aria-label={`${records.length} ${records.length === 1 ? copy.singular : copy.plural}`}>{records.length}</span>
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1.5">
           <Button variant="ghost" size="icon-sm" aria-label={`Refresh ${copy.plural}`} onClick={refresh}><RefreshCw /></Button>
-          <div className="flex rounded-md border border-[#202a39] bg-[#0e141e] p-0.5" aria-label="Library view">
-            <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")} className={cn("grid size-7 place-items-center rounded-[4px] text-[#7e8998] outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]", view === "grid" && "bg-[#25203a] text-[#bca7ff]")}><Grid2X2 className="size-3.5" /></button>
-            <button type="button" aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")} className={cn("grid size-7 place-items-center rounded-[4px] text-[#7e8998] outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]", view === "list" && "bg-[#25203a] text-[#bca7ff]")}><List className="size-3.5" /></button>
+          <div className="flex rounded-md border border-[#202a39] bg-[#0d121b] p-0.5" aria-label="Library view">
+            <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")} className={cn("grid size-7 place-items-center rounded-[4px] text-[#7e8998] outline-none focus-visible:ring-2 focus-visible:ring-[#7c5cf0]", view === "grid" && "bg-[#1c1735] text-[#bca7ff]")}><Grid2X2 className="size-4" /></button>
+            <button type="button" aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")} className={cn("grid size-7 place-items-center rounded-[4px] text-[#7e8998] outline-none focus-visible:ring-2 focus-visible:ring-[#7c5cf0]", view === "list" && "bg-[#1c1735] text-[#bca7ff]")}><List className="size-4" /></button>
           </div>
-          <Button asChild size="sm" className="h-8 bg-[#7c3aed] px-2.5 text-white hover:bg-[#6d2fd4]"><Link href="/discover"><Plus /> {copy.add}</Link></Button>
+          {view === "grid" ? <label className="shrink-0"><span className="sr-only">Grid density</span><NativeSelect size="sm" aria-label="Grid density" value={density} onChange={(event) => setDensity(event.target.value as "comfortable" | "compact")} className="h-8 border-[#202a39] bg-[#0d121b] px-2 pr-6 text-[11.5px] text-[#aab3bf] shadow-none"><NativeSelectOption value="compact">Compact</NativeSelectOption><NativeSelectOption value="comfortable">Comfortable</NativeSelectOption></NativeSelect></label> : null}
+          <Button asChild size="sm" className="h-8 bg-[#7c5cf0] px-3 text-white hover:bg-[#6d47e0]"><Link href="/discover"><Plus /> {copy.add}</Link></Button>
         </div>
       </div>
 
       {error ? <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-[#5c3339] bg-[#211419] px-3 py-2 text-[10px] text-[#f1a6a6]" role="alert"><span>{error}</span><button type="button" className="font-bold underline underline-offset-2" onClick={refresh}>Retry</button></div> : null}
 
-      <div className="relative mb-2 shrink-0">
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin" aria-label={`${copy.title} filters`}>
-          <label className="relative block w-[140px] shrink-0"><span className="sr-only">Search {copy.plural}</span><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#8d99aa]" /><Input value={filters.query} onChange={(event) => setFilter("query", event.target.value)} placeholder={`Search ${copy.plural}`} className="h-8 border-[#202a39] bg-[#0e141e] pl-8 text-[11px] shadow-none placeholder:text-[#8d99aa] focus-visible:border-[#7c3aed] focus-visible:ring-[#7c3aed]/20" /></label>
-          <LibrarySelect label="Quality" value={filters.quality} onChange={(value) => setFilter("quality", value)} options={facets.quality} className="w-[82px]" />
-          <LibrarySelect label="Resolution" value={filters.resolution} onChange={(value) => setFilter("resolution", value)} options={facets.resolution} className="w-[82px]" />
-          <LibrarySelect label="Audio" value={filters.audio} onChange={(value) => setFilter("audio", value)} options={facets.audio} className="w-[76px]" />
-          <LibrarySelect label="Language" value={filters.language} onChange={(value) => setFilter("language", value)} options={facets.language} className="w-[84px]" />
-          <LibrarySelect label="Availability" value={filters.availability} onChange={(value) => setFilter("availability", value as MediaLibrarySummary)} options={["available", "missing", "monitoring", "upgradable"]} className="w-[96px]" />
-          <LibrarySelect label="Root Folder" value={filters.root} onChange={(value) => setFilter("root", value)} options={facets.root} className="w-[96px]" />
-          <Button type="button" variant="outline" size="sm" aria-expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)} className="h-8 shrink-0 border-[#202a39] bg-[#0e141e] px-2 text-[11px] text-[#aab3bf] shadow-none hover:bg-[#141c28]"><SlidersHorizontal /> More Filters{filters.plexConfirmedOnly || filters.managedOnly ? <span className="size-1.5 rounded-full bg-[#7c3aed]" aria-label="Additional filters active" /> : null}</Button>
+      <div className="mb-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-1.5" aria-label={`${copy.title} filters`}>
+          <label className="relative block min-w-[190px] flex-1 sm:max-w-[340px]"><span className="sr-only">Search {copy.plural}</span><Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-[#8d99aa]" /><Input value={filters.query} onChange={(event) => setFilter("query", event.target.value)} placeholder={`Search ${copy.plural}`} className="h-8 border-[#202a39] bg-[#0d121b] pl-8 text-[12px] shadow-none placeholder:text-[#8d99aa] focus-visible:border-[#7c5cf0] focus-visible:ring-[#7c5cf0]/20" /></label>
+          <LibrarySelect label="Availability" value={filters.availability} onChange={(value) => setFilter("availability", value as MediaLibrarySummary)} options={["available", "missing", "monitoring", "upgradable"]} className="w-[112px]" />
+          <LibrarySelect label="Quality" value={filters.quality} onChange={(value) => setFilter("quality", value)} options={facets.quality} className="w-[120px]" />
+          <Button type="button" variant="outline" size="sm" aria-expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)} className="h-8 shrink-0 border-[#202a39] bg-[#0d121b] px-2.5 text-[12px] text-[#aab3bf] shadow-none hover:bg-[#141c28]"><SlidersHorizontal /> More Filters{activeFilterChips.length ? <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#7c5cf0] px-1 text-[10px] font-bold text-white">{activeFilterChips.length}</span> : null}</Button>
+          {activeFilterChips.length ? <Button type="button" variant="ghost" size="sm" onClick={clearAllFilters} className="h-8 shrink-0 text-[12px] text-[#9ba5b2] hover:text-white"><X className="size-3.5" /> Clear all</Button> : null}
         </div>
-        {moreOpen ? <div className="absolute right-0 top-9 z-20 w-48 rounded-md border border-[#283447] bg-[#111925] p-2 shadow-xl">
-          <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-[10px] text-[#c5ccd5] hover:bg-[#17202d]"><input type="checkbox" checked={filters.plexConfirmedOnly} onChange={(event) => setFilter("plexConfirmedOnly", event.target.checked)} className="accent-[#7c3aed]" /> Plex confirmed only</label>
-          <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-[10px] text-[#c5ccd5] hover:bg-[#17202d]"><input type="checkbox" checked={filters.managedOnly} onChange={(event) => setFilter("managedOnly", event.target.checked)} className="accent-[#7c3aed]" /> Has managed file</label>
+        {activeFilterChips.length ? <div className="mt-2 flex flex-wrap gap-1.5">{activeFilterChips.map((chip) => <button key={chip.key} type="button" onClick={() => clearFilter(chip.key)} className="inline-flex items-center gap-1.5 rounded-full border border-[#3a3358] bg-[#171428] px-2.5 py-1 text-[11.5px] font-semibold text-[#c6b5ff] outline-none transition hover:border-[#5b4d8c] focus-visible:ring-2 focus-visible:ring-[#7c5cf0]">{chip.label}<X className="size-3" aria-hidden /></button>)}</div> : null}
+        {moreOpen ? <div className="mt-2 grid gap-2 rounded-lg border border-[#283447] bg-[#0d121b] p-3 sm:grid-cols-2 lg:grid-cols-4">
+          <LibrarySelect label="Resolution" value={filters.resolution} onChange={(value) => setFilter("resolution", value)} options={facets.resolution} className="w-full" />
+          <LibrarySelect label="Audio" value={filters.audio} onChange={(value) => setFilter("audio", value)} options={facets.audio} className="w-full" />
+          <LibrarySelect label="Language" value={filters.language} onChange={(value) => setFilter("language", value)} options={facets.language} className="w-full" />
+          <LibrarySelect label="Root Folder" value={filters.root} onChange={(value) => setFilter("root", value)} options={facets.root} className="w-full" />
+          <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-[12px] text-[#c5ccd5] hover:text-white"><input type="checkbox" checked={filters.plexConfirmedOnly} onChange={(event) => setFilter("plexConfirmedOnly", event.target.checked)} className="accent-[#7c5cf0]" /> Plex confirmed only</label>
+          <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-[12px] text-[#c5ccd5] hover:text-white"><input type="checkbox" checked={filters.managedOnly} onChange={(event) => setFilter("managedOnly", event.target.checked)} className="accent-[#7c5cf0]" /> Has managed file</label>
         </div> : null}
       </div>
 
       <div className="mb-2 flex shrink-0 gap-1.5 overflow-x-auto pb-0.5 scrollbar-none sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0" aria-label={`${copy.title} summaries`}>
-        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("w-[88px] shrink-0 rounded-md border border-[#202a39] bg-[#0e141e] px-1.5 py-1.5 text-left outline-none transition hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c3aed] sm:w-auto sm:min-w-0 sm:px-2", filters.summary === item.key && "border-[#6d3add] bg-[#171428]")}><span className="block truncate text-[10px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">{item.label}</span><span className={cn("mt-0.5 block text-[16px] font-[800] leading-none text-[#f4f6fa]", filters.summary === item.key && "text-[#c6b5ff]")}>{item.count}</span></button>)}
+        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("w-[96px] shrink-0 rounded-lg border border-[#202a39] bg-[#0d121b] px-2.5 py-2 text-left outline-none transition hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c5cf0] sm:w-auto sm:min-w-0 sm:px-3", filters.summary === item.key && "border-[#6d47e0] bg-[#171428]")}><span className="block truncate text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">{item.label}</span><span className={cn("mt-0.5 block text-[17px] font-[820] leading-none text-[#f4f6fa]", filters.summary === item.key && "text-[#c6b5ff]")}>{item.count}</span></button>)}
       </div>
 
-      <div className="mb-1 flex shrink-0 items-center justify-between text-[10px] text-[#929dac]" aria-live="polite"><span>{filtered.length} {filtered.length === 1 ? copy.singular : copy.plural}</span><span>Title order</span></div>
+      <div className="mb-1.5 flex shrink-0 items-center justify-between text-[12px] text-[#929dac]" aria-live="polite"><span>{filtered.length} {filtered.length === 1 ? copy.singular : copy.plural}</span><span>{view === "grid" ? `${density === "compact" ? "Compact" : "Comfortable"} grid` : "Title order"}</span></div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pr-0.5 scrollbar-thin">
         {!data && !error ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-[#202a39] bg-[#0e141e] text-[10px] text-[#929dac]" role="status">Loading the live {copy.title.toLocaleLowerCase()} catalog…</div>
           : visible.length === 0 ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-dashed border-[#283447] bg-[#0e141e]"><div className="px-6 text-center">{mediaKind === "movie" ? <Film className="mx-auto size-6 text-[#596579]" /> : <Tv className="mx-auto size-6 text-[#596579]" />}<div className="mt-2 text-[11px] font-bold text-[#f4f6fa]">{records.length === 0 ? `Your ${copy.singular} catalog is empty` : `No ${copy.plural} matched`}</div><div className="mt-1 text-[10px] text-[#9ba5b2]">{records.length === 0 ? `Use ${copy.add} to create a real catalog entry.` : "Change or clear the active filters."}</div></div></div>
-          : view === "grid" ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {visible.map((item) => <MediaLibraryCard key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMedia} />)}
+          : view === "grid" ? <div className={cn("grid grid-cols-2", density === "compact" ? "gap-1.5 sm:grid-cols-5 lg:grid-cols-7 2xl:grid-cols-9" : "gap-2.5 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-7")}>
+            {visible.map((item) => <MediaLibraryCard key={item.id} item={item} compact={density === "compact"} selected={item.id === selected?.id} onSelect={selectMedia} />)}
           </div> : <div className="overflow-hidden rounded-md border border-[#202a39] bg-[#0e141e]">
             {visible.map((item) => <MediaLibraryRow key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMedia} />)}
           </div>}
       </div>
 
-      <div className="sticky bottom-0 z-10 mt-2 flex h-9 shrink-0 items-center justify-between border-t border-[#202a39] bg-[#080b12]/95 pt-2 backdrop-blur-sm" aria-label={`${copy.title} pagination`}>
-        <span className="text-[10px] text-[#929dac]">{filtered.length ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)} of ${filtered.length}` : `0 ${copy.plural}`}</span>
-        <div className="flex items-center gap-1"><Button type="button" variant="ghost" size="icon-xs" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => setPage(Math.max(1, currentPage - 1))}><ChevronLeft /></Button><span className="min-w-14 text-center text-[10px] font-semibold text-[#aeb7c3]">{currentPage} / {pageCount}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Next page" disabled={currentPage >= pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))}><ChevronRight /></Button></div>
+      <div className="sticky bottom-0 z-10 mt-2 flex h-9 shrink-0 items-center justify-between border-t border-[#202a39] bg-[#07090f]/95 pt-2 backdrop-blur-sm" aria-label={`${copy.title} pagination`}>
+        <span className="text-[12px] text-[#929dac]">{filtered.length ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)} of ${filtered.length}` : `0 ${copy.plural}`}</span>
+        <div className="flex items-center gap-1"><Button type="button" variant="ghost" size="icon-xs" aria-label="Previous page" disabled={currentPage <= 1} onClick={() => setPage(Math.max(1, currentPage - 1))}><ChevronLeft /></Button><span className="min-w-14 text-center text-[12px] font-semibold text-[#aeb7c3]">{currentPage} / {pageCount}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Next page" disabled={currentPage >= pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))}><ChevronRight /></Button></div>
       </div>
     </section>
 
@@ -384,18 +509,28 @@ function LibrarySelect({ label, value, options, onChange, className }: { label: 
   return <label className="shrink-0"><span className="sr-only">{label}</span><NativeSelect size="sm" value={value} onChange={(event) => onChange(event.target.value)} className={cn("h-8 border-[#202a39] bg-[#0e141e] px-2 pr-6 text-[11px] text-[#aab3bf] shadow-none focus-visible:border-[#7c3aed] focus-visible:ring-[#7c3aed]/20", className)} aria-label={label}><NativeSelectOption value="">{label}</NativeSelectOption>{options.map((option) => <NativeSelectOption key={option} value={option}>{pretty(option)}</NativeSelectOption>)}</NativeSelect></label>
 }
 
-export function MediaLibraryCard({ item, selected, onSelect }: { item: MediaLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
+export function MediaLibraryCard({ item, compact = false, selected, onSelect }: { item: MediaLibraryRecord; compact?: boolean; selected: boolean; onSelect: (id: string) => void }) {
   const availability = mediaAvailability(item)
   const labels = uniqueValues([...item.resolutions.map(resolutionLabel), ...item.dynamicRanges])
-  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("group flex min-w-0 overflow-hidden rounded-[6px] border border-[#202a39] bg-[#0e141e] text-left outline-none transition hover:border-[#3a4658] focus-visible:ring-2 focus-visible:ring-[#7c3aed] sm:block", selected && "border-[#7c3aed] ring-1 ring-[#7c3aed]/45")}>
-    <div className="relative h-[94px] w-[70px] shrink-0 overflow-hidden border-r border-[#202a39] bg-[#111925] sm:h-auto sm:w-auto sm:border-b sm:border-r-0 sm:aspect-[2/3]"><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={300} height={450} className="h-full w-full object-cover" /><div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-[#080b12]/90 px-1 py-0.5 text-[9px] font-extrabold uppercase text-[#f4f6fa]">{label}</span>)}</div></div>
-    <div className="min-w-0 flex-1 p-1"><div className="truncate text-[11px] font-[750] leading-tight text-[#f4f6fa]">{item.title}</div><div className="text-[10px] text-[#929dac]">{item.year ?? "Year unknown"}{item.kind === "series" && item.metadata?.season_count ? ` · ${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : ""}</div><div className={cn("mt-0.5 flex items-center gap-1.5 text-[10px] font-semibold", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.label}</span></div></div>
+  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("group relative flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-[#202a39] bg-[#0d121b] text-left outline-none transition duration-150 hover:-translate-y-0.5 hover:border-[#3a4658] hover:shadow-[0_12px_32px_rgba(0,0,0,0.4)] focus-visible:ring-2 focus-visible:ring-[#7c5cf0]", selected && "border-[#7c5cf0] ring-1 ring-[#7c5cf0]/45")}>
+    <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#111925]">
+      <MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={300} height={450} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/55 to-transparent" />
+      <div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-[#07090f]/90 px-1.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide text-[#f4f6fa]">{label}</span>)}</div>
+      {item.kind === "series" && item.metadata?.season_count ? <span className="absolute right-1.5 top-1.5 rounded-[3px] border border-white/15 bg-[#07090f]/90 px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#dbe1e8]">{item.metadata.season_count}S</span> : null}
+      {!item.available && item.missing ? <span className="absolute bottom-1.5 left-1.5 rounded-[3px] bg-[#07090f]/85 px-1.5 py-0.5 text-[9.5px] font-bold text-[#e89b65]">Missing</span> : null}
+    </div>
+    <div className="flex min-w-0 flex-1 flex-col p-2">
+      <div className={cn("truncate font-[750] leading-tight text-[#f4f6fa]", compact ? "text-[11.5px]" : "text-[13px]")} title={item.title}>{item.title}</div>
+      <div className="mt-0.5 truncate text-[10.5px] text-[#8f9aab]">{item.year ?? "Year unknown"}{item.kind === "series" && item.metadata?.season_count ? ` · ${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : ""}</div>
+      <div className={cn("mt-1 flex items-center gap-1.5 font-semibold", compact ? "text-[10.5px]" : "text-[11.5px]", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.short}</span></div>
+    </div>
   </button>
 }
 
 function MediaLibraryRow({ item, selected, onSelect }: { item: MediaLibraryRecord; selected: boolean; onSelect: (id: string) => void }) {
   const availability = mediaAvailability(item)
-  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("flex w-full items-center gap-3 border-b border-[#202a39] px-3 py-2 text-left outline-none last:border-0 hover:bg-[#111925] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7c3aed]", selected && "bg-[#171428]")}><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={72} height={96} className="h-12 w-9 rounded-[3px] border border-[#283447] object-cover" /><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-bold text-[#f4f6fa]">{item.title} <span className="font-normal text-[#9ba5b2]">{item.year ? `(${item.year})` : ""}</span></div><div className="mt-1 truncate text-[10px] text-[#929dac]">{item.profiles.join(" · ") || "No managed quality profile"}</div></div><div className={cn("hidden items-center gap-1.5 text-[10px] font-semibold sm:flex", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div><ChevronRight className="size-3.5 text-[#8792a1]" /></button>
+  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("flex w-full items-center gap-3 border-b border-[#202a39] px-3 py-2.5 text-left outline-none last:border-0 hover:bg-[#111925] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7c5cf0]", selected && "bg-[#171428]")}><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={72} height={96} className="h-14 w-10 shrink-0 rounded-[4px] border border-[#283447] object-cover" /><div className="min-w-0 flex-1"><div className="truncate text-[13px] font-bold text-[#f4f6fa]">{item.title} <span className="font-normal text-[#9ba5b2]">{item.year ? `(${item.year})` : ""}</span></div><div className="mt-1 truncate text-[11.5px] text-[#929dac]">{item.profiles.join(" · ") || "No managed quality profile"}</div></div><div className={cn("hidden items-center gap-1.5 text-[11.5px] font-semibold sm:flex", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div><ChevronRight className="size-4 shrink-0 text-[#8792a1]" /></button>
 }
 
 export function MediaInspector({ item, tab, auto, onTabChange, onClose, onRefresh }: { item: MediaLibraryRecord; tab: string; auto: boolean; onTabChange: (tab: string) => void; onClose: () => void; onRefresh?: () => void }) {
@@ -404,29 +539,39 @@ export function MediaInspector({ item, tab, auto, onTabChange, onClose, onRefres
   const qualityProfile = currentFile?.quality_profile ?? item.wanted[0]?.target_profile ?? "Not assigned"
   const canRefreshMetadata = item.identities.some((identity) => identity.state === "verified" && (identity.namespace === "tmdb" || item.kind === "series" && identity.namespace === "tvdb"))
   const [refreshing, setRefreshing] = React.useState(false)
+  const seasonEntries = React.useMemo(() => {
+    if (item.kind !== "series") return [] as Array<{ number: number; workflow?: APIWorkflow; file?: APIManagedFile }>
+    const byNumber = new Map<number, { number: number; workflow?: APIWorkflow; file?: APIManagedFile }>()
+    const parse = (variant: string) => { const match = /^season:(\d+)$/.exec(variant); return match ? Number(match[1]) : undefined }
+    for (const workflow of item.workflows) { const number = parse(workflow.variant); if (number === undefined) continue; const entry = byNumber.get(number) ?? { number }; entry.workflow = workflow; byNumber.set(number, entry) }
+    for (const file of item.files) { const number = parse(file.variant); if (number === undefined) continue; const entry = byNumber.get(number) ?? { number }; entry.file = file; byNumber.set(number, entry) }
+    return Array.from(byNumber.values()).sort((left, right) => left.number - right.number)
+  }, [item.kind, item.workflows, item.files])
   async function refreshMetadata() {
     setRefreshing(true)
     try { const result = await refreshMediaMetadata(item.id); const direct = Object.entries(result.provider_states).filter(([, state]) => state === "direct" || state === "via_simkl").map(([provider]) => provider.toUpperCase()); toast.success(direct.length ? `${direct.join(", ")} metadata refreshed` : "Metadata refreshed through the configured fallback"); onRefresh?.() }
     catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not refresh metadata") }
     finally { setRefreshing(false) }
   }
-  return <aside aria-label={`Details for ${item.title}`} className={cn("fixed inset-0 z-50 min-h-0 flex-col overflow-hidden border-l border-[#202a39] bg-[#0e141e] sm:bottom-0 sm:left-auto sm:top-[60px] sm:w-[330px] xl:static xl:z-auto xl:flex xl:h-full xl:w-auto", auto ? "hidden" : "flex")}>
-    <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#202a39] px-3"><span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#aab3bf]">{item.kind === "movie" ? "Movie" : "TV show"} details</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Close details" onClick={onClose}><X /></Button></div>
+  return <aside aria-label={`Details for ${item.title}`} className={cn("fixed inset-0 z-50 min-h-0 flex-col overflow-hidden border-l border-[#202a39] bg-[#0d121b] sm:bottom-0 sm:left-auto sm:top-[60px] sm:w-[380px] xl:static xl:z-auto xl:flex xl:h-full xl:w-auto", auto ? "hidden" : "flex")}>
+    <div className="flex h-11 shrink-0 items-center justify-between border-b border-[#202a39] px-3.5"><span className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#aab3bf]">{item.kind === "movie" ? "Movie" : "TV show"} details</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Close details" onClick={onClose}><X /></Button></div>
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-      <div className="border-b border-[#202a39] p-3">
-        <div className="flex gap-3 xl:block"><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt={`${item.title} poster`} width={300} height={450} className="aspect-[2/3] w-[86px] shrink-0 rounded-[5px] border border-[#283447] object-cover xl:w-full" /><div className="min-w-0 pt-1 xl:pt-3"><h2 className="text-[15px] font-[800] leading-tight tracking-[-0.02em] text-[#f4f6fa]">{item.title}</h2><div className="mt-1 text-[10px] text-[#929dac]">{item.year ?? "Year unknown"}</div><div className={cn("mt-2 flex items-center gap-1.5 text-[10px] font-bold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div></div></div>
-        <Button asChild size="sm" className="mt-3 h-8 w-full bg-[#7c3aed] text-white hover:bg-[#6d2fd4]"><Link href={item.kind === "movie" ? `/media/movies/${item.id}` : `/media/series/${item.id}`}>{item.kind === "movie" ? <Film /> : <Tv />} Open {item.kind === "movie" ? "movie" : "TV show"} details</Link></Button>
+      <div className="border-b border-[#202a39] p-3.5">
+        <div className="flex gap-3"><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt={`${item.title} poster`} width={300} height={450} className="aspect-[2/3] w-[104px] shrink-0 rounded-[7px] border border-[#283447] object-cover" /><div className="min-w-0 pt-1"><h2 className="text-[17px] font-[820] leading-tight tracking-[-0.02em] text-[#f4f6fa]">{item.title}</h2><div className="mt-1 text-[12px] text-[#929dac]">{item.year ?? "Year unknown"}{item.kind === "series" && item.metadata?.season_count ? ` · ${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : ""}</div><div className={cn("mt-2 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] font-bold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} aria-hidden />{availability.label}</div></div></div>
+        <Button asChild size="sm" className="mt-3.5 h-9 w-full bg-[#7c5cf0] text-white hover:bg-[#6d47e0]"><Link href={item.kind === "movie" ? `/media/movies/${item.id}` : `/media/series/${item.id}`}>{item.kind === "movie" ? <Film /> : <Tv />} Open {item.kind === "movie" ? "movie" : "TV show"} details</Link></Button>
         <Button type="button" variant="outline" size="sm" className="mt-2 h-8 w-full" disabled={refreshing || !canRefreshMetadata} onClick={() => void refreshMetadata()}><RefreshCw className={cn(refreshing && "animate-spin")} /> Refresh metadata</Button>
       </div>
 
       <Tabs value={tab} onValueChange={onTabChange} className="gap-0">
-        <TabsList variant="line" className="grid h-9 w-full grid-cols-4 gap-0 border-b border-[#202a39] px-1">
-          {(["overview", "files", "metadata", "history"] as const).map((value) => <TabsTrigger key={value} value={value} className="h-9 px-1 text-[10px] capitalize text-[#9ba5b2] after:bg-[#7c3aed] data-[state=active]:text-[#f4f6fa]">{value}</TabsTrigger>)}
+        <TabsList variant="line" className="grid h-10 w-full grid-cols-4 gap-0 border-b border-[#202a39] px-1">
+          {(["overview", "files", "metadata", "history"] as const).map((value) => <TabsTrigger key={value} value={value} className="h-10 px-1 text-[11.5px] capitalize text-[#9ba5b2] after:bg-[#7c5cf0] data-[state=active]:text-[#f4f6fa]">{value}</TabsTrigger>)}
         </TabsList>
-        <TabsContent value="overview" className="p-3">
-          {item.metadata?.overview ? <p className="mb-3 text-[11px] leading-4 text-[#b9c1cc]">{item.metadata.overview}</p> : null}
-          {item.metadata?.ratings.length ? <div className="mb-2 grid grid-cols-2 gap-1.5">{item.metadata.ratings.map((rating) => <div key={rating.source} title={rating.provenance} className="rounded-[4px] border border-[#202a39] bg-[#111925] px-2 py-1.5"><div className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">{rating.source}</div><div className="mt-0.5 text-[11px] font-extrabold text-[#f4f6fa]">{rating.value.toFixed(1)} <span className="text-[9px] font-normal text-[#929dac]">/ 10</span></div>{rating.votes > 0 ? <div className="text-[9px] text-[#929dac]">{rating.votes.toLocaleString()} votes</div> : null}</div>)}</div> : null}
-          {item.metadata?.tagline ? <p className="mb-2 text-[10px] italic text-[#aab3bf]">{item.metadata.tagline}</p> : null}
+        <TabsContent value="overview" className="p-3.5">
+          {item.metadata?.overview ? <p className="mb-3 text-[12.5px] leading-5 text-[#b9c1cc]">{item.metadata.overview}</p> : null}
+          {item.metadata?.ratings.length ? <div className="mb-3 grid grid-cols-2 gap-1.5">{item.metadata.ratings.map((rating) => <div key={rating.source} title={rating.provenance} className="rounded-[7px] border border-[#202a39] bg-[#111925] px-2.5 py-2"><div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">{rating.source}</div><div className="mt-0.5 text-[13px] font-extrabold text-[#f4f6fa]">{rating.value.toFixed(1)} <span className="text-[10px] font-normal text-[#929dac]">/ 10</span></div>{rating.votes > 0 ? <div className="text-[10px] text-[#929dac]">{rating.votes.toLocaleString()} votes</div> : null}</div>)}</div> : null}
+          {item.metadata?.tagline ? <p className="mb-2 text-[12px] italic text-[#aab3bf]">{item.metadata.tagline}</p> : null}
+          <InspectorRow label="Availability" value={availability.label} />
+          <InspectorRow label="Quality profile" value={qualityProfile} />
           {item.metadata?.runtime_minutes ? <InspectorRow label="Runtime" value={`${item.metadata.runtime_minutes} minutes`} /> : null}
           {item.metadata?.release_date ? <InspectorRow label={item.kind === "movie" ? "Release date" : "First air date"} value={item.metadata.release_date} /> : null}
           {item.kind === "series" && item.metadata?.end_date ? <InspectorRow label="End date" value={item.metadata.end_date} /> : null}
@@ -435,27 +580,29 @@ export function MediaInspector({ item, tab, auto, onTabChange, onClose, onRefres
           {item.kind === "series" && item.metadata?.networks.length ? <InspectorRow label="Networks" value={compactValues(item.metadata.networks.map((network) => network.name))} /> : null}
           {item.metadata?.certification ? <InspectorRow label="Certification" value={item.metadata.certification} /> : null}
           {item.metadata?.genres.length ? <InspectorRow label="Genres" value={compactValues(item.metadata.genres)} /> : null}
-          <InspectorRow label="Availability" value={availability.label} />
-          <InspectorRow label="Quality profile" value={qualityProfile} />
           <InspectorRow label="Resolution" value={item.resolutions.map(resolutionLabel).join(", ") || "Unknown"} />
           <InspectorRow label="Audio" value={item.audioCodecs.join(", ") || "Unknown"} />
           <InspectorRow label="Languages" value={compactValues(item.languages) || "Unknown"} />
           <InspectorRow label="Root folder" value={item.roots.join(", ") || "Not published"} />
           <InspectorRow label="Plex verification" value={currentFile ? currentFile.plex_confirmed ? "Exact path confirmed" : "Not confirmed" : "No managed file"} />
+          {item.kind === "series" && seasonEntries.length > 0 ? <div className="mt-4 border-t border-[#202a39] pt-3">
+            <SectionLabel action={item.missing || item.upgradable ? <span className="text-[10.5px] font-semibold text-[#e1ad63]">Action may be needed</span> : undefined}>Seasons</SectionLabel>
+            <div className="space-y-1.5">{seasonEntries.map((entry) => <div key={entry.number} className="flex items-center justify-between gap-2 rounded-[7px] border border-[#202a39] bg-[#111925] px-2.5 py-2"><span className="text-[12px] font-semibold text-[#dce1e7]">Season {String(entry.number).padStart(2, "0")}</span><div className="flex items-center gap-1.5">{entry.file ? <StatusChip tone={entry.file.plex_confirmed ? "good" : "info"}>{entry.file.plex_confirmed ? "Plex confirmed" : pretty(entry.file.state)}</StatusChip> : entry.workflow ? <StateBadge state={entry.workflow.state} /> : <StatusChip tone="neutral">No workflow</StatusChip>}</div></div>)}</div>
+          </div> : null}
         </TabsContent>
-        <TabsContent value="files" className="space-y-2 p-3">
-          {item.files.map((file) => <Link key={file.id} href={`/files/${file.id}`} className="block rounded-[5px] border border-[#202a39] bg-[#111925] p-2 outline-none hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c3aed]"><div className="flex items-center justify-between gap-2"><span className="truncate text-[10px] font-bold text-[#e8ebf0]">{file.variant}</span><span className="text-[9px] text-[#9ba5b2]">Gen {file.generation}</span></div><div className="mt-1 text-[10px] text-[#9ba5b2]">{pretty(file.state)} · {formatBytes(file.source_size_bytes)}</div><div className="mt-1 truncate font-mono text-[9px] text-[#929dac]">{file.destination_relative}</div></Link>)}
+        <TabsContent value="files" className="space-y-2 p-3.5">
+          {item.files.map((file) => <Link key={file.id} href={`/files/${file.id}`} className="block rounded-[7px] border border-[#202a39] bg-[#111925] p-2.5 outline-none hover:border-[#344155] focus-visible:ring-2 focus-visible:ring-[#7c5cf0]"><div className="flex items-center justify-between gap-2"><span className="truncate text-[11.5px] font-bold text-[#e8ebf0]">{file.variant}</span><span className="text-[10px] text-[#9ba5b2]">Gen {file.generation}</span></div><div className="mt-1 text-[11px] text-[#9ba5b2]">{pretty(file.state)} · {formatBytes(file.source_size_bytes)}</div><div className="mt-1 truncate font-mono text-[10px] text-[#929dac]">{file.destination_relative}</div></Link>)}
           {item.files.length === 0 ? <InspectorEmpty>No managed files are recorded.</InspectorEmpty> : null}
         </TabsContent>
-        <TabsContent value="metadata" className="space-y-2 p-3">
-          {item.metadata?.sources.map((source) => <div key={`${source.provider}:${source.provider_id}:${source.role}`} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="text-[10px] font-bold uppercase tracking-[0.08em]"><MetadataSourceLink source={source} /></div><div className="mt-1 text-[10px] text-[#cfd5dd]">{source.role}</div></div>)}
-          {item.identities.map((identity) => <div key={`${identity.namespace}:${identity.value}`} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">{identity.namespace}</div><div className="mt-1 break-all font-mono text-[10px] text-[#e4e8ed]">{identity.value}</div>{identity.state ? <div className="mt-1 text-[9px] text-[#929dac]">{pretty(identity.state)}</div> : null}</div>)}
-          {(item.metadata?.companies ?? []).length ? <div className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">Studios</div><div className="mt-1 text-[10px] text-[#e4e8ed]">{compactValues((item.metadata?.companies ?? []).map((company) => company.name))}</div></div> : null}
-          {(item.metadata?.credits ?? []).length ? <div className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">Cast and crew</div><div className="mt-1 space-y-1">{(item.metadata?.credits ?? []).slice(0, 10).map((credit) => <div key={`${credit.source}:${credit.role}:${credit.name}:${credit.character ?? ""}`} className="flex justify-between gap-2 text-[10px]"><span className="truncate text-[#e4e8ed]">{credit.name}{credit.character ? ` · ${credit.character}` : ""}</span><span className="shrink-0 text-[#929dac]">{credit.role}</span></div>)}</div></div> : null}
+        <TabsContent value="metadata" className="space-y-2 p-3.5">
+          {item.metadata?.sources.map((source) => <div key={`${source.provider}:${source.provider_id}:${source.role}`} className="rounded-[7px] border border-[#202a39] bg-[#111925] p-2.5"><div className="text-[11px] font-bold uppercase tracking-[0.08em]"><MetadataSourceLink source={source} /></div><div className="mt-1 text-[11px] text-[#cfd5dd]">{source.role}</div></div>)}
+          {item.identities.map((identity) => <div key={`${identity.namespace}:${identity.value}`} className="rounded-[7px] border border-[#202a39] bg-[#111925] p-2.5"><div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">{identity.namespace}</div><div className="mt-1 break-all font-mono text-[11px] text-[#e4e8ed]">{identity.value}</div>{identity.state ? <div className="mt-1 text-[10px] text-[#929dac]">{pretty(identity.state)}</div> : null}</div>)}
+          {(item.metadata?.companies ?? []).length ? <div className="rounded-[7px] border border-[#202a39] bg-[#111925] p-2.5"><div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">Studios</div><div className="mt-1 text-[11px] text-[#e4e8ed]">{compactValues((item.metadata?.companies ?? []).map((company) => company.name))}</div></div> : null}
+          {(item.metadata?.credits ?? []).length ? <div className="rounded-[7px] border border-[#202a39] bg-[#111925] p-2.5"><div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#9ba5b2]">Cast and crew</div><div className="mt-1.5 space-y-1.5">{(item.metadata?.credits ?? []).slice(0, 10).map((credit) => <div key={`${credit.source}:${credit.role}:${credit.name}:${credit.character ?? ""}`} className="flex justify-between gap-2 text-[11px]"><span className="truncate text-[#e4e8ed]">{credit.name}{credit.character ? ` · ${credit.character}` : ""}</span><span className="shrink-0 text-[#929dac]">{credit.role}</span></div>)}</div></div> : null}
           {item.identities.length === 0 ? <InspectorEmpty>No provider identities are recorded.</InspectorEmpty> : null}
         </TabsContent>
-        <TabsContent value="history" className="space-y-2 p-3">
-          {item.workflows.map((workflow) => <div key={workflow.id} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-bold text-[#e4e8ed]">{pretty(workflow.state)}</span><span className="text-[9px] text-[#929dac]">{timeAgo(workflow.updated_at)}</span></div><div className="mt-1 font-mono text-[9px] text-[#9ba5b2]">{workflow.variant}</div></div>)}
+        <TabsContent value="history" className="space-y-2 p-3.5">
+          {item.workflows.map((workflow) => <div key={workflow.id} className="rounded-[7px] border border-[#202a39] bg-[#111925] p-2.5"><div className="flex items-center justify-between gap-2"><StateBadge state={workflow.state} /><span className="text-[10px] text-[#929dac]">{timeAgo(workflow.updated_at)}</span></div>{workflow.attention_detail ? <div className="mt-1.5 text-[11px] leading-4 text-[#dcc9a0]">{workflow.attention_detail}</div> : null}<div className="mt-1 font-mono text-[10px] text-[#9ba5b2]">{workflow.variant}</div></div>)}
           {item.workflows.length === 0 ? <InspectorEmpty>No workflow history is recorded.</InspectorEmpty> : null}
         </TabsContent>
       </Tabs>
@@ -468,10 +615,8 @@ function InspectorRow({ label, value }: { label: string; value: string }) {
 }
 
 function InspectorEmpty({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-[5px] border border-dashed border-[#283447] px-3 py-6 text-center text-[10px] text-[#9ba5b2]">{children}</div>
+  return <div className="rounded-[5px] border border-dashed border-[#283447] px-3 py-6 text-center text-[12px] text-[#9ba5b2]">{children}</div>
 }
-
-const requestsLoader = (signal: AbortSignal) => loadRequests(signal)
 
 export function RequestInspector({ request, detail, loading, error }: { request: APIRequest; detail: APIRequestDetail | null; loading: boolean; error: string }) {
   const mediaHref = request.media_id ? (request.media_kind === "series" ? `/media/series/${request.media_id}` : `/media/movies/${request.media_id}`) : null
@@ -498,7 +643,7 @@ export function RequestInspector({ request, detail, loading, error }: { request:
     {loading ? <div className="mt-3 text-[10px] text-[#748090]">Loading linked workflows…</div> : null}
     {error ? <div className="mt-3 text-[10px] text-[#f1a6a6]">{error}</div> : null}
     {detail ? <>
-      {detail.workflows.length ? <div className="mt-4"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#9ba5b2]">Workflows</div><div className="space-y-2">{detail.workflows.map((workflow) => <div key={workflow.id} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="flex items-center justify-between gap-2"><StatusChip tone={workflowTone(workflow.state)}>{pretty(workflow.state)}</StatusChip><span className="text-[9px] text-[#929dac]">{timeAgo(workflow.updated_at)}</span></div><div className="mt-1 font-mono text-[9px] text-[#9ba5b2]">{workflow.variant}</div><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-[#748090]"><span>Attempts {workflow.acquisition_attempts}</span><span>Round {workflow.round_ordinal}/{workflow.round_attempt_limit}</span></div>{workflow.ready_release_title ? <div className="mt-1 truncate text-[9px] text-[#806eb8]">Ready: {workflow.ready_release_title}</div> : null}{workflow.attention_detail ? <div className="mt-1 text-[9px] text-[#d6b36d]">{workflow.attention_detail}</div> : null}</div>)}</div></div> : null}
+      {detail.workflows.length ? <div className="mt-4"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#9ba5b2]">Workflows</div><div className="space-y-2">{detail.workflows.map((workflow) => <div key={workflow.id} className="rounded-[5px] border border-[#202a39] bg-[#111925] p-2"><div className="flex items-center justify-between gap-2"><StateBadge state={workflow.state} /><span className="text-[9px] text-[#929dac]">{timeAgo(workflow.updated_at)}</span></div><div className="mt-1 font-mono text-[9px] text-[#9ba5b2]">{workflow.variant}</div><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-[#748090]"><span>Attempts {workflow.acquisition_attempts}</span><span>Round {workflow.round_ordinal}/{workflow.round_attempt_limit}</span></div>{workflow.ready_release_title ? <div className="mt-1 truncate text-[9px] text-[#806eb8]">Ready: {workflow.ready_release_title}</div> : null}{workflow.attention_detail ? <div className="mt-1 text-[9px] text-[#d6b36d]">{workflow.attention_detail}</div> : null}</div>)}</div></div> : null}
       {detail.seasons.length ? <div className="mt-4"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#9ba5b2]">Seasons</div><div className="space-y-1">{detail.seasons.map((season) => <div key={season.number} className="flex items-center justify-between gap-2 rounded-[5px] border border-[#202a39] bg-[#111925] px-2 py-1.5 text-[10px]"><span className="font-semibold text-[#dce1e7]">Season {String(season.number).padStart(2, "0")}</span><span className="text-[#929dac]">{season.availability === 5 ? "Available in Seerr" : season.workflow_state ? pretty(season.workflow_state) : "Requested"}</span></div>)}</div></div> : null}
       {detail.files.length ? <div className="mt-4"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#9ba5b2]">Published files</div><div className="space-y-1">{detail.files.slice(0, 6).map((file) => <Link key={file.id} href={`/files/${file.id}`} className="block rounded-[5px] border border-[#202a39] bg-[#111925] px-2 py-1.5 text-[9px] hover:border-[#344155]"><div className="flex items-center justify-between gap-2"><span className="truncate text-[#dce1e7]">{file.variant}</span><StatusChip tone={file.state === "current" && file.plex_confirmed ? "good" : "neutral"}>{pretty(file.state)}</StatusChip></div><div className="mt-0.5 truncate font-mono text-[9px] text-[#748090]">{file.destination_relative}</div></Link>)}</div></div> : null}
     </> : null}
@@ -573,7 +718,10 @@ export function LiveWantedScreen() {
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
     <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Missing" value={String(missing)} note="Active scope has no current publication" tone={missing ? "info" : "good"} icon={Search} /><MetricCard label="Upgrades" value={String(upgrades)} note="Current publication remains until replacement verification" tone={upgrades ? "info" : "good"} icon={Gauge} /><MetricCard label="Needs attention" value={String(attention)} note="Persisted workflow state, not a global failure" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
-    {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Panel className="!p-0" title="Wanted and upgrades" subtitle="Derived from active workflows, current publications, and persisted quality policy." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Scope</TableHead><TableHead>Gap</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.workflow_id}><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link></TableCell><TableCell className="font-mono text-[9px]">{item.variant}</TableCell><TableCell><StatusChip tone={item.gap === "upgrade" ? "info" : "warn"}>{pretty(item.gap)}</StatusChip></TableCell><TableCell><StatusChip tone={workflowTone(item.current_state)}>{pretty(item.current_state)}</StatusChip>{item.attention_detail ? <div className="mt-1 max-w-sm text-[9px] text-[#d6b36d]">{item.attention_detail}</div> : null}</TableCell><TableCell>{item.target_profile}<div className="mt-1 text-[9px] text-[#748090]">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell>{timeAgo(item.updated_at)}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No active missing or upgrade workflows.</div> : null}<div className="border-t border-white/[0.06] p-3 text-[9.5px] text-[#748090]">An existing current file is never replaced here. Replacement occurs only after the new generation is verified and Plex confirms its exact path and identity.</div></Panel>}
+    <Panel title="Owner attention" subtitle="The exact persisted reason, retry state, and safest next step for this item.">
+      <OwnerAttention items={items} workflows={[]} />
+    </Panel>
+    {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Panel className="!p-0" title="Wanted and upgrades" subtitle="Derived from active workflows, current publications, and persisted quality policy." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Scope</TableHead><TableHead>Gap</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.workflow_id}><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link></TableCell><TableCell className="font-mono text-[10px]">{item.variant}</TableCell><TableCell><StatusChip tone={item.gap === "upgrade" ? "info" : "warn"}>{pretty(item.gap)}</StatusChip></TableCell><TableCell><StateBadge state={item.current_state} />{item.attention_detail ? <div className="mt-1 max-w-sm text-[11px] leading-4 text-[#d6b36d]">{item.attention_detail}</div> : null}</TableCell><TableCell>{item.target_profile}<div className="mt-1 text-[10px] text-[#748090]">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell>{timeAgo(item.updated_at)}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No active missing or upgrade workflows.</div> : null}<div className="border-t border-white/[0.06] p-3 text-[11px] text-[#748090]">An existing current file is never replaced here. Replacement occurs only after the new generation is verified and Plex confirms its exact path and identity.</div></Panel>}
   </div>
 }
 
@@ -582,12 +730,7 @@ export function LiveCalendarScreen() {
   const items = data ?? []
   const monitored = items.filter((item) => item.monitored).length
   const future = items.filter((item) => new Date(item.air_date).getTime() >= new Date().setHours(0, 0, 0, 0)).length
-  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}<div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Dated episodes" value={String(items.length)} note="Persisted provider dates only" icon={ListChecks} /><MetricCard label="Monitored" value={String(monitored)} note="Season monitoring state" tone="info" icon={SearchCheck} /><MetricCard label="Upcoming" value={String(future)} note="No date triggers an automatic search" tone="good" icon={Activity} /></div>{!data && !error ? <LoadingPanel /> : <Panel className="!p-0" title="Episode availability calendar" subtitle="Exact Seerr air dates persisted with immutable season expectations; unknown dates are omitted." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Series</TableHead><TableHead>Episode</TableHead><TableHead>Monitoring</TableHead><TableHead>Workflow</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={`${item.workflow_id}:${item.season}:${item.episode}`}><TableCell>{new Date(item.air_date).toLocaleDateString()}</TableCell><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={`/media/series/${item.media_id}`}>{item.media_title}</Link></TableCell><TableCell>S{String(item.season).padStart(2, "0")}E{String(item.episode).padStart(2, "0")}{item.episode_title ? <div className="mt-1 text-[9px] text-[#748090]">{item.episode_title}</div> : null}</TableCell><TableCell><StatusChip tone={item.monitored ? "good" : "neutral"}>{item.monitored ? "Monitored" : "Unmonitored"}</StatusChip></TableCell><TableCell><StatusChip tone={workflowTone(item.workflow_state)}>{pretty(item.workflow_state)}</StatusChip></TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No exact episode air dates are persisted in the current calendar window.</div> : null}</Panel>}</div>
-}
-
-function ActivityList({ items }: { items: APIActivity[] }) {
-  if (items.length === 0) return <div className="py-8 text-center text-[11px] text-[#7f8a9a]">No durable activity yet.</div>
-  return <div className="space-y-2">{items.map((item) => <div key={item.id} className="rounded-xl border border-white/[0.06] bg-[#0c1015] px-3 py-2.5"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-semibold text-[#dce2e9]">{pretty(item.action.replace(/^workflow\./, ""))}</span><span className="text-[9px] text-[#6f7b8a]">{timeAgo(item.occurred_at)}</span></div><div className="mt-1 text-[9px] text-[#788493]">{item.aggregate_type} · {item.actor}{activityReason(item) ? ` · ${activityReason(item)}` : ""}</div></div>)}</div>
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}<div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Dated episodes" value={String(items.length)} note="Persisted provider dates only" icon={ListChecks} /><MetricCard label="Monitored" value={String(monitored)} note="Season monitoring state" tone="info" icon={SearchCheck} /><MetricCard label="Upcoming" value={String(future)} note="No date triggers an automatic search" tone="good" icon={Activity} /></div>{!data && !error ? <LoadingPanel /> : <Panel className="!p-0" title="Episode availability calendar" subtitle="Exact Seerr air dates persisted with immutable season expectations; unknown dates are omitted." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Series</TableHead><TableHead>Episode</TableHead><TableHead>Monitoring</TableHead><TableHead>Workflow</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={`${item.workflow_id}:${item.season}:${item.episode}`}><TableCell>{new Date(item.air_date).toLocaleDateString()}</TableCell><TableCell><Link className="font-semibold text-[#e5eaf0] hover:text-[#aebdff]" href={`/media/series/${item.media_id}`}>{item.media_title}</Link></TableCell><TableCell>S{String(item.season).padStart(2, "0")}E{String(item.episode).padStart(2, "0")}{item.episode_title ? <div className="mt-1 text-[9px] text-[#748090]">{item.episode_title}</div> : null}</TableCell><TableCell><StatusChip tone={item.monitored ? "good" : "neutral"}>{item.monitored ? "Monitored" : "Unmonitored"}</StatusChip></TableCell><TableCell><StateBadge state={item.workflow_state} /></TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No exact episode air dates are persisted in the current calendar window.</div> : null}</Panel>}</div>
 }
 
 function activityReason(item: APIActivity) {

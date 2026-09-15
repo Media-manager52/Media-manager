@@ -14,39 +14,81 @@
   &::-webkit-scrollbar { display: none; }
 }
 
+/*
+ * Media Manager type scale. The product is a dense desktop operations console,
+ * so the scale is compact but never routinely smaller than 11px.
+ */
+@utility mm-text-micro {
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+@utility mm-text-meta {
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+@utility mm-text-body {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+@utility mm-text-title {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
 :root {
-  --background: #080b12;
-  --foreground: #f4f6fa;
-  --card: #0e141e;
-  --card-foreground: #f4f6fa;
-  --popover: #111925;
-  --popover-foreground: #f4f6fa;
-  --primary: #7c3aed;
+  --background: #07090f;
+  --foreground: #f3f5f9;
+  --card: #0d121b;
+  --card-foreground: #f3f5f9;
+  --popover: #10161f;
+  --popover-foreground: #f3f5f9;
+  --primary: #7c5cf0;
   --primary-foreground: #ffffff;
-  --secondary: #111925;
-  --secondary-foreground: #e7ebf0;
-  --muted: #111925;
-  --muted-foreground: #929dac;
-  --accent: #171428;
-  --accent-foreground: #f4f6fa;
-  --destructive: #eb7d7d;
-  --border: #202a39;
-  --input: #202a39;
-  --ring: #7c3aed;
-  --chart-1: #7c3aed;
-  --chart-2: #59c797;
-  --chart-3: #f0bd62;
-  --chart-4: #aa8cff;
-  --chart-5: #69c7da;
-  --radius: 0.72rem;
-  --sidebar: #0b0f17;
-  --sidebar-foreground: #dbe1e8;
-  --sidebar-primary: #7c3aed;
+  --secondary: #10161f;
+  --secondary-foreground: #e6eaf0;
+  --muted: #10161f;
+  --muted-foreground: #8f9aab;
+  --accent: #191430;
+  --accent-foreground: #f3f5f9;
+  --destructive: #ec7d7d;
+  --border: #1e2735;
+  --input: #1e2735;
+  --ring: #7c5cf0;
+  --chart-1: #7c5cf0;
+  --chart-2: #4fc48d;
+  --chart-3: #eeb95c;
+  --chart-4: #a98cff;
+  --chart-5: #5ec3d8;
+  --radius: 0.7rem;
+  --sidebar: #0a0e15;
+  --sidebar-foreground: #dce1e8;
+  --sidebar-primary: #7c5cf0;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #171428;
+  --sidebar-accent: #191430;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #202a39;
-  --sidebar-ring: #7c3aed;
+  --sidebar-border: #1e2735;
+  --sidebar-ring: #7c5cf0;
+
+  /* Canonical status language shared by every screen. */
+  --status-good: #4fc48d;
+  --status-good-bg: rgba(79, 196, 141, 0.12);
+  --status-good-border: rgba(79, 196, 141, 0.32);
+  --status-info: #8fa8ff;
+  --status-info-bg: rgba(143, 168, 255, 0.12);
+  --status-info-border: rgba(143, 168, 255, 0.3);
+  --status-wait: #93a0b3;
+  --status-wait-bg: rgba(147, 160, 179, 0.12);
+  --status-wait-border: rgba(147, 160, 179, 0.26);
+  --status-warn: #eeb95c;
+  --status-warn-bg: rgba(238, 185, 92, 0.13);
+  --status-warn-border: rgba(238, 185, 92, 0.34);
+  --status-bad: #ec7d7d;
+  --status-bad-bg: rgba(236, 125, 125, 0.13);
+  --status-bad-border: rgba(236, 125, 125, 0.34);
 }
 
 @theme inline {
@@ -106,21 +148,28 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button, a, input, select, textarea { outline-color: var(--ring); }
 
-::selection { background: rgba(124, 58, 237, 0.34); color: white; }
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 78%, transparent);
+  outline-offset: 2px;
+}
+
+::selection { background: rgba(124, 92, 240, 0.34); color: white; }
 
 .mm-panel {
   position: relative;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 18px;
+  border-radius: 16px;
   background:
-    linear-gradient(180deg, rgba(17, 21, 27, 0.98), rgba(13, 17, 22, 0.98));
-  padding: 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.015), 0 12px 38px rgba(0, 0, 0, 0.08);
+    linear-gradient(180deg, rgba(17, 22, 30, 0.98), rgba(12, 16, 22, 0.98));
+  padding: 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02), 0 14px 40px rgba(0, 0, 0, 0.16);
 }
 
 .mm-panel::before {
@@ -128,29 +177,30 @@ button, a, input, select, textarea { outline-color: var(--ring); }
   position: absolute;
   inset: 0 0 auto;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(151, 174, 255, 0.2), transparent);
+  background: linear-gradient(90deg, transparent, rgba(151, 174, 255, 0.22), transparent);
   pointer-events: none;
 }
 
 .mm-metric {
+  position: relative;
   min-width: 0;
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 14px;
-  background: linear-gradient(145deg, #10151b, #0d1116);
-  padding: 14px 15px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+  background: linear-gradient(150deg, #11161e, #0c1016);
+  padding: 15px 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
 .mm-input {
   border-color: #28313d;
-  background: #0b0f14;
+  background: #0a0e14;
   color: #e8edf3;
   box-shadow: none;
 }
 
 .mm-input:focus-visible {
   border-color: #7089e4;
-  box-shadow: 0 0 0 3px rgba(112, 137, 228, 0.12);
+  box-shadow: 0 0 0 3px rgba(112, 137, 228, 0.14);
 }
 
 .mm-media-hero {
@@ -180,9 +230,9 @@ button, a, input, select, textarea { outline-color: var(--ring); }
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: 10px 12px;
-  color: #7f8a99;
-  font-size: 10px;
+  padding: 11px 14px;
+  color: #828d9d;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
@@ -228,34 +278,60 @@ button, a, input, select, textarea { outline-color: var(--ring); }
   box-shadow: 0 0 0 2px rgba(130, 153, 240, 0.12);
 }
 
+/* Quiet, intentional missing-artwork treatment. It never competes with a real poster. */
+.mm-artwork-missing {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(124, 92, 240, 0.1), transparent 60%),
+    linear-gradient(170deg, #121823, #0a0e14);
+  color: #6f7c8e;
+}
+
+.mm-artwork-missing::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 34%;
+  background: linear-gradient(180deg, transparent, rgba(6, 9, 13, 0.7));
+  pointer-events: none;
+}
+
 [data-slot="table-container"] { scrollbar-width: thin; }
 
-[data-slot="table"] { min-width: 720px; font-size: 10px; }
+[data-slot="table"] { min-width: 720px; font-size: 11.5px; }
 
 [data-slot="table-head"] {
-  height: 38px;
-  color: #84909f;
-  font-size: 8.5px;
-  font-weight: 850;
-  letter-spacing: 0.12em;
+  height: 40px;
+  color: #8b96a6;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-[data-slot="table-cell"] { padding-top: 11px; padding-bottom: 11px; color: #aeb7c2; }
+[data-slot="table-cell"] { padding-top: 12px; padding-bottom: 12px; color: #b3bcc9; }
 
 [data-slot="table-row"] { border-color: rgba(255, 255, 255, 0.06); }
-[data-slot="table-row"]:hover, [data-slot="table-row"][data-state="selected"] { background: #111822; }
+[data-slot="table-row"]:hover, [data-slot="table-row"][data-state="selected"] { background: #101824; }
 
-[data-slot="button"] { font-size: 10px; font-weight: 700; }
-[data-slot="button"] svg { width: 14px; height: 14px; }
+[data-slot="button"] { font-size: 12px; font-weight: 650; }
+[data-slot="button"] svg { width: 15px; height: 15px; }
 
 [data-slot="dialog-content"] { border-color: #303947; background: #10141a; }
 
-[cmdk-group-heading] { color: #7f8a99 !important; font-size: 9px !important; letter-spacing: 0.1em; text-transform: uppercase; }
+[data-slot="badge"] { font-weight: 650; }
+
+[cmdk-group-heading] { color: #828d9d !important; font-size: 10px !important; letter-spacing: 0.1em; text-transform: uppercase; }
 
 @media (max-width: 640px) {
-  .mm-panel { border-radius: 15px; padding: 13px; }
-  .mm-metric { padding: 12px; }
+  .mm-panel { border-radius: 14px; padding: 14px; }
+  .mm-metric { padding: 13px; }
   [data-slot="table"] { min-width: 650px; }
 }
 

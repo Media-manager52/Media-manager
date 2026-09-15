@@ -193,3 +193,22 @@ test("excludes development fixture records from the live artifact", async () => 
     assert.doesNotMatch(artifact, new RegExp(fixture.replaceAll(".", "\\.")));
   }
 });
+
+test("exposes one canonical status vocabulary for shared components", async () => {
+  const { describeStatus, StateBadge } = await vite.ssrLoadModule(
+    "/components/media-manager/ui.tsx",
+  );
+
+  assert.equal(describeStatus("waiting").tone, "neutral");
+  assert.equal(describeStatus("monitored").tone, "info");
+  assert.equal(describeStatus("needs_attention").tone, "warn");
+  assert.equal(describeStatus("plex_confirmed").tone, "good");
+  assert.equal(describeStatus("disabled").tone, "neutral");
+  assert.equal(describeStatus("custom_state").label, "Custom State");
+
+  const html = renderToStaticMarkup(
+    React.createElement(StateBadge, { state: "waiting" }),
+  );
+  assert.match(html, /Waiting/);
+  assert.doesNotMatch(html, /text-\[#ebcf8c\]/);
+});

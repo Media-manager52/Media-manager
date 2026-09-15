@@ -102,53 +102,59 @@ import {
 import { PageHeader } from "./ui"
 
 type NavItem = { label: string; href: string; icon: LucideIcon }
-type NavGroup = { label: string; items: NavItem[] }
+type NavGroup = { label: string; items: NavItem[]; advanced?: boolean; description?: string }
 
+/**
+ * Navigation deliberately separates the everyday product from advanced tooling.
+ * Every route stays reachable; only its visual weight changes. Advanced
+ * observability surfaces live in the collapsible Advanced group instead of
+ * competing with Movies, TV Shows, and Requests.
+ */
 const liveNavigation: NavGroup[] = [
-  { label: "Home", items: [{ label: "Overview", href: "/", icon: MonitorCog }] },
-  { label: "Library", items: [
+  { label: "Product", description: "Everyday library work", items: [
+    { label: "Overview", href: "/", icon: MonitorCog },
     { label: "Movies", href: "/media", icon: Library },
     { label: "TV Shows", href: "/media/series", icon: Tv },
-    { label: "Collections", href: "/collections", icon: BookOpenCheck },
-    { label: "Calendar", href: "/calendar", icon: FileClock },
-    { label: "Wanted & Upgrades", href: "/wanted", icon: ListChecks },
     { label: "Requests", href: "/requests", icon: Inbox },
-    { label: "File Manager", href: "/files", icon: Files },
-    { label: "Adoption Review", href: "/import", icon: DatabaseBackup },
+    { label: "Calendar", href: "/calendar", icon: FileClock },
+    { label: "Wanted", href: "/wanted", icon: ListChecks },
     { label: "Add media", href: "/discover", icon: Plus },
+  ] },
+  { label: "Operations", description: "Acquisition and files", items: [
+    { label: "Workflows", href: "/activity/queue", icon: Activity },
+    { label: "File Manager", href: "/files", icon: Files },
+    { label: "Adoption", href: "/import", icon: DatabaseBackup },
     { label: "Recycle", href: "/activity/recycle", icon: ArchiveRestore },
   ] },
-  { label: "Activity", items: [
-    { label: "Workflows", href: "/activity/queue", icon: Activity },
-    { label: "History", href: "/activity/history", icon: FileClock },
-    { label: "Blocklist", href: "/activity/blocklist", icon: ShieldCheck },
-  ] },
-  { label: "Intelligence", items: [
-    { label: "Release Intelligence", href: "/intelligence/releases", icon: Sparkles },
-    { label: "Release Groups", href: "/intelligence/groups", icon: Users },
-    { label: "Evidence Explorer", href: "/intelligence/evidence", icon: BookOpenCheck },
-  ] },
-  { label: "Sources", items: [
+  { label: "Sources", description: "Where media comes from", items: [
     { label: "Indexers", href: "/sources/indexers", icon: Globe2 },
-    { label: "Prowlarr import", href: "/sources/indexer-lab", icon: DatabaseBackup },
+    { label: "Clients", href: "/sources/download-clients", icon: ServerCog },
     { label: "Import Lists", href: "/sources/import-lists", icon: ListChecks },
-    { label: "Download Clients", href: "/sources/download-clients", icon: ServerCog },
+    { label: "Prowlarr", href: "/sources/indexer-lab", icon: DatabaseBackup },
   ] },
-  { label: "Setup", items: [
-    { label: "Connections", href: "/settings/connections", icon: Webhook },
-    { label: "Storage", href: "/settings/storage", icon: HardDrive },
+  { label: "Settings", description: "Policy and connections", items: [
     { label: "Profiles", href: "/settings/profiles", icon: Gauge },
-    { label: "Metadata & Artwork", href: "/settings/metadata", icon: BookOpenCheck },
-    { label: "Media Management", href: "/settings/media-management", icon: Settings2 },
+    { label: "Storage", href: "/settings/storage", icon: HardDrive },
+    { label: "Metadata", href: "/settings/metadata", icon: BookOpenCheck },
+    { label: "Media mgmt", href: "/settings/media-management", icon: Settings2 },
+    { label: "Connections", href: "/settings/connections", icon: Webhook },
     { label: "Notifications", href: "/settings/notifications", icon: Bell },
   ] },
-  { label: "System", items: [
+  { label: "System", description: "Health and access", items: [
+    { label: "Health", href: "/system/health", icon: HeartPulse },
     { label: "Tasks", href: "/system/tasks", icon: ListChecks },
     { label: "Backups", href: "/system/backups", icon: DatabaseBackup },
     { label: "Security", href: "/system/security", icon: ShieldCheck },
     { label: "API", href: "/system/api", icon: TerminalSquare },
-    { label: "Health", href: "/system/health", icon: HeartPulse },
     { label: "Logs & Audit", href: "/system/logs", icon: TerminalSquare },
+  ] },
+  { label: "Advanced", description: "Evidence and observability", advanced: true, items: [
+    { label: "Collections", href: "/collections", icon: BookOpenCheck },
+    { label: "Releases", href: "/intelligence/releases", icon: Sparkles },
+    { label: "Release groups", href: "/intelligence/groups", icon: Users },
+    { label: "Evidence", href: "/intelligence/evidence", icon: BookOpenCheck },
+    { label: "History", href: "/activity/history", icon: FileClock },
+    { label: "Blocklist", href: "/activity/blocklist", icon: ShieldCheck },
   ] },
 ]
 
@@ -164,9 +170,8 @@ export function MediaManagerApp({ path }: { path: string }) {
   const normalized = normalizeRoute(path)
   const page = detailTitles[normalized] ?? routeTitles[normalized] ?? { area: "Media Manager", title: "Not found", subtitle: "This route is not in the locked screen map." }
   const renderedNavigation = liveNavigation
-  const flatNavigation = renderedNavigation.flatMap((group) => group.items.map((item) => ({ ...item, group: group.label })))
   const [commandOpen, setCommandOpen] = React.useState(false)
-  const [openGroups, setOpenGroups] = React.useState<Set<string>>(() => new Set(["Home", "Library"]))
+  const [openGroups, setOpenGroups] = React.useState<Set<string>>(() => new Set(["Product", "Operations"]))
   const [serviceStatus, setServiceStatus] = React.useState<{ ready?: boolean; version?: string }>({})
   const libraryLayout = path === "/media" || path === "/media/series"
 
@@ -196,11 +201,11 @@ export function MediaManagerApp({ path }: { path: string }) {
 
   return (
     <SidebarProvider style={{ "--sidebar-width": "184px" } as React.CSSProperties}>
-      <Sidebar collapsible="offcanvas" className="border-r border-[#202a39] bg-[#0b0f17]">
-        <SidebarHeader className="h-[60px] justify-center border-b border-[#202a39] px-3 py-0">
-          <Link href="/" className="flex items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]">
-            <div className="grid size-8 place-items-center rounded-[6px] bg-[#7c3aed] text-[10px] font-black tracking-[-0.08em] text-white">MM</div>
-            <div className="min-w-0"><div className="truncate text-[11px] font-extrabold text-[#f4f6fa]">Media Manager</div><div className="mt-0.5 truncate text-[10px] text-[#929dac]">Owner console</div></div>
+      <Sidebar collapsible="offcanvas" className="border-r border-[#1e2735] bg-[#0a0e15]">
+        <SidebarHeader className="h-[60px] justify-center border-b border-[#1e2735] px-3 py-0">
+          <Link href="/" className="flex items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[#7c5cf0]">
+            <div className="grid size-8 place-items-center rounded-[7px] bg-gradient-to-br from-[#8b5cf6] to-[#6d28d9] text-[11px] font-black tracking-[-0.06em] text-white shadow-[0_4px_14px_rgba(124,92,240,0.35)]">MM</div>
+            <div className="min-w-0"><div className="truncate text-[12.5px] font-extrabold tracking-[-0.01em] text-[#f4f6fa]">Media Manager</div><div className="mt-0.5 truncate text-[10.5px] text-[#8f9aab]">Owner console</div></div>
           </Link>
         </SidebarHeader>
         <SidebarContent className="gap-0 px-1.5 py-2 scrollbar-thin">
@@ -208,9 +213,9 @@ export function MediaManagerApp({ path }: { path: string }) {
             const groupActive = group.items.some((item) => isRouteActive(path, item.href))
             const open = openGroups.has(group.label) || groupActive
             return (
-            <SidebarGroup key={group.label} className="py-0.5">
-              <SidebarGroupLabel asChild className="h-7 px-2 text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#929dac] hover:bg-[#111925] hover:text-[#c2c8d0]">
-                <button type="button" aria-expanded={open} onClick={() => setOpenGroups((current) => { const next = new Set(current); if (next.has(group.label)) next.delete(group.label); else next.add(group.label); return next })}><span>{group.label}</span><ChevronDown className={cn("ml-auto size-3 transition-transform", !open && "-rotate-90", groupActive && "text-[#9f7aea]")} /></button>
+            <SidebarGroup key={group.label} className={cn("py-0.5", group.advanced && "mt-2 border-t border-[#1a2230] pt-2")}>
+              <SidebarGroupLabel asChild className={cn("h-7 px-2 text-[10px] font-extrabold uppercase tracking-[0.16em] hover:bg-[#111925] hover:text-[#c2c8d0]", group.advanced ? "text-[#8b96a6]" : "text-[#8f9aab]")}>
+                <button type="button" title={group.description} aria-expanded={open} onClick={() => setOpenGroups((current) => { const next = new Set(current); if (next.has(group.label)) next.delete(group.label); else next.add(group.label); return next })}><span>{group.label}</span><ChevronDown className={cn("ml-auto size-3 transition-transform", !open && "-rotate-90", groupActive && "text-[#a98cf5]")} /></button>
               </SidebarGroupLabel>
               {open ? <SidebarGroupContent>
                 <SidebarMenu>
@@ -219,8 +224,8 @@ export function MediaManagerApp({ path }: { path: string }) {
                     const Icon = item.icon
                     return (
                       <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={active} tooltip={item.label} className="h-7 rounded-[5px] px-2 text-[11px] text-[#aab3bf] data-[active=true]:bg-[#211b36] data-[active=true]:font-bold data-[active=true]:text-white hover:bg-[#111925] hover:text-white">
-                          <Link href={item.href}><Icon className={cn("size-3.5", active && "text-[#a98cf5]")} /><span>{item.label}</span></Link>
+                        <SidebarMenuButton asChild isActive={active} tooltip={item.label} className={cn("h-[30px] rounded-[6px] px-2 text-[12px] data-[active=true]:bg-[#1c1735] data-[active=true]:font-bold data-[active=true]:text-white hover:bg-[#111925] hover:text-white", group.advanced ? "text-[#96a0ae]" : "text-[#b3bcc8]")}>
+                          <Link href={item.href}><Icon className={cn("size-4", active ? "text-[#a98cf5]" : group.advanced ? "text-[#6c7686]" : "text-[#828d9d]")} /><span>{item.label}</span></Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     )
@@ -230,20 +235,20 @@ export function MediaManagerApp({ path }: { path: string }) {
             </SidebarGroup>
           )})}
         </SidebarContent>
-        <SidebarFooter className="border-t border-[#202a39] p-2">
-          <Link href="/system/health" className="flex items-center gap-2 rounded-[5px] p-2 transition hover:bg-[#111925] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]">
-            <span className={cn("size-2 rounded-full", serviceStatus.ready === undefined ? "bg-[#697586]" : serviceStatus.ready ? "bg-[#54c48e]" : "bg-[#d99a4e]")} />
-            <div className="min-w-0"><div className="truncate text-[10px] font-bold text-[#dbe1e8]">{serviceStatus.ready === undefined ? "Checking service" : serviceStatus.ready ? "Service healthy" : "Service attention"}</div><div className="mt-0.5 truncate text-[9px] text-[#929dac]">{serviceStatus.version ? `Version ${serviceStatus.version}` : "Health & version"}</div></div>
+        <SidebarFooter className="border-t border-[#1e2735] p-2">
+          <Link href="/system/health" className="flex items-center gap-2.5 rounded-[6px] p-2 transition hover:bg-[#111925] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c5cf0]">
+            <span className={cn("size-2 rounded-full", serviceStatus.ready === undefined ? "bg-[#697586]" : serviceStatus.ready ? "bg-[#4fc48d]" : "bg-[#eeb95c]")} />
+            <div className="min-w-0"><div className="truncate text-[11.5px] font-bold text-[#dbe1e8]">{serviceStatus.ready === undefined ? "Checking service" : serviceStatus.ready ? "Service healthy" : "Service attention"}</div><div className="mt-0.5 truncate text-[10.5px] text-[#8f9aab]">{serviceStatus.version ? `Version ${serviceStatus.version}` : "Health & version"}</div></div>
           </Link>
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
 
       <SidebarInset className="min-w-0 bg-transparent">
-        <div className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-3 border-b border-[#202a39] bg-[#080b12]/95 px-3 backdrop-blur-md sm:px-4">
+        <div className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-3 border-b border-[#1e2735] bg-[#07090f]/95 px-3 backdrop-blur-md sm:px-4">
           <SidebarTrigger className="md:hidden" />
-          <button onClick={() => setCommandOpen(true)} className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[6px] border border-[#202a39] bg-[#0e141e] px-3 text-left text-[11px] text-[#9ba5b2] transition hover:border-[#344155] sm:max-w-[360px]">
-            <Search className="size-3.5 shrink-0" /><span className="truncate">Navigate Media Manager…</span><kbd className="ml-auto hidden rounded-[4px] border border-[#283447] bg-[#111925] px-1.5 py-0.5 text-[9px] text-[#aeb6c1] sm:inline">Ctrl K</kbd>
+          <button onClick={() => setCommandOpen(true)} className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[7px] border border-[#202a39] bg-[#0d121b] px-3 text-left text-[12px] text-[#9ba5b2] transition hover:border-[#344155] hover:text-[#c2cbd6] sm:max-w-[380px]">
+            <Search className="size-4 shrink-0" /><span className="truncate">Search or navigate…</span><kbd className="ml-auto hidden rounded-[4px] border border-[#283447] bg-[#111925] px-1.5 py-0.5 text-[10px] text-[#aeb6c1] sm:inline">Ctrl K</kbd>
           </button>
           <div className="ml-auto flex items-center gap-2">
             <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label="Notifications" onClick={() => toast.info("Workflow attention appears on the overview")}><Bell /></Button></TooltipTrigger><TooltipContent>Notifications</TooltipContent></Tooltip>
@@ -262,8 +267,8 @@ export function MediaManagerApp({ path }: { path: string }) {
       </SidebarInset>
 
       <CommandDialog open={commandOpen} onOpenChange={setCommandOpen} title="Search Media Manager" description="Navigate the live owner controls" className="border-[#303947] bg-[#10141a] text-[#eef2f6]">
-        <CommandInput placeholder="Search owner controls…" />
-        <CommandList><CommandEmpty>No matching page.</CommandEmpty><CommandGroup heading="Navigation">{flatNavigation.map((item) => { const Icon = item.icon; return <CommandItem key={item.href} value={`${item.group} ${item.label}`} onSelect={() => navigate(item.href)}><Icon /><span>{item.label}</span><CommandShortcut>{item.group}</CommandShortcut></CommandItem> })}</CommandGroup></CommandList>
+        <CommandInput placeholder="Search pages and controls…" />
+        <CommandList><CommandEmpty>No matching page.</CommandEmpty>{renderedNavigation.map((group) => <CommandGroup key={group.label} heading={group.advanced ? `${group.label} · advanced` : group.label}>{group.items.map((item) => { const Icon = item.icon; return <CommandItem key={item.href} value={`${group.label} ${item.label}`} onSelect={() => navigate(item.href)}><Icon /><span>{item.label}</span><CommandShortcut>{group.label}</CommandShortcut></CommandItem> })}</CommandGroup>)}</CommandList>
       </CommandDialog>
       <Toaster position="bottom-right" />
     </SidebarProvider>

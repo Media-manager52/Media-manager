@@ -266,3 +266,23 @@ test("mobile layout fits the viewport and exposes existing navigation", async ({
   await page.getByRole("button", { name: "Toggle Sidebar" }).click()
   await expect(page.getByRole("link", { name: /Media Manager/ })).toBeVisible()
 })
+
+test("library exposes density control, advanced filters, and one-click reset", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto("/media")
+  await expect(page.getByRole("heading", { name: "Movies" })).toBeVisible()
+
+  const density = page.getByLabel("Grid density")
+  await expect(density).toHaveValue("compact")
+  await density.selectOption("comfortable")
+  await expect(density).toHaveValue("comfortable")
+
+  await page.getByRole("button", { name: "More Filters" }).click()
+  await page.getByLabel("Availability").selectOption("available")
+  await expect(page.getByRole("button", { name: /Availability: Available/ })).toBeVisible()
+  await expect(page.getByText("1 movie", { exact: true })).toBeVisible()
+
+  await page.getByRole("button", { name: "Clear all" }).click()
+  await expect(page.getByRole("button", { name: /Availability: Available/ })).toHaveCount(0)
+  await expect(page.getByText("3 movies", { exact: true })).toBeVisible()
+})
