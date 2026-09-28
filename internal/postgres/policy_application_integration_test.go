@@ -124,10 +124,12 @@ func TestApplyQualityProfilePolicyAcrossWorkflowStates(t *testing.T) {
 	if err := store.OpenNextAcquisitionRound(ctx, exhaustedID, now); err == nil || !strings.Contains(err.Error(), "apply the current policy") {
 		t.Fatalf("stale exhausted round reopen error=%v", err)
 	}
-	// In-flight output verification keeps the policy the attempt started with.
+	// In-flight output verification fails closed to the live profile: a
+	// tightening can only add requirements for an attempt that already started,
+	// so Danish stays required even though the round snapshot is empty.
 	jobPolicy, err := store.SubtitlePolicyForJob(ctx, inFlightJob.JobID)
-	if err != nil || len(jobPolicy.Required) != 0 {
-		t.Fatalf("in-flight job policy=%+v err=%v, want the round snapshot without required subtitles", jobPolicy, err)
+	if err != nil || len(jobPolicy.Required) != 1 || jobPolicy.Required[0] != "da" {
+		t.Fatalf("in-flight job policy=%+v err=%v, want fail-closed Danish requirement", jobPolicy, err)
 	}
 
 	result, err := store.ApplyQualityProfilePolicy(ctx, fixture.profile.ID, "owner", now.Add(time.Second))

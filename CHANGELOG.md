@@ -42,6 +42,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Fixed
 
+- Acquisition selection no longer strands known eligible releases behind a round's novelty cutoff. The selector still prefers releases first observed after the cutoff, but now falls back to any eligible release that was never attempted or excluded instead of parking the workflow as held forever. The submission-intent gate and the duplicate-package fallback apply the same preference. This unblocks 67 open rounds where every eligible candidate (5,154 releases, many with explicit Danish-subtitle evidence) predated a restored cutoff.
 - The Radarr/Sonarr add and command handlers now accept the real client payloads Seerr sends (`profileId`, `minimumAvailability`, `addOptions`, `searchNow`, `seasons`, `seasonFolder`, `seriesType`, `tags`, `movieIds`, ...). Strict JSON decoding rejected every add with HTTP 400, so Seerr marked new requests FAILED before Media Manager's intake ever saw them.
 - Msgnews download locators now request the canonical `www.msgnews.live` host directly. The provider 308-redirects the bare host while carrying the API key in the path, which the cross-origin credential policy correctly rejected; requesting the canonical host keeps the key on the same registrable site without weakening redirect pinning or credential stripping.
 

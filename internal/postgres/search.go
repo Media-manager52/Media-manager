@@ -370,28 +370,25 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		}
 		return search.Workflow, nil
 	}
-	to := workflows.StateWaiting
-	var selected *uuid.UUID
-	for _, evaluation := range ranked {
-		if evaluation.Verdict == releases.VerdictEligible {
+	selectedEvaluation, to, selectionErr := selectRankedCandidate(ranked,
+		func(evaluation releases.Evaluation) (bool, error) {
 			candidate := candidateByObservation[evaluation.ObservationID]
 			var alreadyAttempted bool
 			if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_attempted_releases WHERE workflow_id=$1 AND candidate_id=$2)`, search.Workflow.ID.String(), candidate.String()).Scan(&alreadyAttempted); err != nil {
-				return workflows.Workflow{}, err
+				return false, err
 			}
-			if alreadyAttempted {
-				continue
-			}
-			if search.OpenRound != nil && search.OpenRound.Ordinal > 1 && candidateSequenceByObservation[evaluation.ObservationID] <= search.OpenRound.NoveltyCutoffSequence {
-				continue
-			}
-			selected = &candidate
-			to = workflows.StateCandidateSelected
-			break
-		}
-		if evaluation.Verdict == releases.VerdictHeld {
-			to = workflows.StateHeld
-		}
+			return alreadyAttempted, nil
+		},
+		func(evaluation releases.Evaluation) bool {
+			return search.OpenRound == nil || search.OpenRound.Ordinal <= 1 || candidateSequenceByObservation[evaluation.ObservationID] > search.OpenRound.NoveltyCutoffSequence
+		})
+	if selectionErr != nil {
+		return workflows.Workflow{}, selectionErr
+	}
+	var selected *uuid.UUID
+	if selectedEvaluation != nil {
+		candidate := candidateByObservation[selectedEvaluation.ObservationID]
+		selected = &candidate
 	}
 	var currentState workflows.State
 	var revision int64
@@ -563,6 +560,49 @@ func searchRunComplete(outcomes []SearchIndexerOutcome) bool {
 		}
 	}
 	return true
+}
+
+// selectRankedCandidate chooses the release a search should act on and the
+// workflow state it should land in. Ranking puts eligible releases first, so
+// the first two passes consider them in score order:
+//
+//  1. eligible, never attempted, and first observed after the round's novelty
+//     cutoff (a reopened round waits for new posts first);
+//  2. eligible and never attempted, even when it predates the cutoff, because
+//     attempted and excluded releases are already disqualified and stranding a
+//     known eligible candidate only parks the workflow as held forever.
+//
+// With no selectable candidate the search lands on held when any candidate
+// failed required evidence, and waiting otherwise.
+func selectRankedCandidate(
+	ranked []releases.Evaluation,
+	attempted func(releases.Evaluation) (bool, error),
+	novel func(releases.Evaluation) bool,
+) (*releases.Evaluation, workflows.State, error) {
+	for pass := 0; pass < 2; pass++ {
+		for i := range ranked {
+			if ranked[i].Verdict != releases.VerdictEligible {
+				continue
+			}
+			alreadyAttempted, err := attempted(ranked[i])
+			if err != nil {
+				return nil, workflows.StateWaiting, err
+			}
+			if alreadyAttempted {
+				continue
+			}
+			if pass == 0 && !novel(ranked[i]) {
+				continue
+			}
+			return &ranked[i], workflows.StateCandidateSelected, nil
+		}
+	}
+	for i := range ranked {
+		if ranked[i].Verdict == releases.VerdictHeld {
+			return nil, workflows.StateHeld, nil
+		}
+	}
+	return nil, workflows.StateWaiting, nil
 }
 
 func validSearchIndexerOutcomes(indexers []Integration, outcomes []SearchIndexerOutcome) bool {

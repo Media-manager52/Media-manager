@@ -182,13 +182,6 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 	if round.UpgradeBaseline != currentBaseline {
 		return SubmissionIntent{}, errors.New("current publication changed after the acquisition round opened; candidate must be re-evaluated")
 	}
-	var firstSeenSequence int64
-	if err := transaction.QueryRow(ctx, `SELECT first_seen_sequence FROM release_candidates WHERE workflow_id=$1 AND id=$2`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String()).Scan(&firstSeenSequence); err != nil {
-		return SubmissionIntent{}, err
-	}
-	if round.Ordinal > 1 && firstSeenSequence <= round.NoveltyCutoffSequence {
-		return SubmissionIntent{}, errors.New("candidate was already known before this acquisition round")
-	}
 	var attemptedCandidate bool
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_attempted_releases WHERE workflow_id=$1 AND candidate_id=$2)`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String()).Scan(&attemptedCandidate); err != nil {
 		return SubmissionIntent{}, err
@@ -274,7 +267,6 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			JOIN workflows workflow ON workflow.id=candidate.workflow_id
 			JOIN acquisition_rounds round ON round.workflow_id=workflow.id AND round.state='open' AND round.policy_version=decision.policy_version
 			WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
-			  AND (round.round_ordinal=1 OR candidate.first_seen_sequence>round.novelty_cutoff_sequence)
 			  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
 			  AND NOT EXISTS (
 			    SELECT 1 FROM workflow_release_exclusions exclusion
@@ -282,7 +274,7 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			      AND exclusion.indexer_instance_id=candidate.indexer_instance_id
 			      AND exclusion.native_key=candidate.native_key
 			  )
-			ORDER BY decision.score DESC,candidate.indexer_instance_id,candidate.native_key
+			ORDER BY (candidate.first_seen_sequence>round.novelty_cutoff_sequence) DESC,decision.score DESC,candidate.indexer_instance_id,candidate.native_key
 			LIMIT 1`, retrieval.Workflow.ID.String()).Scan(&nextCandidateText)
 	}
 	if err == nil && nextCandidateText != "" {
