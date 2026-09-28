@@ -4,6 +4,23 @@ Media Manager is an owner-operated movie and TV manager for Usenet. It owns the 
 
 The first production path is deliberately narrow: **Seerr + Media Manager + Newznab indexers + AltMount + Plex**. Radarr and Sonarr are not runtime dependencies. A season pack is one download job, and publication is blocked unless every frozen expected episode maps exactly once.
 
+## Documentation
+
+All project documentation is indexed in [`docs/README.md`](docs/README.md).
+Start with:
+
+- [`docs/onboarding/README.md`](docs/onboarding/README.md) — complete codebase
+  onboarding for a new engineer or AI agent: read order, architecture maps,
+  backend/database/API/frontend references, domain workflows, operations
+  runbook, development recipes, and glossary.
+- [`AGENTS.md`](AGENTS.md) — short contributor contract and verification gates.
+- [`docs/status/implementation.md`](docs/status/implementation.md) — dated
+  feature-by-feature audit (may lag `main`).
+- [`docs/status/release.md`](docs/status/release.md) — dated release evidence.
+- [`docs/status/indexer-conformance.md`](docs/status/indexer-conformance.md) —
+  developer-only Newznab provider conformance evidence; not a runtime
+  dependency.
+
 ## Stack
 
 - Go 1.27 API and durable outbox workers
@@ -112,6 +129,7 @@ Compose passes PostgreSQL credentials as discrete `PG*` variables, so a strong d
 | `/mnt/altmount` | read-only | AltMount completed/streaming media |
 | `/libraries/movies` | read-write | Movie symlink library built by Media Manager |
 | `/libraries/tv` | read-write | TV symlink library built by Media Manager |
+| `/srv/media` | read-write | Optional parent of additional Plex library folders used by Seerr root-folder routing (`MEDIA_LIBRARY_HOST_PATH` / `MEDIA_LIBRARY_GID`; defaults to an empty project directory when unset) |
 
 Plex should receive `/libraries/movies` and `/libraries/tv` read-only. Plex must also be able to resolve symlink targets; normally mount the same AltMount host folder read-only at the path configured as each root's `source_visible_root`.
 
@@ -163,7 +181,7 @@ Newznab records are always staged disabled. In Connections, **Validate & enable*
 
 The developer-only provider-onboarding procedure and the currently verified
 movie/complete-season dialects are recorded in
-[`docs/INDEXER_CONFORMANCE.md`](docs/INDEXER_CONFORMANCE.md). The lab is never a
+[`docs/status/indexer-conformance.md`](docs/status/indexer-conformance.md). The lab is never a
 runtime dependency and its raw evidence is not imported into Media Manager.
 
 ## Manual season-pack add
@@ -230,6 +248,23 @@ GOFLAGS=-mod=readonly go test -count=1 -race ./cmd/... ./internal/...
 The browser suite uses local API fixtures, blocks unexpected network access, and checks the library at desktop and mobile sizes with Playwright and axe. GitLab CI runs the frontend, browser, and PostgreSQL-backed Go verification jobs for branches, tags, and merge requests.
 
 The release workflow also applies all migrations to a disposable PostgreSQL 18 service and builds both container targets. Before promoting to the main server, run one complete live movie and one complete live season-pack workflow against the dev Plex, AltMount, Seerr, and real indexers.
+
+## Seerr without Radarr/Sonarr
+
+Media Manager can be Seerr's Radarr and Sonarr server. Set `SERVARR_API_KEY` in
+`.env`, recreate the API, then point Seerr's services at the API container:
+
+| Service | Hostname | Port | SSL | Base URL | API key |
+| --- | --- | --- | --- | --- | --- |
+| Radarr | `media-manager-api-1` | `8080` | off | `/radarr` | `SERVARR_API_KEY` |
+| Sonarr | `media-manager-api-1` | `8080` | off | `/sonarr` | `SERVARR_API_KEY` |
+
+Seerr reads Media Manager's enabled library roots and quality profiles from
+these services. Adds are acknowledged without a second catalog: the Seerr
+request itself (webhook/poll) creates the workflow. Availability scans read
+Plex-confirmed publications. Requests created while Seerr still pointed at an
+older server keep working through the Seerr root-folder routes in Settings →
+Connections. Radarr and Sonarr are then not part of the stack at all.
 
 ## Operations
 

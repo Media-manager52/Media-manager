@@ -553,3 +553,28 @@ func verifiedSubtitleResult(t *testing.T, videoAssetID, companionAssetID uuid.UU
 		FailureReasons: []string{},
 	}
 }
+
+// TestArchiveUnsupportedFailureExcludesReleaseAndRetriesWithinRound proves the
+// package-screening failure kinds are release-attributable: the exact release
+// is excluded and a replacement search is queued while a round slot remains.
+func TestArchiveUnsupportedFailureExcludesReleaseAndRetriesWithinRound(t *testing.T) {
+	fixture := newFailureRecoveryFixture(t)
+	workflow := fixture.newMovieWorkflow(t, "Archive Retry", "900009")
+	job, _, _ := seedSubtitleAttempt(t, fixture.ctx, fixture.store, workflow.ID, fixture.altMount.ID, fixture.indexer.ID, 1, "archive-retry")
+	if err := fixture.store.CompleteReleaseFailure(fixture.ctx, job, "archive_unsupported", "release contains an archive set instead of a playable media file", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT state FROM workflows WHERE id=$1`, workflow.ID.String()).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != string(workflows.StateWaiting) {
+		t.Fatalf("workflow state=%q, want waiting", state)
+	}
+	if got := fixture.count(t, `SELECT count(*) FROM workflow_release_exclusions WHERE workflow_id=$1 AND failure_kind='archive_unsupported'`, workflow.ID.String()); got != 1 {
+		t.Fatalf("archive exclusions=%d, want 1", got)
+	}
+	if got := fixture.count(t, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.search_requested' AND completed_at IS NULL`, workflow.ID.String()); got != 1 {
+		t.Fatalf("replacement search events=%d, want 1", got)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/postgres"
+	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -156,6 +157,16 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 			return service.Store.MarkAltMountUnknown(ctx, workflowID, intent.JobID, time.Now().UTC())
 		}
 		return nil
+	}
+	if files, filesErr := newznab.PackageFiles(nzb.Body); filesErr == nil {
+		if classification := releases.ClassifyPackageFiles(files); classification.Kind == releases.PackageUnsupported {
+			job, loadErr := service.Store.LoadAltMountJob(ctx, intent.JobID)
+			if loadErr != nil {
+				return loadErr
+			}
+			detail := "release package rejected before AltMount submission: " + classification.Reason
+			return service.Store.CompleteReleaseFailure(ctx, job, classification.Code, detail, time.Now().UTC())
+		}
 	}
 	upload := altmount.UploadRequest{Filename: intent.Filename, Size: int64(len(nzb.Body)), Category: config.Category, Priority: altmount.PriorityNormal, Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(nzb.Body)), nil }}
 	item, err := client.UploadNZB(ctx, upload)

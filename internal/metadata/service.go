@@ -30,6 +30,8 @@ type Result struct {
 }
 
 func (service *Service) Build(ctx context.Context, kind catalog.MediaKind, tmdbID int64, value seerr.Metadata, identities []catalog.ExternalIdentity, now time.Time) (Result, error) {
+	// A zero runtime from the provider (or a Seerr fallback) means unknown, not
+	// invalid; fromTMDB drops it before NormalizeMetadata runs.
 	if tmdbID <= 0 || value.ID != 0 && value.ID != tmdbID {
 		return Result{}, catalog.ErrInvalidMetadata
 	}
@@ -92,6 +94,11 @@ func (service *Service) Build(ctx context.Context, kind catalog.MediaKind, tmdbI
 
 func fromTMDB(kind catalog.MediaKind, tmdbID int64, value seerr.Metadata, now time.Time) *catalog.MediaMetadata {
 	runtime := value.Runtime
+	if runtime != nil && *runtime == 0 {
+		// Seerr/TMDB report 0 for titles with no known runtime; treat it as
+		// unknown instead of rejecting an otherwise valid request.
+		runtime = nil
+	}
 	if kind == catalog.KindSeries && runtime == nil {
 		for _, candidate := range value.EpisodeRunTime {
 			if candidate > 0 {

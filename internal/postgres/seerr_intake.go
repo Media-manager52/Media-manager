@@ -44,6 +44,11 @@ type SeerrIntake struct {
 	Seasons      []SeerrSeason
 	PayloadHash  []byte
 	DeliveryID   uuid.UUID
+	// Routing chosen in Seerr for this request (service, profile, root folder).
+	ServerID   int
+	ProfileID  int
+	RootFolder string
+	Is4K       bool
 }
 
 type IntakeResult struct {
@@ -73,10 +78,10 @@ func (store *Store) UpsertSeerrSnapshot(ctx context.Context, intake SeerrIntake)
 	}
 	defer transaction.Rollback(ctx)
 	var revision int64
-	err = transaction.QueryRow(ctx, `INSERT INTO seerr_request_snapshots(seerr_instance_id,request_id,external_updated_at,state,identities,payload_sha256,last_delivery_id,revision,reconciled_at,title,year,media_kind,poster_url,requested_at,requester) VALUES($1,$2,$3,$4,$5,$6,$7,1,now(),$8,$9,$10,$11,$12,$13)
-		ON CONFLICT(seerr_instance_id,request_id) DO UPDATE SET external_updated_at=EXCLUDED.external_updated_at,state=EXCLUDED.state,identities=EXCLUDED.identities,payload_sha256=EXCLUDED.payload_sha256,last_delivery_id=EXCLUDED.last_delivery_id,title=EXCLUDED.title,year=EXCLUDED.year,media_kind=EXCLUDED.media_kind,poster_url=EXCLUDED.poster_url,requested_at=EXCLUDED.requested_at,requester=EXCLUDED.requester,revision=seerr_request_snapshots.revision+1,reconciled_at=now()
+	err = transaction.QueryRow(ctx, `INSERT INTO seerr_request_snapshots(seerr_instance_id,request_id,external_updated_at,state,identities,payload_sha256,last_delivery_id,revision,reconciled_at,title,year,media_kind,poster_url,requested_at,requester,seerr_server_id,seerr_profile_id,seerr_root_folder,seerr_is_4k) VALUES($1,$2,$3,$4,$5,$6,$7,1,now(),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		ON CONFLICT(seerr_instance_id,request_id) DO UPDATE SET external_updated_at=EXCLUDED.external_updated_at,state=EXCLUDED.state,identities=EXCLUDED.identities,payload_sha256=EXCLUDED.payload_sha256,last_delivery_id=EXCLUDED.last_delivery_id,title=EXCLUDED.title,year=EXCLUDED.year,media_kind=EXCLUDED.media_kind,poster_url=EXCLUDED.poster_url,requested_at=EXCLUDED.requested_at,requester=EXCLUDED.requester,seerr_server_id=EXCLUDED.seerr_server_id,seerr_profile_id=EXCLUDED.seerr_profile_id,seerr_root_folder=EXCLUDED.seerr_root_folder,seerr_is_4k=EXCLUDED.seerr_is_4k,revision=seerr_request_snapshots.revision+1,reconciled_at=now()
 		WHERE seerr_request_snapshots.external_updated_at IS NULL OR (EXCLUDED.external_updated_at IS NOT NULL AND EXCLUDED.external_updated_at > seerr_request_snapshots.external_updated_at)
-		RETURNING revision`, intake.InstanceID, intake.RequestID, nullableTime(intake.UpdatedAt), intake.RequestState, string(identities), intake.PayloadHash, intake.DeliveryID.String(), nullString(intake.Title), nullableYear(intake.Year), nullString(string(intake.Kind)), nullString(intake.PosterURL), nullableTime(intake.RequestedAt), nullString(intake.Requester)).Scan(&revision)
+		RETURNING revision`, intake.InstanceID, intake.RequestID, nullableTime(intake.UpdatedAt), intake.RequestState, string(identities), intake.PayloadHash, intake.DeliveryID.String(), nullString(intake.Title), nullableYear(intake.Year), nullString(string(intake.Kind)), nullString(intake.PosterURL), nullableTime(intake.RequestedAt), nullString(intake.Requester), intake.ServerID, intake.ProfileID, nullString(intake.RootFolder), intake.Is4K).Scan(&revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var existingUpdated *time.Time
 		var existingHash []byte
@@ -86,10 +91,21 @@ func (store *Store) UpsertSeerrSnapshot(ctx context.Context, intake SeerrIntake)
 		if existingUpdated != nil && existingUpdated.Equal(intake.UpdatedAt.UTC()) && !bytes.Equal(existingHash, intake.PayloadHash) {
 			return false, ErrSeerrSnapshotConflict
 		}
+		// Refresh the routing provenance even when the request itself is
+		// unchanged, for example after this schema was added. A delivery the
+		// owner requeued (outcome='requeued') is accepted so intake re-evaluates
+		// it with the current routes instead of being marked stale.
+		if _, refreshErr := transaction.Exec(ctx, `UPDATE seerr_request_snapshots SET seerr_server_id=$3,seerr_profile_id=$4,seerr_root_folder=$5,seerr_is_4k=$6 WHERE seerr_instance_id=$1 AND request_id=$2`, intake.InstanceID, intake.RequestID, intake.ServerID, intake.ProfileID, nullString(intake.RootFolder), intake.Is4K); refreshErr != nil {
+			return false, refreshErr
+		}
+		var requeued bool
+		if requeueErr := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM seerr_deliveries WHERE id=$1 AND seerr_instance_id=$2 AND outcome='requeued' AND processed_at IS NULL)`, intake.DeliveryID.String(), intake.InstanceID).Scan(&requeued); requeueErr != nil {
+			return false, requeueErr
+		}
 		if commitErr := transaction.Commit(ctx); commitErr != nil {
 			return false, commitErr
 		}
-		return false, nil
+		return requeued, nil
 	}
 	if err != nil {
 		return false, err
@@ -115,14 +131,33 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 	}
 	defer transaction.Rollback(ctx)
 	var rootText, profileText, clientText string
-	if err := transaction.QueryRow(ctx, `SELECT root.id::text FROM library_roots root JOIN integration_instances plex ON plex.id=root.plex_instance_id AND plex.kind='plex' AND plex.enabled WHERE root.media_kind=$1 AND root.is_default AND root.enabled AND root.plex_library_id IS NOT NULL ORDER BY root.id LIMIT 1`, intake.Kind).Scan(&rootText); errors.Is(err, pgx.ErrNoRows) {
-		return IntakeResult{}, ErrDefaultsMissing
-	} else if err != nil {
-		return IntakeResult{}, err
+	if strings.TrimSpace(intake.RootFolder) != "" {
+		// The requester chose a root folder in Seerr; only an explicit owner
+		// route may send that request to a Media Manager library root.
+		rootText, profileText, err = resolveSeerrLibraryRoute(ctx, transaction, intake)
+		if err != nil {
+			return IntakeResult{}, err
+		}
+	} else {
+		if err := transaction.QueryRow(ctx, `SELECT root.id::text FROM library_roots root JOIN integration_instances plex ON plex.id=root.plex_instance_id AND plex.kind='plex' AND plex.enabled WHERE root.media_kind=$1 AND root.is_default AND root.enabled AND root.plex_library_id IS NOT NULL ORDER BY root.id LIMIT 1`, intake.Kind).Scan(&rootText); errors.Is(err, pgx.ErrNoRows) {
+			return IntakeResult{}, ErrDefaultsMissing
+		} else if err != nil {
+			return IntakeResult{}, err
+		}
 	}
-	profileText, err = selectSeerrQualityProfile(ctx, transaction, intake.Kind, intake.Metadata)
-	if err != nil {
-		return IntakeResult{}, err
+	if profileText == "" {
+		// A profile chosen against Media Manager's own servarr API always wins;
+		// otherwise keep the original-language routing.
+		profileText, err = selectSeerrProfileBySyntheticID(ctx, transaction, intake.Kind, intake.ProfileID)
+		if err != nil {
+			return IntakeResult{}, err
+		}
+	}
+	if profileText == "" {
+		profileText, err = selectSeerrQualityProfile(ctx, transaction, intake.Kind, intake.Metadata)
+		if err != nil {
+			return IntakeResult{}, err
+		}
 	}
 	if err := transaction.QueryRow(ctx, `SELECT id::text FROM integration_instances WHERE kind='altmount' AND is_default AND enabled ORDER BY id LIMIT 1`).Scan(&clientText); errors.Is(err, pgx.ErrNoRows) {
 		return IntakeResult{}, ErrDefaultsMissing

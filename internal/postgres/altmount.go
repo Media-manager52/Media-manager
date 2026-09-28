@@ -24,6 +24,8 @@ type AltMountJobContext struct {
 	CandidateID         uuid.UUID
 	UploadName          string
 	JobState            string
+	ErrorCode           string
+	ErrorDetail         string
 	SubmissionStartedAt time.Time
 	ExternalQueueID     *int64
 	JobRevision         uint64
@@ -40,7 +42,7 @@ func (store *Store) LoadAltMountJob(ctx context.Context, jobID uuid.UUID) (AltMo
 	var currentAttemptText *string
 	var jobRevision, workflowRevision, mediaRevision int64
 	var year *int16
-	err := store.Pool.QueryRow(ctx, `SELECT j.workflow_id::text,j.candidate_id::text,j.upload_name,j.state,j.submission_started_at,j.external_queue_id,j.revision,j.attempt_generation,w.state,w.revision,w.variant,w.download_client_id::text,w.root_id::text,w.media_id::text,w.grab_attempt_id::text,m.kind,m.title,m.year,m.revision,m.created_at,m.updated_at FROM altmount_jobs j JOIN workflows w ON w.id=j.workflow_id JOIN media_items m ON m.id=w.media_id WHERE j.id=$1`, jobID.String()).Scan(&workflowText, &candidateText, &result.UploadName, &result.JobState, &result.SubmissionStartedAt, &result.ExternalQueueID, &jobRevision, &result.AttemptGeneration, &result.Workflow.State, &workflowRevision, &result.Variant, &clientText, &rootText, &mediaText, &currentAttemptText, &result.Media.Kind, &result.Media.Title, &year, &mediaRevision, &result.Media.CreatedAt, &result.Media.UpdatedAt)
+	err := store.Pool.QueryRow(ctx, `SELECT j.workflow_id::text,j.candidate_id::text,j.upload_name,j.state,j.submission_started_at,j.external_queue_id,j.revision,j.attempt_generation,w.state,w.revision,w.variant,w.download_client_id::text,w.root_id::text,w.media_id::text,w.grab_attempt_id::text,m.kind,m.title,m.year,m.revision,m.created_at,m.updated_at,COALESCE(j.error_code,''),COALESCE(j.error_detail,'') FROM altmount_jobs j JOIN workflows w ON w.id=j.workflow_id JOIN media_items m ON m.id=w.media_id WHERE j.id=$1`, jobID.String()).Scan(&workflowText, &candidateText, &result.UploadName, &result.JobState, &result.SubmissionStartedAt, &result.ExternalQueueID, &jobRevision, &result.AttemptGeneration, &result.Workflow.State, &workflowRevision, &result.Variant, &clientText, &rootText, &mediaText, &currentAttemptText, &result.Media.Kind, &result.Media.Title, &year, &mediaRevision, &result.Media.CreatedAt, &result.Media.UpdatedAt, &result.ErrorCode, &result.ErrorDetail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AltMountJobContext{}, ErrNotFound
 	}

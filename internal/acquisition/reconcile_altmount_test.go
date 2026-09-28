@@ -34,3 +34,23 @@ func TestInspectSubtitleRequirementsClassifiesProbeFailureAsInfrastructure(t *te
 		t.Fatalf("verification=%+v error=%v", verification, err)
 	}
 }
+
+func TestReleaseAttributableQueueFailure(t *testing.T) {
+	tests := []struct {
+		detail string
+		code   string
+	}{
+		{"compressed files are not supported: Under.The.Skin.iso (uses rar2.9 compression)", "archive_unsupported"},
+		{`failed to iterate RAR archive "Movie.part01.rar": rardecode: bad header crc`, "archive_unsupported"},
+		{"no files with allowed extensions found (allowed: [.mp4 .mkv ...])", "no_playable_media"},
+		{"The file is incomplete or missing parts. Some segments of this file could not be found on any provider", "release_incomplete"},
+		{"AltMount job needs attention", ""},
+		{"connection refused by provider gateway", ""},
+	}
+	for _, test := range tests {
+		code, matched := releaseAttributableQueueFailure(test.detail)
+		if code != test.code || matched != (test.code != "") {
+			t.Fatalf("detail=%q code=%q matched=%v, want code=%q", test.detail, code, matched, test.code)
+		}
+	}
+}

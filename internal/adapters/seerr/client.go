@@ -73,6 +73,13 @@ type Request struct {
 	Media       Media        `json:"media"`
 	Seasons     []Season     `json:"seasons"`
 	RequestedBy *RequestedBy `json:"requestedBy"`
+	// Routing chosen in Seerr from the service the request was made against.
+	// Seerr returns serverId, profileId, and rootFolder for approved requests.
+	// omitempty keeps the request payload hash identical to before these fields
+	// existed (the hash excludes routing provenance).
+	ServerID   int    `json:"serverId,omitempty"`
+	ProfileID  int    `json:"profileId,omitempty"`
+	RootFolder string `json:"rootFolder,omitempty"`
 }
 type ExternalIDs struct {
 	IMDbID string `json:"imdbId"`

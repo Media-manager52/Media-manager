@@ -49,11 +49,19 @@ func TestNormalizeMetadataBoundsAndPreservesProviderEvidence(t *testing.T) {
 		{PosterURL: "https://image.tmdb.org:8443/t/p/w500/poster.jpg"},
 		{Sources: []MetadataSource{{Provider: "tvdb", URL: "https://thetvdb.com/series/example?apikey=secret", Role: "supplementary metadata"}}},
 		{ReleaseDate: "01-09-2026"},
-		{RuntimeMinutes: &zero},
 	} {
 		if _, err := NormalizeMetadata(invalid, time.Now()); !errors.Is(err, ErrInvalidMetadata) {
 			t.Fatalf("invalid metadata accepted: %+v err=%v", invalid, err)
 		}
+	}
+
+	// A provider zero runtime means unknown, not invalid.
+	unknownRuntime, err := NormalizeMetadata(&MediaMetadata{RuntimeMinutes: &zero}, time.Now())
+	if err != nil {
+		t.Fatalf("zero runtime should be accepted as unknown: %v", err)
+	}
+	if unknownRuntime.RuntimeMinutes != nil {
+		t.Fatalf("zero runtime should be dropped, got %v", *unknownRuntime.RuntimeMinutes)
 	}
 }
 

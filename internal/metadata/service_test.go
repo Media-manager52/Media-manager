@@ -77,3 +77,15 @@ func countSources(values []catalog.MetadataSource, provider string) int {
 	}
 	return count
 }
+
+func TestBuildTreatsZeroRuntimeAsUnknown(t *testing.T) {
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	zero := uint16(0)
+	result, err := (&Service{}).Build(context.Background(), catalog.KindMovie, 1696813, seerr.Metadata{ID: 1696813, Title: "Dirch - Danmarks Store Komiker", ReleaseDate: "2026-05-17", Runtime: &zero}, nil, now)
+	if err != nil {
+		t.Fatalf("zero runtime must not invalidate metadata: %v", err)
+	}
+	if result.Metadata.RuntimeMinutes != nil {
+		t.Fatalf("zero runtime should stay unknown, got %v", *result.Metadata.RuntimeMinutes)
+	}
+}

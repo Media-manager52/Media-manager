@@ -264,7 +264,8 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 func (store *Store) CompleteReleaseFailure(ctx context.Context, job AltMountJobContext, failureCode, detail string, now time.Time) error {
 	failureKind := failureCode
 	switch failureCode {
-	case "season_pack_incomplete", "movie_primary_ambiguous", "output_empty", "media_identity_mismatch", "media_corrupt", "password_protected":
+	case "season_pack_incomplete", "movie_primary_ambiguous", "output_empty", "media_identity_mismatch", "media_corrupt", "password_protected",
+		"archive_unsupported", "no_playable_media", "release_incomplete":
 	default:
 		return errors.New("failure is not safely classified as release-attributable")
 	}

@@ -22,6 +22,9 @@ export type APIWorkflow = {
   terminal_at?: string; created_at: string; updated_at: string
 }
 export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string; created_at: string; updated_at: string }
+export type APISeerrRoute = { id: string; seerr_instance_id: string; media_kind: "movie" | "series"; root_folder: string; library_root_id: string; quality_profile_id?: string; enabled: boolean; created_at: string; updated_at: string }
+export type APISeerrObservedFolder = { media_kind: "movie" | "series"; root_folder: string; request_count: number; latest_at: string; route_id?: string; library_root_id?: string; quality_profile_id?: string; routed: boolean }
+export type APISeerrRouting = { routes: APISeerrRoute[]; observed_folders: APISeerrObservedFolder[] }
 export type APILibraryRoot = { id: string; media_kind: "movie" | "series"; name: string; destination_root: string; plex_visible_root: string; source_visible_root: string; plex_instance_id?: string; plex_library_id?: string; is_default: boolean; enabled: boolean }
 export type APIQualityProfile = { id: string; media_kind: "movie" | "series"; name: string; policy_version: number; policy: Record<string, unknown>; upgrades_enabled: boolean; is_default: boolean; enabled: boolean }
 export type APISubtitleVerification = { id: string; workflow_id: string; altmount_job_id: string; candidate_id: string; media_title: string; release_title: string; attempt_generation: number; status: "verified" | "unverified"; required_languages: string[]; preferred_languages: string[]; observed_languages: string[]; evidence: Record<string, unknown>; failure_reasons: string[]; retry_state: "not_needed" | "queued" | "succeeded" | "exhausted" | "no_alternate"; can_reverify: boolean; created_at: string }
@@ -163,6 +166,9 @@ export const restoreAdoptedFiles = (id: string, confirmation: string) => request
 export const confirmRealFilePurge = (id: string, confirmation: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/confirm-purge`, { method: "POST", body: JSON.stringify({ confirmation }) })
 export const createIntegration = (input: Omit<APIIntegration, "id" | "created_at" | "updated_at">) => requestJSON<APIIntegration>("/api/v1/settings/integrations", { method: "POST", body: JSON.stringify(input) })
 export const commissionIntegration = (id: string) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/commission`, { method: "POST" })
+export const loadSeerrRouting = (instanceID: string) => requestJSON<APISeerrRouting>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes`)
+export const saveSeerrRoute = (instanceID: string, input: { media_kind: "movie" | "series"; root_folder: string; library_root_id: string; quality_profile_id?: string }) => requestJSON<APISeerrRoute>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes`, { method: "POST", body: JSON.stringify(input) })
+export const deleteSeerrRoute = (instanceID: string, routeID: string) => requestJSON<void>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes/${encodeURIComponent(routeID)}`, { method: "DELETE" })
 export const createLibraryRoot = (input: Omit<APILibraryRoot, "id">) => requestJSON<APILibraryRoot>("/api/v1/settings/library-roots", { method: "POST", body: JSON.stringify(input) })
 export const createQualityProfile = (input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>("/api/v1/settings/quality-profiles", { method: "POST", body: JSON.stringify(input) })
 export const updateQualityProfile = (id: string, input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })

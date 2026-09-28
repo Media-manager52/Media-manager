@@ -18,6 +18,7 @@ import (
 	"github.com/media-manager/media-manager/internal/mediainfo"
 	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/postgres"
+	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
@@ -87,6 +88,21 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 	}
 	item, err := client.Queue(ctx, altmount.QueueID(*job.ExternalQueueID))
 	if err != nil {
+		var apiError altmount.APIError
+		if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound && strings.TrimSpace(job.ErrorDetail) != "" {
+			// AltMount already pruned the failed queue item, so the persisted
+			// failure detail is the only durable evidence. Route it exactly like
+			// a live failure instead of retrying the reconcile forever.
+			detail := job.ErrorDetail
+			if failureCode, releaseAttributable := releaseAttributableQueueFailure(detail); releaseAttributable {
+				return service.Store.CompleteReleaseFailure(ctx, job, failureCode, detail, time.Now().UTC())
+			}
+			attentionCode := job.ErrorCode
+			if attentionCode == "" {
+				attentionCode = "altmount_job_attention"
+			}
+			return service.Store.CompleteImportWithCode(ctx, job, false, attentionCode, detail, time.Now().UTC())
+		}
 		return err
 	}
 	output := altmount.OutputObservation{}
@@ -121,6 +137,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		detail := "AltMount job needs attention"
 		if item.ErrorMessage != nil {
 			detail = *item.ErrorMessage
+		}
+		if failureCode, releaseAttributable := releaseAttributableQueueFailure(detail); releaseAttributable {
+			return service.Store.CompleteReleaseFailure(ctx, job, failureCode, detail, time.Now().UTC())
 		}
 		return service.Store.CompleteImportWithCode(ctx, job, false, "altmount_job_attention", detail, time.Now().UTC())
 	case altmount.PhaseImportComplete:
@@ -245,6 +264,28 @@ func terminalAltMountJob(state string) bool {
 	default:
 		return false
 	}
+}
+
+// releaseAttributableQueueFailure maps AltMount queue errors that identify a
+// defective release payload to a release failure code. Those failures exclude
+// the exact release and package and retry another candidate inside the open
+// acquisition round instead of parking the workflow as infrastructure
+// attention. Errors that do not match stay owner-visible infrastructure
+// attention items.
+func releaseAttributableQueueFailure(detail string) (string, bool) {
+	normalized := strings.ToLower(detail)
+	switch {
+	case strings.Contains(normalized, "compressed files are not supported"),
+		strings.Contains(normalized, "failed to iterate rar archive"),
+		strings.Contains(normalized, "password protected"),
+		strings.Contains(normalized, "rar2") && strings.Contains(normalized, "compression"):
+		return releases.PackageFailureArchiveUnsupported, true
+	case strings.Contains(normalized, "no files with allowed extensions"):
+		return releases.PackageFailureNoPlayableMedia, true
+	case strings.Contains(normalized, "incomplete or missing parts"):
+		return releases.PackageFailureReleaseIncomplete, true
+	}
+	return "", false
 }
 
 func hasOneDominantMovie(files []altmount.OutputFile) bool {

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,7 +59,7 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 	if err != nil {
 		return err
 	}
-	intake := postgres.SeerrIntake{InstanceID: service.InstanceID, RequestID: payload.RequestID, UpdatedAt: request.UpdatedAt, RequestedAt: request.CreatedAt, RequestState: strconv.Itoa(request.Status), DeliveryID: deliveryID}
+	intake := postgres.SeerrIntake{InstanceID: service.InstanceID, RequestID: payload.RequestID, UpdatedAt: request.UpdatedAt, RequestedAt: request.CreatedAt, RequestState: strconv.Itoa(request.Status), DeliveryID: deliveryID, ServerID: request.ServerID, ProfileID: request.ProfileID, RootFolder: strings.TrimSpace(request.RootFolder), Is4K: request.Is4K}
 	if request.RequestedBy != nil {
 		intake.Requester = strings.TrimSpace(request.RequestedBy.DisplayName)
 	}
@@ -187,6 +188,10 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "reviewed adoption monitoring is waiting for Plex verification")
 	} else if errors.Is(err, postgres.ErrProfileRoutingAmbiguous) {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", "multiple enabled quality profiles route this original language")
+	} else if errors.Is(err, postgres.ErrSeerrRouteUnmapped) {
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", fmt.Sprintf("Seerr chose root folder %q; map it to a Media Manager library root in Settings → Connections", intake.RootFolder))
+	} else if errors.Is(err, postgres.ErrSeerrRouteTargetUnavailable) {
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", fmt.Sprintf("the Media Manager root or quality profile mapped to Seerr folder %q is disabled or unavailable", intake.RootFolder))
 	} else if err != nil {
 		return err
 	}
@@ -207,13 +212,18 @@ func seerrIntakeHash(request seerradapter.Request, intake postgres.SeerrIntake) 
 		sort.Slice(seasons[index].Episodes, func(i, j int) bool { return seasons[index].Episodes[i].Number < seasons[index].Episodes[j].Number })
 	}
 	sort.Slice(seasons, func(i, j int) bool { return seasons[i].Number < seasons[j].Number })
+	// Routing fields are excluded so adding routing provenance does not change
+	// the stored payload hash of existing Seerr snapshots. A folder cannot
+	// change after a Seerr request is created.
+	hashable := request
+	hashable.ServerID, hashable.ProfileID, hashable.RootFolder = 0, 0, ""
 	canonical, _ := json.Marshal(struct {
 		Request    seerradapter.Request       `json:"request"`
 		Title      string                     `json:"title"`
 		Year       *uint16                    `json:"year"`
 		Identities []catalog.ExternalIdentity `json:"identities"`
 		Seasons    []postgres.SeerrSeason     `json:"seasons"`
-	}{Request: request, Title: intake.Title, Year: intake.Year, Identities: identities, Seasons: seasons})
+	}{Request: hashable, Title: intake.Title, Year: intake.Year, Identities: identities, Seasons: seasons})
 	digest := sha256.Sum256(canonical)
 	return digest[:]
 }

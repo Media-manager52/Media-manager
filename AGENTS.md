@@ -5,10 +5,14 @@ truthful, and safe for an owner-operated production media system.
 
 ## Start here
 
+- Read `docs/onboarding/README.md` for the full codebase onboarding set:
+  read order, architecture maps, backend/database/API/frontend references,
+  domain workflows, operations runbook, development recipes, and glossary.
+  Start there when you have no prior context; the hub is `docs/README.md`.
 - Read `README.md` for the product contract, local commands, and safety invariants.
-- Read `CORE_RELEASE_STATUS.md` for release evidence and
-  `docs/IMPLEMENTATION_STATUS.md` before changing a partial feature.
-- Read `docs/INDEXER_CONFORMANCE.md` before touching Newznab behavior.
+- Read `docs/status/release.md` for release evidence and
+  `docs/status/implementation.md` before changing a partial feature.
+- Read `docs/status/indexer-conformance.md` before touching Newznab behavior.
 - Check `git status` before editing. Preserve unrelated local work and never add
   `.env*`, credentials, runtime data, media, or download output.
 

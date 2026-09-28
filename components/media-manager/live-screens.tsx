@@ -40,17 +40,20 @@ import {
   loadQualityProfiles,
   loadSubtitleVerifications,
   loadRecycle,
+  loadSeerrRouting,
   loadWorkflows,
   openAcquisitionRound,
   reconcileAltMount,
   recycleMedia,
   deleteCollection,
+  deleteSeerrRoute,
   restoreRecycle,
   restoreAdoptedFiles,
   reviewAdoptionItem,
   previewCollection,
   refreshMediaMetadata,
   reverifyRetainedOutput,
+  saveSeerrRoute,
   searchMetadata,
   searchWorkflow,
   uploadProwlarrBackup,
@@ -66,6 +69,9 @@ import {
   type APIQualityProfile,
   type APISubtitleVerification,
   type APIRecycleEntry,
+  type APISeerrObservedFolder,
+  type APISeerrRoute,
+  type APISeerrRouting,
   type APIProwlarrImport,
   type APIWorkflow,
 } from "@/lib/media-manager-api"
@@ -416,8 +422,82 @@ export function LiveCollectionsScreen() {
   return <div className="grid gap-4 xl:grid-cols-[1fr_390px]">{error ? <div className="xl:col-span-2"><ErrorNotice error={error} /></div> : null}<Panel title="Manual collections" subtitle="Persisted groupings only; no unsupported smart-rule matches are claimed.">{collections.length === 0 ? <div className="py-10 text-center text-[11px] text-[#7f8a9a]">No collections exist.</div> : <div className="grid gap-3 md:grid-cols-2">{collections.map((collection) => <div key={collection.id} className="rounded-xl border border-white/[0.07] bg-[#0c1015] p-3"><div className="flex items-start justify-between gap-3"><div><div className="text-[11px] font-bold text-[#e5eaf0]">{collection.name}</div><div className="mt-1 text-[11px] text-[#748090]">{collection.members.length} member(s)</div></div><Button size="sm" variant="ghost" disabled={busy === collection.id} onClick={() => void remove(collection.id)}><Trash2 /> Delete</Button></div>{collection.description ? <div className="mt-2 text-[11px] text-[#8a95a3]">{collection.description}</div> : null}<div className="mt-3 flex flex-wrap gap-1">{collection.members.map((item) => <StatusChip key={item.id}>{item.title}{item.year ? ` (${item.year})` : ""}</StatusChip>)}</div></div>)}</div>}</Panel><Panel title="Create with preview" subtitle="Select persisted catalog records, preview the exact server result, then save."><form className="grid gap-3" onSubmit={save}><Field label="Name"><Input className="mm-input" maxLength={200} value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Description"><Textarea className="mm-input min-h-20" maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></Field><div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-white/[0.07] bg-[#0b0f14] p-2">{media.map((item) => <label key={item.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] text-[#aeb7c3] hover:bg-white/[0.04]"><Checkbox checked={selected.includes(item.id)} onCheckedChange={(value) => toggle(item.id, value === true)} />{item.title} {item.year ? `(${item.year})` : ""}<span className="ml-auto text-[#687586]">{item.kind}</span></label>)}{media.length === 0 ? <div className="p-4 text-center text-[11px] text-[#748090]">Add catalog media before creating a collection.</div> : null}</div><Button type="button" variant="outline" disabled={selected.length === 0 || busy === "preview"} onClick={() => void runPreview()}><Search /> Preview {selected.length} member(s)</Button>{preview ? <InlineNotice tone="info" title="Server preview">{preview.map((item) => item.title).join(" · ")}</InlineNotice> : null}<Button type="submit" disabled={!preview || !name.trim() || busy === "save"}><Plus /> Save reviewed collection</Button></form></Panel></div>
 }
 
+function SeerrRoutingPanel({ instance, roots, profiles }: { instance: APIIntegration; roots: APILibraryRoot[]; profiles: APIQualityProfile[] }) {
+  const [routing, setRouting] = React.useState<APISeerrRouting>({ routes: [], observed_folders: [] })
+  const [error, setError] = React.useState("")
+  const [busy, setBusy] = React.useState("")
+  const [newKind, setNewKind] = React.useState<"movie" | "series">("movie")
+  const [newFolder, setNewFolder] = React.useState("")
+  const [newRoot, setNewRoot] = React.useState("")
+  const [newProfile, setNewProfile] = React.useState("auto")
+  const refresh = React.useCallback(async () => {
+    try { setRouting(await loadSeerrRouting(instance.id)); setError("") }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load Seerr routing") }
+  }, [instance.id])
+  React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(initial) }, [refresh])
+  const rows = React.useMemo(() => {
+    const observed = routing.observed_folders.map((folder) => ({ ...folder, route: routing.routes.find((route) => route.id === folder.route_id) }))
+    const observedKeys = new Set(observed.map((folder) => `${folder.media_kind}\u0000${folder.root_folder}`))
+    const configured = routing.routes.filter((route) => !observedKeys.has(`${route.media_kind}\u0000${route.root_folder}`)).map((route) => ({ media_kind: route.media_kind, root_folder: route.root_folder, request_count: 0, latest_at: route.updated_at, route_id: route.id, library_root_id: route.library_root_id, quality_profile_id: route.quality_profile_id, routed: route.enabled, route }))
+    return [...observed, ...configured].sort((left, right) => left.media_kind.localeCompare(right.media_kind) || left.root_folder.localeCompare(right.root_folder))
+  }, [routing])
+  async function save(kind: "movie" | "series", folder: string, rootID: string, profileID: string) {
+    if (!rootID) { setError("Choose a Media Manager library root for this folder first."); return }
+    setBusy(`${kind}:${folder}`); setError("")
+    try { await saveSeerrRoute(instance.id, { media_kind: kind, root_folder: folder, library_root_id: rootID, quality_profile_id: profileID === "auto" ? undefined : profileID }); toast.success(`${folder} mapped`); await refresh() }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save routing") }
+    finally { setBusy("") }
+  }
+  async function remove(routeID: string) {
+    setBusy(routeID); setError("")
+    try { await deleteSeerrRoute(instance.id, routeID); toast.success("Route removed"); await refresh() }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not remove route") }
+    finally { setBusy("") }
+  }
+  const newRoots = roots.filter((root) => root.media_kind === newKind && root.enabled)
+  const newProfiles = profiles.filter((profile) => profile.media_kind === newKind && profile.enabled)
+  return <Panel className="xl:col-span-2" title="Seerr request routing" subtitle="Map each root folder a requester chose in Seerr to a Media Manager library root. A request with an unmapped folder pauses for configuration instead of publishing into the wrong library.">
+    {error ? <div className="mb-3"><ErrorNotice error={error} /></div> : null}
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader><TableRow><TableHead>Kind</TableHead><TableHead>Seerr root folder</TableHead><TableHead>Requests</TableHead><TableHead>Media Manager root</TableHead><TableHead>Quality profile</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
+        <TableBody>{rows.map((row) => <SeerrRouteRow key={`${row.media_kind}:${row.root_folder}:${row.route?.id ?? "unrouted"}`} row={row} roots={roots} profiles={profiles} busy={busy} onSave={save} onRemove={remove} />)}</TableBody>
+      </Table>
+    </div>
+    {rows.length === 0 ? <div className="py-6 text-center text-[11px] text-[#7f8a9a]">No Seerr root folders observed yet. Add a mapping below; observed folders appear as requests arrive.</div> : null}
+    <div className="mt-4 grid gap-2 border-t border-[#202a39] pt-4 lg:grid-cols-[120px_1.2fr_1fr_1fr_auto] lg:items-end">
+      <Field label="Kind"><Select value={newKind} onValueChange={(value) => { setNewKind(value as "movie" | "series"); setNewRoot(""); setNewProfile("auto") }}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="movie">Movie</SelectItem><SelectItem value="series">TV series</SelectItem></SelectContent></Select></Field>
+      <Field label="Seerr root folder" hint="Exactly as returned by Seerr, e.g. /media/Comedy"><Input className="mm-input font-mono" value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder="/media/Comedy" /></Field>
+      <Field label="Media Manager root"><Select value={newRoot || "unset"} onValueChange={setNewRoot}><SelectTrigger className="mm-input w-full"><SelectValue placeholder="Choose root" /></SelectTrigger><SelectContent><SelectItem value="unset" disabled>Choose root</SelectItem>{newRoots.map((root) => <SelectItem key={root.id} value={root.id}>{root.name}</SelectItem>)}</SelectContent></Select></Field>
+      <Field label="Quality profile"><Select value={newProfile} onValueChange={setNewProfile}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="auto">Automatic (language)</SelectItem>{newProfiles.map((profile) => <SelectItem key={profile.id} value={profile.id}>{profile.name}</SelectItem>)}</SelectContent></Select></Field>
+      <Button disabled={!newFolder.trim() || !newRoot || busy === `${newKind}:${newFolder.trim()}`} onClick={() => void save(newKind, newFolder.trim(), newRoot, newProfile)}><Plus /> Add route</Button>
+    </div>
+  </Panel>
+}
+
+type SeerrRouteRowData = APISeerrObservedFolder & { route?: APISeerrRoute }
+
+function SeerrRouteRow({ row, roots, profiles, busy, onSave, onRemove }: { row: SeerrRouteRowData; roots: APILibraryRoot[]; profiles: APIQualityProfile[]; busy: string; onSave: (kind: "movie" | "series", folder: string, rootID: string, profileID: string) => Promise<void>; onRemove: (routeID: string) => Promise<void> }) {
+  const [rootID, setRootID] = React.useState(row.route?.library_root_id ?? row.library_root_id ?? "")
+  const [profileID, setProfileID] = React.useState(row.route?.quality_profile_id ?? row.quality_profile_id ?? "auto")
+  const kindRoots = roots.filter((root) => root.media_kind === row.media_kind && root.enabled)
+  const kindProfiles = profiles.filter((profile) => profile.media_kind === row.media_kind && profile.enabled)
+  const pending = busy === `${row.media_kind}:${row.root_folder}` || busy === row.route_id
+  return <TableRow>
+    <TableCell>{row.media_kind === "movie" ? "Movie" : "TV"}</TableCell>
+    <TableCell><div className="font-mono text-[11px] text-[#e5eaf0]">{row.root_folder}</div>{row.routed ? null : <div className="mt-1 text-[10px] font-bold uppercase tracking-wide text-[#eeb95c]">Needs mapping</div>}</TableCell>
+    <TableCell>{row.request_count ? row.request_count : "—"}</TableCell>
+    <TableCell><Select value={rootID || "unset"} onValueChange={setRootID}><SelectTrigger className="mm-input w-full"><SelectValue placeholder="Choose root" /></SelectTrigger><SelectContent><SelectItem value="unset" disabled>Choose root</SelectItem>{kindRoots.map((root) => <SelectItem key={root.id} value={root.id}>{root.name}</SelectItem>)}</SelectContent></Select></TableCell>
+    <TableCell><Select value={profileID} onValueChange={setProfileID}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="auto">Automatic (language)</SelectItem>{kindProfiles.map((profile) => <SelectItem key={profile.id} value={profile.id}>{profile.name}</SelectItem>)}</SelectContent></Select></TableCell>
+    <TableCell><div className="flex items-center gap-1"><Button size="sm" variant="outline" disabled={pending} onClick={() => void onSave(row.media_kind, row.root_folder, rootID === "unset" ? "" : rootID, profileID)}>{pending ? <LoaderCircle className="animate-spin" /> : <Settings2 />} {row.route_id ? "Update" : "Map"}</Button>{row.route_id ? <Button size="sm" variant="ghost" disabled={pending} onClick={() => void onRemove(row.route_id as string)}><Trash2 /> Remove</Button> : null}</div></TableCell>
+  </TableRow>
+}
+
 export function LiveConnectionsScreen() {
   const [items, setItems] = React.useState<APIIntegration[]>([])
+  const [roots, setRoots] = React.useState<APILibraryRoot[]>([])
+  const [profiles, setProfiles] = React.useState<APIQualityProfile[]>([])
+  const seerr = items.find((item) => item.kind === "seerr" && item.enabled) ?? items.find((item) => item.kind === "seerr")
   const [kind, setKind] = React.useState("plex")
   const [name, setName] = React.useState("Plex")
   const [baseURL, setBaseURL] = React.useState("")
@@ -429,7 +509,12 @@ export function LiveConnectionsScreen() {
   const [error, setError] = React.useState("")
   const [busy, setBusy] = React.useState(false)
 	const [commissioning, setCommissioning] = React.useState("")
-  const refresh = React.useCallback(async () => { try { setItems(await loadIntegrations()); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load integrations") } }, [])
+  const refresh = React.useCallback(async () => {
+    try {
+      const [nextItems, nextRoots, nextProfiles] = await Promise.all([loadIntegrations(), loadLibraryRoots(), loadQualityProfiles()])
+      setItems(nextItems); setRoots(nextRoots); setProfiles(nextProfiles); setError("")
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load integrations") }
+  }, [])
   React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(initial) }, [refresh])
   function changeConnectionKind(value: string) { const labels: Record<string, [string, string]> = { plex: ["Plex", "PLEX_TOKEN"], altmount: ["AltMount", "ALTMOUNT_SECRET"], newznab: ["Newznab indexer", "NEWZNAB_PRIMARY_API_KEY"], seerr: ["Seerr", "SEERR_API_KEY"] }; setKind(value); setName(labels[value][0]); setSecretRef(labels[value][1]) }
   async function submit(event: React.FormEvent) {
@@ -450,6 +535,7 @@ export function LiveConnectionsScreen() {
   return <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
     <Panel className="!p-0" title="Connected services" subtitle="Secrets remain environment references; values never return to the browser."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead>Default</TableHead><TableHead>Secret reference</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => { const awaiting = item.kind === "newznab" && !item.enabled && item.config.mode_verified !== true; const canValidate = item.kind === "newznab" && !item.enabled; return <TableRow key={item.id}><TableCell className="font-semibold text-[#e5eaf0]">{item.name}<div className="mt-1 font-mono text-[11px] text-[#667284]">{item.id}</div></TableCell><TableCell>{item.kind}</TableCell><TableCell>{item.is_default ? "Yes" : "No"}</TableCell><TableCell className="font-mono text-[11px]">{item.secret_ref ?? "—"}</TableCell><TableCell><StateBadge state={item.enabled ? "enabled" : awaiting ? "awaiting_validation" : "disabled"} /></TableCell><TableCell>{canValidate ? <Button size="sm" variant="outline" disabled={commissioning === item.id} onClick={() => void commission(item)}>{commissioning === item.id ? <LoaderCircle className="animate-spin" /> : <Activity />} Validate & enable</Button> : "—"}</TableCell></TableRow> })}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[11px] text-[#7f8a9a]">No integrations configured.</div> : null}</Panel>
     <Panel title="Add connection" subtitle="Create the database record after its secret exists in .env.integrations.">{error ? <div className="mb-4"><ErrorNotice error={error} /></div> : null}<form className="grid gap-3" onSubmit={submit}><Field label="Connection type"><Select value={kind} onValueChange={changeConnectionKind}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="plex">Plex</SelectItem><SelectItem value="altmount">AltMount</SelectItem><SelectItem value="newznab">Newznab indexer</SelectItem><SelectItem value="seerr">Seerr record</SelectItem></SelectContent></Select></Field><Field label="Name"><Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Base URL"><Input className="mm-input" value={baseURL} onChange={(event) => setBaseURL(event.target.value)} placeholder="https://service.example" required /></Field><Field label="Secret environment name"><Input className="mm-input font-mono" value={secretRef} onChange={(event) => setSecretRef(event.target.value)} required /></Field>{kind === "altmount" ? <div className="grid grid-cols-2 gap-2"><Field label="Reported root"><Input className="mm-input" value={reportedRoot} onChange={(event) => setReportedRoot(event.target.value)} /></Field><Field label="Read-only root"><Input className="mm-input" value={localRoot} onChange={(event) => setLocalRoot(event.target.value)} /></Field></div> : null}<ToggleRow label="Allow plain HTTP" checked={allowHTTP} onChange={setAllowHTTP} /><ToggleRow label="Make default" checked={isDefault} onChange={setIsDefault} /><Button disabled={busy} type="submit"><Plus /> Save connection</Button></form><div className="mt-3 text-[11px] leading-5 text-[#707c8c]">For Seerr: save the record, use its UUID as <span className="font-mono">SEERR_INSTANCE_ID</span>, then restart with all four Seerr variables set.</div></Panel>
+    {seerr ? <SeerrRoutingPanel instance={seerr} roots={roots} profiles={profiles} /> : null}
   </div>
 }
 

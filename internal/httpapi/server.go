@@ -42,6 +42,9 @@ type Config struct {
 	CommissioningV2Origin  string
 	BackupConfigured       bool
 	BackupDirectory        string
+	// ServarrAPIKey enables the Radarr/Sonarr-compatible API Seerr uses when
+	// Media Manager replaces the *arr applications. Empty disables it.
+	ServarrAPIKey string
 }
 
 type Server struct {
@@ -138,6 +141,9 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/integrations", server.requireOwner(server.listIntegrations))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations", server.requireOwner(server.createIntegration))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commission", server.requireOwner(server.commissionIntegration))
+	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/seerr-routes", server.requireOwner(server.listSeerrRoutes))
+	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/seerr-routes", server.requireOwner(server.saveSeerrRoute))
+	server.mux.HandleFunc("DELETE /api/v1/settings/integrations/{id}/seerr-routes/{route}", server.requireOwner(server.deleteSeerrRoute))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs", server.requireOwnerMutation(server.createCommissioningV2Run))
 	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}", server.requireOwner(server.getCommissioningV2Run))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-caps", server.requireOwnerMutation(server.authorizeCommissioningV2CAPS))
@@ -157,6 +163,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("PATCH /api/v1/settings/notifications/{id}", server.requireOwner(server.setNotificationDestinationState))
 	server.mux.HandleFunc("GET /api/v1/notifications/deliveries", server.requireOwner(server.listNotificationDeliveries))
 	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
+	server.registerServarrRoutes()
 }
 
 func (server *Server) listBackups(writer http.ResponseWriter, request *http.Request) {

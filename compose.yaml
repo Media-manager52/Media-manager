@@ -26,6 +26,9 @@ services:
         COMMIT: ${MEDIA_MANAGER_COMMIT:-local}
     restart: unless-stopped
     user: ${MEDIA_MANAGER_UID:-65532}:${MEDIA_MANAGER_GID:-65532}
+    # Supplementary group for the optional Plex-library parent mounted below
+    # (for example the host `media` group). Defaults to the primary GID.
+    group_add: ["${MEDIA_LIBRARY_GID:-1000}"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     depends_on:
@@ -47,6 +50,7 @@ services:
       SEERR_INSTANCE_ID: ${SEERR_INSTANCE_ID:-}
       SEERR_WEBHOOK_SECRET: ${SEERR_WEBHOOK_SECRET:-}
       SEERR_ALLOW_HTTP: ${SEERR_ALLOW_HTTP:-false}
+      SERVARR_API_KEY: ${SERVARR_API_KEY:-}
       TMDB_ACCESS_TOKEN_FILE: /run/secrets/media_manager_tmdb_token
       TVDB_API_KEY_FILE: /run/secrets/media_manager_tvdb_key
       SIMKL_CLIENT_ID_FILE: /run/secrets/media_manager_simkl_client_id
@@ -60,6 +64,9 @@ services:
       - ${ALTMOUNT_HOST_PATH:?set ALTMOUNT_HOST_PATH}:/mnt/altmount:ro
       - ${MOVIES_HOST_PATH:?set MOVIES_HOST_PATH}:/libraries/movies:rw
       - ${TV_HOST_PATH:?set TV_HOST_PATH}:/libraries/tv:rw
+      # Optional parent of additional Plex library folders (Seerr root-folder
+      # routing). Defaults to an empty project directory when unset.
+      - ${MEDIA_LIBRARY_HOST_PATH:-./data}:/srv/media:rw
       - ./data/backups:/var/lib/media-manager/backups:rw
     ports:
       - "127.0.0.1:${MEDIA_MANAGER_API_PORT:-28081}:8080"

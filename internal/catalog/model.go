@@ -161,7 +161,12 @@ func NormalizeMetadata(input *MediaMetadata, now time.Time) (*MediaMetadata, err
 	if result.ReleaseDate != "" && !validDate(result.ReleaseDate) || result.EndDate != "" && !validDate(result.EndDate) {
 		return nil, ErrInvalidMetadata
 	}
-	if result.RuntimeMinutes != nil && (*result.RuntimeMinutes == 0 || *result.RuntimeMinutes > 1_440) {
+	if result.RuntimeMinutes != nil && *result.RuntimeMinutes == 0 {
+		// Providers commonly return 0 for an unknown runtime. Keep the fact
+		// unknown instead of failing an otherwise valid record.
+		result.RuntimeMinutes = nil
+	}
+	if result.RuntimeMinutes != nil && *result.RuntimeMinutes > 1_440 {
 		return nil, ErrInvalidMetadata
 	}
 	if result.SeasonCount != nil && (*result.SeasonCount == 0 || *result.SeasonCount > 10_000) || result.EpisodeCount != nil && (*result.EpisodeCount == 0 || *result.EpisodeCount > 1_000_000) {

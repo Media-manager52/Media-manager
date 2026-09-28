@@ -164,7 +164,10 @@ func (store *Store) RequeueSeerrNeedsConfiguration(ctx context.Context, now time
 	}
 	rows.Close()
 	for _, item := range deliveries {
-		if _, err := transaction.Exec(ctx, `UPDATE seerr_deliveries SET processed_at=NULL,outcome=NULL,error_detail=NULL WHERE id=$1`, item.id); err != nil {
+		// Mark the delivery as requeued (not just unprocessed): intake accepts
+		// this specifically so an unchanged Seerr snapshot is re-evaluated after
+		// the owner fixes configuration, instead of being discarded as stale.
+		if _, err := transaction.Exec(ctx, `UPDATE seerr_deliveries SET processed_at=NULL,outcome='requeued',error_detail=NULL WHERE id=$1`, item.id); err != nil {
 			return 0, err
 		}
 		var revision int64

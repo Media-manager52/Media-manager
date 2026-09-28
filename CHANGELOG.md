@@ -8,6 +8,9 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Added
 
+- A Radarr/Sonarr-compatible API (`/radarr/api/v3`, `/sonarr/api/v3`, guarded by `SERVARR_API_KEY`) so Seerr can use Media Manager as its only server: it exposes Media Manager's library roots and quality profiles, acknowledges adds without creating a second catalog, and reports Plex-confirmed availability for scans. Existing requests keep working through the Seerr root-folder routes.
+- Seerr request routing: the service root folder and profile chosen in Seerr are persisted as request provenance and resolved through owner-created mappings in Settings → Connections; an unmapped folder pauses the request with an exact reason instead of publishing into the wrong library, and saving a mapping requeues paused requests immediately.
+- A complete documentation set under `docs/` (onboarding, architecture, operations, reference, status, archive) with an index, package-level Go doc comments for every package, and a `docs:check` link/anchor validator wired into CI.
 - A loopback-only authenticated gateway smoke helper that prompts securely without storing the owner password.
 - A credential-safe live Playwright acceptance suite for every deployed route across desktop, tablet, and mobile viewports.
 - Movie and exact TV season-pack creation acceptance coverage across the live read-only form, browser request payload, owner HTTP API, and isolated PostgreSQL lifecycle.
@@ -28,6 +31,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Changed
 
+- AltMount packages are screened before submission: an NZB whose manifest contains only archive sets, ISO/DVD structures, or other non-playable containers is rejected without an upload. AltMount queue failures caused by archives, unplayable manifests, or missing Usenet segments now exclude the exact release and package and retry another candidate inside the open acquisition round instead of parking the workflow as infrastructure attention. If AltMount has already pruned the failed queue entry, the persisted failure detail drives the same decision instead of retrying the reconcile forever.
 - Movie-library assembly now indexes related files, wanted items, and workflows once and reuses precomputed search text, avoiding quadratic work as the catalog grows.
 - Catalog loading now retrieves every API page in bounded 200-record batches instead of silently presenting a truncated library.
 - Library contrast, typography, responsive sizing, and inspector readability were improved without changing the approved composition.

@@ -4,7 +4,8 @@ Media Manager is an owner-operated, safety-sensitive application. Keep changes s
 
 ## Before changing code
 
-1. Read `README.md`, `CORE_RELEASE_STATUS.md`, and the relevant files under `docs/`.
+1. Read `README.md`, [`docs/README.md`](docs/README.md), and the relevant
+guides under `docs/` (start with [`docs/onboarding/README.md`](docs/onboarding/README.md)).
 2. Confirm the requested behavior is not already implemented or documented.
 3. Keep credentials, private URLs, media paths, provider payloads, `.env` files, and generated runtime data out of commits and test output.
 4. Use local fixtures and test servers. Tests must not contact Plex, Seerr, AltMount, metadata providers, indexers, or other external services unless a separately authorized live acceptance run explicitly requires it.
