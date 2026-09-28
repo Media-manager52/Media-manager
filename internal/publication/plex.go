@@ -45,7 +45,7 @@ func (service *PlexService) HandleScan(ctx context.Context, event postgres.Outbo
 		return nil
 	}
 	if now := time.Now().UTC(); !now.Before(scan.DeadlineAt) {
-		return service.Store.TimeoutPlexScan(ctx, scan, now)
+		return service.Store.TimeoutPlexScan(ctx, scan, plexTimeoutDetail(nil), now)
 	}
 	if scan.State != "planned" {
 		return nil
@@ -83,7 +83,7 @@ func (service *PlexService) HandleConfirm(ctx context.Context, event postgres.Ou
 	}
 	now := time.Now().UTC()
 	if !now.Before(scan.DeadlineAt) {
-		return service.Store.TimeoutPlexScan(ctx, scan, now)
+		return service.Store.TimeoutPlexScan(ctx, scan, plexTimeoutDetail(plex.ErrNotConfirmed), now)
 	}
 	client, err := service.ClientFor(scan.Integration)
 	if err != nil {
@@ -117,7 +117,11 @@ func (service *PlexService) HandleConfirm(ctx context.Context, event postgres.Ou
 	}
 	now = time.Now().UTC()
 	if !now.Before(scan.DeadlineAt) {
-		return service.Store.TimeoutPlexScan(ctx, scan, now)
+		lastErr := err
+		if lastErr == nil {
+			lastErr = errConfirmedAfterDeadline
+		}
+		return service.Store.TimeoutPlexScan(ctx, scan, plexTimeoutDetail(lastErr), now)
 	}
 	if errors.Is(err, plex.ErrNotConfirmed) {
 		delay := 5*time.Second + time.Duration(scan.PollAttempts)*2*time.Second
@@ -127,12 +131,32 @@ func (service *PlexService) HandleConfirm(ctx context.Context, event postgres.Ou
 		if next := now.Add(delay); next.Before(scan.DeadlineAt) {
 			return service.Store.ReschedulePlexConfirmation(ctx, scan, next)
 		}
-		return service.Store.TimeoutPlexScan(ctx, scan, now)
+		return service.Store.TimeoutPlexScan(ctx, scan, plexTimeoutDetail(err), now)
 	}
 	if err != nil {
 		return err
 	}
 	return service.Store.ConfirmPlexScan(ctx, scan, confirmations, now)
+}
+
+// plexTimeoutDetail explains, from the last poll outcome, why a scan timed out
+// so the owner sees whether Plex never showed the path or matched it to the
+// wrong identity. nil means Plex was never polled for this scan.
+var errConfirmedAfterDeadline = errors.New("Plex confirmed only after the deadline")
+
+func plexTimeoutDetail(lastErr error) string {
+	switch {
+	case lastErr == nil:
+		return "Plex confirmation was not polled before the deadline"
+	case errors.Is(lastErr, errConfirmedAfterDeadline):
+		return "Plex confirmed the expected paths only after the deadline; retry confirmation"
+	case errors.Is(lastErr, plex.ErrIdentityMismatch):
+		return "Plex shows the exact expected path, but matched to a different provider identity than the verified one; fix the Plex match, then retry confirmation"
+	case errors.Is(lastErr, plex.ErrNotConfirmed):
+		return "Plex did not show every expected path before the deadline"
+	default:
+		return "Plex confirmation requests failed until the deadline"
+	}
 }
 
 func (service *PlexService) HandleRecycleRefresh(ctx context.Context, event postgres.OutboxEvent) error {

@@ -90,6 +90,7 @@ Notes:
 | POST | `/api/v1/workflows/{id}/recover-altmount-submission` | Reconcile an unknown submission outcome. |
 | POST | `/api/v1/workflows/{id}/reconcile-altmount` | Force a safe queue reconciliation. |
 | POST | `/api/v1/workflows/{id}/reverify-retained-output` | Re-inspect one retained output (`job_id`), no AltMount call. |
+| POST | `/api/v1/workflows/{id}/reconfirm-plex` | Retry exact Plex confirmation after `plex_timeout` from the attempt's existing verified links (idempotent, audited, ≤3 retries per publication; `409` if not timed out, links not verified, or limit reached). |
 | POST | `/api/v1/workflows/{id}/cancel` | Cancel workflow (no fake success). |
 
 ### Release intelligence and verification

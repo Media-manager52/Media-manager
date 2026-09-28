@@ -84,6 +84,10 @@ var (
 	ErrInvalidConfig    = errors.New("invalid Plex configuration")
 	ErrResponseTooLarge = errors.New("Plex response exceeds configured limit")
 	ErrNotConfirmed     = errors.New("expected media has not appeared in Plex")
+	// ErrIdentityMismatch means Plex shows the exact expected path but under a
+	// provider identity other than the verified one. It is still a
+	// not-confirmed outcome (errors.Is ErrNotConfirmed), with a precise reason.
+	ErrIdentityMismatch = fmt.Errorf("%w: exact path is matched to a different provider identity", ErrNotConfirmed)
 )
 
 func New(config Config, transport http.RoundTripper) (*Client, error) {
@@ -142,9 +146,9 @@ func (client *Client) Confirm(ctx context.Context, expected Expected) (Confirmat
 	if err := xml.Unmarshal(body, &document); err != nil {
 		return Confirmation{}, err
 	}
-	confirmation, err := client.confirmMovieItems(ctx, document.Items, expected)
-	if !errors.Is(err, ErrNotConfirmed) {
-		return confirmation, err
+	confirmation, titleErr := client.confirmMovieItems(ctx, document.Items, expected)
+	if !errors.Is(titleErr, ErrNotConfirmed) {
+		return confirmation, titleErr
 	}
 	// The title filter only narrows the listing. Plex matches it against its
 	// own (possibly localized) metadata title, so a correctly published file
@@ -154,16 +158,22 @@ func (client *Client) Confirm(ctx context.Context, expected Expected) (Confirmat
 	if err != nil {
 		return Confirmation{}, err
 	}
-	return client.confirmMovieItems(ctx, items, expected)
+	confirmation, err = client.confirmMovieItems(ctx, items, expected)
+	if errors.Is(titleErr, ErrIdentityMismatch) && errors.Is(err, ErrNotConfirmed) {
+		return Confirmation{}, ErrIdentityMismatch
+	}
+	return confirmation, err
 }
 
 func (client *Client) confirmMovieItems(ctx context.Context, items []Item, expected Expected) (Confirmation, error) {
 	expectedPath := filepath.Clean(expected.PlexVisiblePath)
+	pathMatched := false
 	for _, item := range items {
 		matchedPath := matchingPartPath(item, expectedPath)
 		if matchedPath == "" {
 			continue
 		}
+		pathMatched = true
 		guid := matchingGUID(item, expected.ProviderGUIDs)
 		if guid == "" && numeric(item.RatingKey) {
 			detailed, detailErr := client.metadataItem(ctx, item.RatingKey)
@@ -175,6 +185,9 @@ func (client *Client) confirmMovieItems(ctx context.Context, items []Item, expec
 		if guid != "" {
 			return Confirmation{RatingKey: item.RatingKey, Path: matchedPath, ProviderGUID: guid, ConfirmedAt: time.Now().UTC()}, nil
 		}
+	}
+	if pathMatched {
+		return Confirmation{}, ErrIdentityMismatch
 	}
 	return Confirmation{}, ErrNotConfirmed
 }
@@ -359,9 +372,13 @@ func (client *Client) ConfirmSeries(ctx context.Context, expected ExpectedSeries
 		return nil, err
 	}
 	tried := make(map[string]bool, len(shows.Items))
+	leafShowMismatch := make(map[string]bool)
 	for _, show := range shows.Items {
 		tried[show.RatingKey] = true
 		confirmations, err := client.confirmShow(ctx, show, expected)
+		// A same-titled show with another identity is not evidence by itself;
+		// it only matters if the folder lookup proves it owns the path.
+		leafShowMismatch[show.RatingKey] = errors.Is(err, ErrIdentityMismatch)
 		if !errors.Is(err, ErrNotConfirmed) {
 			return confirmations, err
 		}
@@ -373,18 +390,30 @@ func (client *Client) ConfirmSeries(ctx context.Context, expected ExpectedSeries
 	if err != nil {
 		return nil, err
 	}
+	result := ErrNotConfirmed
 	for _, leaf := range leaves {
 		key := leaf.GrandparentRatingKey
-		if !numeric(key) || tried[key] {
+		if !numeric(key) {
+			continue
+		}
+		if tried[key] {
+			// The title pass already evaluated this show; the path proves it
+			// owns the expected episode, so its identity result is precise.
+			if leafShowMismatch[key] {
+				result = ErrIdentityMismatch
+			}
 			continue
 		}
 		tried[key] = true
 		confirmations, err := client.confirmShow(ctx, Item{RatingKey: key}, expected)
+		if errors.Is(err, ErrIdentityMismatch) {
+			result = ErrIdentityMismatch
+		}
 		if !errors.Is(err, ErrNotConfirmed) {
 			return confirmations, err
 		}
 	}
-	return nil, ErrNotConfirmed
+	return nil, result
 }
 
 func (client *Client) confirmShow(ctx context.Context, show Item, expected ExpectedSeries) ([]Confirmation, error) {
@@ -396,8 +425,11 @@ func (client *Client) confirmShow(ctx context.Context, show Item, expected Expec
 		}
 		guid = matchingGUID(detailed, expected.ProviderGUIDs)
 	}
-	if guid == "" || !numeric(show.RatingKey) {
+	if !numeric(show.RatingKey) {
 		return nil, ErrNotConfirmed
+	}
+	if guid == "" {
+		return nil, ErrIdentityMismatch
 	}
 	leavesBody, err := client.get(ctx, "/library/metadata/"+show.RatingKey+"/allLeaves", nil)
 	if err != nil {

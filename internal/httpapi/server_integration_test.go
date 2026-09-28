@@ -100,6 +100,32 @@ func TestCreateMovieAndSeriesThroughOwnerAPI(t *testing.T) {
 	if len(movieDetail.Workflows) != 1 || movieDetail.Workflows[0].Variant != "default" || movieDetail.Workflows[0].State != workflows.StateMonitored || len(movieDetail.Seasons) != 0 {
 		t.Fatalf("movie detail=%+v", movieDetail)
 	}
+	reconfirmPath := testServer.URL + "/api/v1/workflows/" + movieDetail.Workflows[0].ID.String() + "/reconfirm-plex"
+	for _, check := range []struct {
+		url, token string
+		want       int
+	}{
+		{reconfirmPath, "", http.StatusUnauthorized},
+		{reconfirmPath, testOwnerToken, http.StatusConflict},
+		{testServer.URL + "/api/v1/workflows/not-a-uuid/reconfirm-plex", testOwnerToken, http.StatusBadRequest},
+		{testServer.URL + "/api/v1/workflows/22222222-2222-4222-8222-222222222222/reconfirm-plex", testOwnerToken, http.StatusNotFound},
+	} {
+		request, err := http.NewRequest(http.MethodPost, check.url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if check.token != "" {
+			request.Header.Set("Authorization", "Bearer "+check.token)
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != check.want {
+			t.Fatalf("reconfirm-plex %s token=%t status=%d, want %d", check.url, check.token != "", response.StatusCode, check.want)
+		}
+	}
 
 	seriesPayload := map[string]any{
 		"kind":               "series",

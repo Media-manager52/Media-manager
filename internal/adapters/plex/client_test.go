@@ -351,8 +351,8 @@ func TestConfirmSeriesFindsLocalizedShowByEpisodePath(t *testing.T) {
 		t.Fatalf("confirmations=%+v err=%v", confirmations, err)
 	}
 	routes["/library/metadata/99"] = `<MediaContainer><Directory ratingKey="99"><Guid id="tvdb://999"/></Directory></MediaContainer>`
-	if _, err := client.ConfirmSeries(context.Background(), expected); !errors.Is(err, ErrNotConfirmed) {
-		t.Fatalf("wrong show identity error=%v, want ErrNotConfirmed", err)
+	if _, err := client.ConfirmSeries(context.Background(), expected); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("wrong show identity error=%v, want ErrIdentityMismatch", err)
 	}
 }
 
@@ -372,5 +372,22 @@ func TestRelativeComponentsFailsClosed(t *testing.T) {
 		if _, ok := relativeComponents(test.root, test.path); ok != test.ok {
 			t.Fatalf("relativeComponents(%q, %q) ok=%v, want %v", test.root, test.path, ok, test.ok)
 		}
+	}
+}
+
+// TestConfirmationReportsIdentityMismatchForExactPath proves a path that Plex
+// shows under another identity is reported precisely, and is still never
+// confirmation.
+func TestConfirmationReportsIdentityMismatchForExactPath(t *testing.T) {
+	client := localizedLibrary(t, localizedMovieRoutes(`<Guid id="tmdb://999"/>`))
+	_, err := client.Confirm(context.Background(), Expected{LibraryKey: "1", Title: "Unraveled", PlexVisiblePath: localizedMoviePath, ProviderGUIDs: []string{"tmdb://1477664"}})
+	if !errors.Is(err, ErrIdentityMismatch) || !errors.Is(err, ErrNotConfirmed) {
+		t.Fatalf("error=%v, want ErrIdentityMismatch wrapping ErrNotConfirmed", err)
+	}
+	routes := localizedMovieRoutes(`<Guid id="tmdb://1477664"/>`)
+	routes["/library/sections/1/folder?parent=7049"] = `<MediaContainer/>`
+	client = localizedLibrary(t, routes)
+	if _, err := client.Confirm(context.Background(), Expected{LibraryKey: "1", Title: "Unraveled", PlexVisiblePath: localizedMoviePath, ProviderGUIDs: []string{"tmdb://1477664"}}); !errors.Is(err, ErrNotConfirmed) || errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("missing path error=%v, want plain ErrNotConfirmed", err)
 	}
 }

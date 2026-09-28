@@ -329,8 +329,11 @@ shows a localized title, by walking the section folder tree to the exact path. O
 - `plex_confirmations` evidence is stored;
 - Seerr status sync is queued.
 
-A timeout marks attention (`TimeoutPlexScan`). Publication is never assumed from
-a scan alone.
+A timeout marks attention (`TimeoutPlexScan`) with the last poll's reason.
+The owner can retry from the same verified links with
+`POST /api/v1/workflows/{id}/reconfirm-plex` (`Store.RequestPlexReconfirmation`),
+which creates a fresh scan request and never touches the links. Publication is
+never assumed from a scan alone.
 
 ## 9. Upgrade rules
 
@@ -480,7 +483,7 @@ the persisted failure detail instead of retrying that reconcile forever.
 | `movie_primary_ambiguous` | ≠1 dominant movie file. | Same as above. |
 | `output_empty` | No readable media. | Same as above. |
 | Subtitle `unverified` / `exhausted` | Required language missing. | Inspect evidence; offer alternate release or reverify after correction. |
-| Plex timeout / guid mismatch | No exact confirmation. | Check Plex identity/mounts; reconcile; old link stays current. |
+| `plex_timeout` | No exact confirmation before the deadline; `attention_detail` names the reason (path not shown, identity mismatch, confirmed late). | Fix the named cause, then `POST .../reconfirm-plex` (verified links only, ≤3 retries). Old link stays current. |
 | `held` | Releases observed, none satisfied required evidence. | Paced retry is automatic; adjust policy if intended. |
 | `transport_unknown` | Submission outcome unknown. | `recover-altmount-submission`. |
 | Recycle `restore_attention` | Restore collision/fingerprint mismatch. | Resolve manually; nothing is deleted. |

@@ -108,6 +108,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/recover-altmount-submission", server.requireOwner(server.recoverAltMountSubmission))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconcile-altmount", server.requireOwner(server.reconcileAltMount))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reverify-retained-output", server.requireOwner(server.reverifyRetainedOutput))
+	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconfirm-plex", server.requireOwner(server.reconfirmPlex))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/cancel", server.requireOwner(server.cancelWorkflow))
 	server.mux.HandleFunc("GET /api/v1/activity", server.requireOwner(server.listActivity))
 	server.mux.HandleFunc("GET /api/v1/files", server.requireOwner(server.listManagedFiles))
@@ -1411,6 +1412,25 @@ func (server *Server) reconcileAltMount(writer http.ResponseWriter, request *htt
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "reconciliation_queued", "id": id.String()}})
+}
+
+func (server *Server) reconfirmPlex(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
+		return
+	}
+	scanID, err := server.store.RequestPlexReconfirmation(request.Context(), id, "owner", time.Now().UTC())
+	switch {
+	case errors.Is(err, postgres.ErrNotFound):
+		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
+	case errors.Is(err, postgres.ErrPlexReconfirmationNotTimedOut), errors.Is(err, postgres.ErrPlexReconfirmationUnverified), errors.Is(err, postgres.ErrPlexReconfirmationLimit):
+		writeError(writer, http.StatusConflict, "reconfirmation_rejected", err.Error())
+	case err != nil:
+		writeError(writer, http.StatusConflict, "reconfirmation_failed", "Plex confirmation cannot be retried safely")
+	default:
+		writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "plex_reconfirmation_queued", "id": id.String(), "scan_request_id": scanID.String()}})
+	}
 }
 
 func (server *Server) reverifyRetainedOutput(writer http.ResponseWriter, request *http.Request) {

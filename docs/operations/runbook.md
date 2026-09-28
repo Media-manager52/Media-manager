@@ -230,7 +230,7 @@ and writes results to `.sites-runtime/live-playwright-results/`.
 | Workflow stuck in `waiting` with `owner_action_required` | Round exhausted; wait for discovery `ready`, then `POST .../acquisition-rounds`. |
 | Output retained and unpublished | This is the designed failure behavior. Inspect `/api/v1/acquisition-verifications`, fix the cause, use `reverify-retained-output` once, or open a new round after approval. |
 | Backup creation disabled | `BACKUP_ENCRYPTION_KEY` absent. Provide a base64 32-byte key. |
-| Plex never confirms | Check `plex_confirmations`/logs, library paths, and that Plex can resolve symlink targets. Never fake confirmation. To retry a timed-out confirmation whose `library_link_versions` are already `verified`, queue a fresh `plex.scan_requested` for the same workflow/`altmount_job` instead of republishing; if it times out again, verify the mount and Plex library path before retrying. |
+| Plex never confirms | Read the workflow `attention_detail`: it says whether Plex never showed the path, showed it under a different provider identity (fix the Plex match), or confirmed only after the deadline. Check library paths and that Plex can resolve symlink targets. Never fake confirmation. Localized Plex titles are handled by the adapter's exact-path folder lookup. To retry a `plex_timeout` whose links are already `verified`, call `POST /api/v1/workflows/{id}/reconfirm-plex` (idempotent, audited, at most 3 retries per publication); never insert scan rows by hand. |
 | Local test runner reports Vite HMR port `24678` in use | Harmless for production; builds/tests still pass (recorded in release notes). |
 
 ## 10. What not to do operationally

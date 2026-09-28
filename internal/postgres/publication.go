@@ -438,6 +438,10 @@ func (store *Store) MarkPublicationPublishing(ctx context.Context, workflowID, j
 	return transaction.Commit(ctx)
 }
 
+// plexConfirmationWindow is how long one scan request may poll Plex for exact
+// identity and path confirmation before it times out.
+const plexConfirmationWindow = 20 * time.Minute
+
 func (store *Store) CompletePublication(ctx context.Context, workflowID, jobID uuid.UUID, now time.Time) (uuid.UUID, error) {
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
@@ -473,7 +477,7 @@ func (store *Store) CompletePublication(ctx context.Context, workflowID, jobID u
 		return uuid.UUID{}, err
 	}
 	scanID := uuid.NewV7()
-	deadline := now.UTC().Add(20 * time.Minute)
+	deadline := now.UTC().Add(plexConfirmationWindow)
 	if _, err := transaction.Exec(ctx, `INSERT INTO plex_scan_requests(id,workflow_id,altmount_job_id,plex_instance_id,plex_library_id,import_generation,state,revision,poll_attempts,requested_at,deadline_at) VALUES($1,$2,$3,$4,$5,$6,'planned',1,0,$7,$8)`, scanID.String(), workflowID.String(), jobID.String(), *plexInstanceID, plexLibraryID, revision+1, now.UTC(), deadline); err != nil {
 		return uuid.UUID{}, err
 	}
@@ -697,7 +701,14 @@ func (store *Store) ReschedulePlexConfirmation(ctx context.Context, scan PlexSca
 	return transaction.Commit(ctx)
 }
 
-func (store *Store) TimeoutPlexScan(ctx context.Context, scan PlexScanContext, now time.Time) error {
+func (store *Store) TimeoutPlexScan(ctx context.Context, scan PlexScanContext, detail string, now time.Time) error {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		detail = "Plex did not confirm every expected path before the deadline"
+	}
+	if len(detail) > 1000 {
+		detail = detail[:1000]
+	}
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -723,7 +734,7 @@ func (store *Store) TimeoutPlexScan(ctx context.Context, scan PlexScanContext, n
 	if command.RowsAffected() != 1 {
 		return ErrConcurrentModification
 	}
-	command, err = transaction.Exec(ctx, `UPDATE workflows SET state='needs_attention',revision=revision+1,updated_at=$2,attention_code='plex_timeout',attention_detail='Plex did not confirm every expected path before the deadline' WHERE id=$1 AND state='plex_scanning' AND revision=$3`, scan.Workflow.ID.String(), now.UTC(), workflowRevision)
+	command, err = transaction.Exec(ctx, `UPDATE workflows SET state='needs_attention',revision=revision+1,updated_at=$2,attention_code='plex_timeout',attention_detail=$4 WHERE id=$1 AND state='plex_scanning' AND revision=$3`, scan.Workflow.ID.String(), now.UTC(), workflowRevision, detail)
 	if err != nil {
 		return err
 	}
@@ -734,6 +745,105 @@ func (store *Store) TimeoutPlexScan(ctx context.Context, scan PlexScanContext, n
 		return err
 	}
 	return transaction.Commit(ctx)
+}
+
+// maxPlexReconfirmations bounds owner retries of a timed-out Plex confirmation
+// for one publication. Each retry already waits a full confirmation window, so
+// repeated failure points at a Plex identity, path, or mount problem that the
+// owner must investigate rather than another retry.
+const maxPlexReconfirmations = 3
+
+var (
+	ErrPlexReconfirmationNotTimedOut = errors.New("workflow is not waiting on a timed-out Plex confirmation")
+	ErrPlexReconfirmationUnverified  = errors.New("publication links are not all verified; Plex confirmation cannot be retried")
+	ErrPlexReconfirmationLimit       = errors.New("Plex confirmation retry limit reached; investigate the Plex identity, path, or mount before retrying")
+)
+
+// RequestPlexReconfirmation lets the owner retry exact Plex confirmation for a
+// workflow whose previous scan timed out. It reuses the existing verified link
+// versions of the current attempt, never creates or changes links, and is
+// idempotent: a workflow already back in plex_scanning with an open scan
+// returns that scan unchanged.
+func (store *Store) RequestPlexReconfirmation(ctx context.Context, workflowID uuid.UUID, actor string, now time.Time) (uuid.UUID, error) {
+	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+	defer transaction.Rollback(ctx)
+	var state workflows.State
+	var revision int64
+	var attentionCode string
+	var attemptText, plexInstanceID *string
+	var plexLibraryID string
+	err = transaction.QueryRow(ctx, `SELECT workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),workflow.grab_attempt_id::text,root.plex_instance_id::text,COALESCE(root.plex_library_id,'')
+		FROM workflows workflow JOIN library_roots root ON root.id=workflow.root_id WHERE workflow.id=$1 FOR UPDATE OF workflow`, workflowID.String()).Scan(&state, &revision, &attentionCode, &attemptText, &plexInstanceID, &plexLibraryID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.UUID{}, ErrNotFound
+	}
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+	if attemptText == nil {
+		return uuid.UUID{}, ErrPlexReconfirmationNotTimedOut
+	}
+	var latestID, latestState string
+	err = transaction.QueryRow(ctx, `SELECT id::text,state FROM plex_scan_requests WHERE workflow_id=$1 AND altmount_job_id=$2 ORDER BY requested_at DESC,id DESC LIMIT 1`, workflowID.String(), *attemptText).Scan(&latestID, &latestState)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.UUID{}, ErrPlexReconfirmationNotTimedOut
+	}
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+	if state == workflows.StatePlexScanning && (latestState == "planned" || latestState == "polling") {
+		existing, _ := uuid.Parse(latestID)
+		return existing, transaction.Commit(ctx)
+	}
+	if state != workflows.StateNeedsAttention || attentionCode != "plex_timeout" || latestState != "timed_out" {
+		return uuid.UUID{}, ErrPlexReconfirmationNotTimedOut
+	}
+	if plexInstanceID == nil || plexLibraryID == "" {
+		return uuid.UUID{}, errors.New("library root has no Plex library configured")
+	}
+	var versions, unverified int
+	if err := transaction.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE version.state<>'verified' OR EXISTS(
+			SELECT 1 FROM library_link_companions companion WHERE companion.link_version_id=version.id AND companion.state<>'verified'))
+		FROM library_link_versions version WHERE version.workflow_id=$1 AND version.altmount_job_id=$2`, workflowID.String(), *attemptText).Scan(&versions, &unverified); err != nil {
+		return uuid.UUID{}, err
+	}
+	if versions == 0 || unverified != 0 {
+		return uuid.UUID{}, ErrPlexReconfirmationUnverified
+	}
+	var scans int
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM plex_scan_requests WHERE workflow_id=$1 AND altmount_job_id=$2`, workflowID.String(), *attemptText).Scan(&scans); err != nil {
+		return uuid.UUID{}, err
+	}
+	if scans-1 >= maxPlexReconfirmations {
+		return uuid.UUID{}, ErrPlexReconfirmationLimit
+	}
+	newRevision := revision + 1
+	scanID := uuid.NewV7()
+	if _, err := transaction.Exec(ctx, `INSERT INTO plex_scan_requests(id,workflow_id,altmount_job_id,plex_instance_id,plex_library_id,import_generation,state,revision,poll_attempts,requested_at,deadline_at) VALUES($1,$2,$3,$4,$5,$6,'planned',1,0,$7,$8)`, scanID.String(), workflowID.String(), *attemptText, *plexInstanceID, plexLibraryID, newRevision, now.UTC(), now.UTC().Add(plexConfirmationWindow)); err != nil {
+		return uuid.UUID{}, err
+	}
+	command, err := transaction.Exec(ctx, `UPDATE workflows SET state='plex_scanning',revision=$2,updated_at=$3,attention_code=NULL,attention_detail=NULL WHERE id=$1 AND revision=$4`, workflowID.String(), newRevision, now.UTC(), revision)
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+	if command.RowsAffected() != 1 {
+		return uuid.UUID{}, ErrConcurrentModification
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,'needs_attention','plex_scanning','owner retried Plex confirmation for verified links',$3,$4)`, workflowID.String(), newRevision, actor, now.UTC()); err != nil {
+		return uuid.UUID{}, err
+	}
+	detail, _ := json.Marshal(map[string]any{"scan_request_id": scanID, "timed_out_scan_request_id": latestID, "altmount_job_id": *attemptText, "retry": scans, "retry_limit": maxPlexReconfirmations})
+	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,$2,'workflow.plex_reconfirm_requested','workflow',$3,$4,$5)`, uuid.NewV7().String(), actor, workflowID.String(), string(detail), now.UTC()); err != nil {
+		return uuid.UUID{}, err
+	}
+	payload, _ := json.Marshal(map[string]string{"scan_request_id": scanID.String(), "workflow_id": workflowID.String()})
+	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'plex_scan',$2,1,'plex.scan_requested',$3,$4,$4)`, uuid.NewV7().String(), scanID.String(), string(payload), now.UTC()); err != nil {
+		return uuid.UUID{}, err
+	}
+	return scanID, transaction.Commit(ctx)
 }
 
 func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, confirmations []plex.Confirmation, now time.Time) error {

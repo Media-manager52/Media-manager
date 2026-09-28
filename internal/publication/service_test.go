@@ -2,11 +2,13 @@ package publication
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 	"uuid"
 
+	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -262,5 +264,24 @@ func TestBuildPlansPublishesDanishCompanionBesideVideo(t *testing.T) {
 	want := strings.TrimSuffix(plans[0].DestinationRelative, ".mkv") + ".da.forced.srt"
 	if companion.DestinationRelative != want || companion.SourceRelative != filepath.Join("queue", "17", "Movie.da-DK.forced.srt") {
 		t.Fatalf("unexpected managed companion: %+v want=%q", companion, want)
+	}
+}
+
+// TestPlexTimeoutDetailNamesTheStallReason proves a Plex timeout records why
+// confirmation stalled instead of one generic message.
+func TestPlexTimeoutDetailNamesTheStallReason(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want string
+	}{
+		{nil, "not polled"},
+		{plex.ErrNotConfirmed, "did not show every expected path"},
+		{plex.ErrIdentityMismatch, "different provider identity"},
+		{errConfirmedAfterDeadline, "only after the deadline"},
+		{errors.New("Plex returned HTTP 500"), "requests failed"},
+	} {
+		if detail := plexTimeoutDetail(test.err); !strings.Contains(detail, test.want) {
+			t.Fatalf("plexTimeoutDetail(%v)=%q, want it to mention %q", test.err, detail, test.want)
+		}
 	}
 }
