@@ -63,10 +63,70 @@ func CanonicalResolution(value string) (string, bool) {
 	return height + "p", true
 }
 
+// TitleMatches reports whether a release title begins with the requested
+// canonical title. The requested title is compared in each of its release
+// spellings (literal, scene digraph transliteration such as Forræder ->
+// Forraeder, and single-letter folding such as Hjørring -> Hjorring), so a
+// Danish title matches its scene release name. Only spelling is broadened:
+// the release must still start with the whole requested title.
 func TitleMatches(releaseTitle, requestedTitle string) bool {
-	release := strings.Join(strings.Fields(titleSeparator.ReplaceAllString(strings.ToLower(releaseTitle), " ")), " ")
-	requested := strings.Join(strings.Fields(titleSeparator.ReplaceAllString(strings.ToLower(requestedTitle), " ")), " ")
-	return requested != "" && (release == requested || strings.HasPrefix(release, requested+" "))
+	release := normalizedTitleWords(releaseTitle)
+	for _, spelling := range TitleSpellings(requestedTitle) {
+		requested := normalizedTitleWords(spelling)
+		if requested != "" && (release == requested || strings.HasPrefix(release, requested+" ")) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedTitleWords(title string) string {
+	title = titleApostrophes.Replace(strings.ToLower(title))
+	return strings.Join(strings.Fields(titleSeparator.ReplaceAllString(title, " ")), " ")
+}
+
+var (
+	// titleApostrophes are dropped rather than split: scene names write
+	// "Don't" as "Dont".
+	titleApostrophes = strings.NewReplacer("'", "", "’", "", "‘", "", "`", "")
+	// titleDigraphs is the scene transliteration of letters release names
+	// cannot carry (Danish, Norwegian, Swedish, German).
+	titleDigraphs = strings.NewReplacer("æ", "ae", "ø", "oe", "å", "aa", "ä", "ae", "ö", "oe", "ü", "ue", "ß", "ss",
+		"Æ", "Ae", "Ø", "Oe", "Å", "Aa", "Ä", "Ae", "Ö", "Oe", "Ü", "Ue")
+	// titleFolds drops the diacritic instead.
+	titleFolds = strings.NewReplacer("æ", "ae", "ø", "o", "å", "a", "ä", "a", "ö", "o", "ü", "u", "ß", "ss",
+		"é", "e", "è", "e", "ê", "e", "ë", "e", "á", "a", "à", "a", "â", "a", "í", "i", "ì", "i", "î", "i", "ï", "i",
+		"ó", "o", "ò", "o", "ô", "o", "ú", "u", "ù", "u", "û", "u", "ñ", "n", "ç", "c",
+		"Æ", "Ae", "Ø", "O", "Å", "A", "Ä", "A", "Ö", "O", "Ü", "U", "É", "E")
+)
+
+// TitleSpellings returns the distinct spellings a release may use for a
+// title: literal, scene digraph transliteration, single-letter folding, and
+// "&" written as "and".
+func TitleSpellings(title string) []string {
+	base := []string{title, titleFolds.Replace(titleDigraphs.Replace(title)), titleFolds.Replace(title)}
+	result := make([]string, 0, 8)
+	seen := map[string]bool{}
+	for _, spelling := range base {
+		for _, variant := range []string{spelling, strings.ReplaceAll(spelling, "&", " and ")} {
+			key := normalizedTitleWords(variant)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			result = append(result, variant)
+		}
+	}
+	return result
+}
+
+// SearchQueryTitle renders a title as indexer query text in scene spelling:
+// Nordic letters transliterated (æ -> ae, ø -> oe, å -> aa), other
+// diacritics folded, apostrophes dropped, and punctuation collapsed to
+// spaces, so "Forræder: Under kutten" is sent as "Forraeder Under kutten".
+func SearchQueryTitle(title string) string {
+	folded := titleFolds.Replace(titleDigraphs.Replace(titleApostrophes.Replace(title)))
+	return strings.Join(strings.Fields(titleSeparator.ReplaceAllString(folded, " ")), " ")
 }
 
 func TitleContainsYear(releaseTitle string, year uint16) bool {

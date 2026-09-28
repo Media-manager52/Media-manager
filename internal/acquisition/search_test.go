@@ -444,3 +444,23 @@ func TestConstrainMovieYearAcceptsPositiveProviderIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildRequestSendsSceneSpellingQuery(t *testing.T) {
+	year := uint16(2025)
+	dialects := newznab.SearchDialects{
+		Movie:  newznab.SearchDialect{Mode: "movie", Params: []string{"q"}},
+		Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "season"}},
+	}
+	movie := buildRequest(postgres.SearchContext{Media: catalog.MediaItem{Kind: catalog.KindMovie, Title: "80 års fødselsdagen", Year: &year}}, indexerConfig{SearchDialects: dialects})
+	if !reflect.DeepEqual(movie.Params, []newznab.Param{{Name: "q", Value: "80 aars foedselsdagen"}}) {
+		t.Fatalf("movie params=%#v", movie.Params)
+	}
+	series := buildRequest(postgres.SearchContext{Variant: "season:01", Media: catalog.MediaItem{Kind: catalog.KindSeries, Title: "Forræder: Under kutten"}}, indexerConfig{SearchDialects: dialects})
+	if !reflect.DeepEqual(series.Params, []newznab.Param{{Name: "q", Value: "Forraeder Under kutten"}, {Name: "season", Value: "1"}}) {
+		t.Fatalf("series params=%#v", series.Params)
+	}
+	search := buildRequest(postgres.SearchContext{Variant: "season:04", Media: catalog.MediaItem{Kind: catalog.KindSeries, Title: "Forræder"}}, indexerConfig{Mode: "search", ModeVerified: true})
+	if !reflect.DeepEqual(search.Params, []newznab.Param{{Name: "q", Value: "Forraeder S04"}}) {
+		t.Fatalf("search params=%#v", search.Params)
+	}
+}

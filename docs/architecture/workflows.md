@@ -140,7 +140,9 @@ Handler: `acquisition.SearchService` (`internal/acquisition/search.go`).
 ### 4.2 Indexer calls
 
 For each indexer: unmarshal config → resolve secret by `secret_ref` → configure
-the scheduler budget → build the client → build the request:
+the scheduler budget → build the client → build the request. The `q` text uses
+scene spelling (`releases.SearchQueryTitle`: Nordic letters transliterated,
+punctuation collapsed), because indexers match release names:
 
 1. Prefer the immutable **active capability profile**
    (`searchProfilePlan` → `PlanSearch`).
@@ -171,7 +173,11 @@ Each observation is normalized (`InferTitleFacts`) then evaluated by pure rules
    only helps, never lies.
 3. **Scope rules** (`workflowScopeRules`) force season/episode correctness.
 4. **Media match constraint** (`constrainMediaMatch`) — verified external
-   identity or exact title/year match; IMDb IDs normalized to numeric form. A
+   identity or exact title/year match; IMDb IDs normalized to numeric form.
+   The title is compared in its release spellings (`releases.TitleSpellings`:
+   literal, scene transliteration `Forræder` → `Forraeder`, single-letter
+   folding, `&` as `and`, apostrophes dropped); the release must still begin
+   with the whole title. A
    provider identity that exactly matches a verified identity satisfies the
    movie year check (release years are often a year off); without one, a
    movie release must name the year. A mismatched identity always rejects.

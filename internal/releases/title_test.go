@@ -163,3 +163,55 @@ func hasInferredFact(facts []Fact, name, value string) bool {
 	}
 	return false
 }
+
+// TestTitleMatchesSceneSpellingsOfNordicTitles proves Danish titles match
+// their scene release names (live example: Forraeder.Under.Kutten releases
+// were rejected for "Forræder: Under kutten"), while the whole-title prefix
+// rule still rejects different titles.
+func TestTitleMatchesSceneSpellingsOfNordicTitles(t *testing.T) {
+	t.Parallel()
+	matches := []struct{ release, requested string }{
+		{"Forraeder.Under.Kutten.S01E01.DANiSH.1080p.WEB-DL.H.264.AAC2.0-SHOWTiME", "Forræder: Under kutten"},
+		{"Hjoerring.Revyen.2024.DANiSH.1080p.WEB", "Hjørring Revyen 2024"},
+		{"Hjorring.Revyen.2024.DANiSH.1080p.WEB", "Hjørring Revyen 2024"},
+		{"80.Aars.Foedselsdagen.2025.DANiSH.1080p", "80 års fødselsdagen"},
+		{"80.Ars.Fodselsdagen.2025.DANiSH.1080p", "80 års fødselsdagen"},
+		{"Forræder.Under.Kutten.S01E01.DANiSH.1080p", "Forræder: Under kutten"},
+		{"Mikkel.Klint.Thorius.100.Maaske.2025.DANiSH", "Mikkel Klint Thorius: 100% Måske"},
+		{"Dont.Look.Up.2021.1080p", "Don't Look Up"},
+		{"Harold.and.Kumar.Escape.from.Guantanamo.Bay.2008.1080p", "Harold & Kumar Escape from Guantanamo Bay"},
+		{"Amelie.2001.1080p", "Amélie"},
+	}
+	for _, test := range matches {
+		if !TitleMatches(test.release, test.requested) {
+			t.Fatalf("TitleMatches(%q, %q)=false, want true", test.release, test.requested)
+		}
+	}
+	rejects := []struct{ release, requested string }{
+		{"Forraeder.S01E01.DANiSH.1080p", "Forræder: Under kutten"},
+		{"Forraederne.S01E01.DANiSH.1080p", "Forræder"},
+		{"Hjorring.2024.DANiSH.1080p", "Hjørring Revyen 2024"},
+	}
+	for _, test := range rejects {
+		if TitleMatches(test.release, test.requested) {
+			t.Fatalf("TitleMatches(%q, %q)=true, want false", test.release, test.requested)
+		}
+	}
+}
+
+func TestSearchQueryTitleUsesSceneSpelling(t *testing.T) {
+	t.Parallel()
+	for title, want := range map[string]string{
+		"Forræder: Under kutten":           "Forraeder Under kutten",
+		"80 års fødselsdagen":              "80 aars foedselsdagen",
+		"Mikkel Klint Thorius: 100% Måske": "Mikkel Klint Thorius 100 Maaske",
+		"Klar Til Krig?":                   "Klar Til Krig",
+		"\"That's Awesome!\": The Story":   "Thats Awesome The Story",
+		"Amélie":                           "Amelie",
+		"The Office":                       "The Office",
+	} {
+		if got := SearchQueryTitle(title); got != want {
+			t.Fatalf("SearchQueryTitle(%q)=%q, want %q", title, got, want)
+		}
+	}
+}

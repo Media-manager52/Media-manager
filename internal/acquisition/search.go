@@ -466,11 +466,14 @@ func buildRequest(search postgres.SearchContext, config indexerConfig) newznab.S
 	}
 	mode := dialect.Mode
 	params := []newznab.Param{}
+	// Indexers match release names, which use scene spelling: send
+	// "Forraeder Under kutten", not "Forræder: Under kutten".
+	title := releases.SearchQueryTitle(search.Media.Title)
 	scope, scopeOK := workflows.ParseVariant(search.Variant)
 	if search.Media.Kind == catalog.KindSeries && scopeOK && (scope.Kind == workflows.VariantSeason || scope.Kind == workflows.VariantEpisode) {
 		season := int(scope.Season)
 		if mode == "tvsearch" {
-			params = appendSupported(params, dialect, "q", search.Media.Title)
+			params = appendSupported(params, dialect, "q", title)
 			params = appendIdentity(params, dialect, search.Media, "tvdb", "tvdbid")
 			params = appendIdentity(params, dialect, search.Media, "tmdb", "tmdbid")
 			params = appendIdentity(params, dialect, search.Media, "imdb", "imdbid")
@@ -482,14 +485,14 @@ func buildRequest(search postgres.SearchContext, config indexerConfig) newznab.S
 				params = appendSupported(params, dialect, "year", strconv.Itoa(int(*search.Media.Year)))
 			}
 		} else {
-			token := fmt.Sprintf("%s S%02d", search.Media.Title, season)
+			token := fmt.Sprintf("%s S%02d", title, season)
 			if scope.Kind == workflows.VariantEpisode {
-				token = fmt.Sprintf("%s S%02dE%02d", search.Media.Title, season, scope.Episode)
+				token = fmt.Sprintf("%s S%02dE%02d", title, season, scope.Episode)
 			}
 			params = append(params, newznab.Param{Name: "q", Value: token})
 		}
 	} else {
-		query := search.Media.Title
+		query := title
 		if mode == "search" && search.Media.Year != nil {
 			query = fmt.Sprintf("%s %d", query, *search.Media.Year)
 		}
