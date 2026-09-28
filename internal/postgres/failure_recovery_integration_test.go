@@ -578,3 +578,42 @@ func TestArchiveUnsupportedFailureExcludesReleaseAndRetriesWithinRound(t *testin
 		t.Fatalf("replacement search events=%d, want 1", got)
 	}
 }
+
+// TestSubtitlePolicyForJobFailsClosedToLiveProfileRequirements proves that a
+// profile tightened after an attempt started cannot be bypassed: the job's
+// round snapshot stays relaxed (immutable), but output verification requires
+// the live profile's language.
+func TestSubtitlePolicyForJobFailsClosedToLiveProfileRequirements(t *testing.T) {
+	fixture := newFailureRecoveryFixture(t)
+	workflow := fixture.newMovieWorkflow(t, "Fail Closed Subtitles", "900010")
+	job, _, _ := seedSubtitleAttempt(t, fixture.ctx, fixture.store, workflow.ID, fixture.altMount.ID, fixture.indexer.ID, 1, "fail-closed-subtitles")
+
+	policy, err := json.Marshal(map[string]any{
+		"rules":                       []releases.Rule{{Name: "Resolution", Fact: "resolution", AllowedValues: []string{"1080p"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold}},
+		"required_subtitle_languages": []string{"Danish"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := fixture.store.UpdateQualityProfile(fixture.ctx, QualityProfile{
+		ID: fixture.profile.ID, MediaKind: fixture.profile.MediaKind, Name: fixture.profile.Name,
+		Policy: policy, UpgradesEnabled: fixture.profile.UpgradesEnabled, Default: fixture.profile.Default, Enabled: fixture.profile.Enabled,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundRequired string
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT round.policy_snapshot->>'required_subtitle_languages' FROM altmount_jobs job JOIN acquisition_rounds round ON round.id=job.round_id WHERE job.id=$1`, job.JobID.String()).Scan(&roundRequired); err != nil {
+		t.Fatal(err)
+	}
+	if roundRequired != "[]" {
+		t.Fatalf("round snapshot required=%q, want the immutable relaxed snapshot", roundRequired)
+	}
+	effective, err := fixture.store.SubtitlePolicyForJob(fixture.ctx, job.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(effective.Required) != 1 || effective.Required[0] != "da" {
+		t.Fatalf("effective required=%v, want [da] from live profile version %d", effective.Required, updated.PolicyVersion)
+	}
+}

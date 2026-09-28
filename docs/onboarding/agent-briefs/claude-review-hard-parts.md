@@ -21,11 +21,11 @@ owner applies the policy. Problems **5–8** are untouched. Deploy, the runbook
 §9a replacements, and the post-deploy `reconfirm-plex`/`apply-policy` calls all
 need owner approval.
 
-Open decision for the owner: output verification now uses the **attempt's round
-snapshot** (`SubtitlePolicyForJob`), so a job that started before a policy
-tightening finishes under the old policy. Current exposure is zero, but if the
-Danish-subtitle requirement must be absolute, subtitle requirements should fail
-closed to the live profile while quality rules stay attempt-scoped.
+Resolved before deploy: output verification now enforces the **union** of the
+attempt's round snapshot and the profile's current required languages
+(`mergeRequiredSubtitles` in `internal/postgres/subtitles.go`), so a later
+tightening also applies to a job already in flight while quality rules stay
+attempt-scoped. A relaxed snapshot can no longer bypass the live requirement.
 
 Read `AGENTS.md`, then this file top-to-bottom before touching anything. For
 system context use `docs/onboarding/README.md` and the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 	"uuid"
@@ -34,20 +35,54 @@ type SubtitleVerificationRecord struct {
 	CreatedAt          time.Time       `json:"created_at"`
 }
 
-// SubtitlePolicyForJob returns the subtitle policy of the acquisition round the
-// AltMount job was submitted in. Output verification therefore uses exactly
-// the immutable policy snapshot that selected the release, never a profile
-// edited while the job was in flight.
+// SubtitlePolicyForJob returns the effective subtitle policy for output
+// verification: the acquisition round snapshot that selected the release, with
+// every language the profile currently requires added. A policy tightening
+// therefore applies to a job already in flight (fail closed), while a loosening
+// or a quality-rule edit stays scoped to the attempt that started under it.
 func (store *Store) SubtitlePolicyForJob(ctx context.Context, jobID uuid.UUID) (subtitles.Policy, error) {
-	var body []byte
-	err := store.Pool.QueryRow(ctx, `SELECT round.policy_snapshot FROM altmount_jobs job JOIN acquisition_rounds round ON round.id=job.round_id AND round.workflow_id=job.workflow_id WHERE job.id=$1`, jobID.String()).Scan(&body)
+	var roundPolicy, profilePolicy []byte
+	err := store.Pool.QueryRow(ctx, `SELECT round.policy_snapshot,profile.policy
+		FROM altmount_jobs job
+		JOIN acquisition_rounds round ON round.id=job.round_id AND round.workflow_id=job.workflow_id
+		JOIN workflows workflow ON workflow.id=job.workflow_id
+		JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
+		WHERE job.id=$1`, jobID.String()).Scan(&roundPolicy, &profilePolicy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return subtitles.Policy{}, ErrNotFound
 	}
 	if err != nil {
 		return subtitles.Policy{}, err
 	}
-	return subtitles.ParsePolicy(body)
+	snapshot, err := subtitles.ParsePolicy(roundPolicy)
+	if err != nil {
+		return subtitles.Policy{}, err
+	}
+	live, err := subtitles.ParsePolicy(profilePolicy)
+	if err != nil {
+		return subtitles.Policy{}, err
+	}
+	return mergeRequiredSubtitles(snapshot, live), nil
+}
+
+// mergeRequiredSubtitles keeps the attempt's preferences but requires the union
+// of the attempt and live required languages. The live profile can only add
+// requirements here, never remove one the attempt started with.
+func mergeRequiredSubtitles(snapshot, live subtitles.Policy) subtitles.Policy {
+	required := append([]string(nil), snapshot.Required...)
+	seen := make(map[string]struct{}, len(required)+len(live.Required))
+	for _, language := range required {
+		seen[language] = struct{}{}
+	}
+	for _, language := range live.Required {
+		if _, exists := seen[language]; exists {
+			continue
+		}
+		seen[language] = struct{}{}
+		required = append(required, language)
+	}
+	sort.Strings(required)
+	return subtitles.Policy{Required: required, Preferred: append([]string(nil), snapshot.Preferred...)}
 }
 
 func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMountJobContext, inventoryID uuid.UUID, verification subtitles.Verification, now time.Time) (SubtitleVerificationRecord, error) {
