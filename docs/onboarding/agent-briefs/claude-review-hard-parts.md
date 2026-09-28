@@ -12,7 +12,7 @@ system context use `docs/onboarding/README.md` and the
 `data/provider-secrets/`, tokens). **Do not perform live migrations, deploys, or
 state-changing operations without explicit owner approval.**
 
-## 0. Current state (2026-09-28, after the session below)
+## 0. Current state (2026-09-28 snapshot — re-check with the probes below)
 
 - Repo: `main` at `d63eba6` (clean tree). Commits: `c6bf1b8` (core release),
   `47f74f9`, `c723292`, `7d47b7e` (msgnews fix), `d63eba6`.
@@ -34,6 +34,92 @@ state-changing operations without explicit owner approval.**
   26 `needs_attention`, 2 `plex_scanning`, 1 `searching` (≈161 total).
 - Outbox backlog: ~211 pending `workflow.search_requested`, ~330 pending events
   total. The single-event worker drains these slowly (problem 3).
+
+### You have the same access the author had — verify, do not trust
+
+This brief was written from the same server you are on. Treat the snapshot
+above as a claim to re-check, not as ground truth: services restart, workflows
+advance, and the backlog drains between sessions. Reproduce the state read-only
+first, then work from what you actually observe.
+
+Repo, build, and services:
+
+```sh
+cd /home/vps/media-manager
+git log --oneline -6 && git status --short
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT max(version) FROM schema_migrations;"'
+docker ps --format '{{.Names}}\t{{.Status}}' | grep -E 'media-manager|seerr|altmount|plex'
+```
+
+Profiles, workflow states, outbox backlog, and the case-specific workflows:
+
+```sh
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -P pager=off' <<'SQL'
+SELECT name, policy_version, policy->>'required_subtitle_languages' AS required
+FROM quality_profiles ORDER BY name;
+
+SELECT state, count(*) FROM workflows WHERE terminal_at IS NULL GROUP BY 1 ORDER BY 2 DESC;
+
+SELECT event_type, count(*) FROM outbox_events WHERE completed_at IS NULL GROUP BY 1 ORDER BY 2 DESC;
+
+-- Resident Evil (no-da, confirmed), Dexter S01 (no-da, confirmed),
+-- and the two Plex-confirmation retries.
+SELECT left(m.title,26) AS title, w.variant, w.state, COALESCE(w.attention_code,'-') AS code
+FROM workflows w JOIN media_items m ON m.id=w.media_id
+WHERE w.id IN ('01a0e878-cd19-78f6-bc2b-5df3eb4ebfdf',
+               '01a05eb8-3888-7b2a-abdc-4e959a672a8b',
+               '01a0e879-4261-729b-bf14-087bd669f203',
+               '01a0e87d-5527-730b-addd-3de2b3371f47');
+
+SELECT scan.state, scan.poll_attempts, scan.deadline_at, scan.workflow_id
+FROM plex_scan_requests scan WHERE scan.created_at > now() - interval '4 hours'
+ORDER BY scan.created_at DESC LIMIT 6;
+SQL
+```
+
+Seerr request state (the key stays inside the container; the probe prints only
+counts):
+
+```sh
+docker exec -i -e KEY="$(grep -E '^SEERR_API_KEY=' .env | cut -d= -f2-)" seerr node - <<'EOF'
+(async () => {
+  const base = "http://127.0.0.1:5055";
+  const dist = {};
+  let page = 0, pages = 1;
+  while (page < pages) {
+    const res = await fetch(`${base}/api/v1/request?take=100&skip=${page*100}&sort=added`, {headers: {"X-Api-Key": process.env.KEY}});
+    const data = await res.json();
+    pages = data.pageInfo ? data.pageInfo.pages : 1;
+    for (const r of data.results || []) {
+      const key = `request=${r.status} media=${(r.media||{}).status}`;
+      dist[key] = (dist[key] || 0) + 1;
+    }
+    page++;
+  }
+  console.log(JSON.stringify(dist));
+})();
+EOF
+```
+
+Owner API liveness and health (the token is read into a variable and never
+printed):
+
+```sh
+TOKEN="$(grep -E '^OWNER_TOKEN=' .env | cut -d= -f2-)"
+PORT="${MEDIA_MANAGER_API_PORT:-28081}"
+curl -fsS "http://127.0.0.1:$PORT/health/ready" | head -c 400; echo
+curl -fsS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/v1/system/health" | head -c 600; echo
+```
+
+Provider redirect probes must use the manual-redirect pattern from this
+session: never follow a redirect with a credential automatically, build the URL
+inside the container, and `| sed "s/$KEY/REDACTED/g"` before printing anything.
+`internal/adapters/newznab/client.go` `doWithManualRedirects` documents exactly
+what is validated.
+
+Keep mutations for after you have written down what you observed, and ask the
+owner when the problem requires opening rounds, deleting links, changing
+profiles, or any live operation.
 
 ### What happened in this session (needed context)
 
