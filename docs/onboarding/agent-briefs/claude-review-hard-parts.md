@@ -393,6 +393,25 @@ bring it back and intake parks with "matching media is recycled". Decide
 whether recycled-without-entry media need an explicit owner restore path or
 whether recycle entries must always be created when media is recycled.
 
+## Problem 10 — Novelty cutoffs stranded known eligible releases (fixed)
+
+The selection loop skipped every eligible candidate whose `first_seen_sequence`
+predated the open round's `novelty_cutoff_sequence`, then parked the workflow as
+`held`. After the manual round restore 67 open rounds were stuck this way with
+5,154 eligible, never-attempted releases (many with explicit Danish-subtitle
+evidence). The supported `apply-policy` path sets the replacement round's cutoff
+to zero; the unsupported SQL restore reintroduced high cutoffs. `395f0d6` makes
+selection prefer novel candidates and fall back to any eligible candidate that
+was never attempted or excluded, and relaxes the submission-intent and
+duplicate-package gates the same way. Attempted and excluded releases stay
+disqualified, so availability sweeps cannot loop on the same release.
+
+Follow-up worth deciding: a round still allows only two attempts, so a title
+with a large candidate pool parks after two failures until a genuinely new
+post is discovered. A full availability sweep needs an owner action that opens
+a round from known eligible candidates plus a storage policy for failed
+outputs (currently retained, capped at four per workflow).
+
 ## Environment and gates
 
 - Loopback API: `127.0.0.1:28081`, `Authorization: Bearer <OWNER_TOKEN>`
