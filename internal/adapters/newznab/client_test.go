@@ -426,14 +426,15 @@ func TestObservedSameOriginPathDownloadLocatorsAreReconstructedInMemory(t *testi
 	const releaseID = "2064db7970379fcd33484c55071467ef"
 	const apiKey = "test-provider-key"
 	for _, test := range []struct {
-		name string
-		host string
+		name     string
+		host     string
+		wantHost string
 	}{
-		{name: "abNZB", host: "abnzb.com"},
-		{name: "altHUB", host: "api.althub.co.za"},
-		{name: "msgnews", host: "msgnews.live"},
-		{name: "NinjaCentral", host: "ninjacentral.co.za"},
-		{name: "Nzb.life", host: "api.nzb.life"},
+		{name: "abNZB", host: "abnzb.com", wantHost: "abnzb.com"},
+		{name: "altHUB", host: "api.althub.co.za", wantHost: "api.althub.co.za"},
+		{name: "msgnews", host: "msgnews.live", wantHost: "www.msgnews.live"},
+		{name: "NinjaCentral", host: "ninjacentral.co.za", wantHost: "ninjacentral.co.za"},
+		{name: "Nzb.life", host: "api.nzb.life", wantHost: "api.nzb.life"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			advertisedURL := "https://" + test.host + "/getnzb/" + releaseID + ".nzb&i=219&r=" + apiKey
@@ -446,7 +447,7 @@ func TestObservedSameOriginPathDownloadLocatorsAreReconstructedInMemory(t *testi
 			if err != nil || !advertised {
 				t.Fatalf("advertised target=%v err=%v", advertised, err)
 			}
-			if target.Host != test.host || target.Path != "/getnzb/"+releaseID+".nzb&i=219&r="+apiKey || target.RawQuery != "" {
+			if target.Host != test.wantHost || target.Path != "/getnzb/"+releaseID+".nzb&i=219&r="+apiKey || target.RawQuery != "" {
 				t.Fatal("provider path locator was not reconstructed exactly")
 			}
 		})

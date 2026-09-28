@@ -31,6 +31,15 @@ var (
 		"msgnews.live":       {permalink: path32Permalink, download: path32Download},
 		"ninjacentral.co.za": {permalink: path32Permalink, download: path32Download},
 	}
+	// canonicalDownloadHosts maps a configured provider host to the host its
+	// download locators must be requested from. Providers such as msgnews
+	// redirect the bare host to www while carrying the API key in the path, which
+	// the cross-origin credential policy must reject. Requesting the canonical
+	// host directly keeps the key on the same registrable site the owner
+	// configured and avoids the redirect entirely.
+	canonicalDownloadHosts = map[string]string{
+		"msgnews.live": "www.msgnews.live",
+	}
 )
 
 type pathDownloadContract struct {
@@ -177,6 +186,12 @@ func advertisedDownloadTarget(locatorReference, nativeKey, configuredBaseURL, ap
 			return nil, true, errors.New("advertised Newznab download locator does not match the release")
 		}
 		target := *locator
+		if canonical, known := canonicalDownloadHosts[configuredHost]; known {
+			target.Host = canonical
+			if locator.Port() != "" {
+				target.Host = canonical + ":" + locator.Port()
+			}
+		}
 		target.Path += "&r=" + apiKey
 		return &target, true, nil
 	}

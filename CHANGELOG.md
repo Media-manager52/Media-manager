@@ -31,6 +31,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Changed
 
+- The `Best Available Danish Subs` quality profiles now treat Danish subtitles as preferred rather than required (`required_subtitle_languages: []`, `preferred_subtitle_languages: ["da"]`), so foreign titles without a verified `da` subtitle track are no longer blocked. Because acquisition-round snapshots are immutable, the migration replaced open rounds with new-policy snapshots and reopened subtitle-exhausted workflows under the new policy.
 - AltMount packages are screened before submission: an NZB whose manifest contains only archive sets, ISO/DVD structures, or other non-playable containers is rejected without an upload. AltMount queue failures caused by archives, unplayable manifests, or missing Usenet segments now exclude the exact release and package and retry another candidate inside the open acquisition round instead of parking the workflow as infrastructure attention. If AltMount has already pruned the failed queue entry, the persisted failure detail drives the same decision instead of retrying the reconcile forever.
 - Movie-library assembly now indexes related files, wanted items, and workflows once and reuses precomputed search text, avoiding quadratic work as the catalog grows.
 - Catalog loading now retrieves every API page in bounded 200-record batches instead of silently presenting a truncated library.
@@ -38,6 +39,10 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 - Newznab search requests now honor each commissioned provider's supported dialect and independently persisted query/grab budget.
 - Equal-score release selection uses deterministic durable identities rather than response timing.
 - Indexer cooldown work is deferred without blocking the worker or consuming an acquisition attempt.
+
+### Fixed
+
+- Msgnews download locators now request the canonical `www.msgnews.live` host directly. The provider 308-redirects the bare host while carrying the API key in the path, which the cross-origin credential policy correctly rejected; requesting the canonical host keeps the key on the same registrable site without weakening redirect pinning or credential stripping.
 
 ### Security
 

@@ -82,6 +82,27 @@ and the PostgreSQL-backed race integration suite for `internal/postgres`,
 `internal/acquisition`, and `internal/httpapi` all pass against a disposable
 PostgreSQL 18.6 cluster. Schema 40 was applied to the live database.
 
+**Follow-up request audit (same day).** A full audit of all 413 Seerr requests
+classified the 96 open ones: 36 in flight, 44 blocked by the
+required-Danish-subtitle policy (33 round-exhausted, 7 held, 4 series
+seasons), 7 provider/NZB retrieval failures, 5 infrastructure attention, and 3
+airing partials. The two `Best Available Danish Subs` profiles now mark Danish
+subtitles as **preferred** instead of required
+(`required_subtitle_languages: []`, `preferred_subtitle_languages: ["da"]`);
+named `Danish Original` routing is unchanged. Because acquisition-round
+snapshots are immutable, the migration retired the open rounds and reopened
+119 open-round workflows plus 70+ subtitle-exhausted workflows under the new
+policy snapshot (owner actor). Provider fix: msgnews download locators
+308-redirect to `www.msgnews.live` while carrying the API key in the path,
+which the cross-origin credential policy correctly rejected; Media Manager now
+requests the canonical `www` host directly, keeping the key on the same
+registrable site. Two Plex confirmation timeouts (`Unraveled`, `Rumble in the
+Bronx`) were retried against their already-verified links. During the audit,
+Bones, Cobra Kai, Peaky Blinders, Stranger Things, and Supernatural were
+pushed to completed; Breaking Bad seasons 2–4 were ingested and are
+Plex-confirmed; `Sommerdahl` was identified as an unmanaged Plex file that
+needs adoption rather than acquisition.
+
 ## V1 release closeout (2026-09-14)
 
 Media Manager V1 is complete and released. The functional release source is
