@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -132,6 +134,23 @@ func (server *Server) servarrRootFolders(writer http.ResponseWriter, request *ht
 	writeJSON(writer, http.StatusOK, result)
 }
 
+// decodeServarrJSON accepts the payloads a real Radarr/Sonarr client sends.
+// Those clients include fields Media Manager does not need (profileId,
+// minimumAvailability, addOptions, searchNow, seasonFolder, movieIds, ...), so
+// unknown fields are ignored while malformed or multi-document bodies stay
+// rejected. Only the fields the handler consumes are validated.
+func decodeServarrJSON(request *http.Request, output any, limit int64) error {
+	decoder := json.NewDecoder(io.LimitReader(request.Body, limit+1))
+	if err := decoder.Decode(output); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("multiple JSON documents")
+	}
+	return nil
+}
+
 func (server *Server) servarrTags(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, []servarr.Tag{})
 }
@@ -144,7 +163,7 @@ func (server *Server) servarrCommand(writer http.ResponseWriter, request *http.R
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := decodeJSON(request, &body, 64<<10); err != nil {
+	if err := decodeServarrJSON(request, &body, 64<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "command body is invalid")
 		return
 	}
@@ -249,7 +268,7 @@ func (server *Server) servarrAddMovie(writer http.ResponseWriter, request *http.
 		QualityProfileID int    `json:"qualityProfileId"`
 		RootFolderPath   string `json:"rootFolderPath"`
 	}
-	if err := decodeJSON(request, &body, 256<<10); err != nil || body.TMDBID <= 0 {
+	if err := decodeServarrJSON(request, &body, 256<<10); err != nil || body.TMDBID <= 0 {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "movie body is invalid")
 		return
 	}
@@ -270,7 +289,7 @@ func (server *Server) servarrAddMovie(writer http.ResponseWriter, request *http.
 
 func (server *Server) servarrUpdateMovie(writer http.ResponseWriter, request *http.Request) {
 	var body map[string]any
-	if err := decodeJSON(request, &body, 256<<10); err != nil {
+	if err := decodeServarrJSON(request, &body, 256<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "movie body is invalid")
 		return
 	}
@@ -390,7 +409,7 @@ func (server *Server) servarrAddSeries(writer http.ResponseWriter, request *http
 		LanguageProfileID int    `json:"languageProfileId"`
 		RootFolderPath    string `json:"rootFolderPath"`
 	}
-	if err := decodeJSON(request, &body, 256<<10); err != nil || body.TVDBID <= 0 {
+	if err := decodeServarrJSON(request, &body, 256<<10); err != nil || body.TVDBID <= 0 {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "series body is invalid")
 		return
 	}
@@ -412,7 +431,7 @@ func (server *Server) servarrAddSeries(writer http.ResponseWriter, request *http
 
 func (server *Server) servarrUpdateSeries(writer http.ResponseWriter, request *http.Request) {
 	var body map[string]any
-	if err := decodeJSON(request, &body, 256<<10); err != nil {
+	if err := decodeServarrJSON(request, &body, 256<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "series body is invalid")
 		return
 	}

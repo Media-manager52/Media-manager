@@ -162,7 +162,10 @@ func TestServarrCompatibilityAPI(t *testing.T) {
 	}
 
 	status, payload = call(http.MethodPost, "/radarr/api/v3/movie?apikey="+testServarrKey, map[string]any{
-		"tmdbId": 555001, "title": "Servarr Added Movie", "year": 2026, "qualityProfileId": addedProfile.ID, "rootFolderPath": "/libraries/movies",
+		"title": "Servarr Added Movie", "qualityProfileId": addedProfile.ID, "profileId": addedProfile.ID,
+		"titleSlug": "555001", "minimumAvailability": "released", "tmdbId": 555001, "year": 2026,
+		"rootFolderPath": "/libraries/movies", "monitored": true, "tags": []any{},
+		"addOptions": map[string]any{"searchForMovie": true},
 	}, "")
 	if status != http.StatusCreated {
 		t.Fatalf("add movie status=%d body=%s", status, payload)
@@ -201,7 +204,9 @@ func TestServarrCompatibilityAPI(t *testing.T) {
 		t.Fatalf("language profiles status=%d body=%s", status, payload)
 	}
 	status, payload = call(http.MethodPost, "/sonarr/api/v3/series?apikey="+testServarrKey, map[string]any{
-		"tvdbId": 555003, "title": "Servarr Added Series", "qualityProfileId": 1, "rootFolderPath": "/libraries/tv",
+		"title": "Servarr Added Series", "qualityProfileId": 1, "profileId": 0, "tvdbId": 555003,
+		"rootFolderPath": "/libraries/tv", "seasons": []any{1}, "seasonFolder": true,
+		"seriesType": "standard", "monitored": true, "searchNow": true, "tags": []any{},
 	}, "")
 	if status != http.StatusCreated {
 		t.Fatalf("add series status=%d body=%s", status, payload)
@@ -212,5 +217,47 @@ func TestServarrCompatibilityAPI(t *testing.T) {
 	}
 	if addedSeries.ID != servarr.SyntheticID("series", "555003") || !addedSeries.Monitored {
 		t.Fatalf("added series=%+v", addedSeries)
+	}
+	status, payload = call(http.MethodPost, "/sonarr/api/v3/command?apikey="+testServarrKey, map[string]any{
+		"name": "SeriesSearch", "seriesId": 555003, "seasonNumber": 1,
+	}, "")
+	if status != http.StatusCreated {
+		t.Fatalf("series search command status=%d body=%s", status, payload)
+	}
+}
+
+// TestDecodeServarrJSONAcceptsRealClientPayloads pins the exact bodies Seerr
+// sends. Radarr/Sonarr clients include fields Media Manager does not consume;
+// strict decoding rejected them and Seerr marked the request FAILED.
+func TestDecodeServarrJSONAcceptsRealClientPayloads(t *testing.T) {
+	t.Parallel()
+	radarrBody := `{"title":"Minions & Monsters","qualityProfileId":100399145,"profileId":100399145,"titleSlug":"1315772","minimumAvailability":"released","tmdbId":1315772,"year":2026,"rootFolderPath":"/srv/media/Børn Film","monitored":true,"tags":[],"addOptions":{"searchForMovie":true}}`
+	var movie struct {
+		TMDBID int64  `json:"tmdbId"`
+		Title  string `json:"title"`
+	}
+	if err := decodeServarrJSON(httptest.NewRequest(http.MethodPost, "/movie", strings.NewReader(radarrBody)), &movie, 256<<10); err != nil || movie.TMDBID != 1315772 || movie.Title == "" {
+		t.Fatalf("radarr payload movie=%+v err=%v", movie, err)
+	}
+	sonarrBody := `{"title":"Lanterns","profileId":543223483,"tvdbId":376098,"rootFolderPath":"/libraries/tv","seasons":[1],"seasonFolder":true,"seriesType":"standard","monitored":true,"searchNow":true,"tags":[],"qualityProfileId":543223483}`
+	var series struct {
+		TVDBID int64  `json:"tvdbId"`
+		Title  string `json:"title"`
+	}
+	if err := decodeServarrJSON(httptest.NewRequest(http.MethodPost, "/series", strings.NewReader(sonarrBody)), &series, 256<<10); err != nil || series.TVDBID != 376098 || series.Title == "" {
+		t.Fatalf("sonarr payload series=%+v err=%v", series, err)
+	}
+	commandBody := `{"name":"MoviesSearch","movieIds":[123]}`
+	var command struct {
+		Name string `json:"name"`
+	}
+	if err := decodeServarrJSON(httptest.NewRequest(http.MethodPost, "/command", strings.NewReader(commandBody)), &command, 64<<10); err != nil || command.Name != "MoviesSearch" {
+		t.Fatalf("command payload command=%+v err=%v", command, err)
+	}
+	if err := decodeServarrJSON(httptest.NewRequest(http.MethodPost, "/movie", strings.NewReader(`{`)), &movie, 256<<10); err == nil {
+		t.Fatal("malformed body was accepted")
+	}
+	if err := decodeServarrJSON(httptest.NewRequest(http.MethodPost, "/movie", strings.NewReader(`{} {}`)), &movie, 256<<10); err == nil {
+		t.Fatal("multi-document body was accepted")
 	}
 }
