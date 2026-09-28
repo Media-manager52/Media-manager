@@ -75,9 +75,12 @@ fine.
 
 Do not redo these; verify with a quick grep if a queue item touches them.
 
-- Seerr can use Media Manager as its Radarr/Sonarr server
-  (`/radarr/api/v3`, `/sonarr/api/v3`, `SERVARR_API_KEY`). Owner action still
-  outstanding: Seerr itself has no Radarr/Sonarr servers configured yet.
+- Seerr uses Media Manager as its only Radarr/Sonarr server
+  (`/radarr/api/v3`, `/sonarr/api/v3`, `SERVARR_API_KEY`); both services are
+  configured, default, and verified through Seerr's own clients. Scan
+  `syncEnabled` is off on purpose: Seerr's scanner would orphan-decline
+  processing requests not yet in the Media Manager catalog, and Media Manager
+  pushes Plex-confirmed availability itself.
 - Seerr root-folder routing (schema 39) with request provenance and requeue on
   route save.
 - 118 stranded Seerr requests backfilled through normal intake; Danish-original

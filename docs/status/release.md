@@ -24,12 +24,19 @@ are acknowledged without creating a second catalog, and availability scans
 report Plex-confirmed publications. Live verification passed: unauthenticated
 and wrong-key requests return 401, version routes answer Radarr 5.x / Sonarr
 4.x, unknown lookups return id 0 (forcing an add), and known lookups return the
-synthetic id with `hasFile`/`monitored`. **Owner action outstanding:** Seerr
-currently has no Radarr or Sonarr servers configured
-(`GET /api/v1/settings/radarr|sonarr` return `[]`). New Seerr requests require
-adding Media Manager under Settings → Services with hostname
-`media-manager-api-1`, port `8080`, SSL off, base URL `/radarr` or `/sonarr`,
-and the `SERVARR_API_KEY` value.
+synthetic id with `hasFile`/`monitored`. Seerr is now configured: the Radarr
+entry (base URL `/radarr`, default, profile `Movie Best Available Danish Subs`,
+directory `/libraries/movies`) and the Sonarr entry (base URL `/sonarr`,
+default, season folders enabled, profile `TV Best Available Danish Subs`,
+directory `/libraries/tv`) both point at `media-manager-api-1:8080`. Seerr's own
+servarr clients were verified against the saved configuration: Radarr reports
+5.14.0.9383 and returns Moana (TMDB 1108427) with `hasFile: true`; Sonarr
+reports 4.0.10.2544 with both TV profiles and nine root folders. Both entries
+keep `syncEnabled` **off**: Seerr's scheduled Radarr/Sonarr scan resets and
+declines processing media that its server list does not contain, which would
+orphan-decline paused or not-yet-ingested requests. Media Manager already
+pushes exact Plex-confirmed availability itself, so the server entries exist
+for adds, lookups, and commands rather than library scanning.
 
 **Request backlog reconciled.** Of 412 Seerr requests, 278 were already
 complete. The remaining 134 were classified: 118 had never reached Media

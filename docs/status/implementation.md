@@ -30,9 +30,11 @@ are Real, tested, and deployed on top of the historical audit below:
   (`/radarr/api/v3`, `/sonarr/api/v3`) is served behind a dedicated
   `SERVARR_API_KEY`. Root folders are Media Manager library roots, profiles are
   enabled quality profiles, adds are acknowledged and driven by Seerr's own
-  request intake, and availability scans report Plex-confirmed publications.
-  The owner must still add Media Manager under Seerr → Settings → Services;
-  Seerr currently reports no Radarr or Sonarr servers.
+  request intake, and availability is pushed by Media Manager's Plex-confirmed
+  status sync (Seerr's library scan is intentionally disabled). Seerr is
+  configured with both entries (`/radarr` and `/sonarr`, default, Danish Subs
+  profiles, `/libraries/movies` and `/libraries/tv`) and the saved
+  configuration was verified through Seerr's own clients.
 - **Seerr root-folder routing (schema 39).** Request provenance
   (`serverId`/`profileId`/`rootFolder`/`is4k`) is persisted, resolved through
   owner-created `seerr_library_routes` mappings, and an unmapped folder pauses
