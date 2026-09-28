@@ -1,15 +1,79 @@
 # Media Manager core release status
 
-Assessed against the live stack on 2026-09-02 and updated at the V1 release
-closeout on 2026-09-14. The deployed API and UI now run the released V1 source
-`e339208d0f052b166f14e4beb08bdea9bd69485b` at schema 36; see the V1 release
-closeout below. Earlier sections are retained as historical evidence for the
-schema-32 and schema-35 milestones.
+Assessed against the live stack on 2026-09-02, updated at the V1 release
+closeout on 2026-09-14, and refreshed on 2026-09-28. The deployed API and UI
+now run `c6bf1b8` at schema 40; see the post-V1 hardening section immediately
+below. Earlier sections are retained as historical evidence for the schema-32,
+schema-35, and schema-36 milestones.
 
 “Implemented” means that the core behavior exists in the real application.
 “Synthetic tested” means that its local deterministic tests pass. “Live tested”
 means that the configured services completed the real operation; health checks
 alone do not qualify.
+
+## Post-V1 hardening (2026-09-28)
+
+The deployed source is `c6bf1b8` at schema 40
+(`0040_release_package_failures.sql`, additive). This milestone finishes the
+Seerr integration and hardens acquisition against defective release payloads.
+
+**Seerr without Radarr/Sonarr.** Media Manager serves a Radarr/Sonarr-compatible
+API (`/radarr/api/v3`, `/sonarr/api/v3`) behind a dedicated `SERVARR_API_KEY`.
+Root folders and quality profiles resolve to Media Manager's own records, adds
+are acknowledged without creating a second catalog, and availability scans
+report Plex-confirmed publications. Live verification passed: unauthenticated
+and wrong-key requests return 401, version routes answer Radarr 5.x / Sonarr
+4.x, unknown lookups return id 0 (forcing an add), and known lookups return the
+synthetic id with `hasFile`/`monitored`. **Owner action outstanding:** Seerr
+currently has no Radarr or Sonarr servers configured
+(`GET /api/v1/settings/radarr|sonarr` return `[]`). New Seerr requests require
+adding Media Manager under Settings → Services with hostname
+`media-manager-api-1`, port `8080`, SSL off, base URL `/radarr` or `/sonarr`,
+and the `SERVARR_API_KEY` value.
+
+**Request backlog reconciled.** Of 412 Seerr requests, 278 were already
+complete. The remaining 134 were classified: 118 had never reached Media
+Manager. All 118 were backfilled through the normal intake path (114 ingested;
+2 blocked on media sitting in the recycle bin; 2 unreleased titles with no
+TMDB release date). Another 4 delivered requests were pushed to Seerr as
+available/partial, and 8 were already active in Media Manager. The backfill
+created 123 workflows; more than 16 titles were already imported into Plex
+within the first hour.
+
+**Danish-subtitle policy clarified and enforced.** `da` remains required for
+foreign content and is not required for Danish originals (the two
+`Best Available Danish Original` profiles route on canonical original language
+`da`). 42 of 43 Danish-origin titles were already on the correct profile; the
+one misroute was corrected. 68 foreign titles currently wait because no
+available release carried verified Danish subtitles — the truthful result of
+the required-language policy, not a workflow failure.
+
+**Release payload screening and recovery (schema 40).** Every NZB manifest is
+screened before submission: archive-only sets (`.rar`/`.r00`/`partNNN.rar`,
+`.7z`, `.zip`), ISO/DVD structures, and other recognized non-playable
+containers are rejected without an AltMount upload; obfuscated manifests are
+never rejected by name alone. AltMount queue failures for archives
+(`compressed files are not supported`, RAR iteration errors), `no files with
+allowed extensions`, and missing Usenet articles (`incomplete or missing
+parts`) now exclude the exact release and package and retry another candidate
+inside the open round, including when AltMount has already pruned the failed
+queue entry. Live recovery of the 19 previously parked failures produced two
+immediate Plex confirmations from replacement releases, with the rest
+retrying or waiting for the next discovery cycle; only two genuine
+infrastructure items remain owner-visible.
+
+The AltMount failure analysis behind this change was concrete: WEB-DL and
+REMUX single-file releases imported at roughly 92/94, while RAR-packed WEBRip
+releases failed 7 of 9 and DVD/ISO releases failed every attempt.
+
+**Other fixes.** Seerr metadata that reports `runtime = 0` no longer
+invalidates intake (zero now means unknown), which had left 15 titles
+retrying forever.
+
+**Verification.** `gofmt` and `go vet` clean; full unit suite; `docs:check`;
+and the PostgreSQL-backed race integration suite for `internal/postgres`,
+`internal/acquisition`, and `internal/httpapi` all pass against a disposable
+PostgreSQL 18.6 cluster. Schema 40 was applied to the live database.
 
 ## V1 release closeout (2026-09-14)
 

@@ -4,9 +4,10 @@ This is the entry point to the documentation set for the Media Manager
 codebase. It is written for an engineer or AI agent with **zero prior
 context** who must safely read, change, test, and operate the repository.
 
-Snapshot: docs reorganized against `main` commit `349d87b` plus local
-documentation work (2026-09-28), database schema 40, Go 1.27, Node 24 /
-Next 16 (Vinext), PostgreSQL 18.
+Snapshot: `main` at `c6bf1b8` (2026-09-28 hardening commit, tree clean),
+database schema 40, Go 1.27, Node 24 / Next 16 (Vinext), PostgreSQL 18. The
+docs restructure, per-package `doc.go` comments, and `docs:check` gate are
+included in that commit.
 
 > Read `AGENTS.md` in the repository root for the short contributor contract,
 > then follow the read order below. The full documentation index, including

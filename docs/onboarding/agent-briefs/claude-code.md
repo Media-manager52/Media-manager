@@ -9,11 +9,11 @@ reasoning effort**: front-loaded context, a concrete queue, no broad audits.
 
 ## Minutes 0–10: orient (exactly this, then start)
 
-1. `git status` — the working tree contains intentional, uncommitted
-   documentation work (docs reorganized under
-   `docs/{onboarding,architecture,operations,reference,status,archive}`, 30 new
-   `doc.go` package comments, `scripts/check-docs.mjs`). Deleted root paths plus
-   new paths are renames. **Do not revert or discard them.**
+1. `git status` — the tree should be clean. The 2026-09-28 hardening
+   (`c6bf1b8`) is committed on `main` and includes the docs restructure, the
+   Radarr/Sonarr-compatible Seerr API, Seerr root-folder routing, and release
+   package screening/recovery at schema 40. If anything is uncommitted, inspect
+   it before touching it; never discard work you did not create.
 2. Read `AGENTS.md`, then `docs/onboarding/README.md`, then
    `docs/architecture/overview.md`.
 3. Skim `docs/status/implementation.md` — it is the authoritative backlog of
@@ -25,8 +25,8 @@ reasoning effort**: front-loaded context, a concrete queue, no broad audits.
 
 ## Repository state
 
-- V1 is released; `main` is at `349d87b`, database schema **38**, Go 1.27,
-  Node 24 / Vinext / Next 16, PostgreSQL 18.
+- V1 is released; `main` is at `c6bf1b8` (2026-09-28 hardening), database
+  schema **40**, Go 1.27, Node 24 / Vinext / Next 16, PostgreSQL 18.
 - The live stack runs via Docker Compose (`media-manager-api-1`,
   `media-manager-ui-1`, `media-manager-postgres-1`). **Do not recreate,
   restart, or migrate it** unless the owner asks.
@@ -70,6 +70,26 @@ reasoning effort**: front-loaded context, a concrete queue, no broad audits.
 refreshes, media scans, migrations, deploys, state-changing API calls) without
 explicit owner approval. Local tests, builds, and read-only checks are always
 fine.
+
+## Completed since this brief was written (2026-09-28)
+
+Do not redo these; verify with a quick grep if a queue item touches them.
+
+- Seerr can use Media Manager as its Radarr/Sonarr server
+  (`/radarr/api/v3`, `/sonarr/api/v3`, `SERVARR_API_KEY`). Owner action still
+  outstanding: Seerr itself has no Radarr/Sonarr servers configured yet.
+- Seerr root-folder routing (schema 39) with request provenance and requeue on
+  route save.
+- 118 stranded Seerr requests backfilled through normal intake; Danish-original
+  routing verified against the two `Best Available Danish Original` profiles.
+- NZB package screening plus release-attributable AltMount failure recovery
+  (schema 40): archive-only/ISO/non-playable manifests are rejected before
+  upload, and archive/unplayable/missing-article failures exclude the release
+  and retry inside the round (including from persisted detail after AltMount
+  prunes the queue entry).
+- `runtime = 0` provider metadata tolerated during intake.
+- Documentation restructure, per-package `doc.go`, `scripts/check-docs.mjs`,
+  and both CI pipelines wired to it.
 
 ## Today's queue (default priority — the owner may edit this section)
 

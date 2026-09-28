@@ -1,7 +1,8 @@
 # Media Manager implementation status
 
-Audited on 2026-08-30 and updated on 2026-09-02 against the live Docker build at
-API commit `1a4d53f`, schema 32, the Go route registry, PostgreSQL
+Audited on 2026-08-30, updated on 2026-09-02 against the live Docker build at
+API commit `1a4d53f` and schema 32, and refreshed on 2026-09-28 against `main`
+at `c6bf1b8` and schema 40. The audit covers the Go route registry, PostgreSQL
 migrations/store methods, and the React route switch. This document describes
 implemented behavior, not the development fixture's claims.
 
@@ -19,6 +20,37 @@ The application entry is live-only. Approved development concept files remain in
 source as visual references, but they are not imported into the Docker UI graph.
 Unmapped routes render `LiveUnavailableScreen` and cannot fall through to fixture
 screens.
+
+## Current hardening milestone (2026-09-28)
+
+Verified against the deployed build at `c6bf1b8` and schema 40. The following
+are Real, tested, and deployed on top of the historical audit below:
+
+- **Seerr as the only server.** A Radarr/Sonarr-compatible API
+  (`/radarr/api/v3`, `/sonarr/api/v3`) is served behind a dedicated
+  `SERVARR_API_KEY`. Root folders are Media Manager library roots, profiles are
+  enabled quality profiles, adds are acknowledged and driven by Seerr's own
+  request intake, and availability scans report Plex-confirmed publications.
+  The owner must still add Media Manager under Seerr → Settings → Services;
+  Seerr currently reports no Radarr or Sonarr servers.
+- **Seerr root-folder routing (schema 39).** Request provenance
+  (`serverId`/`profileId`/`rootFolder`/`is4k`) is persisted, resolved through
+  owner-created `seerr_library_routes` mappings, and an unmapped folder pauses
+  with `needs_configuration` plus the exact folder. Saving a route requeues
+  paused requests.
+- **Release package screening and recovery (schema 40).** NZB manifests are
+  screened before submission; archive-only, ISO/DVD, and non-playable
+  containers are rejected without an AltMount upload. Release-attributable
+  AltMount failures (archives, unplayable manifests, missing Usenet articles)
+  exclude the exact release and package and retry inside the open round,
+  including from the persisted detail when AltMount already pruned the queue
+  entry. Only genuine infrastructure failures remain owner attention.
+- **Metadata tolerance.** A provider `runtime = 0` now means unknown rather
+  than invalid, so Seerr intake for such titles no longer retries forever.
+- **Documentation.** The docs set is reorganized under
+  `docs/{onboarding,architecture,operations,reference,status,archive}`, every Go
+  package has a `doc.go` comment, and `scripts/check-docs.mjs` (`npm run
+  docs:check`) gates relative links and anchors in both CI pipelines.
 
 ## Deployed schema-32 recovery milestone
 
@@ -92,7 +124,7 @@ running-commit checks then passed without initiating media work.
 | Newznab runtime pacing | Real | Per-indexer single-flight lanes, a global bound, persisted next-allowed/cooldown state, `Retry-After`, and bounded backoff wrap supported indexer requests. |
 | Release search/evidence/policy | Partial UI | Search runs, raw observations, normalized evidence, decisions, and selection are persisted and now have bounded read screens. Raw provenance, comparison detail, and pagination remain incomplete. |
 | Narrow release blocklist | Real | Owner blocks originate from persisted candidates; native blocks bind indexer plus native GUID and pack blocks bind media plus season variant plus exact title. Matching observations remain visible but are rejected before ranking. |
-| AltMount retrieval and reconciliation | Real | Submission intent, unknown-outcome recovery, queue observation, SSE/poll reconciliation, frozen output inventory, and read-only source paths are implemented. Every completed selected video is inspected through a bounded file descriptor rooted at that job output before publication. Required subtitle and other completed-output failures remain owner-visible and undeleted; an owner retry excludes only the exact failed release within that workflow and the second acquisition failure cannot be retried. |
+| AltMount retrieval and reconciliation | Real | Submission intent, unknown-outcome recovery, queue observation, SSE/poll reconciliation, frozen output inventory, and read-only source paths are implemented. Every completed selected video is inspected through a bounded file descriptor rooted at that job output before publication. Required subtitle and other completed-output failures remain owner-visible and undeleted. Release-attributable payload failures (archive sets, unplayable manifests, missing Usenet articles) are screened before submission and, when they reach AltMount, exclude the exact release and package and retry another candidate inside the open round automatically — including from the persisted detail when AltMount has already pruned the queue entry. Genuine infrastructure failures still require owner reconciliation. |
 | Complete TV season packs as one job | Real | One season workflow creates an immutable expectation; one AltMount job is evaluated for exact episode coverage. Every selected pack video must independently satisfy required subtitle languages through embedded evidence or one strictly matched managed sidecar. Incomplete or ambiguous output stays unpublished and can use only the same bounded exact-release alternate path. |
 | Plex-safe symlink publication | Real | Paths are containment-checked, names require verified Plex-supported identity, and video plus verified external subtitle companions are batch-published from the authorized job root. Companion records share the video publication generation and become current only in the exact Plex confirmation transaction. |
 | Safe upgrades | Real invariant, partial product | Every selected release has a unique persisted release-ID filename token, allowing old and new paths to coexist through verification. Existing current AltMount links are displaced only inside the transaction triggered after Plex confirms the replacement. Search rejects the exact current durable release and requires another candidate to score strictly higher under the target policy, unless the current release fails a newly required property. An adopted-file workflow requires an exact owner phrase and immutable fingerprint before both workflow creation and any otherwise-unapproved delayed search; after Plex confirms the new publication, the old regular file is moved through a contained fingerprint-checked operation and retained for 30 days. Rollback restores the complete retained cycle, including partial adopted TV coverage, but preserves the full replacement publication until Plex re-confirms every restored path. Physical purge still requires a second exact owner confirmation after retention. Whole-item deletion and overlapping same-scope requests stay blocked throughout the lifecycle. Cutoff presentation and richer owner comparison evidence remain incomplete. |
@@ -120,7 +152,7 @@ for smoke testing without explicit approval.
 
 ## Infrastructure and verification status
 
-- The three Compose services are healthy: PostgreSQL, API, and UI. Schema 31 preserves the schema-27/28 credential sanitization, schema-29 metadata protections, and schema-30 durable rolling Newznab query/grab reservation ledger while adding bounded retained-output reverification state.
+- The three Compose services are healthy: PostgreSQL, API, and UI. Schema 40 preserves the schema-27/28 credential sanitization, schema-29 metadata protections, schema-30 durable rolling Newznab query/grab reservation ledger, and schema-32 acquisition-round model while adding Seerr root-folder routing (39) and release-payload screening/recovery kinds (40).
 - Cosmos 0.23.4 is the public edge and the owner authentication layer. It
   authenticates the owner with OpenID and routes `/api/*` and `/health/*` to the
   API container and every other path to the UI container on one origin. The
