@@ -324,6 +324,13 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 	if readySequence <= cutoff {
 		return ErrConcurrentModification
 	}
+	var profileVersion int64
+	if err := transaction.QueryRow(ctx, `SELECT profile.policy_version FROM workflows workflow JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id WHERE workflow.id=$1`, workflowID.String()).Scan(&profileVersion); err != nil {
+		return err
+	}
+	if profileVersion != policyVersion {
+		return errors.New("the quality policy changed after this round was exhausted; apply the current policy to the profile instead of reopening the old snapshot")
+	}
 	var candidateValid bool
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM release_candidates candidate

@@ -29,6 +29,9 @@ type SearchContext struct {
 	Blocks              []ReleaseBlock
 	Exclusions          []WorkflowReleaseExclusion
 	OpenRound           *AcquisitionRound
+	// ProfilePolicyVersion is the quality profile's current version. It can
+	// differ from PolicyVersion, which follows the open round's snapshot.
+	ProfilePolicyVersion uint64
 }
 
 type SearchIndexerOutcome struct {
@@ -104,6 +107,7 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 		result.Media.Year = &converted
 	}
 	result.PolicyVersion = uint64(policyVersion)
+	result.ProfilePolicyVersion = uint64(policyVersion)
 	result.Policy = append(json.RawMessage(nil), policy...)
 	result.Media.Identities, err = store.identities(ctx, result.Media.ID)
 	if err != nil {

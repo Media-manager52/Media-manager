@@ -159,6 +159,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
 	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
 	server.mux.HandleFunc("PATCH /api/v1/settings/quality-profiles/{id}", server.requireOwner(server.updateQualityProfile))
+	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles/{id}/apply-policy", server.requireOwner(server.applyQualityProfilePolicy))
 	server.mux.HandleFunc("GET /api/v1/settings/notifications", server.requireOwner(server.listNotificationDestinations))
 	server.mux.HandleFunc("POST /api/v1/settings/notifications", server.requireOwner(server.createNotificationDestination))
 	server.mux.HandleFunc("PATCH /api/v1/settings/notifications/{id}", server.requireOwner(server.setNotificationDestinationState))
@@ -1882,6 +1883,24 @@ func (server *Server) updateQualityProfile(writer http.ResponseWriter, request *
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: updated})
+}
+
+func (server *Server) applyQualityProfilePolicy(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "quality profile ID is invalid")
+		return
+	}
+	result, err := server.store.ApplyQualityProfilePolicy(request.Context(), id, "owner", time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "quality profile was not found")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusConflict, "policy_application_failed", "workflows changed while the policy was applied; retry the request")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: result})
 }
 
 func (server *Server) listSubtitleVerifications(writer http.ResponseWriter, request *http.Request) {

@@ -164,7 +164,8 @@ Notes:
 | DELETE | `/api/v1/settings/integrations/{id}/seerr-routes/{route}` | Remove a route; later requests for that folder pause for configuration. |
 | GET/POST | `/api/v1/settings/library-roots` | Movie/TV roots with path mappings/defaults. |
 | GET/POST | `/api/v1/settings/quality-profiles` | List/create policy profiles. |
-| PATCH | `/api/v1/settings/quality-profiles/{id}` | Edit policy (bumps policy version / canonicalizes subtitle goals). |
+| PATCH | `/api/v1/settings/quality-profiles/{id}` | Edit policy (bumps policy version / canonicalizes subtitle goals). Existing rounds keep their snapshot. |
+| POST | `/api/v1/settings/quality-profiles/{id}/apply-policy` | Move the profile's non-terminal workflows onto the current policy version (new rounds; per-workflow outcomes). Idempotent; `409` asks for a retry if workflows changed concurrently. See [workflows §5a](workflows.md#5a-changing-a-quality-profiles-policy). |
 
 ### Settings: commissioning v2 (owner-authorized)
 

@@ -230,8 +230,10 @@ When adding a method, place it in the domain file, reuse `ErrNotFound` /
    out-of-order/duplicate delivery. `ClaimOutbox` claims lifecycle events
    before searches and discovery rescans last; that is a latency preference,
    not an ordering contract.
-4. **Round snapshot guard.** A search whose round policy/upgrade baseline no
-   longer matches fails closed with "owner review is required".
+4. **Round snapshot guard.** A search whose round policy version is older
+   than the profile parks the workflow with `quality_policy_changed`; a changed
+   upgrade baseline fails closed with "owner review is required". Only
+   `ApplyQualityProfilePolicy` replaces rounds after a policy change.
 5. **Retention.** Recycle automatic purge planning runs hourly via
    `PlanDueRecyclePurges`; adopted real files are never auto-deleted.
 

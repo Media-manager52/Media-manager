@@ -83,6 +83,12 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 		return err
 	}
 	retrieval, err := service.Store.LoadRetrievalContext(ctx, workflowID, candidateID)
+	if errors.Is(err, postgres.ErrNotFound) {
+		// The candidate is no longer the workflow's selection (for example a
+		// quality policy change cleared it for a fresh search). Like a revision
+		// mismatch, this event is stale and must never retrieve or retry.
+		return nil
+	}
 	if err != nil {
 		return err
 	}

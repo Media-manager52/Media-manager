@@ -127,9 +127,12 @@ Handler: `acquisition.SearchService` (`internal/acquisition/search.go`).
 - Recovery discovery (round exhausted) is evidence-only and uses a generation
   guard (`ValidateRecoveryDiscovery`).
 - Non-recovery: if the workflow is already `candidate_selected`/`queued`/
-  `submitting`, stop. If the round snapshot
-  (`policy_version`, `upgrade_baseline_link_versions`) no longer matches the
-  stored profile/link state, fail with owner review required.
+  `submitting`, stop. If the open round's `policy_version` is older than the
+  quality profile's current version, the search makes no provider request and
+  parks the workflow in `waiting` with `quality_policy_changed`
+  (`MarkQualityPolicyReviewRequired`) until the owner applies the policy (§5a).
+  If the round's `upgrade_baseline_link_versions` no longer matches the current
+  links, fail with owner review required.
 - If no commissioned enabled Newznab indexer exists → error (recovery defers
   24h).
 - Airing season dispatch may replace the pack search with per-episode scopes.
@@ -229,6 +232,8 @@ Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
   outputs, a `ready` discovery candidate, candidate first-seen > cutoff, still
   eligible under the round's policy version, and not attempted/excluded. It
   creates round N+1 with a fresh upgrade baseline and queues a search.
+- The owner cannot reopen an exhausted round whose policy snapshot is older
+  than the profile; apply the current policy instead (§5a).
 - **Retained output limit**: 4 distinct failed-output jobs with an
   `acquisition_outcome <> 'output_verified'` block another round until the owner
   reviews storage.
@@ -239,6 +244,46 @@ Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
 - There are migrations/tests for recovering held workflows and legacy exhausted
   rounds (`0037_legacy_exhausted_round_recovery.sql`,
   `0038_held_workflow_retry_recovery.sql`) — do not remove those paths.
+
+## 5a. Changing a quality profile's policy
+
+`PATCH /api/v1/settings/quality-profiles/{id}` bumps `policy_version` but never
+touches existing rounds: round snapshots are immutable (trigger
+`enforce_acquisition_round_immutable_snapshot`). The snapshot is the policy of
+record for an attempt: selection uses it, and output verification reads the
+attempt's round snapshot (`SubtitlePolicyForJob`), never the live profile.
+
+To move open work onto the new version the owner calls
+`POST /api/v1/settings/quality-profiles/{id}/apply-policy`
+(`Store.ApplyQualityProfilePolicy`). In one serializable transaction, for every
+non-terminal workflow on the profile whose open (or exhausted-and-discovering)
+round is older:
+
+- the open round is superseded (`cancelled`, `close_reason` names the new
+  version) and round N+1 opens with the current policy snapshot, the current
+  upgrade baseline, and `novelty_cutoff_sequence = 0`. The novelty cutoff
+  exists so an owner-approved retry round spends slots only on newly seen
+  releases; a policy round changes the evaluation itself, so every known
+  candidate is re-evaluated. Attempted and excluded releases stay disqualified
+  and are never revived, even when the policy is loosened;
+- `candidate_selected`: the selection was made under the old policy, so it is
+  cleared (`needs_attention` → `waiting`) and a search is queued now; the
+  pending retrieval becomes a stale no-op;
+- `waiting` after round exhaustion or with `quality_policy_changed`: the
+  attention is cleared, discovery is paused, and a search is queued now.
+  Exhausted workflows still honor the 4-retained-failed-output limit;
+- `monitored`, `waiting`, `held`, `searching`, and `needs_attention` without an
+  AltMount attempt: only the round changes, so any existing search schedule
+  continues under the new policy;
+- workflows with an active or attention AltMount attempt, a started
+  publication, or a recovery-only attention code are skipped
+  (`in_flight` / `owner_recovery_required`) and finish under the policy they
+  started with. Re-run the endpoint after they settle; it is idempotent
+  (`already_current`).
+
+Every changed workflow gets `workflow_transitions` rows as needed and a
+`workflow.quality_policy_applied` audit event; the profile gets a
+`quality_profile.policy_applied` summary.
 
 ## 6. Retrieval and AltMount submission
 
@@ -487,6 +532,7 @@ the persisted failure detail instead of retrying that reconcile forever.
 | Subtitle `unverified` / `exhausted` | Required language missing. | Inspect evidence; offer alternate release or reverify after correction. |
 | `plex_timeout` | No exact confirmation before the deadline; `attention_detail` names the reason (path not shown, identity mismatch, confirmed late). | Fix the named cause, then `POST .../reconfirm-plex` (verified links only, ≤3 retries). Old link stays current. |
 | `held` | Releases observed, none satisfied required evidence. | Paced retry is automatic; adjust policy if intended. |
+| `quality_policy_changed` | The profile's policy changed after the open round was snapshotted; searching is parked. | `POST /api/v1/settings/quality-profiles/{id}/apply-policy` (§5a). |
 | `transport_unknown` | Submission outcome unknown. | `recover-altmount-submission`. |
 | Recycle `restore_attention` | Restore collision/fingerprint mismatch. | Resolve manually; nothing is deleted. |
 

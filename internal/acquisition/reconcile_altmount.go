@@ -173,7 +173,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			}
 			detail = "movie inventory and subtitle requirements verified"
 		}
-		policy, policyErr := service.Store.SubtitlePolicyForWorkflow(ctx, job.Workflow.ID)
+		policy, policyErr := service.Store.SubtitlePolicyForJob(ctx, job.JobID)
 		if policyErr != nil {
 			return policyErr
 		}

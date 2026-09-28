@@ -23,6 +23,10 @@ func TestOwnerAttentionStateMakesExhaustedRoundTerminal(t *testing.T) {
 	if got := releaseFailed.OwnerAttentionState(); got != StateNeedsAttention {
 		t.Fatalf("release-failed waiting round reported %q, want %q", got, StateNeedsAttention)
 	}
+	policyChanged := Workflow{State: StateWaiting, AttentionCode: AttentionQualityPolicyChanged}
+	if got := policyChanged.OwnerAttentionState(); got != StateNeedsAttention {
+		t.Fatalf("quality-policy-changed waiting round reported %q, want %q", got, StateNeedsAttention)
+	}
 	plainWaiting := Workflow{State: StateWaiting}
 	if got := plainWaiting.OwnerAttentionState(); got != StateWaiting {
 		t.Fatalf("plain waiting round reported %q, want %q", got, StateWaiting)

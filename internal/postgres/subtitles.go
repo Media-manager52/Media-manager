@@ -34,9 +34,13 @@ type SubtitleVerificationRecord struct {
 	CreatedAt          time.Time       `json:"created_at"`
 }
 
-func (store *Store) SubtitlePolicyForWorkflow(ctx context.Context, workflowID uuid.UUID) (subtitles.Policy, error) {
+// SubtitlePolicyForJob returns the subtitle policy of the acquisition round the
+// AltMount job was submitted in. Output verification therefore uses exactly
+// the immutable policy snapshot that selected the release, never a profile
+// edited while the job was in flight.
+func (store *Store) SubtitlePolicyForJob(ctx context.Context, jobID uuid.UUID) (subtitles.Policy, error) {
 	var body []byte
-	err := store.Pool.QueryRow(ctx, `SELECT profile.policy FROM workflows workflow JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id WHERE workflow.id=$1`, workflowID.String()).Scan(&body)
+	err := store.Pool.QueryRow(ctx, `SELECT round.policy_snapshot FROM altmount_jobs job JOIN acquisition_rounds round ON round.id=job.round_id AND round.workflow_id=job.workflow_id WHERE job.id=$1`, jobID.String()).Scan(&body)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return subtitles.Policy{}, ErrNotFound
 	}

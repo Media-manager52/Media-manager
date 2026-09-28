@@ -35,6 +35,12 @@ const (
 // explicit owner action before another acquisition round.
 const AttentionRoundExhaustedWaitingNewIdentity = "round_exhausted_waiting_new_identity"
 
+// AttentionQualityPolicyChanged is the durable attention code for a workflow
+// whose open acquisition round was snapshotted under an older quality-profile
+// policy version. Searching is parked in waiting until the owner applies the
+// current policy, so a profile edit never silently keeps using the old policy.
+const AttentionQualityPolicyChanged = "quality_policy_changed"
+
 type Workflow struct {
 	ID               uuid.UUID  `json:"id"`
 	MediaID          uuid.UUID  `json:"media_id"`
@@ -64,7 +70,7 @@ type Workflow struct {
 // real-acceptance driver, which treats waiting as still in progress and
 // needs_attention as terminal).
 func (workflow Workflow) OwnerAttentionState() State {
-	if workflow.State == StateWaiting && (workflow.AttentionCode == AttentionRoundExhaustedWaitingNewIdentity || workflow.ReleaseAttemptFailed) {
+	if workflow.State == StateWaiting && (workflow.AttentionCode == AttentionRoundExhaustedWaitingNewIdentity || workflow.AttentionCode == AttentionQualityPolicyChanged || workflow.ReleaseAttemptFailed) {
 		return StateNeedsAttention
 	}
 	return workflow.State

@@ -318,8 +318,17 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err := store.Pool.QueryRow(ctx, `SELECT state FROM workflow_retry_discovery WHERE workflow_id=$1`, boundedOutputWorkflows[0].ID.String()).Scan(&discoveryReady); err != nil || discoveryReady != "ready" {
 		t.Fatalf("new identity discovery state=%q err=%v", discoveryReady, err)
 	}
+	// A profile edited after exhaustion must not be smuggled into, or silently
+	// ignored by, the next round: reopening the old snapshot is refused and the
+	// owner applies the current policy instead.
 	changedPolicy := json.RawMessage(`{"required_subtitle_languages":["en"]}`)
 	if _, err := store.Pool.Exec(ctx, `UPDATE quality_profiles SET policy_version=2,policy=$2 WHERE id=$1`, profile.ID.String(), changedPolicy); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.OpenNextAcquisitionRound(ctx, boundedOutputWorkflows[0].ID, time.Now().UTC()); err == nil || !strings.Contains(err.Error(), "apply the current policy") {
+		t.Fatalf("reopening a stale policy snapshot error=%v", err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE quality_profiles SET policy_version=1,policy=$2 WHERE id=$1`, profile.ID.String(), policy); err != nil {
 		t.Fatal(err)
 	}
 	startRound := make(chan struct{})
@@ -353,9 +362,6 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	}
 	if _, err := store.Pool.Exec(ctx, `UPDATE acquisition_rounds SET policy_snapshot='{}'::jsonb WHERE workflow_id=$1 AND round_ordinal=2`, boundedOutputWorkflows[0].ID.String()); err == nil {
 		t.Fatal("acquisition round policy snapshot was mutable")
-	}
-	if _, err := store.Pool.Exec(ctx, `UPDATE quality_profiles SET policy_version=1,policy=$2 WHERE id=$1`, profile.ID.String(), policy); err != nil {
-		t.Fatal(err)
 	}
 	var readyCandidateText string
 	if err := store.Pool.QueryRow(ctx, `SELECT id::text FROM release_candidates WHERE workflow_id=$1 AND native_key='new-after-exhaustion'`, boundedOutputWorkflows[0].ID.String()).Scan(&readyCandidateText); err != nil {

@@ -101,6 +101,11 @@ func TestCreateMovieAndSeriesThroughOwnerAPI(t *testing.T) {
 		t.Fatalf("movie detail=%+v", movieDetail)
 	}
 	reconfirmPath := testServer.URL + "/api/v1/workflows/" + movieDetail.Workflows[0].ID.String() + "/reconfirm-plex"
+	var movieProfile string
+	if err := store.Pool.QueryRow(context.Background(), `SELECT quality_profile_id::text FROM workflows WHERE id=$1`, movieDetail.Workflows[0].ID.String()).Scan(&movieProfile); err != nil {
+		t.Fatal(err)
+	}
+	applyPolicyPath := testServer.URL + "/api/v1/settings/quality-profiles/" + movieProfile + "/apply-policy"
 	for _, check := range []struct {
 		url, token string
 		want       int
@@ -109,6 +114,9 @@ func TestCreateMovieAndSeriesThroughOwnerAPI(t *testing.T) {
 		{reconfirmPath, testOwnerToken, http.StatusConflict},
 		{testServer.URL + "/api/v1/workflows/not-a-uuid/reconfirm-plex", testOwnerToken, http.StatusBadRequest},
 		{testServer.URL + "/api/v1/workflows/22222222-2222-4222-8222-222222222222/reconfirm-plex", testOwnerToken, http.StatusNotFound},
+		{applyPolicyPath, "", http.StatusUnauthorized},
+		{applyPolicyPath, testOwnerToken, http.StatusOK},
+		{testServer.URL + "/api/v1/settings/quality-profiles/22222222-2222-4222-8222-222222222222/apply-policy", testOwnerToken, http.StatusNotFound},
 	} {
 		request, err := http.NewRequest(http.MethodPost, check.url, nil)
 		if err != nil {

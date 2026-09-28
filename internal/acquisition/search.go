@@ -103,7 +103,17 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			// event. It is a stale audited no-op, never a reason to create a round.
 			return nil
 		}
-		if search.OpenRound.PolicyVersion != search.PolicyVersion || search.OpenRound.UpgradeBaseline != search.CurrentLinkVersions {
+		if search.OpenRound.PolicyVersion != search.ProfilePolicyVersion {
+			// The profile changed after this round opened. Park the workflow for
+			// the owner to apply the current policy instead of searching under
+			// the stale snapshot or retrying a failing search forever.
+			err := service.Store.MarkQualityPolicyReviewRequired(ctx, search.Workflow.ID, search.Workflow.Revision, search.OpenRound.PolicyVersion, search.ProfilePolicyVersion, time.Now().UTC())
+			if errors.Is(err, postgres.ErrConcurrentModification) {
+				return nil
+			}
+			return err
+		}
+		if search.OpenRound.UpgradeBaseline != search.CurrentLinkVersions {
 			return errors.New("acquisition round snapshot changed before candidate selection; owner review is required")
 		}
 	}
