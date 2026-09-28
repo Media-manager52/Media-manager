@@ -11,6 +11,7 @@ import (
 
 	plexadapter "github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/releases"
 )
 
 // publishTimedOutMovie publishes a verified movie through the real store and
@@ -161,5 +162,53 @@ func TestPlexReconfirmationRejectsUnverifiedLinksAndOtherStates(t *testing.T) {
 	}
 	if _, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, uuid.NewV7(), "owner", time.Now().UTC()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing workflow error=%v, want ErrNotFound", err)
+	}
+}
+
+// TestUpgradeSearchContextKeepsVerifiedNoSubtitleEvidence proves the search
+// context for an upgrade of a publication whose verified output had no
+// subtitles carries that as observed evidence, not as unknown, so a newly
+// required subtitle language is judged missing on the current release.
+func TestUpgradeSearchContextKeepsVerifiedNoSubtitleEvidence(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	workflowID, _, version, plexPath := publishTimedOutMovie(t, fixture, "No Subtitle Movie", "590001", "no-subtitle-movie")
+	scanID, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, workflowID, "owner", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan, err := fixture.store.LoadPlexScan(fixture.ctx, scanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.MarkPlexRefreshRequested(fixture.ctx, scan, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if scan, err = fixture.store.LoadPlexScan(fixture.ctx, scanID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.ConfirmPlexScan(fixture.ctx, scan, []plexadapter.Confirmation{{RatingKey: "movie-1", Path: plexPath, ProviderGUID: "tmdb://590001"}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	assertPublicationState(t, fixture, version.ID, "current", "plex_confirmed")
+	media, err := fixture.store.GetMedia(fixture.ctx, scan.Media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgrade, err := fixture.store.CreateManualWorkflowForExisting(fixture.ctx, media, fixture.root.ID, fixture.profile.ID, fixture.altMount.ID, nil, false, "", "owner", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err := fixture.store.LoadSearchContext(fixture.ctx, upgrade.ID)
+	if err != nil || search.CurrentRelease == nil {
+		t.Fatalf("upgrade search context current=%+v err=%v", search.CurrentRelease, err)
+	}
+	var subtitleFact *releases.Fact
+	for index := range search.CurrentRelease.Facts {
+		if search.CurrentRelease.Facts[index].Name == "subtitle_languages" {
+			subtitleFact = &search.CurrentRelease.Facts[index]
+		}
+	}
+	if subtitleFact == nil || subtitleFact.State != releases.FactObserved || len(subtitleFact.Values) != 1 || subtitleFact.Values[0] != releases.NoSubtitleLanguageObserved {
+		t.Fatalf("current release subtitle fact=%+v, want observed [%s]", subtitleFact, releases.NoSubtitleLanguageObserved)
 	}
 }

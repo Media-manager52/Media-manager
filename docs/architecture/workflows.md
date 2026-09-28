@@ -178,7 +178,11 @@ Each observation is normalized (`InferTitleFacts`) then evaluated by pure rules
    release/package exclusions.
 7. **Upgrade baseline** (`applyUpgradeBaseline`) — a candidate replacing a
    current release must score **strictly higher** under the target policy,
-   unless the current release now fails a required property.
+   unless the current release now fails a required property. The current
+   release's verified subtitle languages replace title inference; a verified
+   output with no subtitles is the observed value `none`, so it fails any
+   required language. The current release itself is rejected by exact
+   indexer + GUID and by exact release title (cross-posts).
 
 Any observation with a `weak:` native GUID (no retrievable identity) is held —
 never selected.

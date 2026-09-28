@@ -371,3 +371,45 @@ func TestWorkflowScopeRulesSeparateEpisodeAndPackScope(t *testing.T) {
 		t.Fatal("invalid season variant was accepted")
 	}
 }
+
+// TestVerifiedNoSubtitleCurrentReleaseFailsNewlyRequiredLanguage proves a
+// published release whose output inspection found no subtitles at all is
+// judged as missing a newly required language, so an equal-scoring
+// replacement is not rejected as "no improvement". Without the explicit
+// observed value, the empty set read as unknown and the current release
+// passed the requirement.
+func TestVerifiedNoSubtitleCurrentReleaseFailsNewlyRequiredLanguage(t *testing.T) {
+	t.Parallel()
+	rules := appendSubtitleRules(nil, subtitles.Policy{Required: []string{"da"}})
+	current := releases.Observation{ID: uuid.NewV7(), IndexerID: uuid.NewV7(), NativeGUID: "current", Facts: []releases.Fact{
+		{Name: "subtitle_languages", Values: []string{releases.NoSubtitleLanguageObserved}, State: releases.FactObserved},
+	}}
+	baseline, err := releases.Evaluate(current, rules)
+	if err != nil || baseline.Verdict != releases.VerdictRejected {
+		t.Fatalf("verified no-subtitle current release=%+v err=%v, want rejected under required da", baseline, err)
+	}
+	candidate := releases.Observation{ID: uuid.NewV7(), IndexerID: uuid.NewV7(), NativeGUID: "replacement"}
+	evaluation, err := releases.Evaluate(candidate, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement := applyUpgradeBaseline(candidate, evaluation, &current, &baseline); replacement.Verdict != releases.VerdictEligible {
+		t.Fatalf("replacement for a no-subtitle release was rejected: %+v", replacement)
+	}
+	// A cross-post of the very same release is never a replacement.
+	current.Title = "Resident.Evil.2026.1080p.TELESYNC.MULTi.V3.x264-DKS"
+	crossPost := releases.Observation{ID: uuid.NewV7(), IndexerID: uuid.NewV7(), NativeGUID: "cross-post", Title: "resident.evil.2026.1080p.telesync.multi.v3.x264-dks"}
+	if copied := applyUpgradeBaseline(crossPost, evaluation, &current, &baseline); copied.Verdict != releases.VerdictRejected {
+		t.Fatalf("cross-posted current release was accepted as a replacement: %+v", copied)
+	}
+	// The same release read as unknown (the previous behavior) blocks it.
+	unknown := current
+	unknown.Facts = nil
+	unknownBaseline, err := releases.Evaluate(unknown, rules)
+	if err != nil || unknownBaseline.Verdict != releases.VerdictEligible {
+		t.Fatalf("unknown baseline=%+v err=%v", unknownBaseline, err)
+	}
+	if blocked := applyUpgradeBaseline(candidate, evaluation, &unknown, &unknownBaseline); blocked.Verdict != releases.VerdictRejected {
+		t.Fatalf("unknown-subtitle baseline no longer demands improvement: %+v", blocked)
+	}
+}

@@ -234,6 +234,33 @@ and writes results to `.sites-runtime/live-playwright-results/`.
 | Plex never confirms | Read the workflow `attention_detail`: it says whether Plex never showed the path, showed it under a different provider identity (fix the Plex match), or confirmed only after the deadline. Check library paths and that Plex can resolve symlink targets. Never fake confirmation. Localized Plex titles are handled by the adapter's exact-path folder lookup. To retry a `plex_timeout` whose links are already `verified`, call `POST /api/v1/workflows/{id}/reconfirm-plex` (idempotent, audited, at most 3 retries per publication); never insert scan rows by hand. |
 | Local test runner reports Vite HMR port `24678` in use | Harmless for production; builds/tests still pass (recorded in release notes). |
 
+## 9a. Replace a publication that fails a newly required property
+
+Use this when a confirmed publication lacks something the profile now
+requires (for example Danish subtitles). The sanctioned path is an upgrade
+workflow; never delete links or edit rows.
+
+1. Confirm the profile requires the property and has `upgrades_enabled`
+   (`GET /api/v1/settings/quality-profiles`).
+2. Block releases already proven to fail it, so the new workflow does not
+   spend slots on them: `POST /api/v1/blocklist` with each failed
+   `candidate_id` and `scope: native_release` (blocks that indexer + GUID). For
+   a season, `scope: pack_release` also blocks the exact release title on
+   every indexer. Exclusions from the old workflow do not carry over.
+3. Create the upgrade workflow: `POST /api/v1/media/{id}/workflows` with the
+   same root and profile, `search_immediately: true`, and for a season the
+   exact `season` snapshot (number + every expected episode). A season is one
+   workflow and one pack: all its episode links are replaced together.
+4. Selection: the current release is rejected by exact identity and by exact
+   title (cross-posts). When its verified output lacks a now-required
+   subtitle language (including no subtitles at all), any eligible candidate
+   may replace it; otherwise a candidate must score strictly higher.
+5. The old links stay current until the replacement passes output
+   verification and exact Plex confirmation; only then are they displaced
+   and moved to recycle (`library.displaced_remove_requested`).
+6. If no compliant release exists, the truthful outcome is `waiting` (then
+   round exhaustion and discovery) while the old publication stays current.
+
 ## 10. What not to do operationally
 
 - Do not edit or delete files under `/mnt/altmount` via Media Manager or the

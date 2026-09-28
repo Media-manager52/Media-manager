@@ -137,7 +137,13 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 		if languageErr != nil && !errors.Is(languageErr, pgx.ErrNoRows) {
 			return SearchContext{}, languageErr
 		}
-		if len(observedLanguages) > 0 {
+		if languageErr == nil {
+			// Verified output inspection is the truth about the published
+			// release, including "no subtitles": it replaces any title-inferred
+			// language so a newly required language is judged as missing.
+			if len(observedLanguages) == 0 {
+				observedLanguages = []string{releases.NoSubtitleLanguageObserved}
+			}
 			currentObservation.Facts = upsertReleaseFact(currentObservation.Facts, releases.Fact{Name: "subtitle_languages", Values: observedLanguages, State: releases.FactObserved})
 		}
 		result.CurrentRelease = &currentObservation

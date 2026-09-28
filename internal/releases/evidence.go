@@ -27,6 +27,13 @@ const (
 	FactConflicting FactState = "conflicting"
 )
 
+// NoSubtitleLanguageObserved is the single value of an observed
+// subtitle_languages fact when bounded output inspection verified the
+// release and found no subtitle language at all. Evaluate treats an empty
+// value list as unknown, so the verified empty set needs an explicit value
+// that can never satisfy a language rule.
+const NoSubtitleLanguageObserved = "none"
+
 type Fact struct {
 	Name       string    `json:"name"`
 	Values     []string  `json:"values"`

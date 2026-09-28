@@ -316,6 +316,15 @@ func applyUpgradeBaseline(observation releases.Observation, evaluation releases.
 		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "current_release", Decision: releases.DecisionFail, Reason: "candidate is the exact release currently published"})
 		return evaluation
 	}
+	// The same release title cross-posted under another indexer or GUID is the
+	// same release. Once the current release fails a newly required property,
+	// only this check keeps such a copy from being re-downloaded as a
+	// "replacement".
+	if title := strings.TrimSpace(current.Title); title != "" && strings.EqualFold(strings.TrimSpace(observation.Title), title) {
+		evaluation.Verdict = releases.VerdictRejected
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "current_release", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "candidate has the exact release title currently published"})
+		return evaluation
+	}
 	if evaluation.Verdict == releases.VerdictEligible && baseline.Verdict == releases.VerdictEligible && evaluation.Score <= baseline.Score {
 		evaluation.Verdict = releases.VerdictRejected
 		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "quality_score", Decision: releases.DecisionFail, Reason: "candidate does not improve the current publication under this quality profile"})
