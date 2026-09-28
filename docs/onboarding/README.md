@@ -22,6 +22,8 @@ included in that commit.
 > To prove whether the remaining "missing" titles are truly unavailable or
 > blocked by a pipeline defect, paste
 > [agent-briefs/claude-availability-audit.md](agent-briefs/claude-availability-audit.md).
+> For a full-server-access review session (Codex/GPT-6-Astra or similar) use
+> [agent-briefs/codex-availability-review.md](agent-briefs/codex-availability-review.md).
 
 ## Read order
 
