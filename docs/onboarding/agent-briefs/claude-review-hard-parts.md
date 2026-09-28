@@ -6,6 +6,27 @@ fix the hard problems listed below. This document is precise about current live
 state so you do not have to rediscover it, and honest about what was already
 tried.
 
+## Implementation status (2026-09-28 evening)
+
+Problems **1–4** have implementations on `main` — `ac870c0` (apply-policy),
+`d90e2b9` (reconfirm-plex), `f2bd76d` (worker priority + Plex window),
+`c47e958` (localized-title Plex confirmation), `590c889` (verified empty
+subtitle set = missing language) — but they are **not deployed**; the running
+API is the previous binary. The full race integration suite was re-run
+independently on a disposable PostgreSQL and is green, live inspection shows
+**no in-flight AltMount job on a relaxed round snapshot** and **no no-subtitle
+verification since the policy was restored**, and 35 workflows with stale
+relaxed round snapshots now park safely (`quality_policy_changed`) until the
+owner applies the policy. Problems **5–8** are untouched. Deploy, the runbook
+§9a replacements, and the post-deploy `reconfirm-plex`/`apply-policy` calls all
+need owner approval.
+
+Open decision for the owner: output verification now uses the **attempt's round
+snapshot** (`SubtitlePolicyForJob`), so a job that started before a policy
+tightening finishes under the old policy. Current exposure is zero, but if the
+Danish-subtitle requirement must be absolute, subtitle requirements should fail
+closed to the live profile while quality rules stay attempt-scoped.
+
 Read `AGENTS.md`, then this file top-to-bottom before touching anything. For
 system context use `docs/onboarding/README.md` and the
 `docs/architecture/*.md` set. **Never print or commit secrets** (`.env`,
