@@ -91,9 +91,9 @@ Do not redo these; verify with a quick grep if a queue item touches them.
   and retry inside the round (including from persisted detail after AltMount
   prunes the queue entry).
 - `runtime = 0` provider metadata tolerated during intake.
-- Danish subtitles are preferred, not required, on the `Best Available Danish
-  Subs` profiles; subtitle-exhausted workflows were reopened under the new
-  policy, and msgnews downloads request the canonical `www` host directly.
+- Danish subtitles remain required for foreign content on the `Best Available
+  Danish Subs` profiles (a same-day preferred experiment was reverted) and
+  msgnews downloads request the canonical `www` host directly.
 - Documentation restructure, per-package `doc.go`, `scripts/check-docs.mjs`,
   and both CI pipelines wired to it.
 

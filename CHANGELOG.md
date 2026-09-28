@@ -31,7 +31,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Changed
 
-- The `Best Available Danish Subs` quality profiles now treat Danish subtitles as preferred rather than required (`required_subtitle_languages: []`, `preferred_subtitle_languages: ["da"]`), so foreign titles without a verified `da` subtitle track are no longer blocked. Because acquisition-round snapshots are immutable, the migration replaced open rounds with new-policy snapshots and reopened subtitle-exhausted workflows under the new policy.
+- Danish subtitles remain **required** for foreign content on the two `Best Available Danish Subs` quality profiles (`required_subtitle_languages: ["da"]`); a same-day experiment that relaxed them to preferred was reverted at owner direction before any relaxed-policy output was verified or published. Danish-original routing is unchanged.
 - AltMount packages are screened before submission: an NZB whose manifest contains only archive sets, ISO/DVD structures, or other non-playable containers is rejected without an upload. AltMount queue failures caused by archives, unplayable manifests, or missing Usenet segments now exclude the exact release and package and retry another candidate inside the open acquisition round instead of parking the workflow as infrastructure attention. If AltMount has already pruned the failed queue entry, the persisted failure detail drives the same decision instead of retrying the reconcile forever.
 - Movie-library assembly now indexes related files, wanted items, and workflows once and reuses precomputed search text, avoiding quadratic work as the catalog grows.
 - Catalog loading now retrieves every API page in bounded 200-record batches instead of silently presenting a truncated library.
