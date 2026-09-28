@@ -379,12 +379,6 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested title", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "release title does not begin with the requested canonical title"})
 		return evaluation
 	}
-	if media.Kind == catalog.KindMovie && media.Year != nil && !releases.TitleContainsYear(observation.Title, *media.Year) {
-		if evaluation.Verdict != releases.VerdictRejected {
-			evaluation.Verdict = releases.VerdictHeld
-		}
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested movie year", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Reason: "requested year is not explicit in the release title"})
-	}
 	verified := make(map[string]string)
 	for _, identity := range media.Identities {
 		if identity.State == catalog.IdentityVerified {
@@ -417,6 +411,15 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 		} else {
 			positiveIdentity = true
 		}
+	}
+	// A provider identity that exactly matches a verified identity proves the
+	// media, so the title year is only needed without one. Release years are
+	// often a year off the metadata year (festival versus theatrical release).
+	if media.Kind == catalog.KindMovie && !positiveIdentity && media.Year != nil && !releases.TitleContainsYear(observation.Title, *media.Year) {
+		if evaluation.Verdict != releases.VerdictRejected {
+			evaluation.Verdict = releases.VerdictHeld
+		}
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested movie year", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Reason: "requested year is not explicit in the release title and no provider identity matched"})
 	}
 	if media.Kind == catalog.KindSeries && !positiveIdentity && (media.Year == nil || !releases.TitleContainsYear(observation.Title, *media.Year)) {
 		if evaluation.Verdict != releases.VerdictRejected {

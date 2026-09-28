@@ -171,7 +171,10 @@ Each observation is normalized (`InferTitleFacts`) then evaluated by pure rules
    only helps, never lies.
 3. **Scope rules** (`workflowScopeRules`) force season/episode correctness.
 4. **Media match constraint** (`constrainMediaMatch`) — verified external
-   identity or exact title/year match; IMDb IDs normalized to numeric form.
+   identity or exact title/year match; IMDb IDs normalized to numeric form. A
+   provider identity that exactly matches a verified identity satisfies the
+   movie year check (release years are often a year off); without one, a
+   movie release must name the year. A mismatched identity always rejects.
 5. **Blocklist** (`applyReleaseBlocks`) — native or pack blocks reject before
    ranking.
 6. **Workflow exclusions** (`applyWorkflowExclusions`) — exact failed

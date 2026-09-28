@@ -413,3 +413,34 @@ func TestVerifiedNoSubtitleCurrentReleaseFailsNewlyRequiredLanguage(t *testing.T
 		t.Fatalf("unknown-subtitle baseline no longer demands improvement: %+v", blocked)
 	}
 }
+
+// TestConstrainMovieYearAcceptsPositiveProviderIdentity proves an exact
+// verified provider identity satisfies the movie year check (releases are
+// often dated a year off the metadata), while title-only releases without the
+// year stay held and a mismatched identity is still rejected.
+func TestConstrainMovieYearAcceptsPositiveProviderIdentity(t *testing.T) {
+	year := uint16(2016)
+	media := catalog.MediaItem{Kind: catalog.KindMovie, Title: "A Monster Calls", Year: &year, Identities: []catalog.ExternalIdentity{{Namespace: "imdb", Value: "tt3416532", State: catalog.IdentityVerified}}}
+	tests := []struct {
+		name        string
+		title       string
+		facts       []releases.Fact
+		wantVerdict releases.Verdict
+	}{
+		{name: "off-by-one year with matching identity", title: "A.Monster.Calls.2017.1080p.AMZN.WEB-DL", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"3416532"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictEligible},
+		{name: "no year with matching identity", title: "A.Monster.Calls.1080p.BluRay", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"tt3416532"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictEligible},
+		{name: "off-by-one year without identity held", title: "A.Monster.Calls.2017.1080p.AMZN.WEB-DL", wantVerdict: releases.VerdictHeld},
+		{name: "off-by-one year with other identity rejected", title: "A.Monster.Calls.2017.1080p.AMZN.WEB-DL", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"9999999"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictRejected},
+		{name: "conflicting identity held", title: "A.Monster.Calls.2017.1080p", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"3416532", "9999999"}, State: releases.FactConflicting}}, wantVerdict: releases.VerdictHeld},
+		{name: "exact year needs no identity", title: "A.Monster.Calls.2016.1080p.BluRay", wantVerdict: releases.VerdictEligible},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			observation := releases.Observation{Title: test.title, Facts: test.facts}
+			evaluation := releases.Evaluation{Verdict: releases.VerdictEligible}
+			if got := constrainMediaMatch(observation, evaluation, media).Verdict; got != test.wantVerdict {
+				t.Fatalf("verdict=%q, want %q", got, test.wantVerdict)
+			}
+		})
+	}
+}
