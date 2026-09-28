@@ -460,8 +460,16 @@ dependency).
 ### plex
 
 - `Client` confirms exact items by `GUID` + `Expected`/`ExpectedSeries` paths.
-- `Confirmation`, `Section`, `Item`, `Media`, `Part`, `EpisodeLeaf` model the
-  server response. A timeout or missing path is a failure, never assumed true.
+- The section title filter is only a fast path. Plex matches it against its own
+  (often localized, e.g. Danish) metadata title, so when it finds nothing the
+  client walks `/library/sections/{key}/folder` from the section `Location`
+  that contains the expected path, matching each folder by exact name and
+  following only that section's own numeric `parent` keys. Series use the
+  matched episode's `grandparentRatingKey` and then the same show-identity and
+  every-leaf checks. Title is never part of the proof.
+- `Confirmation`, `Section`, `Location`, `Item`, `Media`, `Part`, `EpisodeLeaf`
+  model the server response. A timeout or missing path is a failure, never
+  assumed true.
 
 ### seerr
 

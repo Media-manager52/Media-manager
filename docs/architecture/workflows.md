@@ -320,7 +320,8 @@ failure calls `FailPublication` → workflow attention; never a partial claim.
 
 `plex.scan_requested` → `PlexService.HandleScan` refreshes the exact library.
 `plex.confirm_requested` → `HandleConfirm` polls for exact identity GUID + every
-expected path. On success (`ConfirmPlexScan`, one transaction):
+expected path. The item is found by the section title filter or, when Plex
+shows a localized title, by walking the section folder tree to the exact path. On success (`ConfirmPlexScan`, one transaction):
 
 - the new link generation becomes `current`;
 - the previous generation is displaced (queued for removal only now);
