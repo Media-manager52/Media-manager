@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -391,4 +392,73 @@ func releaseSlug(value string) string {
 		return "release"
 	}
 	return value
+}
+
+// SelectCrossPostWithGrabBudget moves a selection whose indexer has exhausted
+// its rolling grab budget to the same release (identical title) posted on
+// another enabled, commissioned indexer that still has grab budget, when that
+// candidate is eligible under the open round's policy and was never attempted
+// or excluded. The exact release is unchanged, so its subtitle evidence and
+// the post-download verification still apply; only the source indexer moves.
+// It returns false, changing nothing, when the selection is stale or no such
+// cross-post exists.
+func (store *Store) SelectCrossPostWithGrabBudget(ctx context.Context, retrieval RetrievalContext, now time.Time) (bool, error) {
+	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return false, err
+	}
+	defer transaction.Rollback(ctx)
+	var state workflows.State
+	var revision int64
+	var selected *string
+	if err := transaction.QueryRow(ctx, `SELECT state,revision,selected_release_id::text FROM workflows WHERE id=$1 FOR UPDATE`, retrieval.Workflow.ID.String()).Scan(&state, &revision, &selected); errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if state != workflows.StateCandidateSelected || uint64(revision) != retrieval.Workflow.Revision || selected == nil || *selected != retrieval.CandidateID.String() {
+		return false, nil
+	}
+	var nextText, indexerName string
+	err = transaction.QueryRow(ctx, `SELECT candidate.id::text,integration.name
+		FROM release_candidates current
+		JOIN release_candidates candidate ON candidate.workflow_id=current.workflow_id AND candidate.id<>current.id
+		  AND candidate.indexer_instance_id<>current.indexer_instance_id AND lower(candidate.title)=lower(current.title)
+		JOIN acquisition_rounds round ON round.workflow_id=candidate.workflow_id AND round.state='open'
+		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
+		  AND decision.policy_version=round.policy_version AND decision.verdict='eligible'
+		JOIN integration_instances integration ON integration.id=candidate.indexer_instance_id
+		  AND integration.kind='newznab' AND integration.enabled AND integration.config->'mode_verified'='true'::jsonb
+		WHERE current.workflow_id=$1 AND current.id=$2
+		  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
+		  AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=candidate.workflow_id
+		    AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)
+		  AND (SELECT count(*) FROM indexer_request_reservations reservation
+		       WHERE reservation.indexer_instance_id=candidate.indexer_instance_id AND reservation.request_family='grab'
+		         AND reservation.reserved_at > $3::timestamptz - make_interval(secs => COALESCE(NULLIF(integration.config->>'budget_window_seconds','')::bigint, 86400)))
+		      < COALESCE(NULLIF(NULLIF(integration.config->>'grab_limit',''),'0')::int, $4)
+		ORDER BY decision.score DESC,candidate.indexer_instance_id,candidate.native_key
+		LIMIT 1`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), now.UTC(), indexers.ConservativeGrabLimit).Scan(&nextText, &indexerName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	newRevision := revision + 1
+	reason := "selected indexer's rolling grab budget is exhausted; the same release is selected on " + indexerName
+	if _, err := transaction.Exec(ctx, `UPDATE workflows SET selected_release_id=$2,revision=$3,updated_at=$4 WHERE id=$1 AND revision=$5`, retrieval.Workflow.ID.String(), nextText, newRevision, now.UTC(), revision); err != nil {
+		return false, err
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO candidate_selections(workflow_id,candidate_id,selected_at,actor,reason) VALUES($1,$2,$3,'policy',$4) ON CONFLICT(workflow_id) DO UPDATE SET candidate_id=EXCLUDED.candidate_id,selected_at=EXCLUDED.selected_at,actor=EXCLUDED.actor,reason=EXCLUDED.reason`, retrieval.Workflow.ID.String(), nextText, now.UTC(), reason); err != nil {
+		return false, err
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,'candidate_selected','candidate_selected',$3,'worker',$4)`, retrieval.Workflow.ID.String(), newRevision, reason, now.UTC()); err != nil {
+		return false, err
+	}
+	payload, _ := json.Marshal(map[string]string{"workflow_id": retrieval.Workflow.ID.String(), "candidate_id": nextText})
+	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'release.retrieve_requested',$4,$5,$5)`, uuid.NewV7().String(), retrieval.Workflow.ID.String(), newRevision, string(payload), now.UTC()); err != nil {
+		return false, err
+	}
+	return true, transaction.Commit(ctx)
 }

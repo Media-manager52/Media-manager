@@ -140,6 +140,19 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if errors.Is(err, postgres.ErrConcurrentModification) {
 		return nil
 	}
+	var budgetExhausted indexers.RequestBudgetError
+	if errors.As(err, &budgetExhausted) {
+		// The grab budget was checked before any provider request. Rather
+		// than idle until this indexer's window resets, take the identical
+		// release from an indexer that still has grab budget.
+		switched, switchErr := service.Store.SelectCrossPostWithGrabBudget(ctx, retrieval, time.Now().UTC())
+		if switchErr != nil {
+			return switchErr
+		}
+		if switched {
+			return nil
+		}
+	}
 	if err != nil {
 		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
 	}

@@ -322,6 +322,13 @@ Handler: `acquisition.RetrievalService` (`retrieve.go`).
    to that provider only inside the workflow: the exact release is excluded and
    another indexer may still be used.
 
+Grab budgets: fetching the NZB reserves the indexer's rolling grab budget
+before any request. When the selected indexer's budget is exhausted, retrieval
+moves the selection to the identical release (same title) on another enabled,
+commissioned indexer that still has grab budget, if that copy is eligible
+under the open round and was never attempted or excluded
+(`SelectCrossPostWithGrabBudget`); otherwise the event waits for the window.
+
 ## 7. AltMount reconciliation and output verification
 
 Handler: `acquisition.AltMountReconcileService` (`reconcile_altmount.go`).
