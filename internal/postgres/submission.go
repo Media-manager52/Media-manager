@@ -69,49 +69,6 @@ func (store *Store) LoadRetrievalContext(ctx context.Context, workflowID, candid
 	return result, err
 }
 
-func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval RetrievalContext, detail string, now time.Time) error {
-	if strings.TrimSpace(detail) == "" {
-		detail = "selected release NZB could not be retrieved"
-	}
-	if len(detail) > 1000 {
-		detail = detail[:1000]
-	}
-	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return err
-	}
-	defer transaction.Rollback(ctx)
-	var state workflows.State
-	var revision int64
-	var indexerText, nativeKey string
-	err = transaction.QueryRow(ctx, `SELECT workflow.state,workflow.revision,candidate.indexer_instance_id::text,candidate.native_key
-		FROM workflows workflow
-		JOIN release_candidates candidate ON candidate.workflow_id=workflow.id
-		WHERE workflow.id=$1 AND candidate.id=$2 AND workflow.selected_release_id=candidate.id
-		FOR UPDATE OF workflow`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String()).Scan(&state, &revision, &indexerText, &nativeKey)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if state != workflows.StateCandidateSelected || uint64(revision) != retrieval.Workflow.Revision {
-		return transaction.Commit(ctx)
-	}
-	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,verification_id,failure_kind,reason,created_at)
-		VALUES($1,$2,$3,$4,NULL,'release_retrieval',$5,$6)
-		ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO NOTHING`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), indexerText, nativeKey, detail, now.UTC()); err != nil {
-		return err
-	}
-	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='needs_attention',revision=revision+1,updated_at=$2,attention_code='release_retrieval_failed',attention_detail=$3 WHERE id=$1`, retrieval.Workflow.ID.String(), now.UTC(), detail); err != nil {
-		return err
-	}
-	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'needs_attention',$4,'worker',$5)`, retrieval.Workflow.ID.String(), revision+1, state, detail, now.UTC()); err != nil {
-		return err
-	}
-	return transaction.Commit(ctx)
-}
-
 // RecordPreSubmissionRejection records a release whose NZB package was
 // rejected by the pre-flight screen before any AltMount submission intent
 // existed. No job row and no round slot are consumed: the exact release is
@@ -323,6 +280,7 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			JOIN acquisition_rounds round ON round.workflow_id=workflow.id AND round.state='open' AND round.policy_version=decision.policy_version
 			WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
 			  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
+			AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions denied WHERE denied.retrieval_round_id=round.id AND denied.indexer_instance_id=candidate.indexer_instance_id AND denied.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))
 			  AND NOT EXISTS (
 			    SELECT 1 FROM workflow_release_exclusions exclusion
 			    WHERE exclusion.workflow_id=candidate.workflow_id
@@ -485,6 +443,7 @@ func (store *Store) SelectCrossPostWithGrabBudget(ctx context.Context, retrieval
 		  AND integration.kind='newznab' AND integration.enabled AND integration.config->'mode_verified'='true'::jsonb
 		WHERE current.workflow_id=$1 AND current.id=$2
 		  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
+			AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions denied WHERE denied.retrieval_round_id=round.id AND denied.indexer_instance_id=candidate.indexer_instance_id AND denied.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))
 		  AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=candidate.workflow_id
 		    AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)
 		  AND (SELECT count(*) FROM indexer_request_reservations reservation

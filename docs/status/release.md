@@ -2,14 +2,27 @@
 
 Assessed against the live stack on 2026-09-02, updated at the V1 release
 closeout on 2026-09-14, and refreshed on 2026-09-28. The deployed API and UI
-now run `c6bf1b8` at schema 40; see the post-V1 hardening section immediately
-below. Earlier sections are retained as historical evidence for the schema-32,
+were independently verified at `78c127b`, schema 40, on 2026-09-28; see the
+follow-up immediately below. Earlier sections are retained as historical evidence for the schema-32,
 schema-35, and schema-36 milestones.
 
 “Implemented” means that the core behavior exists in the real application.
 “Synthetic tested” means that its local deterministic tests pass. “Live tested”
 means that the configured services completed the real operation; health checks
 alone do not qualify.
+
+## Local retrieval recovery follow-up (2026-09-28, not deployed)
+
+Production was independently verified at `78c127b`, schema 40. The local schema
+41 follow-up fixes stranded retrieval failures, checks admission before provider
+grabs, and ranks Danish clues without treating them as verified subtitle facts.
+See the [review and reproduction SQL](retrieval-recovery-review.md).
+
+Validation passed: `gofmt`, focused recovery/migration regressions,
+`go vet ./...`, `GOFLAGS=-mod=readonly go test -count=1 ./...`, the full
+`go test -count=1 -race ./cmd/... ./internal/...` suite with disposable
+PostgreSQL on port 5433 (postgres package: 314 seconds), and `npm run docs:check`.
+No production migration, deployment or request resume was performed.
 
 ## Post-V1 hardening (2026-09-28)
 

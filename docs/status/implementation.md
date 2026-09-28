@@ -21,6 +21,14 @@ source as visual references, but they are not imported into the Docker UI graph.
 Unmapped routes render `LiveUnavailableScreen` and cannot fall through to fixture
 screens.
 
+## Local retrieval recovery follow-up (2026-09-28, not deployed)
+
+Schema 41 adds bounded, round-scoped recovery from NZB retrieval failures,
+pre-grab admission and Danish-clue ranking without weakening output verification.
+See the [review](retrieval-recovery-review.md) for behavior, tests and limitations.
+Production was independently verified at `78c127b`, schema 40; older deployed
+snapshots below remain historical.
+
 ## Current hardening milestone (2026-09-28)
 
 Verified against the deployed build at `c6bf1b8` and schema 40. The following

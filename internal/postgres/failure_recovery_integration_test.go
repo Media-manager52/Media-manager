@@ -30,7 +30,7 @@ type failureRecoveryFixture struct {
 	profile    QualityProfile
 }
 
-func newFailureRecoveryFixture(t *testing.T) *failureRecoveryFixture {
+func newFailureRecoveryFixture(t *testing.T, versions ...int64) *failureRecoveryFixture {
 	t.Helper()
 	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -38,7 +38,7 @@ func newFailureRecoveryFixture(t *testing.T) *failureRecoveryFixture {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	store := subtitleIntegrationStore(t, ctx, databaseURL)
+	store := subtitleIntegrationStore(t, ctx, databaseURL, versions...)
 	t.Cleanup(store.Close)
 
 	plex, err := store.CreateIntegration(ctx, Integration{Kind: "plex", Name: "Recovery Plex", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://plex.invalid:32400","allow_http":true}`), SecretRef: "PLEX_TOKEN"})
@@ -142,7 +142,7 @@ func TestRetrievalFailureIsNotAnAttemptAndCreatesNoJob(t *testing.T) {
 	workflow := fixture.newMovieWorkflow(t, "Retrieval Failure", "900001")
 	retrieval := seedRetrievalCandidate(t, fixture.ctx, fixture.store, workflow.ID, fixture.indexer.ID, "retrieval-failure-guid")
 
-	if err := fixture.store.RecordReleaseRetrievalFailure(fixture.ctx, retrieval, "bounded provider rejection", time.Now().UTC()); err != nil {
+	if err := fixture.store.RecordReleaseRetrievalFailure(fixture.ctx, retrieval, "newznab_invalid_nzb", "bounded provider rejection", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 

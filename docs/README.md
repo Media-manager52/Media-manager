@@ -44,6 +44,7 @@ These are dated and may lag `main`. They are not behavioral truth.
 | [status/release.md](status/release.md) | Release evidence and milestone closeouts |
 | [status/indexer-conformance.md](status/indexer-conformance.md) | Developer-only Newznab provider conformance evidence (not a runtime dependency) |
 | [status/availability-audit.md](status/availability-audit.md) | 2026-09-28 audit of why non-terminal titles are missing, with a per-title truth table |
+| [status/retrieval-recovery-review.md](status/retrieval-recovery-review.md) | Seerr request evidence, bounded retrieval recovery, Danish ranking and read-only reproduction SQL |
 
 ## Archive
 

@@ -45,6 +45,8 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Fixed
 
+- NZB retrieval failures now select a known eligible alternative within the same open round, bounded to four failed candidates separately from the two download slots. HTTP 401/403 avoids the rejected provider for that round; storage, round, policy and blocklist admission run before a grab. Danish-required searches prefer explicit subtitle evidence, then Danish/Nordic clues, without changing eligibility or output verification. Additive schema 41 does not retry parked requests automatically.
+
 - The package manifest is screened **before** the AltMount submission intent, so a zip/tar/ISO/non-playable rejection excludes the release and queues the next search without creating a job or spending one of the round's two attempt slots (`RecordPreSubmissionRejection`).
 - RAR and 7-Zip releases are submitted to AltMount instead of being rejected before upload. AltMount streams stored and nested RAR itself (77 of 84 RAR analyses succeeded in 72 hours, including Media Manager's own DKsubs and NORDiC uploads); the screen had rejected 60 releases, many of them the Danish scene posts being searched for. Archives AltMount cannot stream remain release-attributable failures; zip/tar and ISO/DVD are still rejected.
 - A movie release whose provider identity exactly matches the verified IMDb/TMDB identity is no longer held for lacking the metadata year in its title (1,041 held candidates across 23 workflows, all with a matching identity).

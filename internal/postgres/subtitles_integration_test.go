@@ -136,7 +136,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	}
 	retrievalWorkflow := retrievalWorkflows[0]
 	retrieval := seedRetrievalCandidate(t, ctx, store, retrievalWorkflow.ID, indexer.ID, "https://indexer.invalid/details/exact-retrieval-guid")
-	if err := store.RecordReleaseRetrievalFailure(ctx, retrieval, "bounded test retrieval failure", time.Now().UTC()); err != nil {
+	if err := store.RecordReleaseRetrievalFailure(ctx, retrieval, "newznab_invalid_nzb", "bounded test retrieval failure", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	var retrievalState, retrievalAttention, failureKind string
@@ -916,7 +916,7 @@ func testNZBPackageIdentity(seed byte) [sha256.Size]byte {
 	return identity
 }
 
-func subtitleIntegrationStore(t *testing.T, ctx context.Context, databaseURL string) *Store {
+func subtitleIntegrationStore(t *testing.T, ctx context.Context, databaseURL string, versions ...int64) *Store {
 	t.Helper()
 	schema := "mm_subtitle_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	connectionString := databaseURL
@@ -955,7 +955,11 @@ func subtitleIntegrationStore(t *testing.T, ctx context.Context, databaseURL str
 		t.Fatal(err)
 	}
 	store := &Store{Pool: pool}
-	if err := Migrate(ctx, store.Pool); err != nil {
+	version := CurrentSchemaVersion
+	if len(versions) > 0 {
+		version = versions[0]
+	}
+	if err := migrateThrough(ctx, store.Pool, version); err != nil {
 		store.Close()
 		t.Fatal(err)
 	}

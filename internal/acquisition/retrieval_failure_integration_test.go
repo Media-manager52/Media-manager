@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 	"uuid"
@@ -185,4 +188,78 @@ func TestActiveSubmissionIsNotRetransmitted(t *testing.T) {
 	if err != nil || recovered.State != workflows.StateTransportUnknown {
 		t.Fatalf("recovered workflow=%+v err=%v", recovered, err)
 	}
+}
+
+// Access denials advance to another source after one actual provider request.
+func TestRetrievalAccessDenialSelectsAlternateWithoutSecondRequest(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	var gets atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("t") == "get" {
+			gets.Add(1)
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte(movieSearchReleaseXML("Klaus.2019.1080p.WEB-DL")))
+	}))
+	defer server.Close()
+	configureNamedSearchIndexer(t, store, "Source A", server.URL)
+	second := httptest.NewServer(server.Config.Handler)
+	defer second.Close()
+	configureNamedSearchIndexer(t, store, "Source B", second.URL)
+	workflow := createMovieSearchWorkflow(t, store)
+	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || selected.SelectedRelease == nil {
+		t.Fatalf("selection=%+v %v", selected, err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE indexer_budget_state SET next_allowed_at=now()-interval '1 minute',cooldown_until=NULL,consecutive_failure=0`); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]string{"workflow_id": workflow.ID.String(), "candidate_id": selected.SelectedRelease.String()})
+	service := &RetrievalService{Store: store, Scheduler: indexers.NewScheduler(2, store), ResolveSecret: func(string) (string, error) { return "test-api-key", nil }, Transport: server.Client().Transport}
+	event := postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: selected.Revision, Payload: payload, Attempts: 1}
+	if err := service.Handle(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	next, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || next.State != workflows.StateCandidateSelected || next.SelectedRelease == nil || *next.SelectedRelease == *selected.SelectedRelease {
+		t.Fatalf("alternate=%+v %v", next, err)
+	}
+	if err := service.Handle(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if gets.Load() != 1 {
+		t.Fatalf("provider get requests=%d, want exactly one", gets.Load())
+	}
+	assertNoRetrievalAttempt(t, store, workflow.ID)
+}
+
+func TestRetrievalClosedRoundMakesNoProviderRequest(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	server, _ := newMovieSearchServer(t, func(url.Values) string { return movieSearchReleaseXML("Klaus.2019.1080p.WEB-DL") })
+	defer server.Close()
+	configureMovieSearchIndexer(t, store, server.URL, false)
+	workflow := createMovieSearchWorkflow(t, store)
+	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE acquisition_rounds SET state='exhausted' WHERE workflow_id=$1`, workflow.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]string{"workflow_id": workflow.ID.String(), "candidate_id": selected.SelectedRelease.String()})
+	// A nil scheduler/resolver would panic if the handler attempted provider work.
+	if err := (&RetrievalService{Store: store}).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: selected.Revision, Payload: payload, Attempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	assertNoRetrievalAttempt(t, store, workflow.ID)
 }

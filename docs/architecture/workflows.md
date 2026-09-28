@@ -602,3 +602,20 @@ the persisted failure detail instead of retrying that reconcile forever.
 
 Never "fix" an attention state by editing the database or faking a Plex
 confirmation. Recovery paths exist; use them.
+
+## Bounded NZB retrieval recovery (schema 41)
+
+Before fetching an NZB, admission checks selection/revision, round/policy/current
+publication, available submission slots, retained failed outputs and owner
+blocks. Failure to fetch a candidate does not spend a download slot: up to four
+failed candidates can advance directly to known eligible alternatives in the
+same open round. HTTP 401/403 avoids that provider for this round after one
+request. Other failures retain two bounded attempts and all pacing controls.
+No alternative or reaching the failure cap leaves an explicit attention reason.
+
+Danish-required search ranking prefers explicit `da` observations/inferences,
+then bounded Danish/Nordic title clues, then unknown evidence. These clues do
+not create subtitle facts, change eligibility, or qualify an upgrade by
+increasing its policy score. Output inspection and exact Plex verification
+remain mandatory. See the [review](../status/retrieval-recovery-review.md) for
+live evidence, limitations and the owner decisions for deploying/resuming work.

@@ -7,7 +7,7 @@ belongs. Reading this before touching SQL saves hours.
 
 - Migrations are **embedded** Go/SQL: `internal/postgres/migrations/NNNN_name.sql`,
   embedded via `//go:embed migrations/*.sql` in `migrate.go`.
-- `CurrentSchemaVersion int64 = 39` in `migrate.go` is the single version gate.
+- `CurrentSchemaVersion int64 = 41` in `migrate.go` is the single version gate.
   `Migrate` applies every file whose numeric prefix is `<= CurrentSchemaVersion`
   and not yet in `schema_migrations`.
 - Each migration runs in its own transaction; a global advisory lock
@@ -244,3 +244,13 @@ boilerplate for the UI template (`drizzle.config.ts` uses SQLite). **The real
 database is PostgreSQL managed by the Go migrations above.** Do not add
 production tables to Drizzle or run `npm run db:generate` expecting a Go
 migration; it only generates into `drizzle/`.
+
+## Schema 41: bounded NZB retrieval recovery
+
+Migration `0041_bounded_retrieval_recovery.sql` adds nullable
+`retrieval_round_id` and `retrieval_error_code` to `workflow_release_exclusions`,
+with a same-workflow round foreign key and a round/provider index. Four failed
+candidate retrievals pause the round separately from its two submission slots.
+HTTP 401/403 records prevent reuse of that provider inside this round. Historical
+rows remain unassigned; migration never resumes parked workflows. The runtime
+admission and atomic alternative selection live in `retrieval_recovery.go`.

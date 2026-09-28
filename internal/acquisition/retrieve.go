@@ -98,6 +98,10 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if event.AggregateRevision != retrieval.Workflow.Revision || retrieval.Workflow.State != workflows.StateCandidateSelected {
 		return nil
 	}
+	allowed, err := service.Store.PrepareReleaseRetrieval(ctx, retrieval, time.Now().UTC())
+	if err != nil || !allowed {
+		return err
+	}
 	if retrieval.DownloadClient.Kind != "altmount" {
 		return errors.New("selected download client adapter is not implemented")
 	}
@@ -125,14 +129,11 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
 	}
 	nzb, err := indexerClient.GetNZBPackageFromLocatorGuarded(ctx, retrievalID, retrieval.DownloadLocatorRef, func(guardCtx context.Context) error {
-		current, loadErr := service.Store.LoadRetrievalContext(guardCtx, workflowID, candidateID)
-		if errors.Is(loadErr, postgres.ErrNotFound) {
-			return postgres.ErrConcurrentModification
+		allowed, guardErr := service.Store.PrepareReleaseRetrieval(guardCtx, retrieval, time.Now().UTC())
+		if guardErr != nil {
+			return guardErr
 		}
-		if loadErr != nil {
-			return loadErr
-		}
-		if current.Workflow.State != workflows.StateCandidateSelected || current.Workflow.Revision != retrieval.Workflow.Revision || current.CandidateID != retrieval.CandidateID {
+		if !allowed {
 			return postgres.ErrConcurrentModification
 		}
 		return nil
@@ -205,19 +206,24 @@ func (service *RetrievalService) retryOrRecordRetrievalFailure(ctx context.Conte
 	if errors.As(cause, &deferred) {
 		if terminalRetrievalAccessFailure(event.LastError) {
 			detail := "selected release NZB access was rejected after one bounded request (" + event.LastError + ")"
-			return service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, detail, time.Now().UTC())
+			return service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, event.LastError, detail, time.Now().UTC())
 		}
 		return cause
+	}
+	code := "release_retrieval_failed"
+	var coded interface{ SafeCode() string }
+	if errors.As(cause, &coded) {
+		code = coded.SafeCode()
+	}
+	if terminalRetrievalAccessFailure(code) {
+		detail := "selected provider rejected NZB access (" + code + "); avoid this provider for the remainder of this round"
+		return service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, code, detail, time.Now().UTC())
 	}
 	if event.Attempts < maxReleaseRetrievalAttempts {
 		return cause
 	}
-	detail := "selected release NZB could not be retrieved after two bounded requests"
-	var coded interface{ SafeCode() string }
-	if errors.As(cause, &coded) {
-		detail += " (" + coded.SafeCode() + ")"
-	}
-	if err := service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, detail, time.Now().UTC()); err != nil {
+	detail := "selected release NZB could not be retrieved after two bounded requests (" + code + ")"
+	if err := service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, code, detail, time.Now().UTC()); err != nil {
 		return errors.Join(cause, err)
 	}
 	return nil

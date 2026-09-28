@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"uuid"
@@ -14,6 +15,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/releases"
+	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -361,6 +363,13 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		evaluations = append(evaluations, evaluation)
 	}
 	ranked := releases.Rank(observations, evaluations)
+	subtitlePolicy, err := subtitles.ParsePolicy(search.Policy)
+	if err != nil {
+		return workflows.Workflow{}, err
+	}
+	if slices.Contains(subtitlePolicy.Required, "da") {
+		ranked = releases.RankForDanishSubtitles(observations, evaluations)
+	}
 	if options.RecoveryRescan {
 		if err := store.persistRecoveryDiscovery(ctx, transaction, search, ranked, candidateByObservation, candidateSequenceByObservation, options, now); err != nil {
 			return workflows.Workflow{}, err
@@ -374,7 +383,10 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		func(evaluation releases.Evaluation) (bool, error) {
 			candidate := candidateByObservation[evaluation.ObservationID]
 			var alreadyAttempted bool
-			if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_attempted_releases WHERE workflow_id=$1 AND candidate_id=$2)`, search.Workflow.ID.String(), candidate.String()).Scan(&alreadyAttempted); err != nil {
+			if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_attempted_releases WHERE workflow_id=$1 AND candidate_id=$2)
+				OR EXISTS(SELECT 1 FROM workflow_release_exclusions e JOIN acquisition_rounds r ON r.id=e.retrieval_round_id AND r.state='open'
+				 JOIN release_candidates c ON c.id=$2 AND c.workflow_id=$1
+				 WHERE e.workflow_id=$1 AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))`, search.Workflow.ID.String(), candidate.String()).Scan(&alreadyAttempted); err != nil {
 				return false, err
 			}
 			return alreadyAttempted, nil
