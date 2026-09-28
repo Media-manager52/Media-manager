@@ -14,6 +14,11 @@ included in that commit.
 > status/evidence and archived proposals, is in
 > [`docs/README.md`](../README.md). To start a coding-agent session, paste
 > [agent-briefs/claude-code.md](agent-briefs/claude-code.md) into it first.
+> For the currently open hard problems (policy-change migration, Plex
+> re-confirmation recovery, worker starvation, the two publications made without
+> Danish subtitles, subtitle evidence strategy, provider failures, Seerr scan
+> sync, and adoption), paste
+> [agent-briefs/claude-review-hard-parts.md](agent-briefs/claude-review-hard-parts.md).
 
 ## Read order
 
