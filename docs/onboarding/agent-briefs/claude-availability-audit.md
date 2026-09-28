@@ -8,6 +8,12 @@ defect; find and, where approved, fix the defects. The owner has nine active
 Newznab indexers and a strong prior that releases exist, so a conclusion of
 "unavailable" must be backed by evidence, not by the absence of a selection.
 
+> **Status (2026-09-28):** audited. Findings, the H8 truth table, and the
+> owner-decision list are in
+> [status/availability-audit.md](../../status/availability-audit.md). Five
+> defects are fixed on `main` (not yet deployed); per-episode acquisition for
+> finished seasons (D7) and reviving screen-rejected archives await the owner.
+
 Read `AGENTS.md` first, then
 `docs/onboarding/agent-briefs/claude-review-hard-parts.md` (problems 1–10; 5–8
 are still open and overlap this audit) and the `docs/architecture/*.md` set.
