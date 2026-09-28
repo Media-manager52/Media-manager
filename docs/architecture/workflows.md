@@ -203,9 +203,12 @@ observations, candidates, decisions, and a selection. Then:
 
 - **Selected** → workflow `candidate_selected`, queues
   `release.retrieve_requested`.
-- **Nothing eligible** → `waiting`/`held`, with a retry scheduled at +30
-  minutes when there are no prior submissions, otherwise the deterministic
-  discovery delay (24h ±20%, see §5).
+- **Nothing eligible** → `waiting`/`held`, with a retry after 30 minutes that
+  doubles for each further targeted run in the current round that selects
+  nothing (1h, 2h, 4h, 8h, capped at 12h) when there are no prior submissions,
+  otherwise the deterministic discovery delay (24h ±20%, see §5). Every search
+  queries every indexer, so a flat 30-minute retry spent the rolling query
+  budgets on repeat empty searches.
 - **All indexers failed** → the search event is deferred/failed with a safe code;
   the workflow is not falsely advanced.
 

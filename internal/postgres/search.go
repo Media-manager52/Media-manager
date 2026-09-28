@@ -434,7 +434,12 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			retryReason = "observed releases were held by required evidence; retrying"
 		}
 		payload, _ := json.Marshal(map[string]string{"workflow_id": search.Workflow.ID.String(), "reason": retryReason})
-		nextSearchAt := now.UTC().Add(30 * time.Minute)
+		var roundRuns int
+		if err := transaction.QueryRow(ctx, `SELECT count(*) FROM search_runs run JOIN acquisition_rounds round ON round.workflow_id=run.workflow_id AND round.state='open'
+			WHERE run.workflow_id=$1 AND run.mode='targeted' AND run.started_at>=round.opened_at`, search.Workflow.ID.String()).Scan(&roundRuns); err != nil {
+			return workflows.Workflow{}, err
+		}
+		nextSearchAt := now.UTC().Add(noSelectionRetryDelay(roundRuns))
 		var priorSubmissions int
 		if err := transaction.QueryRow(ctx, `SELECT count(*) FROM altmount_jobs WHERE workflow_id=$1`, search.Workflow.ID.String()).Scan(&priorSubmissions); err != nil {
 			return workflows.Workflow{}, err
@@ -454,6 +459,27 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	search.Workflow.SelectedRelease = selected
 	search.Workflow.UpdatedAt = now.UTC()
 	return search.Workflow, nil
+}
+
+const (
+	noSelectionRetryBase = 30 * time.Minute
+	noSelectionRetryCap  = 12 * time.Hour
+)
+
+// noSelectionRetryDelay paces the next targeted search after runs in the
+// current round that selected nothing: 30 minutes after the first, doubling
+// per run up to 12 hours. Every search queries every indexer, and a flat
+// 30-minute retry for titles with no eligible release spent the indexers'
+// rolling query budgets on repeat empty searches.
+func noSelectionRetryDelay(roundRuns int) time.Duration {
+	delay := noSelectionRetryBase
+	for run := 1; run < roundRuns && delay < noSelectionRetryCap; run++ {
+		delay *= 2
+	}
+	if delay > noSelectionRetryCap {
+		delay = noSelectionRetryCap
+	}
+	return delay
 }
 
 func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pgx.Tx, search SearchContext, ranked []releases.Evaluation, candidates map[uuid.UUID]uuid.UUID, sequences map[uuid.UUID]int64, options SearchPersistenceOptions, now time.Time) error {
