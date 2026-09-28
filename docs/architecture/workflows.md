@@ -329,7 +329,9 @@ shows a localized title, by walking the section folder tree to the exact path. O
 - `plex_confirmations` evidence is stored;
 - Seerr status sync is queued.
 
-A timeout marks attention (`TimeoutPlexScan`) with the last poll's reason.
+The 20-minute confirmation window starts when the refresh is requested, so
+time a scan spends queued never counts against Plex. A timeout marks attention
+(`TimeoutPlexScan`) with the last poll's reason.
 The owner can retry from the same verified links with
 `POST /api/v1/workflows/{id}/reconfirm-plex` (`Store.RequestPlexReconfirmation`),
 which creates a fresh scan request and never touches the links. Publication is

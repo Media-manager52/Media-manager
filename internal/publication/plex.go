@@ -44,9 +44,8 @@ func (service *PlexService) HandleScan(ctx context.Context, event postgres.Outbo
 	if event.AggregateRevision != scan.Revision {
 		return nil
 	}
-	if now := time.Now().UTC(); !now.Before(scan.DeadlineAt) {
-		return service.Store.TimeoutPlexScan(ctx, scan, plexTimeoutDetail(nil), now)
-	}
+	// A planned scan has not asked Plex anything yet, so it never times out
+	// here; the confirmation window restarts when the refresh is requested.
 	if scan.State != "planned" {
 		return nil
 	}

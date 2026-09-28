@@ -663,7 +663,10 @@ func (store *Store) MarkPlexRefreshRequested(ctx context.Context, scan PlexScanC
 		return err
 	}
 	defer transaction.Rollback(ctx)
-	command, err := transaction.Exec(ctx, `UPDATE plex_scan_requests SET state='polling',revision=revision+1 WHERE id=$1 AND state='planned' AND revision=$2`, scan.ID.String(), int64(scan.Revision))
+	// The confirmation window starts when Plex is actually asked to refresh,
+	// not when the scan was planned, so time spent waiting in the outbox never
+	// counts against Plex.
+	command, err := transaction.Exec(ctx, `UPDATE plex_scan_requests SET state='polling',revision=revision+1,deadline_at=GREATEST(deadline_at,$3) WHERE id=$1 AND state='planned' AND revision=$2`, scan.ID.String(), int64(scan.Revision), time.Now().UTC().Add(plexConfirmationWindow))
 	if err != nil {
 		return err
 	}

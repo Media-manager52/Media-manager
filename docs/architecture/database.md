@@ -227,8 +227,9 @@ When adding a method, place it in the domain file, reuse `ErrNotFound` /
 2. **Stale events are no-ops.** Workers compare
    `event.AggregateRevision` before acting.
 3. **Outbox ordering is not guaranteed.** Handlers must tolerate
-   out-of-order/duplicate delivery. The discovery rescan is explicitly
-   de-prioritized in `ClaimOutbox`.
+   out-of-order/duplicate delivery. `ClaimOutbox` claims lifecycle events
+   before searches and discovery rescans last; that is a latency preference,
+   not an ordering contract.
 4. **Round snapshot guard.** A search whose round policy/upgrade baseline no
    longer matches fails closed with "owner review is required".
 5. **Retention.** Recycle automatic purge planning runs hourly via

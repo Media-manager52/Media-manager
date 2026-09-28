@@ -87,8 +87,11 @@ There is no queue service. Work is state + events in PostgreSQL.
 - **Consumer side.** `platform.Worker` (`internal/platform/worker.go`):
   - Polls every second; claims **1** event per batch via
     `Store.ClaimOutbox` (`FOR UPDATE SKIP LOCKED`), so multiple API replicas
-    would not double-process. `workflow.discovery_rescan_requested` is
-    de-prioritized (sorted last).
+    would not double-process. Due events are claimed in three tiers, oldest
+    first within each: lifecycle work (AltMount, publication, Plex, Seerr,
+    recycle, ...), then `workflow.search_requested`, then the evidence-only
+    `workflow.discovery_rescan_requested`. A paced search backlog therefore
+    cannot delay time-bounded Plex confirmation or reconciliation.
   - Leases for 1 minute; a heartbeat goroutine renews at `lease/3` (max 30s,
     min 1s) and cancels the handler if renewal fails.
   - Success → `CompleteOutbox`. Error → `FailOutbox` with exponential backoff
