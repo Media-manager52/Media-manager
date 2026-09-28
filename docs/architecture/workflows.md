@@ -510,10 +510,13 @@ restore automation and no automatic deletion.
 ## 16. Attention codes and recovery playbook
 
 Before an NZB is submitted to AltMount, Media Manager screens its file
-manifest. Packages that only contain archives (`.rar`/`.r00`/`.partNNN.rar`,
-`.7z`, `.zip`), ISO/DVD structures, or other recognized non-playable
-containers are excluded immediately, and another candidate is searched inside
-the open round. AltMount queue failures that identify the same payload classes
+manifest. Packages that only contain archive formats AltMount cannot open
+(`.zip`, `.tar`, `.gz`, `.bz2`, `.xz`), ISO/DVD structures, or other recognized
+non-playable containers are excluded immediately, and another candidate is
+searched inside the open round. RAR (`.rar`/`.r00`/`.partNNN.rar`) and 7-Zip
+sets are submitted: AltMount analyzes stored and nested RAR and RAR-in-7-Zip
+itself (most NORDiC/DANiSH/DKsubs scene posts are packed this way) and reports
+the ones it cannot stream as queue failures, handled below. AltMount queue failures that identify the same payload classes
 (archive iteration errors, `compressed files are not supported`, `no files
 with allowed extensions`) or missing Usenet articles (`incomplete or missing
 parts`) are treated the same way: the exact release and package are excluded
@@ -526,7 +529,7 @@ the persisted failure detail instead of retrying that reconcile forever.
 | --- | --- | --- |
 | `round_exhausted_waiting_new_identity` | Both round slots used; discovery waiting for a new eligible release. | Wait for discovery `ready`, then open a new round. |
 | `altmount_identity_unresolved` | Upload name not visible within 30 min. | Confirm the original upload was not accepted, then re-search. |
-| Archive/unplayable/missing-segment release | RAR set, ISO/DVD structure, no playable media, or Usenet articles absent from the providers. | Exact release + package excluded; next slot auto-searches. |
+| Archive/unplayable/missing-segment release | RAR set AltMount cannot stream (compressed or corrupt), zip/tar archive, ISO/DVD structure, no playable media, or Usenet articles absent from the providers. | Exact release + package excluded; next slot auto-searches. |
 | `altmount_identity_ambiguous` | Multiple queue jobs match. | Resolve queue manually; do not resubmit. |
 | `altmount_output_unavailable` | Completion but output unreadable for 5 min. | Verify shared mount, then reconcile. |
 | `output_inspection_failed` | ffprobe/containment failed. | Fix probe/mount, reverify retained output once. |
