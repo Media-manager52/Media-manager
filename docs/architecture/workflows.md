@@ -20,7 +20,11 @@ A **workflow** is one media item + one acquisition scope:
 `internal/workflows/scope.go` is the only parser/renderer. Unknown variants fail
 closed. A series that is currently airing gets per-episode workflows dispatched
 from the season workflow (`DispatchAiringSeason`); the pack workflow does not
-search until the season is complete and entirely missing.
+search until the season is complete and entirely missing. A completed season
+that is entirely missing but whose searches have only ever observed episode
+releases (and no season pack) dispatches the same per-episode path, because
+Danish TV is posted per episode and otherwise waits forever for a pack that is
+never posted.
 
 ## 2. End-to-end map
 
@@ -301,6 +305,30 @@ Every changed workflow gets `workflow_transitions` rows as needed and a
 `workflow.quality_policy_applied` audit event; the profile gets a
 `quality_profile.policy_applied` summary.
 
+## 5b. Owner actions for known candidates and pre-upload rejections
+
+Two owner endpoints support the availability audit without weakening the
+normal guards:
+
+- `POST /api/v1/workflows/{id}/acquisition-rounds/from-known`
+  (`Store.OpenKnownAcquisitionRound`) opens one two-slot round from releases
+  Media Manager has already observed and judged eligible under the profile's
+  current policy, when the workflow is `waiting` or `held` with no open round
+  and the retained failed-output count is below four. The best known candidate
+  is selected directly, ordered by explicit Danish-subtitle evidence, then a
+  Danish/Nordic title marker (`NORDiC`, `DANiSH`, `DKsubs`, `DANSK`), then
+  decision score, and a `release.retrieve_requested` event is queued. The
+  round's `novelty_cutoff_sequence` is zero so the same action can re-evaluate
+  known candidates under the current policy. Attempted and excluded releases
+  stay disqualified.
+- `POST /api/v1/workflows/{id}/revive-rejected-archives`
+  (`Store.RevivePreSubmissionRejections`) revives the archive rejections that
+  predate RAR/7-Zip submission. Only jobs that never reached AltMount
+  (`external_queue_id IS NULL`) with the `archive_unsupported` outcome are
+  removed, together with their attempt markers, package guards, and exclusion
+  rows; the audit event `workflow.archive_rejections_revived` records the
+  count. Queue-time archive failures stay excluded.
+
 ## 6. Retrieval and AltMount submission
 
 Handler: `acquisition.RetrievalService` (`retrieve.go`).
@@ -309,16 +337,22 @@ Handler: `acquisition.RetrievalService` (`retrieve.go`).
 2. Fetch the NZB through the Newznab client's strict locator handling
    (`DownloadLocatorReference`, provider-contract checks, size limit, redirect
    pinning). Cross-origin credential stripping applies on every hop.
-3. Compute `PackageIdentity(body)` = SHA-256 of the exact bytes.
-4. `BeginAltMountSubmission` records the durable intent (workflow, candidate,
+3. Screen the package manifest **before the submission intent**: zip/tar/gzip/
+bzip2/xz sets, ISO/DVD structures, and recognized non-playable containers are
+rejected here. RAR/7-Zip sets pass because AltMount analyzes them itself.
+A pre-upload rejection excludes the exact release, records the reason, and
+queues the next search **without creating a job or spending a round slot**
+(`RecordPreSubmissionRejection`).
+4. Compute `PackageIdentity(body)` = SHA-256 of the exact bytes.
+5. `BeginAltMountSubmission` records the durable intent (workflow, candidate,
    package, upload name) before any upload I/O.
-5. Upload to AltMount with a unique filename derived from the release.
-6. Mark submitted / unknown / failed. An **unknown** outcome is reconciled later
+6. Upload to AltMount with a unique filename derived from the release.
+7. Mark submitted / unknown / failed. An **unknown** outcome is reconciled later
    by listing the queue for the stable upload name: exactly one match attaches;
    zero matches within 30 minutes → `altmount_identity_unresolved` (owner must
    confirm it was not accepted); multiple matches → `altmount_identity_ambiguous`.
    Never blindly resubmit.
-7. Terminal retrieval failures (e.g. provider 403/404) are release attributable
+8. Terminal retrieval failures (e.g. provider 403/404) are release attributable
    to that provider only inside the workflow: the exact release is excluded and
    another indexer may still be used.
 
@@ -531,11 +565,15 @@ restore automation and no automatic deletion.
 Before an NZB is submitted to AltMount, Media Manager screens its file
 manifest. Packages that only contain archive formats AltMount cannot open
 (`.zip`, `.tar`, `.gz`, `.bz2`, `.xz`), ISO/DVD structures, or other recognized
-non-playable containers are excluded immediately, and another candidate is
-searched inside the open round. RAR (`.rar`/`.r00`/`.partNNN.rar`) and 7-Zip
-sets are submitted: AltMount analyzes stored and nested RAR and RAR-in-7-Zip
-itself (most NORDiC/DANiSH/DKsubs scene posts are packed this way) and reports
-the ones it cannot stream as queue failures, handled below. AltMount queue failures that identify the same payload classes
+non-playable containers are excluded immediately **before the submission intent
+is created**, so the rejection never consumes one of the round's two attempt
+slots; another candidate is searched inside the open round. RAR
+(`.rar`/`.r00`/`.partNNN.rar`) and 7-Zip sets are submitted: AltMount analyzes
+stored and nested RAR and RAR-in-7-Zip itself (most NORDiC/DANiSH/DKsubs scene
+posts are packed this way) and reports the ones it cannot stream as queue
+failures, handled below; those did consume a slot, so
+`POST /api/v1/workflows/{id}/revive-rejected-archives` (§5b) revives the ones
+rejected before submission that predate RAR support. AltMount queue failures that identify the same payload classes
 (archive iteration errors, `compressed files are not supported`, `no files
 with allowed extensions`) or missing Usenet articles (`incomplete or missing
 parts`) are treated the same way: the exact release and package are excluded
@@ -546,7 +584,7 @@ the persisted failure detail instead of retrying that reconcile forever.
 
 | Code / situation | Meaning | Owner action |
 | --- | --- | --- |
-| `round_exhausted_waiting_new_identity` | Both round slots used; discovery waiting for a new eligible release. | Wait for discovery `ready`, then open a new round. |
+| `round_exhausted_waiting_new_identity` | Both round slots used; discovery waiting for a new eligible release. | Wait for discovery `ready`, then open a new round; or open one from known eligible releases with `POST /api/v1/workflows/{id}/acquisition-rounds/from-known` (§5b). |
 | `altmount_identity_unresolved` | Upload name not visible within 30 min. | Confirm the original upload was not accepted, then re-search. |
 | Archive/unplayable/missing-segment release | RAR set AltMount cannot stream (compressed or corrupt), zip/tar archive, ISO/DVD structure, no playable media, or Usenet articles absent from the providers. | Exact release + package excluded; next slot auto-searches. |
 | `altmount_identity_ambiguous` | Multiple queue jobs match. | Resolve queue manually; do not resubmit. |

@@ -8,6 +8,9 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Added
 
+- `POST /api/v1/workflows/{id}/acquisition-rounds/from-known` opens one two-slot round from releases already observed and judged eligible under the profile's current policy, ordered by explicit Danish-subtitle evidence, then a Danish/Nordic title marker, then score, and selects the best known candidate directly. It unblocks the 23 workflows that used both attempts and were waiting for a genuinely new post while untried eligible releases (6 with explicit `da`) sat known.
+- `POST /api/v1/workflows/{id}/revive-rejected-archives` revives archive releases the pre-flight screen refused before AltMount ever saw them (60 exclusions), removing their attempt markers, package guards, and exclusion rows with an audit event; queue-time archive failures stay excluded.
+- A completed season that is entirely missing but whose searches have only ever observed episode releases (no season pack) now dispatches per-episode acquisition through the existing airing path, because Danish TV is posted per episode. This unblocks Forbrydelser der rystede Danmark, Extreme Makeover, Rivalerne, and Reacher.
 - A Radarr/Sonarr-compatible API (`/radarr/api/v3`, `/sonarr/api/v3`, guarded by `SERVARR_API_KEY`) so Seerr can use Media Manager as its only server: it exposes Media Manager's library roots and quality profiles, acknowledges adds without creating a second catalog, and reports Plex-confirmed availability for scans. Existing requests keep working through the Seerr root-folder routes.
 - Seerr request routing: the service root folder and profile chosen in Seerr are persisted as request provenance and resolved through owner-created mappings in Settings → Connections; an unmapped folder pauses the request with an exact reason instead of publishing into the wrong library, and saving a mapping requeues paused requests immediately.
 - A complete documentation set under `docs/` (onboarding, architecture, operations, reference, status, archive) with an index, package-level Go doc comments for every package, and a `docs:check` link/anchor validator wired into CI.
@@ -42,6 +45,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Fixed
 
+- The package manifest is screened **before** the AltMount submission intent, so a zip/tar/ISO/non-playable rejection excludes the release and queues the next search without creating a job or spending one of the round's two attempt slots (`RecordPreSubmissionRejection`).
 - RAR and 7-Zip releases are submitted to AltMount instead of being rejected before upload. AltMount streams stored and nested RAR itself (77 of 84 RAR analyses succeeded in 72 hours, including Media Manager's own DKsubs and NORDiC uploads); the screen had rejected 60 releases, many of them the Danish scene posts being searched for. Archives AltMount cannot stream remain release-attributable failures; zip/tar and ISO/DVD are still rejected.
 - A movie release whose provider identity exactly matches the verified IMDb/TMDB identity is no longer held for lacking the metadata year in its title (1,041 held candidates across 23 workflows, all with a matching identity).
 - Danish titles are matched and searched in scene spelling (`Forræder` → `Forraeder`, digraph and single-letter folds, `&` as `and`, apostrophes dropped). No title containing æ/ø/å had ever been confirmed; genuine `Forraeder.Under.Kutten...DANiSH` releases were rejected as the wrong title.

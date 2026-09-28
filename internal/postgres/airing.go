@@ -158,9 +158,20 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 
 	entirelyMissing := len(covered) == 0 && len(inProgress) == 0
 	if seasonComplete && entirelyMissing {
-		// Complete and entirely missing: the existing one-pack workflow is the
-		// correct acquisition. The caller continues the season-pack search.
-		return false, nil
+		// A completed season that is entirely missing normally waits for one
+		// complete pack. When searches have only ever observed episode
+		// releases, the pack is not posted: acquire the released episodes
+		// individually through the same path airing seasons already use.
+		packsObserved, episodesObserved, observeErr := observedSeasonReleaseScopes(ctx, transaction, workflowID)
+		if observeErr != nil {
+			return false, observeErr
+		}
+		if packsObserved || !episodesObserved {
+			// Complete and entirely missing with a pack candidate (or no
+			// observed releases yet): the existing one-pack workflow is the
+			// correct acquisition. The caller continues the season-pack search.
+			return false, nil
+		}
 	}
 
 	// A future episode with a nil air date is never guessed at: the caller keeps
@@ -196,6 +207,9 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 	}
 
 	detail := "Airing season: released episodes are acquired individually as they air; future episodes are not searched before their release date."
+	if seasonComplete {
+		detail = "Completed season has no season pack observed; released episodes are acquired individually."
+	}
 	observation := AiringDispatchResult{
 		Dispatched:       true,
 		SeasonComplete:   seasonComplete,
@@ -239,6 +253,36 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 		return true, err
 	}
 	return true, nil
+}
+
+// observedSeasonReleaseScopes reports whether the season workflow's observed
+// candidates include a complete-season pack and whether they include episode
+// releases. It separates "the pack has not been posted" from "the pack search
+// has not run yet": a completed season with episode releases but no pack
+// candidate must be acquired per episode.
+func observedSeasonReleaseScopes(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID) (bool, bool, error) {
+	rows, err := transaction.Query(ctx, `SELECT COALESCE((SELECT fact->'values'->>0 FROM jsonb_array_elements(observation.normalized_facts) fact WHERE fact->>'name'='release_scope' LIMIT 1),'')
+		FROM release_candidates candidate
+		JOIN release_observations observation ON observation.id=candidate.observation_id
+		WHERE candidate.workflow_id=$1`, workflowID.String())
+	if err != nil {
+		return false, false, err
+	}
+	defer rows.Close()
+	var packs, episodes bool
+	for rows.Next() {
+		var scope string
+		if err := rows.Scan(&scope); err != nil {
+			return false, false, err
+		}
+		switch scope {
+		case "season_pack":
+			packs = true
+		case "episode":
+			episodes = true
+		}
+	}
+	return packs, episodes, rows.Err()
 }
 
 func loadEpisodeWorkflowStates(ctx context.Context, transaction pgx.Tx, mediaID uuid.UUID, season uint16) (map[uint16]string, error) {

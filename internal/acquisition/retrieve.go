@@ -156,6 +156,16 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err != nil {
 		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
 	}
+	if files, filesErr := newznab.PackageFiles(nzb.Body); filesErr == nil {
+		if classification := releases.ClassifyPackageFiles(files); classification.Kind == releases.PackageUnsupported {
+			// Screen before the submission intent: a pre-upload rejection
+			// must not create a job or spend one of the round's two attempt
+			// slots. The exact release is excluded and the next candidate is
+			// searched immediately.
+			detail := "release package rejected before AltMount submission: " + classification.Reason
+			return service.Store.RecordPreSubmissionRejection(ctx, retrieval, classification.Code, detail, time.Now().UTC())
+		}
+	}
 	var config altMountConfig
 	if err := json.Unmarshal(retrieval.DownloadClient.Config, &config); err != nil {
 		return err
@@ -176,16 +186,6 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 			return service.Store.MarkAltMountUnknown(ctx, workflowID, intent.JobID, time.Now().UTC())
 		}
 		return nil
-	}
-	if files, filesErr := newznab.PackageFiles(nzb.Body); filesErr == nil {
-		if classification := releases.ClassifyPackageFiles(files); classification.Kind == releases.PackageUnsupported {
-			job, loadErr := service.Store.LoadAltMountJob(ctx, intent.JobID)
-			if loadErr != nil {
-				return loadErr
-			}
-			detail := "release package rejected before AltMount submission: " + classification.Reason
-			return service.Store.CompleteReleaseFailure(ctx, job, classification.Code, detail, time.Now().UTC())
-		}
 	}
 	upload := altmount.UploadRequest{Filename: intent.Filename, Size: int64(len(nzb.Body)), Category: config.Category, Priority: altmount.PriorityNormal, Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(nzb.Body)), nil }}
 	item, err := client.UploadNZB(ctx, upload)

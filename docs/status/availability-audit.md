@@ -136,25 +136,36 @@ fail verification. Low value; not changed.
 1. **Deploy** `23c95a3`, `f9c8b2a`, `cc57d7e`, `d34e7bf`, `3486ab3` (no schema
    change). Expected effect: the 45 grab-budget waits move to other indexers,
    query budgets recover, Danish-letter titles and year-offset movies become
-   selectable, and NORDiC/DKsubs RAR releases are submitted.
+   selectable, and NORDiC/DKsubs RAR releases are submitted. **Deployed
+   2026-09-28** (running commit `8f4a178`).
 2. **Revive the 60 screen-rejected archive releases.** Their exclusions and
-   attempt records predate D6 and keep them disqualified. Scope: exclusions
-   with `failure_kind='archive_unsupported'` whose job never reached AltMount
-   (`external_queue_id IS NULL`, detail starting "release package rejected
-   before AltMount submission"). This is a live data change and needs
-   approval and a supported path (a migration or an owner endpoint).
+   attempt records predate D6 and keep them disqualified. **Implemented** as
+   `POST /api/v1/workflows/{id}/revive-rejected-archives`
+   (`Store.RevivePreSubmissionRejections`), which removes only jobs that never
+   reached AltMount (`external_queue_id IS NULL`) with the
+   `archive_unsupported` outcome, plus their attempt markers, package guards,
+   and exclusions, and records `workflow.archive_rejections_revived`. Not yet
+   run against the live database.
 3. **D7: per-episode acquisition for finished seasons without packs.**
-   Extend `DispatchAiringSeason` (already used for airing seasons) to
-   completed seasons where only episode releases are observed. Unblocks
-   Forbrydelser der rystede Danmark, Extreme Makeover, Rivalerne, Reacher.
-4. **H6: open a round from known candidates** (design above).
+   **Implemented**: `DispatchAiringSeason` now checks observed release scopes
+   and dispatches per episode when a completed, entirely missing season has
+   only episode candidates (no pack). Unblocks Forbrydelser der rystede
+   Danmark, Extreme Makeover, Rivalerne, Reacher on their next search.
+4. **H6: open a round from known candidates.** **Implemented** as
+   `POST /api/v1/workflows/{id}/acquisition-rounds/from-known`
+   (`Store.OpenKnownAcquisitionRound`), ordered explicit `da` → Danish/Nordic
+   title marker → score, with the two-slot round, zero novelty cutoff, and the
+   retained failed-output limit. Not yet run against the live database.
 5. **treasure-maps:** re-commission the account/credentials or disable grabs
-   there; it spends budget and fails every download with HTTP 403.
+   there; it spends budget and fails every download with HTTP 403. **Open —
+   owner configuration decision.**
 6. **D5 follow-up:** screen packages before the submission intent so the
    remaining pre-upload rejections (zip/tar, ISO) do not consume a slot.
+   **Implemented**: `RecordPreSubmissionRejection` runs before
+   `BeginAltMountSubmission`; no job and no slot are consumed.
 7. Budgets: every indexer uses the conservative default (1,000 queries / 100
    grabs per 24h). Raising them to the providers' real limits is an owner
-   configuration choice.
+   configuration choice. **Open — owner configuration decision.**
 
 ## Truth table (snapshot before the fixes)
 

@@ -112,6 +112,60 @@ func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval
 	return transaction.Commit(ctx)
 }
 
+// RecordPreSubmissionRejection records a release whose NZB package was
+// rejected by the pre-flight screen before any AltMount submission intent
+// existed. No job row and no round slot are consumed: the exact release is
+// excluded and the next candidate is searched immediately, so zip/tar/ISO
+// packages can never spend one of a round's two download attempts.
+func (store *Store) RecordPreSubmissionRejection(ctx context.Context, retrieval RetrievalContext, failureCode, detail string, now time.Time) error {
+	if strings.TrimSpace(detail) == "" {
+		detail = "release package rejected before AltMount submission"
+	}
+	if len(detail) > 1000 {
+		detail = detail[:1000]
+	}
+	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback(ctx)
+	var state workflows.State
+	var revision int64
+	var indexerText, nativeKey string
+	err = transaction.QueryRow(ctx, `SELECT workflow.state,workflow.revision,candidate.indexer_instance_id::text,candidate.native_key
+		FROM workflows workflow
+		JOIN release_candidates candidate ON candidate.workflow_id=workflow.id
+		WHERE workflow.id=$1 AND candidate.id=$2 AND workflow.selected_release_id=candidate.id
+		FOR UPDATE OF workflow`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String()).Scan(&state, &revision, &indexerText, &nativeKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if state != workflows.StateCandidateSelected || uint64(revision) != retrieval.Workflow.Revision {
+		return transaction.Commit(ctx)
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,verification_id,failure_kind,reason,created_at)
+		VALUES($1,$2,$3,$4,NULL,$5,$6,$7)
+		ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO NOTHING`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), indexerText, nativeKey, failureCode, detail, now.UTC()); err != nil {
+		return err
+	}
+	newRevision := revision + 1
+	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='waiting',selected_release_id=NULL,revision=$2,updated_at=$3,attention_code=NULL,attention_detail=$4 WHERE id=$1 AND revision=$5`, retrieval.Workflow.ID.String(), newRevision, now.UTC(), detail, revision); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'waiting',$4,'worker',$5)`, retrieval.Workflow.ID.String(), newRevision, state, detail, now.UTC()); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]string{"workflow_id": retrieval.Workflow.ID.String(), "reason": "release package rejected before submission; exact release excluded without spending a round slot"})
+	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
+		VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$5)`, uuid.NewV7().String(), retrieval.Workflow.ID.String(), newRevision, string(payload), now.UTC()); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
+}
+
 func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval RetrievalContext, packageIdentity [sha256.Size]byte, now time.Time) (SubmissionIntent, error) {
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {

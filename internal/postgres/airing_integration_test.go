@@ -202,6 +202,71 @@ func TestDispatchCompleteMissingSeasonKeepsSinglePackSearch(t *testing.T) {
 	assertEpisodeIntentUnchanged(t, ctx, store, workflowID, 2)
 }
 
+// TestDispatchCompletedSeasonWithOnlyEpisodesObservedAcquiresPerEpisode covers
+// D7: Danish TV is posted per episode, so a completed season whose searches
+// have only ever observed episode releases must acquire those episodes
+// individually instead of waiting forever for a season pack.
+func TestDispatchCompletedSeasonWithOnlyEpisodesObservedAcquiresPerEpisode(t *testing.T) {
+	store, rootID, profileID, clientID := openAiringTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	series, workflowID := createAiringSeries(t, ctx, store, rootID, profileID, clientID, "Episode Only Complete", []ManualEpisode{
+		{Number: 1, ProviderID: "tmdb:1", Title: "Episode 1", AirDate: now.AddDate(0, 0, -20).Format("2006-01-02")},
+		{Number: 2, ProviderID: "tmdb:2", Title: "Episode 2", AirDate: now.AddDate(0, 0, -13).Format("2006-01-02")},
+	})
+	indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Episode Indexer", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "INDEXER_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := seedEligibleCandidate(t, ctx, store, workflowID, indexer.ID, "episode-only-scope", 100, now)
+	if _, err := store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, candidate.String(), `[{"name":"release_scope","values":["episode"],"state":"inferred"}]`); err != nil {
+		t.Fatal(err)
+	}
+	dispatched, err := store.DispatchAiringSeason(ctx, workflowID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dispatched {
+		t.Fatal("completed season with only episode releases observed must dispatch per episode")
+	}
+	for _, episode := range []uint16{1, 2} {
+		assertEpisodeWorkflow(t, ctx, store, series.ID, episode, "monitored")
+	}
+}
+
+// TestDispatchCompletedSeasonWithPackObservedKeepsSinglePackSearch proves the
+// inverse guard: as soon as a season pack has been observed, the single-pack
+// path remains correct even though episode releases exist.
+func TestDispatchCompletedSeasonWithPackObservedKeepsSinglePackSearch(t *testing.T) {
+	store, rootID, profileID, clientID := openAiringTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	series, workflowID := createAiringSeries(t, ctx, store, rootID, profileID, clientID, "Pack Observed Complete", []ManualEpisode{
+		{Number: 1, ProviderID: "tmdb:1", Title: "Episode 1", AirDate: now.AddDate(0, 0, -20).Format("2006-01-02")},
+		{Number: 2, ProviderID: "tmdb:2", Title: "Episode 2", AirDate: now.AddDate(0, 0, -13).Format("2006-01-02")},
+	})
+	indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Pack Indexer", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "INDEXER_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := seedEligibleCandidate(t, ctx, store, workflowID, indexer.ID, "pack-scope", 500, now)
+	if _, err := store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, candidate.String(), `[{"name":"release_scope","values":["season_pack"],"state":"inferred"}]`); err != nil {
+		t.Fatal(err)
+	}
+	dispatched, err := store.DispatchAiringSeason(ctx, workflowID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatched {
+		t.Fatal("completed season with an observed pack must keep the single-pack search")
+	}
+	for _, episode := range []uint16{1, 2} {
+		if got := countEpisodeWorkflows(t, ctx, store, series.ID, episode); got != 0 {
+			t.Fatalf("pack path created episode workflow E%02d", episode)
+		}
+	}
+}
+
 func TestDispatchPartiallyAcquiredCompleteSeasonAvoidsDuplicateEpisodes(t *testing.T) {
 	store, rootID, profileID, clientID := openAiringTestStore(t)
 	ctx := context.Background()
