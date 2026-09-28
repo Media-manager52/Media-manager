@@ -386,12 +386,22 @@ deliveries (`retry-20260928-418/419`). A fix could make the poll re-observe
 `state='4'`/`state='2'` snapshots without active workflows, or verify and handle
 the retry notification end to end.
 
-Second gap: `Minions & Monsters` (media
-`01a05ee8-55ae-7d1d-8449-012ac11b627a`) has `media_items.deleted_at` set but
-**no `recycle_entries` row**, so the Activity → Recycle restore path cannot
-bring it back and intake parks with "matching media is recycled". Decide
-whether recycled-without-entry media need an explicit owner restore path or
-whether recycle entries must always be created when media is recycled.
+Second gap: **all 25 soft-deleted media have no `recycle_entries` row** (the
+whole table is empty) — every one was recycled in a single bulk cleanup on
+2026-09-15 17:14, including real titles `Minions & Monsters` and `The Odyssey`.
+The Activity → Recycle restore path therefore cannot restore any of them. Both
+were restored by clearing `media_items.deleted_at` on 2026-09-28. Restoring the
+media is not enough for Seerr intake: the reconcile compares the Seerr request
+snapshot and reports `stale_ignored` for an unchanged request, so
+`Minions & Monsters` (request 419, still APPROVED) was added through the
+supported owner API `POST /api/v1/media/{id}/workflows` with the kids root and
+`Movie Best Available Danish Original`. `The Odyssey` (request 244) was
+**declined by the requesting user** on 2026-09-28 15:45 and cannot be revived
+through Seerr's API: `/retry` accepts only FAILED and `/:status/approve` accepts
+only PENDING. It needs a fresh Seerr request (or an owner-approved manual
+workflow). Decide whether recycled-without-entry media need an explicit owner
+restore path and whether recycle entries must always be created when media is
+recycled.
 
 ## Problem 10 — Novelty cutoffs stranded known eligible releases (fixed)
 
