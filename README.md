@@ -1,5 +1,7 @@
 # Media Manager
 
+[![Verify](https://github.com/Media-manager52/Media-manager/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/Media-manager52/Media-manager/actions/workflows/verify.yml)
+
 Media Manager is an owner-operated movie and TV manager for Usenet. It owns the workflow from a Seerr or manual request through evidence-based Newznab selection, one AltMount job, read-only output verification, Plex-safe symlink publication, and exact Plex confirmation.
 
 The first production path is deliberately narrow: **Seerr + Media Manager + Newznab indexers + AltMount + Plex**. Radarr and Sonarr are not runtime dependencies. A season pack is one download job, and publication is blocked unless every frozen expected episode maps exactly once.
