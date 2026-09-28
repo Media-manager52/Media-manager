@@ -10,6 +10,7 @@ behavioral truth is always the code and the SQL migrations.
 | New engineer or AI agent | [onboarding/README.md](onboarding/README.md) — overview, read order, hard rules |
 | Coding agent session | [onboarding/agent-briefs/claude-code.md](onboarding/agent-briefs/claude-code.md) — paste-ready finish-today execution brief |
 | Hard-problem review | [onboarding/agent-briefs/claude-review-hard-parts.md](onboarding/agent-briefs/claude-review-hard-parts.md) — the eight open hard problems with live state, tried approaches, constraints, and acceptance criteria |
+| Availability audit | [onboarding/agent-briefs/claude-availability-audit.md](onboarding/agent-briefs/claude-availability-audit.md) — prove per title whether missing content is truly unavailable or blocked by a pipeline defect |
 | Contributor workflow | [../CONTRIBUTING.md](../CONTRIBUTING.md) and [../AGENTS.md](../AGENTS.md) |
 | Product contract | [../README.md](../README.md) — deployment, commands, safety invariants |
 | Change history | [../CHANGELOG.md](../CHANGELOG.md) |

@@ -19,6 +19,9 @@ included in that commit.
 > Danish subtitles, subtitle evidence strategy, provider failures, Seerr scan
 > sync, and adoption), paste
 > [agent-briefs/claude-review-hard-parts.md](agent-briefs/claude-review-hard-parts.md).
+> To prove whether the remaining "missing" titles are truly unavailable or
+> blocked by a pipeline defect, paste
+> [agent-briefs/claude-availability-audit.md](agent-briefs/claude-availability-audit.md).
 
 ## Read order
 
