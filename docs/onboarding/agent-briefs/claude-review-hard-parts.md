@@ -373,6 +373,26 @@ is not in Media Manager; Seerr request 25 is completed. The adoption flow
 is the sanctioned path and needs owner review. This is small but blocks that
 title from being managed/verified.
 
+## Problem 9 — Recovering a FAILED Seerr request is manual
+
+Seerr marks a request FAILED when its Radarr/Sonarr add call throws. That was
+caused by the strict Servarr JSON decoding fixed in `9853275` and deployed.
+Even after the fix, a retried request does not reach Media Manager
+automatically: `seerr_request_snapshots.state` keeps the last observed status
+(`4`), Media Manager's poll only re-observes actionable snapshots, and the
+Seerr `POST /api/v1/request/{id}/retry` notification did not produce a webhook
+delivery in the live test. Both recent retries had to be backfilled with poll
+deliveries (`retry-20260928-418/419`). A fix could make the poll re-observe
+`state='4'`/`state='2'` snapshots without active workflows, or verify and handle
+the retry notification end to end.
+
+Second gap: `Minions & Monsters` (media
+`01a05ee8-55ae-7d1d-8449-012ac11b627a`) has `media_items.deleted_at` set but
+**no `recycle_entries` row**, so the Activity → Recycle restore path cannot
+bring it back and intake parks with "matching media is recycled". Decide
+whether recycled-without-entry media need an explicit owner restore path or
+whether recycle entries must always be created when media is recycled.
+
 ## Environment and gates
 
 - Loopback API: `127.0.0.1:28081`, `Authorization: Bearer <OWNER_TOKEN>`
