@@ -22,6 +22,21 @@ jobs:
       - run: npm run docs:check
       - run: npm test
 
+  browser:
+    runs-on: ubuntu-latest
+    # Same pinned image as the GitLab browser job, so browsers match @playwright/test.
+    container: mcr.microsoft.com/playwright:v1.62.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm ci
+      - run: npm run test:browser
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: .sites-runtime/playwright-results
+          retention-days: 7
+
   backend:
     runs-on: ubuntu-latest
     services:

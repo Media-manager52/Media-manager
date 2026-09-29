@@ -17,8 +17,9 @@ const routes = [
 ]
 
 const viewports = [
-  { name: "desktop", width: 1440, height: 900 },
-  { name: "mobile", width: 390, height: 844 },
+  { name: "desktop", width: 1440, height: 900, theme: "dark", axe: true },
+  { name: "light", width: 1440, height: 900, theme: "light", axe: true },
+  { name: "mobile", width: 390, height: 844, theme: "dark", axe: false },
 ] as const
 
 async function settle(page: Page) {
@@ -33,6 +34,7 @@ for (const viewport of viewports) {
     for (const route of routes) {
       test(`${route} renders cleanly`, async ({ page }) => {
         await page.setViewportSize({ width: viewport.width, height: viewport.height })
+        await page.addInitScript((theme) => { window.localStorage.setItem("mm-theme", theme) }, viewport.theme)
         const recorder = await installOwnerAPI(page, baseURL)
         const errors: string[] = []
         page.on("pageerror", (error) => errors.push(error.message))
@@ -45,7 +47,7 @@ for (const viewport of viewports) {
         const overflow = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }))
         expect(overflow.document, "page must not scroll horizontally").toBeLessThanOrEqual(overflow.viewport)
 
-        if (viewport.name === "desktop") {
+        if (viewport.axe) {
           const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()
           const serious = results.violations
             .filter((violation) => violation.impact === "serious" || violation.impact === "critical")

@@ -559,5 +559,5 @@ function isRouteActive(path: string, href: string) {
 }
 
 function isAddContext(path: string) {
-  return path === "/" || path === "/media" || path === "/discover" || path.startsWith("/media/")
+  return path === "/" || path === "/media" || path.startsWith("/media/")
 }
