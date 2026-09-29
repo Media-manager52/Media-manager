@@ -139,6 +139,12 @@ identity before publication (not necessarily before creation).
   `needs_configuration` outcome.
 - A request deleted in Seerr is reconciled: never started → observed, no
   attention; already retrieving → `needs_attention` (never silently cancelled).
+  Revocation covers the workflows the request owns and the single-episode
+  workflows dispatched from a season workflow it owns (matched through the
+  season, since episodes carry no provenance of their own). Pre-retrieval
+  episodes are cancelled, retrieving ones need owner attention, confirmed
+  ones are untouched, and any workflow another approved request still tracks
+  (directly or through its season) is kept.
 - Seerr availability is pushed only after exact Plex confirmation; partial TV
   requests keep unconfirmed seasons `requested`. A season acquired through
   single-episode workflows (airing, or episode-only postings) counts as

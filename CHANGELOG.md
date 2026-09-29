@@ -48,6 +48,7 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Fixed
 
+- Revoking a Seerr request (deleted or no longer approved) now also stops the single-episode workflows dispatched from its season: pre-retrieval episodes are cancelled and retrieving ones need owner attention. Previously only the season workflow was cancelled, and its episodes kept searching and downloading. Episodes of a season another approved request still tracks are kept.
 - Seasons acquired episode by episode (airing seasons and Danish TV posted only per episode) now reach Seerr: a season is reported available once every expected episode is Plex-confirmed, and confirmed episodes of an incomplete season mark the media partially available. Previously only a Plex-confirmed season workflow counted, and episode workflows never triggered a sync, so these requests stayed "requested" indefinitely. The 5-minute bootstrap backfills existing confirmed episodes once per media.
 - A Seerr request attached to content that was already synced for an earlier request now queues its own availability sync; it previously collided with the earlier sync event for the same workflow revision and was silently dropped.
 - Seerr snapshots whose payload changed without a newer `updatedAt` cursor are now accepted instead of failing as a conflict on every poll (36 requests, ~17k deliveries). Approved requests whose current snapshot never produced a workflow are re-evaluated, and polling retries them with a 24-hour backoff.

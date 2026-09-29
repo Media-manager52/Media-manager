@@ -520,14 +520,36 @@ func (store *Store) ReconcileSeerrRevocation(ctx context.Context, instanceID, re
 		return false, err
 	}
 	defer transaction.Rollback(ctx)
+	// A request owns the workflows it created and, through a season workflow it
+	// owns, the single-episode workflows dispatched from that season (airing
+	// seasons and episode-only postings). Episode workflows carry no provenance
+	// of their own, so they are matched through their season; without this a
+	// revoked request left its episodes searching and downloading. A workflow
+	// another approved request still tracks, directly or through its season,
+	// is kept.
 	rows, err := transaction.Query(ctx, `SELECT workflow.id::text,workflow.state,workflow.revision
-		FROM seerr_request_workflows provenance
-		JOIN workflows workflow ON workflow.id=provenance.workflow_id
-		WHERE provenance.seerr_instance_id=$1 AND provenance.request_id=$2 AND provenance.owns_workflow AND workflow.terminal_at IS NULL
+		FROM workflows workflow
+		WHERE workflow.terminal_at IS NULL
+		AND EXISTS(
+			SELECT 1 FROM seerr_request_workflows provenance
+			JOIN workflows tracked ON tracked.id=provenance.workflow_id
+			WHERE provenance.seerr_instance_id=$1 AND provenance.request_id=$2 AND provenance.owns_workflow
+			AND (tracked.id=workflow.id OR (
+				tracked.media_id=workflow.media_id AND tracked.variant LIKE 'season:%'
+				AND tracked.variant NOT LIKE '%:episode:%'
+				AND workflow.variant LIKE tracked.variant || ':episode:%'
+			))
+		)
 		AND NOT EXISTS(
 			SELECT 1 FROM seerr_request_workflows other
 			JOIN seerr_request_snapshots snapshot ON snapshot.seerr_instance_id=other.seerr_instance_id AND snapshot.request_id=other.request_id
-			WHERE other.workflow_id=workflow.id AND NOT (other.seerr_instance_id=$1 AND other.request_id=$2) AND snapshot.state='2'
+			JOIN workflows other_tracked ON other_tracked.id=other.workflow_id
+			WHERE NOT (other.seerr_instance_id=$1 AND other.request_id=$2) AND snapshot.state='2'
+			AND (other_tracked.id=workflow.id OR (
+				other_tracked.media_id=workflow.media_id AND other_tracked.variant LIKE 'season:%'
+				AND other_tracked.variant NOT LIKE '%:episode:%'
+				AND workflow.variant LIKE other_tracked.variant || ':episode:%'
+			))
 		)
 		ORDER BY workflow.id FOR UPDATE OF workflow`, instanceID, requestID)
 	if err != nil {
