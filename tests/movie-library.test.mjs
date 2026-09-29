@@ -261,15 +261,17 @@ test("desktop and mobile layout contracts remain explicit in the focused screen"
     readFile(path.join(root, "components/media-manager/live-operational-screens.tsx"), "utf8"),
   ]);
 
-  assert.match(shell, /--sidebar-width": "184px"/);
-  assert.match(shell, /h-\[60px\]/);
+  assert.match(shell, /--sidebar-width": "15rem"/);
+  assert.match(shell, /collapsible="icon"/);
+  assert.match(shell, /h-14/);
+  assert.match(shell, /aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0[^"]*md:hidden"/);
   assert.match(screen, /xl:grid-cols-\[minmax\(0,1fr\)_320px\]/);
   assert.match(screen, /mm-library-root/);
-  assert.match(screen, /sm:px-4/);
+  assert.match(screen, /sm:px-5/);
   assert.match(screen, /grid-template-columns:repeat\(auto-fill,minmax\(150px,1fr\)\)/);
   assert.match(screen, /const basePageSize = 24/);
   assert.match(screen, /sm:w-\[380px\][\s\S]*xl:static/);
-  assert.match(screen, /md:hidden" aria-label="Mobile navigation"/);
+  assert.match(screen, /sm:top-14 sm:w-\[380px\]/);
 });
 
 test("catalog loader returns only complete bounded pagination results", async (t) => {

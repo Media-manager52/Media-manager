@@ -55,6 +55,11 @@ test("owner can persist and reload canonical original-language routing", async (
       await route.fulfill({ status: 200, json: { data: [] } })
       return
     }
+    // The shell loads owner attention on every page.
+    if (request.method() === "GET" && (url.pathname === "/api/v1/wanted" || url.pathname === "/api/v1/workflows")) {
+      await route.fulfill({ status: 200, json: { data: [] } })
+      return
+    }
     if (request.method() === "GET" && url.pathname === "/api/v1/system/info") {
       await route.fulfill({ status: 200, json: { data: { version: "browser-test" } } })
       return
@@ -129,6 +134,11 @@ test("owner can replace a hard resolution gate with persisted best-available qua
       return
     }
     if (request.method() === "GET" && url.pathname === "/api/v1/acquisition-verifications" && url.search === "?limit=100") {
+      await route.fulfill({ status: 200, json: { data: [] } })
+      return
+    }
+    // The shell loads owner attention on every page.
+    if (request.method() === "GET" && (url.pathname === "/api/v1/wanted" || url.pathname === "/api/v1/workflows")) {
       await route.fulfill({ status: 200, json: { data: [] } })
       return
     }
@@ -221,6 +231,11 @@ test("owner can queue one exact retained-output reverification", async ({ page }
       submitted = request.postDataJSON() as Record<string, unknown>
       canReverify = false
       await route.fulfill({ status: 202, json: { data: { status: "reverification_queued", workflow_id: workflowID, job_id: jobID } } })
+      return
+    }
+    // The shell loads owner attention on every page.
+    if (request.method() === "GET" && (url.pathname === "/api/v1/wanted" || url.pathname === "/api/v1/workflows")) {
+      await route.fulfill({ status: 200, json: { data: [] } })
       return
     }
     if (request.method() === "GET" && url.pathname === "/api/v1/system/info") {

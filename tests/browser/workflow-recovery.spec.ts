@@ -157,6 +157,11 @@ test("workflow queue shows durable rounds and requires owner approval for a new 
       await route.fulfill({ status: 202, json: { data: { status: "reconciliation_queued", id: infrastructureID } } })
       return
     }
+    // The shell loads owner attention on every page.
+    if (request.method() === "GET" && url.pathname === "/api/v1/wanted") {
+      await route.fulfill({ status: 200, json: { data: [] } })
+      return
+    }
     if (request.method() === "GET" && url.pathname === "/api/v1/system/info") {
       await route.fulfill({ status: 200, json: { data: { version: "browser-test" } } })
       return
