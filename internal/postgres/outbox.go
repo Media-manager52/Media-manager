@@ -201,11 +201,27 @@ func (store *Store) QueueActiveSeerrPolls(ctx context.Context, instanceID string
 	rows, err := transaction.Query(ctx, `SELECT snapshot.request_id
 		FROM seerr_request_snapshots snapshot
 		WHERE snapshot.seerr_instance_id=$1 AND snapshot.state='2'
-		AND EXISTS(
-			SELECT 1 FROM seerr_request_workflows provenance
-			JOIN workflows workflow ON workflow.id=provenance.workflow_id
-			WHERE provenance.seerr_instance_id=snapshot.seerr_instance_id
-			AND provenance.request_id=snapshot.request_id AND workflow.terminal_at IS NULL
+		AND (
+			EXISTS(
+				SELECT 1 FROM seerr_request_workflows provenance
+				JOIN workflows workflow ON workflow.id=provenance.workflow_id
+				WHERE provenance.seerr_instance_id=snapshot.seerr_instance_id
+				AND provenance.request_id=snapshot.request_id AND workflow.terminal_at IS NULL
+			)
+			OR (
+				NOT EXISTS(
+					SELECT 1 FROM seerr_request_workflows any_provenance
+					WHERE any_provenance.seerr_instance_id=snapshot.seerr_instance_id
+					AND any_provenance.request_id=snapshot.request_id
+				)
+				AND NOT EXISTS(
+					SELECT 1 FROM seerr_deliveries recent
+					WHERE recent.seerr_instance_id=snapshot.seerr_instance_id
+					AND recent.request_id=snapshot.request_id AND recent.processed_at IS NOT NULL
+					AND recent.outcome IN ('needs_attention','needs_configuration')
+					AND recent.processed_at > now() - interval '24 hours'
+				)
+			)
 		)
 		AND NOT EXISTS(
 			SELECT 1 FROM seerr_deliveries delivery

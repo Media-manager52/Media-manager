@@ -118,20 +118,26 @@ func (server *Server) servarrRootFolders(writer http.ResponseWriter, request *ht
 		writeError(writer, http.StatusInternalServerError, "internal_error", "could not load root folders")
 		return
 	}
-	result := []servarr.RootFolder{}
+	usable := false
 	for _, root := range roots {
-		if !root.Enabled || root.MediaKind != kind || strings.TrimSpace(root.PlexLibraryID) == "" {
-			continue
+		if root.Enabled && root.MediaKind == kind && strings.TrimSpace(root.PlexLibraryID) != "" {
+			usable = true
+			break
 		}
-		result = append(result, servarr.RootFolder{
-			ID:              servarr.SyntheticID("root", root.ID.String()),
-			Path:            root.DestinationRoot,
-			Accessible:      true,
-			FreeSpace:       0,
-			UnmappedFolders: []struct{}{},
-		})
 	}
-	writeJSON(writer, http.StatusOK, result)
+	if !usable {
+		writeJSON(writer, http.StatusOK, []servarr.RootFolder{})
+		return
+	}
+	// Seerr sees exactly one root folder. Choosing it delegates routing to
+	// Media Manager, which picks the themed library root from metadata.
+	writeJSON(writer, http.StatusOK, []servarr.RootFolder{{
+		ID:              servarr.SyntheticID("root", "auto"),
+		Path:            servarr.AutoRootPath,
+		Accessible:      true,
+		FreeSpace:       0,
+		UnmappedFolders: []struct{}{},
+	}})
 }
 
 // decodeServarrJSON accepts the payloads a real Radarr/Sonarr client sends.

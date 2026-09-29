@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/languages"
+	"github.com/media-manager/media-manager/internal/servarr"
 )
 
 type SeerrEpisode struct {
@@ -127,6 +128,28 @@ func (store *Store) UpsertSeerrSnapshot(ctx context.Context, intake SeerrIntake)
 	return true, nil
 }
 
+// SeerrRequestHasAnyWorkflow reports whether any workflow, terminal or not,
+// was ever created from a Seerr request.
+func (store *Store) SeerrRequestHasAnyWorkflow(ctx context.Context, instanceID, requestID string) (bool, error) {
+	var exists bool
+	err := store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM seerr_request_workflows WHERE seerr_instance_id=$1 AND request_id=$2)`, instanceID, requestID).Scan(&exists)
+	return exists, err
+}
+
+// SeerrSnapshotCursor returns the stored update cursor and payload hash for a
+// Seerr request snapshot.
+func (store *Store) SeerrSnapshotCursor(ctx context.Context, instanceID, requestID string) (time.Time, []byte, error) {
+	var updated *time.Time
+	var hash []byte
+	if err := store.Pool.QueryRow(ctx, `SELECT external_updated_at,payload_sha256 FROM seerr_request_snapshots WHERE seerr_instance_id=$1 AND request_id=$2`, instanceID, requestID).Scan(&updated, &hash); err != nil {
+		return time.Time{}, nil, err
+	}
+	if updated == nil {
+		return time.Time{}, hash, nil
+	}
+	return *updated, hash, nil
+}
+
 func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake, now time.Time) (IntakeResult, error) {
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -134,6 +157,7 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 	}
 	defer transaction.Rollback(ctx)
 	var rootText, profileText, clientText string
+	autoRoot := servarr.IsAutoRootPath(intake.RootFolder)
 	if strings.TrimSpace(intake.RootFolder) != "" {
 		// The requester chose a root folder in Seerr; only an explicit owner
 		// route may send that request to a Media Manager library root.
@@ -148,9 +172,10 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 			return IntakeResult{}, err
 		}
 	}
-	if profileText == "" {
+	if profileText == "" && !autoRoot {
 		// A profile chosen against Media Manager's own servarr API always wins;
-		// otherwise keep the original-language routing.
+		// otherwise keep the original-language routing. Auto requests delegate
+		// the profile choice to Media Manager as well.
 		profileText, err = selectSeerrProfileBySyntheticID(ctx, transaction, intake.Kind, intake.ProfileID)
 		if err != nil {
 			return IntakeResult{}, err

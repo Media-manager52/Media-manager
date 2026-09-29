@@ -210,3 +210,128 @@ func TestSeerrLibraryRouteHonorsChosenRootFolder(t *testing.T) {
 		t.Fatalf("second delete error=%v, want ErrNotFound", err)
 	}
 }
+
+// TestSeerrAutoRootRoutesByMetadata proves the single Auto root routes to the
+// themed library root and profile from metadata, and ignores the profile Seerr
+// selected because the requester delegated the choice to Media Manager.
+func TestSeerrAutoRootRoutesByMetadata(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	store := subtitleIntegrationStore(t, ctx, databaseURL)
+	defer store.Close()
+
+	plex, err := store.CreateIntegration(ctx, Integration{Kind: "plex", Name: "Plex", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://plex:32400","allow_http":true}`), SecretRef: "PLEX_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateIntegration(ctx, Integration{Kind: "altmount", Name: "AltMount", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://altmount:8080","allow_http":true}`)}); err != nil {
+		t.Fatal(err)
+	}
+	seerr, err := store.CreateIntegration(ctx, Integration{Kind: "seerr", Name: "Seerr", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://seerr:5055","allow_http":true}`), SecretRef: "SEERR_API_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Indexer", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "INDEXER_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialects := newznab.SearchDialects{
+		Movie:  newznab.SearchDialect{Mode: "movie", Params: []string{"q", "imdbid"}},
+		Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "tvdbid", "season"}},
+	}
+	if _, err := store.CompleteNewznabCommission(ctx, indexer.ID, newznab.CapsSnapshot{ServerVersion: "test", BodyHash: "test", DefaultLimit: 100, MaximumLimit: 100}, dialects, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	createRoot := func(t *testing.T, kind catalog.MediaKind, name, plexLibrary string, isDefault bool) LibraryRoot {
+		t.Helper()
+		destination := "/libraries/" + name
+		root, err := store.CreateLibraryRoot(ctx, LibraryRoot{MediaKind: kind, Name: name, DestinationRoot: destination, PlexVisibleRoot: destination, SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: &plex.ID, PlexLibraryID: plexLibrary, Default: isDefault, Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return root
+	}
+	movieDefault := createRoot(t, catalog.KindMovie, "Movies", "1", true)
+	movieKids := createRoot(t, catalog.KindMovie, "Børn Film", "2", false)
+	movieDocs := createRoot(t, catalog.KindMovie, "Dokumentar", "3", false)
+	movieHoliday := createRoot(t, catalog.KindMovie, "Julefilm", "4", false)
+	movieDanish := createRoot(t, catalog.KindMovie, "Danske Film", "5", false)
+	seriesDefault := createRoot(t, catalog.KindSeries, "TV", "6", true)
+	seriesKids := createRoot(t, catalog.KindSeries, "Børn Serier", "7", false)
+
+	rules := []releases.Rule{{Name: "Required resolution", Fact: "resolution", AllowedValues: []string{"1080p"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold}}
+	createProfile := func(t *testing.T, kind catalog.MediaKind, name string, isDefault bool, policy map[string]any) QualityProfile {
+		t.Helper()
+		raw, _ := json.Marshal(policy)
+		profile, err := store.CreateQualityProfile(ctx, QualityProfile{MediaKind: kind, Name: name, Policy: raw, UpgradesEnabled: true, Default: isDefault, Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return profile
+	}
+	movieSubs := createProfile(t, catalog.KindMovie, "Movie Danish Subs", true, map[string]any{"rules": rules, "required_subtitle_languages": []string{"da"}})
+	movieOriginal := createProfile(t, catalog.KindMovie, "Movie Danish Original", false, map[string]any{"rules": rules, "original_language_routing": []string{"da"}})
+	seriesSubs := createProfile(t, catalog.KindSeries, "TV Danish Subs", true, map[string]any{"rules": rules, "required_subtitle_languages": []string{"da"}})
+	seriesOriginal := createProfile(t, catalog.KindSeries, "TV Danish Original", false, map[string]any{"rules": rules, "original_language_routing": []string{"da"}})
+
+	ingest := func(t *testing.T, requestID string, kind catalog.MediaKind, tmdb, originalLanguage string, genres, keywords []string) IntakeResult {
+		t.Helper()
+		now := time.Now().UTC()
+		year := uint16(2026)
+		deliveryID := uuid.NewV7()
+		intake := SeerrIntake{
+			InstanceID: seerr.ID.String(), RequestID: requestID, UpdatedAt: now, RequestState: "2",
+			Kind: kind, Title: "Auto " + requestID, Year: &year,
+			Identities:  []catalog.ExternalIdentity{{Namespace: "tmdb", Value: tmdb, State: catalog.IdentityVerified, Source: "seerr"}},
+			Metadata:    &catalog.MediaMetadata{OriginalLanguage: originalLanguage, Genres: genres, Keywords: keywords},
+			PayloadHash: []byte(requestID), DeliveryID: deliveryID,
+			RootFolder: servarr.AutoRootPath, ProfileID: 999999,
+		}
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO seerr_deliveries(id,seerr_instance_id,source,event_id,request_id,payload_sha256,payload,received_at) VALUES($1,$2,'webhook',$3,$4,$5,'{}',$6)`, deliveryID.String(), seerr.ID.String(), "event-"+requestID, requestID, intake.PayloadHash, now); err != nil {
+			t.Fatal(err)
+		}
+		if changed, err := store.UpsertSeerrSnapshot(ctx, intake); err != nil || !changed {
+			t.Fatalf("snapshot changed=%v err=%v", changed, err)
+		}
+		result, err := store.EnsureMediaFromSeerr(ctx, intake, now)
+		if err != nil {
+			t.Fatalf("auto intake %s: %v", requestID, err)
+		}
+		return result
+	}
+
+	cases := []struct {
+		name, requestID, tmdb, language string
+		kind                            catalog.MediaKind
+		genres, keywords                []string
+		wantRoot, wantProfile           uuid.UUID
+	}{
+		{"movie kids", "auto-kids", "930001", "en", catalog.KindMovie, []string{"Animation", "Family"}, nil, movieKids.ID, movieOriginal.ID},
+		{"movie documentary", "auto-docs", "930002", "en", catalog.KindMovie, []string{"Documentary"}, nil, movieDocs.ID, movieSubs.ID},
+		{"movie christmas", "auto-holiday", "930003", "en", catalog.KindMovie, nil, []string{"christmas movie"}, movieHoliday.ID, movieSubs.ID},
+		{"movie danish", "auto-danish", "930004", "da", catalog.KindMovie, []string{"Drama"}, nil, movieDanish.ID, movieOriginal.ID},
+		{"movie default", "auto-default", "930005", "en", catalog.KindMovie, []string{"Action"}, nil, movieDefault.ID, movieSubs.ID},
+		{"series kids", "auto-kids-tv", "930006", "en", catalog.KindSeries, []string{"Kids"}, nil, seriesKids.ID, seriesOriginal.ID},
+		{"series default", "auto-default-tv", "930007", "en", catalog.KindSeries, []string{"Action"}, nil, seriesDefault.ID, seriesSubs.ID},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := ingest(t, testCase.requestID, testCase.kind, testCase.tmdb, testCase.language, testCase.genres, testCase.keywords)
+			if len(result.WorkflowIDs) != 1 {
+				t.Fatalf("workflows=%d, want 1", len(result.WorkflowIDs))
+			}
+			var rootID, profileID string
+			if err := store.Pool.QueryRow(ctx, `SELECT root_id::text,quality_profile_id::text FROM workflows WHERE id=$1`, result.WorkflowIDs[0].String()).Scan(&rootID, &profileID); err != nil {
+				t.Fatal(err)
+			}
+			if rootID != testCase.wantRoot.String() || profileID != testCase.wantProfile.String() {
+				t.Fatalf("root=%s profile=%s, want root=%s profile=%s", rootID, profileID, testCase.wantRoot, testCase.wantProfile)
+			}
+		})
+	}
+}

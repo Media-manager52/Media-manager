@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/languages"
 	"github.com/media-manager/media-manager/internal/servarr"
 )
 
@@ -231,6 +232,9 @@ func (store *Store) DeleteSeerrLibraryRoute(ctx context.Context, instanceID, rou
 // profile mapped to the Seerr root folder carried by the request. An empty
 // profile means the caller keeps the existing original-language routing.
 func resolveSeerrLibraryRoute(ctx context.Context, transaction pgx.Tx, intake SeerrIntake) (string, string, error) {
+	if servarr.IsAutoRootPath(intake.RootFolder) {
+		return resolveSeerrAutoRoute(ctx, transaction, intake)
+	}
 	var routeRoot, routeProfile string
 	err := transaction.QueryRow(ctx, `SELECT library_root_id::text,COALESCE(quality_profile_id::text,'') FROM seerr_library_routes WHERE seerr_instance_id=$1 AND media_kind=$2 AND root_folder=$3 AND enabled`, intake.InstanceID, intake.Kind, intake.RootFolder).Scan(&routeRoot, &routeProfile)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -265,6 +269,151 @@ func resolveSeerrLibraryRoute(ctx context.Context, transaction pgx.Tx, intake Se
 		}
 	}
 	return routeRoot, routeProfile, nil
+}
+
+const (
+	autoRouteKids        = "kids"
+	autoRouteDocumentary = "documentary"
+	autoRouteHoliday     = "holiday"
+	autoRouteDanish      = "danish"
+	autoRouteDefault     = "default"
+)
+
+// classifySeerrAutoRoute maps metadata to the Auto routing category. The
+// order is deliberate: kids content wins over holiday and original language.
+func classifySeerrAutoRoute(metadata *catalog.MediaMetadata) string {
+	if metadata == nil {
+		return autoRouteDefault
+	}
+	for _, genre := range metadata.Genres {
+		switch strings.ToLower(strings.TrimSpace(genre)) {
+		case "family", "kids":
+			return autoRouteKids
+		}
+	}
+	for _, genre := range metadata.Genres {
+		if strings.EqualFold(strings.TrimSpace(genre), "documentary") {
+			return autoRouteDocumentary
+		}
+	}
+	for _, keyword := range metadata.Keywords {
+		normalized := strings.ToLower(strings.TrimSpace(keyword))
+		if strings.Contains(normalized, "christmas") || normalized == "holiday" {
+			return autoRouteHoliday
+		}
+	}
+	if language, reliable := languages.Canonical(metadata.OriginalLanguage); reliable && language == "da" {
+		return autoRouteDanish
+	}
+	return autoRouteDefault
+}
+
+// resolveSeerrAutoRoute maps the single Auto root to a themed library root
+// and, for kids content, to the profile that does not require Danish subtitles.
+func resolveSeerrAutoRoute(ctx context.Context, transaction pgx.Tx, intake SeerrIntake) (string, string, error) {
+	category := classifySeerrAutoRoute(intake.Metadata)
+	rootText, err := selectAutoRouteRoot(ctx, transaction, intake.Kind, autoRouteRootName(intake.Kind, category))
+	if err != nil {
+		return "", "", err
+	}
+	if category != autoRouteKids {
+		return rootText, "", nil
+	}
+	profileText, err := selectNoRequiredSubtitleProfile(ctx, transaction, intake.Kind)
+	if err != nil {
+		return "", "", err
+	}
+	return rootText, profileText, nil
+}
+
+// autoRouteRootName returns the themed library root name for a category. An
+// empty name means the kind's default root.
+func autoRouteRootName(kind catalog.MediaKind, category string) string {
+	if kind == catalog.KindSeries {
+		switch category {
+		case autoRouteKids:
+			return "Børn Serier"
+		case autoRouteDocumentary:
+			return "Dokumentar Serie"
+		case autoRouteHoliday:
+			return "Julekalender"
+		case autoRouteDanish:
+			return "Dansk Tv-Serier"
+		}
+		return ""
+	}
+	switch category {
+	case autoRouteKids:
+		return "Børn Film"
+	case autoRouteDocumentary:
+		return "Dokumentar"
+	case autoRouteHoliday:
+		return "Julefilm"
+	case autoRouteDanish:
+		return "Danske Film"
+	}
+	return ""
+}
+
+// selectAutoRouteRoot resolves a themed root by name and falls back to the
+// kind's default root when the themed root is missing or unavailable.
+func selectAutoRouteRoot(ctx context.Context, transaction pgx.Tx, kind catalog.MediaKind, name string) (string, error) {
+	var rootText string
+	if strings.TrimSpace(name) != "" {
+		err := transaction.QueryRow(ctx, `SELECT root.id::text FROM library_roots root JOIN integration_instances plex ON plex.id=root.plex_instance_id AND plex.kind='plex' AND plex.enabled WHERE root.media_kind=$1 AND root.name=$2 AND root.enabled AND root.plex_library_id IS NOT NULL ORDER BY root.id LIMIT 1`, kind, name).Scan(&rootText)
+		if err == nil {
+			return rootText, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+	}
+	err := transaction.QueryRow(ctx, `SELECT root.id::text FROM library_roots root JOIN integration_instances plex ON plex.id=root.plex_instance_id AND plex.kind='plex' AND plex.enabled WHERE root.media_kind=$1 AND root.is_default AND root.enabled AND root.plex_library_id IS NOT NULL ORDER BY root.id LIMIT 1`, kind).Scan(&rootText)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrSeerrRouteTargetUnavailable
+	}
+	return rootText, err
+}
+
+// selectNoRequiredSubtitleProfile returns the enabled profile for a kind that
+// does not require any subtitle language, preferring one routed for Danish
+// originals. It returns an empty string when no such profile exists.
+func selectNoRequiredSubtitleProfile(ctx context.Context, transaction pgx.Tx, kind catalog.MediaKind) (string, error) {
+	rows, err := transaction.Query(ctx, `SELECT id::text,policy FROM quality_profiles WHERE media_kind=$1 AND enabled ORDER BY is_default DESC,name,id`, kind)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	fallback := ""
+	for rows.Next() {
+		var idText string
+		var policy json.RawMessage
+		if err := rows.Scan(&idText, &policy); err != nil {
+			return "", err
+		}
+		var routing struct {
+			Required  []string `json:"required_subtitle_languages"`
+			Languages []string `json:"original_language_routing"`
+		}
+		if err := json.Unmarshal(policy, &routing); err != nil {
+			return "", errors.New("quality profile policy is invalid")
+		}
+		if len(routing.Required) != 0 {
+			continue
+		}
+		for _, value := range routing.Languages {
+			if canonical, reliable := languages.Canonical(value); reliable && canonical == "da" {
+				return idText, nil
+			}
+		}
+		if fallback == "" {
+			fallback = idText
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return fallback, nil
 }
 
 // selectSeerrProfileBySyntheticID resolves the quality-profile id Seerr got

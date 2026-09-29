@@ -1,6 +1,7 @@
 package intake
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -139,7 +140,23 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		return err
 	}
 	if !accepted {
-		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "stale_ignored", "an unchanged or newer Seerr snapshot was already reconciled")
+		storedUpdated, storedHash, cursorErr := service.Store.SeerrSnapshotCursor(ctx, service.InstanceID, payload.RequestID)
+		if cursorErr != nil {
+			return cursorErr
+		}
+		if !storedUpdated.Equal(request.UpdatedAt.UTC()) || !bytes.Equal(storedHash, intake.PayloadHash) {
+			return service.Store.MarkSeerrDelivery(ctx, deliveryID, "stale_ignored", "an unchanged or newer Seerr snapshot was already reconciled")
+		}
+		hasWorkflow, workflowErr := service.Store.SeerrRequestHasAnyWorkflow(ctx, service.InstanceID, payload.RequestID)
+		if workflowErr != nil {
+			return workflowErr
+		}
+		if hasWorkflow {
+			return service.Store.MarkSeerrDelivery(ctx, deliveryID, "stale_ignored", "an unchanged or newer Seerr snapshot was already reconciled")
+		}
+		// The stored snapshot is current but no workflow was ever created from
+		// it (for example a request stranded by an earlier intake conflict), so
+		// evaluate it again instead of ignoring it forever.
 	}
 	if request.Status != 2 {
 		needsAttention, revokeErr := service.Store.ReconcileSeerrRevocation(ctx, intake.InstanceID, intake.RequestID, time.Now().UTC())

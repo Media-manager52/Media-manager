@@ -25,6 +25,18 @@ const (
 // provider value. Seerr expects integer IDs for profiles, root folders, and
 // library items; Media Manager keeps UUIDs, so the same input always maps to
 // the same integer without an extra table.
+// AutoRootPath is the single synthetic root folder Media Manager exposes to
+// Seerr. A request that carries it is routed by Media Manager from metadata
+// instead of a requester-chosen library root.
+const AutoRootPath = "/srv/media/Auto"
+
+// IsAutoRootPath reports whether a Seerr root folder is the Auto root. The
+// legacy "/media/Auto" spelling is accepted for older Seerr service rows.
+func IsAutoRootPath(path string) bool {
+	trimmed := strings.TrimSpace(path)
+	return trimmed == AutoRootPath || trimmed == "/media/Auto"
+}
+
 func SyntheticID(namespace, value string) int {
 	sum := crc32.ChecksumIEEE([]byte(namespace + ":" + value))
 	id := int(sum & 0x7fffffff)

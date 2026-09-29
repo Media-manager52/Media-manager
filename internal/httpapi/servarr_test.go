@@ -138,15 +138,8 @@ func TestServarrCompatibilityAPI(t *testing.T) {
 	if err := json.Unmarshal(payload, &roots); err != nil {
 		t.Fatal(err)
 	}
-	wantRootID := servarr.SyntheticID("root", movieRoot.ID.String())
-	foundRoot := false
-	for _, root := range roots {
-		if root.ID == wantRootID && root.Path == "/libraries/movies" {
-			foundRoot = true
-		}
-	}
-	if !foundRoot {
-		t.Fatalf("roots=%+v, missing root %d", roots, wantRootID)
+	if len(roots) != 1 || roots[0].ID != servarr.SyntheticID("root", "auto") || roots[0].Path != servarr.AutoRootPath || !roots[0].Accessible {
+		t.Fatalf("roots=%+v, want the single Auto root", roots)
 	}
 
 	status, payload = call(http.MethodGet, "/radarr/api/v3/movie/lookup?apikey="+testServarrKey+"&term=tmdb:555001", nil, "")
