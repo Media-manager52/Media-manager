@@ -47,6 +47,9 @@ RUN node --test tests/*.test.mjs
 FROM node:24-alpine AS ui
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000
+# The built bundle targets Workers and imports cloudflare:workers for optional
+# tracing; the Node runtime loads an inert module for that scheme.
+ENV NODE_OPTIONS=--import=/app/scripts/register-cloudflare-loader.mjs
 COPY --from=ui-build /app/package.json /app/package-lock.json ./
 COPY --from=ui-build /app/node_modules ./node_modules
 COPY --from=ui-build /app/dist ./dist
