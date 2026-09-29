@@ -75,6 +75,40 @@ func TestSeerrStatusServiceMarksAllAvailableOnce(t *testing.T) {
 	}
 }
 
+func TestSeerrStatusServiceReportsPartialForConfirmedEpisodesOnly(t *testing.T) {
+	tmdbID := int64(321)
+	client := &fakeSeerrStatusClient{request: seerradapter.Request{ID: 12, Status: 2, Type: "tv", Media: seerradapter.Media{ID: 80, TMDBID: &tmdbID, MediaType: "tv"}}}
+	store := fakeSeerrStatusStore{value: postgres.SeerrStatusSyncContext{
+		Kind: catalog.KindSeries, RequestIDs: []string{"12"}, PartialContent: true,
+		Identities: []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "321", State: catalog.IdentityVerified}},
+	}}
+	service := &SeerrStatusService{Client: client, Store: store, InstanceID: uuid.NewV7().String()}
+	payload := []byte(`{"workflow_id":"` + uuid.NewV7().String() + `"}`)
+	if err := service.Handle(context.Background(), postgres.OutboxEvent{Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 1 || client.calls[0].status != seerradapter.MediaStatusPartial || len(client.calls[0].seasons) != 0 {
+		t.Fatalf("unexpected status calls: %+v", client.calls)
+	}
+}
+
+func TestSeerrStatusServiceReportsNothingWithoutConfirmedRequestedContent(t *testing.T) {
+	tmdbID := int64(654)
+	client := &fakeSeerrStatusClient{request: seerradapter.Request{ID: 13, Status: 2, Type: "tv", Media: seerradapter.Media{ID: 81, TMDBID: &tmdbID, MediaType: "tv"}}}
+	store := fakeSeerrStatusStore{value: postgres.SeerrStatusSyncContext{
+		Kind: catalog.KindSeries, RequestIDs: []string{"13"},
+		Identities: []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "654", State: catalog.IdentityVerified}},
+	}}
+	service := &SeerrStatusService{Client: client, Store: store, InstanceID: uuid.NewV7().String()}
+	payload := []byte(`{"workflow_id":"` + uuid.NewV7().String() + `"}`)
+	if err := service.Handle(context.Background(), postgres.OutboxEvent{Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("status reached Seerr without confirmed requested content: %+v", client.calls)
+	}
+}
+
 func TestSeerrStatusServiceStopsBeforeMutationOnIdentityMismatch(t *testing.T) {
 	tmdbID := int64(999)
 	client := &fakeSeerrStatusClient{request: seerradapter.Request{ID: 11, Status: 2, Type: "tv", Media: seerradapter.Media{ID: 79, TMDBID: &tmdbID, MediaType: "tv"}}}

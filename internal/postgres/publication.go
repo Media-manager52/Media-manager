@@ -991,6 +991,17 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		SELECT $1,'workflow',$2,$3,'seerr.status_sync_requested',$4,$5,$5
 		WHERE EXISTS(SELECT 1 FROM seerr_request_workflows WHERE workflow_id=$2)
+		-- Single-episode workflows are dispatched from a season workflow without
+		-- their own request provenance; the request tracking that season still
+		-- needs availability feedback for each confirmed episode.
+		OR EXISTS(
+			SELECT 1 FROM workflows episode
+			JOIN workflows season ON season.media_id=episode.media_id
+			  AND season.variant LIKE 'season:%' AND season.variant NOT LIKE '%:episode:%'
+			  AND episode.variant LIKE season.variant || ':episode:%'
+			JOIN seerr_request_workflows provenance ON provenance.workflow_id=season.id
+			WHERE episode.id=$2
+		)
 		ON CONFLICT DO NOTHING`, uuid.NewV7().String(), scan.Workflow.ID.String(), workflowRevision+1, seerrStatusEventPayload(scan.Workflow.ID), now.UTC()); err != nil {
 		return err
 	}
