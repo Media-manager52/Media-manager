@@ -90,9 +90,27 @@ identity before publication (not necessarily before creation).
   folder, with an optional quality-profile pin). Seerr may also be configured
   against Media Manager's own Radarr/Sonarr-compatible API (see
   [backend.md](backend.md#internalservarr--radarrsonarr-compatibility-surface)):
-  in that mode `rootFolder` is the library root's `destination_root` and intake
-  matches it directly (no mapping row needed), and the `profileId` issued by
-  Media Manager selects the quality profile ahead of language routing. A
+  in that mode Seerr sees exactly one synthetic root folder per media kind,
+  `/srv/media/Auto` (`servarr.AutoRootPath`; the legacy `/media/Auto` spelling
+  is also accepted). An **Auto** request delegates both root and profile to
+  Media Manager (`resolveSeerrAutoRoute` in `internal/postgres/seerr_routes.go`),
+  which classifies the title's metadata in this order and ignores the
+  `profileId` Seerr carried:
+
+  | Category | Rule | Movie root | Series root | Profile |
+  | --- | --- | --- | --- | --- |
+  | kids | genre `Family` or `Kids` | `Børn Film` | `Børn Serier` | enabled profile with no required subtitle language (prefers one routed for `da` originals) |
+  | documentary | genre `Documentary` | `Dokumentar` | `Dokumentar Serie` | language routing |
+  | holiday | keyword containing `christmas`, or `holiday` | `Julefilm` | `Julekalender` | language routing |
+  | danish | reliable original language `da` | `Danske Film` | `Dansk Tv-Serier` | language routing |
+  | default | anything else | kind default | kind default | language routing |
+
+  Themed roots are matched by exact `library_roots.name` and must be enabled
+  with a Plex library; a missing themed root falls back to the kind's default
+  root instead of stranding the request. A request carrying a real
+  `destination_root` (older Seerr service rows) is still matched directly (no
+  mapping row needed), and there the `profileId` issued by Media Manager
+  selects the quality profile ahead of language routing. A
   request with a folder that
   has no enabled route, or whose mapped root/profile is disabled, pauses with
   `needs_configuration` and the exact folder in the reason; it never silently
@@ -100,6 +118,21 @@ identity before publication (not necessarily before creation).
   Connections → Seerr request routing** requeues those deliveries immediately
   (the requeue marker bypasses unchanged-snapshot dedup). Requests without a
   folder keep the previous default-root behavior.
+- **Already-available media.** When a request names a variant (movie
+  `default` or a season) that already has a `plex_confirmed` workflow, intake
+  attaches the request to that workflow (`owns_workflow = false`), queues
+  `seerr.status_sync_requested`, and creates no new workflow or download. If
+  every requested variant is confirmed, the delivery outcome is
+  `already_available`; a mixed request creates workflows only for the missing
+  variants.
+- **Snapshot cursor.** Seerr can change a request's availability without moving
+  its `updatedAt` cursor. An equal-cursor snapshot is accepted when its payload
+  hash changed; an unchanged payload is `stale_ignored`, and an older cursor
+  never overwrites the stored snapshot. An approved request whose current
+  snapshot never produced any workflow (for example one stranded by an earlier
+  intake conflict) is re-evaluated instead of ignored, and the 5-minute poll
+  retries such requests with a 24-hour backoff after a `needs_attention` or
+  `needs_configuration` outcome.
 - A request deleted in Seerr is reconciled: never started → observed, no
   attention; already retrieving → `needs_attention` (never silently cancelled).
 - Seerr availability is pushed only after exact Plex confirmation; partial TV
@@ -529,8 +562,9 @@ references resolved at delivery time.
 
 `internal/servarr` plus `internal/httpapi/servarr.go` expose the Radarr and
 Sonarr endpoints Seerr uses to configure a server, add movies/series, and scan
-availability. Root folders come from `library_roots.destination_root`,
-profiles from `quality_profiles`, and availability from Plex-confirmed
+availability. The root-folder list is the single synthetic Auto root (only
+when at least one enabled, Plex-backed root of that kind exists; see §3.2),
+profiles come from `quality_profiles`, and availability from Plex-confirmed
 publications (`ServarrMovie.HasFile`, season `episodeFileCount`). Adds are
 acknowledged, not duplicated: Seerr's own request (webhook/poll) remains the
 single intake path into the workflow engine.

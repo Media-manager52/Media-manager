@@ -4,10 +4,11 @@ This is the entry point to the documentation set for the Media Manager
 codebase. It is written for an engineer or AI agent with **zero prior
 context** who must safely read, change, test, and operate the repository.
 
-Snapshot: `main` at `c6bf1b8` (2026-09-28 hardening commit, tree clean),
-database schema 40, Go 1.27, Node 24 / Next 16 (Vinext), PostgreSQL 18. The
-docs restructure, per-package `doc.go` comments, and `docs:check` gate are
-included in that commit.
+Snapshot: `main` at `77f6dcb` (2026-09-29, tree clean), database schema 41,
+Go 1.27, Node 24 / Next 16 (Vinext), PostgreSQL 18. This includes bounded NZB
+retrieval recovery (schema 41), link relocation between roots, the Seerr Auto
+root, and already-available Seerr intake. The agent briefs under
+`agent-briefs/` are dated session prompts and may describe an older snapshot.
 
 > Read `AGENTS.md` in the repository root for the short contributor contract,
 > then follow the read order below. The full documentation index, including
