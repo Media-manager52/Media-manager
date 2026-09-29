@@ -133,7 +133,7 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 	intake.PayloadHash = seerrIntakeHash(request, intake)
 	accepted, err := service.Store.UpsertSeerrSnapshot(ctx, intake)
 	if errors.Is(err, postgres.ErrSeerrSnapshotConflict) {
-		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "Seerr changed a request without a newer update cursor")
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "Seerr request is missing its update cursor")
 	}
 	if err != nil {
 		return err

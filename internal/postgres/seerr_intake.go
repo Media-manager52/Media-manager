@@ -80,7 +80,7 @@ func (store *Store) UpsertSeerrSnapshot(ctx context.Context, intake SeerrIntake)
 	var revision int64
 	err = transaction.QueryRow(ctx, `INSERT INTO seerr_request_snapshots(seerr_instance_id,request_id,external_updated_at,state,identities,payload_sha256,last_delivery_id,revision,reconciled_at,title,year,media_kind,poster_url,requested_at,requester,seerr_server_id,seerr_profile_id,seerr_root_folder,seerr_is_4k) VALUES($1,$2,$3,$4,$5,$6,$7,1,now(),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		ON CONFLICT(seerr_instance_id,request_id) DO UPDATE SET external_updated_at=EXCLUDED.external_updated_at,state=EXCLUDED.state,identities=EXCLUDED.identities,payload_sha256=EXCLUDED.payload_sha256,last_delivery_id=EXCLUDED.last_delivery_id,title=EXCLUDED.title,year=EXCLUDED.year,media_kind=EXCLUDED.media_kind,poster_url=EXCLUDED.poster_url,requested_at=EXCLUDED.requested_at,requester=EXCLUDED.requester,seerr_server_id=EXCLUDED.seerr_server_id,seerr_profile_id=EXCLUDED.seerr_profile_id,seerr_root_folder=EXCLUDED.seerr_root_folder,seerr_is_4k=EXCLUDED.seerr_is_4k,revision=seerr_request_snapshots.revision+1,reconciled_at=now()
-		WHERE seerr_request_snapshots.external_updated_at IS NULL OR (EXCLUDED.external_updated_at IS NOT NULL AND EXCLUDED.external_updated_at > seerr_request_snapshots.external_updated_at)
+		WHERE seerr_request_snapshots.external_updated_at IS NULL OR (EXCLUDED.external_updated_at IS NOT NULL AND (EXCLUDED.external_updated_at > seerr_request_snapshots.external_updated_at OR (EXCLUDED.external_updated_at = seerr_request_snapshots.external_updated_at AND EXCLUDED.payload_sha256 <> seerr_request_snapshots.payload_sha256)))
 		RETURNING revision`, intake.InstanceID, intake.RequestID, nullableTime(intake.UpdatedAt), intake.RequestState, string(identities), intake.PayloadHash, intake.DeliveryID.String(), nullString(intake.Title), nullableYear(intake.Year), nullString(string(intake.Kind)), nullString(intake.PosterURL), nullableTime(intake.RequestedAt), nullString(intake.Requester), intake.ServerID, intake.ProfileID, nullString(intake.RootFolder), intake.Is4K).Scan(&revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var existingUpdated *time.Time
@@ -88,6 +88,9 @@ func (store *Store) UpsertSeerrSnapshot(ctx context.Context, intake SeerrIntake)
 		if loadErr := transaction.QueryRow(ctx, `SELECT external_updated_at,payload_sha256 FROM seerr_request_snapshots WHERE seerr_instance_id=$1 AND request_id=$2`, intake.InstanceID, intake.RequestID).Scan(&existingUpdated, &existingHash); loadErr != nil {
 			return false, loadErr
 		}
+		// Equal cursor with a changed payload is handled by the upsert above.
+		// Reaching here with a changed payload means neither branch matched,
+		// which is a defensive-only path; the stored snapshot is kept.
 		if existingUpdated != nil && existingUpdated.Equal(intake.UpdatedAt.UTC()) && !bytes.Equal(existingHash, intake.PayloadHash) {
 			return false, ErrSeerrSnapshotConflict
 		}

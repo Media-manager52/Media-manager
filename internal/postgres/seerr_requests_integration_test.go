@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -263,5 +264,67 @@ func TestSeerrRequestsReadModel(t *testing.T) {
 
 	if empty, err := store.ListSeerrRequests(ctx, uuid.New().String(), 100, 0); err != nil || len(empty) != 0 {
 		t.Fatalf("unknown instance requests=%+v err=%v", empty, err)
+	}
+}
+
+// TestSeerrSnapshotEqualCursorChangeIsAccepted pins the intake behavior for
+// Seerr snapshots whose payload changes without a newer request.updatedAt
+// cursor. Seerr advances season and media availability without always moving
+// the cursor, and rejecting those snapshots stranded requests in
+// needs_attention on every poll. A strictly older cursor must still never
+// overwrite the stored snapshot, and an unchanged payload stays stale.
+func TestSeerrSnapshotEqualCursorChangeIsAccepted(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	store := subtitleIntegrationStore(t, ctx, databaseURL)
+	defer store.Close()
+
+	instance, err := store.CreateIntegration(ctx, Integration{Kind: "seerr", Name: "Snapshot Cursor Test", Enabled: true, Config: json.RawMessage(`{"base_url":"http://seerr:5055","allow_http":true}`), SecretRef: "SEERR_API_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cursor := time.Now().UTC().Truncate(time.Second)
+	upsert := func(t *testing.T, updatedAt time.Time, hash byte, state string) bool {
+		t.Helper()
+		deliveryID := uuid.NewV7()
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO seerr_deliveries(id,seerr_instance_id,source,event_id,request_id,payload_sha256,payload,received_at) VALUES($1,$2,'poll',$3,'700',$4,'{}',$5)`, deliveryID.String(), instance.ID.String(), "event-"+deliveryID.String(), []byte{hash}, updatedAt); err != nil {
+			t.Fatal(err)
+		}
+		accepted, err := store.UpsertSeerrSnapshot(ctx, SeerrIntake{
+			InstanceID: instance.ID.String(), RequestID: "700", UpdatedAt: updatedAt, RequestState: state,
+			Kind: catalog.KindMovie, Title: "Cursor Test", PayloadHash: []byte{hash}, DeliveryID: deliveryID,
+		})
+		if err != nil {
+			t.Fatalf("upsert hash=%d state=%s: %v", hash, state, err)
+		}
+		return accepted
+	}
+
+	if !upsert(t, cursor, 1, "2") {
+		t.Fatal("initial snapshot was not accepted")
+	}
+	if upsert(t, cursor, 1, "2") {
+		t.Fatal("unchanged snapshot must be ignored as stale")
+	}
+	if !upsert(t, cursor, 2, "2") {
+		t.Fatal("equal-cursor snapshot with a changed payload must be accepted")
+	}
+	if upsert(t, cursor.Add(-time.Minute), 3, "2") {
+		t.Fatal("an older cursor must not overwrite the stored snapshot")
+	}
+
+	var revision int64
+	var storedHash []byte
+	var storedState string
+	if err := store.Pool.QueryRow(ctx, `SELECT revision,payload_sha256,state FROM seerr_request_snapshots WHERE seerr_instance_id=$1 AND request_id='700'`, instance.ID.String()).Scan(&revision, &storedHash, &storedState); err != nil {
+		t.Fatal(err)
+	}
+	if revision != 2 || !bytes.Equal(storedHash, []byte{2}) || storedState != "2" {
+		t.Fatalf("stored snapshot revision=%d hash=%v state=%q", revision, storedHash, storedState)
 	}
 }
