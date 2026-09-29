@@ -20,7 +20,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "bash scripts/sites-env.sh -- ./node_modules/.bin/vinext start --hostname 127.0.0.1 --port 4174",
+    // The built bundle targets Workers and imports cloudflare:workers; the
+    // production container registers the same inert loader (see Dockerfile).
+    command: "NODE_OPTIONS=--import=./scripts/register-cloudflare-loader.mjs bash scripts/sites-env.sh -- ./node_modules/.bin/vinext start --hostname 127.0.0.1 --port 4174",
     url: "http://127.0.0.1:4174/media",
     reuseExistingServer: false,
     timeout: 120_000,

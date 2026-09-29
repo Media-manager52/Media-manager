@@ -79,6 +79,9 @@ async function installAddMediaAPI(page: Page, scenario: Scenario) {
       await route.fulfill({ status: 201, json: { data } })
       return
     } else if (request.method() === "GET" && path === "/api/v1/workflows?limit=300&active=false") data = []
+    // The shell loads owner attention on every page.
+    else if (request.method() === "GET" && path === "/api/v1/workflows?limit=300&active=true") data = []
+    else if (request.method() === "GET" && path === "/api/v1/wanted?limit=300") data = []
     else {
       unexpected.push(`${request.method()} ${path}`)
       await route.fulfill({ status: 501, json: { error: { message: "Unexpected local test request" } } })

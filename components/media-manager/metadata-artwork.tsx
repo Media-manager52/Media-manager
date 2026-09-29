@@ -16,5 +16,5 @@ export function MetadataArtwork({ src, fallback, alt, width, height, className }
 export function MetadataSourceLink({ source }: { source: APIMetadataSource }) {
   const label = source.provider === "tvdb" ? "TheTVDB" : source.provider === "tmdb" ? "TMDB" : source.provider === "simkl" ? "Simkl" : source.provider.toUpperCase()
   const content = <>{source.provider === "simkl" ? <Image src={simklMark} alt="" width={14} height={14} className="size-3.5 rounded-[3px]" /> : null}<span>{label}{source.provider_id ? ` · ${source.provider_id}` : ""}{source.url ? " ↗" : ""}</span></>
-  return source.url ? <a href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#b7a4ed] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7c3aed]">{content}</a> : <span className="inline-flex items-center gap-1 text-[#b7a4ed]">{content}</span>
+  return source.url ? <a href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">{content}</a> : <span className="inline-flex items-center gap-1 text-brand-text">{content}</span>
 }

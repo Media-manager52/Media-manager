@@ -25,22 +25,21 @@ import { cn } from "@/lib/utils"
 import type { StatusTone } from "@/lib/media-manager-data"
 
 export function PageHeader({
-  area,
   title,
   subtitle,
   actions,
 }: {
-  area: string
+  /** Shown in the shell breadcrumb; kept so route metadata stays one object. */
+  area?: string
   title: string
   subtitle: string
   actions?: React.ReactNode
 }) {
   return (
-    <header className="flex flex-col gap-4 border-b border-white/[0.06] pb-5 lg:flex-row lg:items-end lg:justify-between">
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        <div className="text-[11.5px] font-extrabold uppercase tracking-[0.18em] text-[#7f8a9a]">{area}</div>
-        <h1 className="mt-1.5 text-[28px] font-[820] leading-tight tracking-[-0.035em] text-white sm:text-[33px]">{title}</h1>
-        <p className="mt-2 max-w-3xl text-[14px] leading-6 text-[#8f9aab]">{subtitle}</p>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.025em] text-fg">{title}</h1>
+        <p className="mt-1.5 max-w-3xl text-[14px] leading-6 text-fg-muted">{subtitle}</p>
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </header>
@@ -53,22 +52,25 @@ export function Panel({
   action,
   children,
   className,
+  flush = false,
 }: {
   title?: string
   subtitle?: string
   action?: React.ReactNode
   children: React.ReactNode
   className?: string
+  /** Edge-to-edge body (tables, lists) with a padded header. */
+  flush?: boolean
 }) {
   return (
-    <section className={cn("mm-panel", className)}>
+    <section className={cn("mm-panel", flush && "overflow-hidden !p-0", className)}>
       {title || action ? (
-        <div className="mb-4 flex items-start justify-between gap-4">
+        <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4", flush ? "border-b border-line px-5 py-4" : "mb-4")}>
           <div className="min-w-0">
-            {title ? <h2 className="text-[15px] font-bold tracking-[-0.01em] text-[#eef2f7]">{title}</h2> : null}
-            {subtitle ? <p className="mt-1 text-[12.5px] leading-5 text-[#838f9f]">{subtitle}</p> : null}
+            {title ? <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-fg">{title}</h2> : null}
+            {subtitle ? <p className="mt-0.5 text-[13px] leading-5 text-fg-muted">{subtitle}</p> : null}
           </div>
-          {action}
+          {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
         </div>
       ) : null}
       {children}
@@ -92,21 +94,21 @@ export function MetricCard({
   return (
     <div className="mm-metric">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#828d9d]">{label}</span>
-        {Icon ? <Icon className={cn("size-4", toneText[tone])} aria-hidden /> : null}
+        <span className="text-[13px] font-medium text-fg-muted">{label}</span>
+        {Icon ? <span className={cn("grid size-7 place-items-center rounded-md", toneTile[tone])}><Icon className="size-4" aria-hidden /></span> : null}
       </div>
-      <div className="mt-2 text-[27px] font-[850] leading-none tracking-[-0.04em] text-[#f4f6f9]">{value}</div>
-      <div className="mt-1.5 text-[12px] leading-5 text-[#838f9f]">{note}</div>
+      <div className="mt-3 text-[28px] font-semibold leading-none tracking-[-0.03em] text-fg tabular-nums">{value}</div>
+      <div className="mt-2 text-[12.5px] leading-5 text-fg-muted">{note}</div>
     </div>
   )
 }
 
-const toneText: Record<StatusTone, string> = {
-  good: "text-[color:var(--status-good)]",
-  info: "text-[color:var(--status-info)]",
-  warn: "text-[color:var(--status-warn)]",
-  bad: "text-[color:var(--status-bad)]",
-  neutral: "text-[color:var(--status-wait)]",
+const toneTile: Record<StatusTone, string> = {
+  good: "bg-[color:var(--status-good-bg)] text-[color:var(--status-good)]",
+  info: "bg-[color:var(--status-info-bg)] text-[color:var(--status-info)]",
+  warn: "bg-[color:var(--status-warn-bg)] text-[color:var(--status-warn)]",
+  bad: "bg-[color:var(--status-bad-bg)] text-[color:var(--status-bad)]",
+  neutral: "bg-surface-2 text-fg-muted",
 }
 
 // One semantic palette for every tone. These reference the canonical
@@ -232,7 +234,7 @@ export function StateBadge({ state, label, className }: { state: string; label?:
 
 export function StatusChip({ children, tone = "neutral", className }: { children: React.ReactNode; tone?: StatusTone; className?: string }) {
   return (
-    <Badge variant="outline" className={cn("h-6 gap-1 rounded-full px-2 text-[11px] font-bold tracking-[0.01em]", toneBadge[tone], className)}>
+    <Badge variant="outline" className={cn("h-6 gap-1 rounded-full px-2 text-[11.5px] font-medium", toneBadge[tone], className)}>
       {children}
     </Badge>
   )
@@ -240,9 +242,9 @@ export function StatusChip({ children, tone = "neutral", className }: { children
 
 export function KeyValue({ label, value, valueClassName }: { label: string; value: React.ReactNode; valueClassName?: string }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-white/[0.055] py-2.5 last:border-0">
-      <span className="text-[12px] leading-5 text-[#838f9f]">{label}</span>
-      <span className={cn("text-right text-[12.5px] font-semibold leading-5 text-[#dde2e9]", valueClassName)}>{value}</span>
+    <div className="flex items-start justify-between gap-4 border-b border-line py-2.5 last:border-0">
+      <span className="text-[13px] leading-5 text-fg-muted">{label}</span>
+      <span className={cn("text-right text-[13px] font-medium leading-5 text-fg", valueClassName)}>{value}</span>
     </div>
   )
 }
@@ -250,8 +252,8 @@ export function KeyValue({ label, value, valueClassName }: { label: string; valu
 export function WorkProgress({ value, label }: { value: number; label?: string }) {
   return (
     <div>
-      {label ? <div className="mb-1.5 text-[11px] text-[#838f9f]">{label}</div> : null}
-      <Progress value={value} className="h-1.5 bg-[#202733] [&>div]:bg-gradient-to-r [&>div]:from-[#7790ef] [&>div]:to-[#a8b8f7]" />
+      {label ? <div className="mb-1.5 text-[12px] text-fg-muted">{label}</div> : null}
+      <Progress value={value} aria-label={label ?? "Progress"} className="h-1.5 bg-surface-3 [&>div]:bg-brand" />
     </div>
   )
 }
@@ -271,12 +273,12 @@ export function InlineNotice({
 }) {
   const Icon = tone === "good" ? CheckCircle2 : tone === "warn" ? CircleAlert : tone === "bad" ? CircleX : Info
   return (
-    <div className={cn("rounded-[14px] border p-3.5", toneBadge[tone], className)}>
+    <div className={cn("rounded-xl border p-4", toneBadge[tone], className)}>
       <div className="flex items-start gap-3">
         <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
         <div className="min-w-0 flex-1">
-          <div className="text-[12.5px] font-bold">{title}</div>
-          <div className="mt-1 text-[12px] leading-5 opacity-85">{children}</div>
+          <div className="text-[13px] font-semibold">{title}</div>
+          <div className="mt-1 text-[13px] leading-5 opacity-90">{children}</div>
           {action ? <div className="mt-3">{action}</div> : null}
         </div>
       </div>
@@ -286,10 +288,10 @@ export function InlineNotice({
 
 export function EmptyAction({ title, copy, action }: { title: string; copy: string; action?: React.ReactNode }) {
   return (
-    <div className="grid min-h-44 place-items-center rounded-2xl border border-dashed border-[#2e3744] bg-[#0c1015] px-5 py-10 text-center">
+    <div className="grid min-h-44 place-items-center rounded-xl border border-dashed border-line-strong bg-surface-2/60 px-5 py-10 text-center">
       <div>
-        <div className="text-[14px] font-bold text-[#e9edf2]">{title}</div>
-        <p className="mx-auto mt-2 max-w-md text-[12.5px] leading-5 text-[#838f9f]">{copy}</p>
+        <div className="text-[14px] font-semibold text-fg">{title}</div>
+        <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-5 text-fg-muted">{copy}</p>
         {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
       </div>
     </div>
@@ -299,7 +301,7 @@ export function EmptyAction({ title, copy, action }: { title: string; copy: stri
 export function SectionLabel({ children, className, action }: { children: React.ReactNode; className?: string; action?: React.ReactNode }) {
   return (
     <div className={cn("mb-2.5 flex items-center justify-between gap-3", className)}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#828d9d]">{children}</h3>
+      <h3 className="text-[12px] font-semibold uppercase tracking-[0.06em] text-fg-muted">{children}</h3>
       {action}
     </div>
   )
