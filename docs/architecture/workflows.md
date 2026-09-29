@@ -120,8 +120,12 @@ identity before publication (not necessarily before creation).
   folder keep the previous default-root behavior.
 - **Already-available media.** When a request names a variant (movie
   `default` or a season) that already has a `plex_confirmed` workflow, intake
-  attaches the request to that workflow (`owns_workflow = false`), queues
-  `seerr.status_sync_requested`, and creates no new workflow or download. If
+  attaches the request to that workflow (`owns_workflow = false`) and creates
+  no new workflow or download. Whenever a requested variant already has
+  Plex-confirmed content (the movie, a season, or any episode of a requested
+  season), intake queues one `seerr.status_sync_requested` keyed by the request
+  and its snapshot revision (aggregate type `seerr_request`), so it never
+  collides with the sync an earlier request queued for the same workflow. If
   every requested variant is confirmed, the delivery outcome is
   `already_available`; a mixed request creates workflows only for the missing
   variants.
@@ -136,7 +140,19 @@ identity before publication (not necessarily before creation).
 - A request deleted in Seerr is reconciled: never started → observed, no
   attention; already retrieving → `needs_attention` (never silently cancelled).
 - Seerr availability is pushed only after exact Plex confirmation; partial TV
-  requests keep unconfirmed seasons `requested`.
+  requests keep unconfirmed seasons `requested`. A season acquired through
+  single-episode workflows (airing, or episode-only postings) counts as
+  available once every episode frozen in its season workflow's latest
+  expectation has a Plex-confirmed episode workflow; an empty expectation never
+  counts. Seerr has no per-season partial status in this API, so confirmed
+  episodes of an incomplete season mark the media partially available. Episode
+  workflows carry no request provenance of their own, so both the Plex
+  confirmation transaction and the 5-minute bootstrap
+  (`QueueConfirmedSeerrStatusSyncs`) follow the season workflow's provenance;
+  the bootstrap queues at most one episode per media per tick and skips an
+  episode that a later sync for the same media already covers. The season
+  workflow itself stays `waiting`: it never gains its own Plex evidence, so it
+  is not marked `plex_confirmed`.
 
 ### 3.3 Discovery (owner metadata search)
 

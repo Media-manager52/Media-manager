@@ -77,7 +77,16 @@ func (service *SeerrStatusService) Handle(ctx context.Context, event postgres.Ou
 	}
 
 	if statusContext.Kind == catalog.KindSeries && len(statusContext.AvailableSeasons) == 0 {
-		return errors.New("Seerr series status has no Plex-confirmed season")
+		// Episode workflows confirm one at a time, so a requested season can
+		// hold Plex-confirmed episodes before it is complete. Seerr has no
+		// per-season partial status here; report the media as partially
+		// available. Without any confirmed requested content there is nothing
+		// truthful to report, and an error would only retry the same answer.
+		if !statusContext.PartialContent {
+			return nil
+		}
+		_, err := service.Client.SetMediaStatus(ctx, current.Media.ID, seerradapter.MediaStatusPartial, nil)
+		return err
 	}
 	if _, err := service.Client.SetMediaStatus(ctx, current.Media.ID, seerradapter.MediaStatusAvailable, statusContext.AvailableSeasons); err != nil {
 		return err

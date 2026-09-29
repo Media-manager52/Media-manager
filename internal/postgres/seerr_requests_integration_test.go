@@ -406,6 +406,11 @@ func TestSeerrIntakeMarksConfirmedMediaAvailable(t *testing.T) {
 	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='plex_confirmed',terminal_at=$2,updated_at=$2 WHERE id=$1`, workflowID.String(), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
+	// The first request's availability sync already exists at the confirmed
+	// workflow's revision. A sync for a later request must not collide with it.
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at,completed_at) SELECT $1,'workflow',id,revision,'seerr.status_sync_requested',$2,$3,$3,$3 FROM workflows WHERE id=$4`, uuid.NewV7().String(), seerrStatusEventPayload(workflowID), time.Now().UTC(), workflowID.String()); err != nil {
+		t.Fatal(err)
+	}
 
 	secondIntake, second := ingest(t, "dup-second", "940001")
 	if !second.AlreadyAvailable {
@@ -429,10 +434,20 @@ func TestSeerrIntakeMarksConfirmedMediaAvailable(t *testing.T) {
 		t.Fatalf("provenance rows=%d, want 1", provenanceCount)
 	}
 	var syncEvents int
-	if err := store.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='seerr.status_sync_requested'`, workflowID.String()).Scan(&syncEvents); err != nil {
+	if err := store.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_events WHERE aggregate_type='seerr_request' AND event_type='seerr.status_sync_requested' AND completed_at IS NULL AND payload->>'workflow_id'=$1`, workflowID.String()).Scan(&syncEvents); err != nil {
 		t.Fatal(err)
 	}
-	if syncEvents < 1 {
-		t.Fatalf("status sync events=%d, want at least 1", syncEvents)
+	if syncEvents != 1 {
+		t.Fatalf("pending request status sync events=%d, want 1 for the second request", syncEvents)
+	}
+	// Replaying the same request snapshot is idempotent.
+	if _, err := store.EnsureMediaFromSeerr(ctx, secondIntake, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_events WHERE aggregate_type='seerr_request' AND event_type='seerr.status_sync_requested'`).Scan(&syncEvents); err != nil {
+		t.Fatal(err)
+	}
+	if syncEvents != 1 {
+		t.Fatalf("request status sync events after replay=%d, want 1", syncEvents)
 	}
 }
