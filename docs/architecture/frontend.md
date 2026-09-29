@@ -9,7 +9,7 @@ success. All durable behavior lives in the Go API.
 | Concern | Choice |
 | --- | --- |
 | Framework | Next.js 16 App Router rendered by **Vinext** on **Vite 8** (`vinext` package) |
-| Runtime | Cloudflare Workers semantics via `@cloudflare/vite-plugin`; `worker/index.ts` is the entry, Node serves it in the container (`vinext start`) |
+| Runtime | Cloudflare Workers semantics via `@cloudflare/vite-plugin`; `worker/index.ts` is the entry, Node serves it in the container (`vinext start`). The bundle imports `cloudflare:workers` for optional tracing, so the container sets `NODE_OPTIONS=--import=/app/scripts/register-cloudflare-loader.mjs`, which resolves `cloudflare:` imports to an inert module (`scripts/cloudflare-scheme-loader.mjs`); `tests/rendered-html.test.mjs` registers the same loader. |
 | UI | React 19, TypeScript 5.9, Tailwind CSS 4, shadcn-style primitives (`components/ui/*`) built on Base UI/Radix packages |
 | Icons | `lucide-react` |
 | Charts | `recharts` |

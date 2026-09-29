@@ -122,15 +122,24 @@ Seerr needs. In Seerr, edit the existing services (or create new ones):
 | Sonarr | `media-manager-api-1` | `8080` | off | `/sonarr` | `SERVARR_API_KEY` |
 
 Save each service (the Test button calls `system/status`, `qualityProfile`,
-`rootfolder`, and `tag`). The root-folder and quality-profile lists come from
-Media Manager's own library roots and enabled profiles; pick the defaults in
-Seerr if prompted. No indexers or download clients exist behind these services
+`rootfolder`, and `tag`). Seerr sees one root folder, `/srv/media/Auto`; pick
+it as the default. Media Manager then routes each request to a themed library
+root (`Børn Film`/`Børn Serier`, `Dokumentar`/`Dokumentar Serie`,
+`Julefilm`/`Julekalender`, `Danske Film`/`Dansk Tv-Serier`) or the kind's
+default root from the title's metadata, and ignores the Seerr profile for Auto
+requests (see [workflows §3.2](../architecture/workflows.md#32-seerr-intake-webhook--polling)).
+A themed root is matched by its exact name; create it in Settings → Storage
+with that name, or its requests go to the default root. The quality-profile
+list comes from Media Manager's enabled profiles. No indexers or download clients exist behind these services
 — all acquisition stays in Media Manager.
 
 Existing requests that still reference the old server/folder configuration keep
 working through the `seerr_library_routes` mappings (for example
-`/media/Comedy`); requests created through the Media Manager service resolve
-by `destination_root` and the profile id directly. No reconfiguration is needed
+`/media/Comedy`); requests that carry a real library `destination_root` (created
+before the Auto root) resolve by that path and the profile id directly. A
+request for a movie or season that is already Plex-confirmed is attached to the
+existing workflow and marked available in Seerr without a new download
+(delivery outcome `already_available`). No reconfiguration is needed
 for already-stored requests. To retire Radarr/Sonarr completely, remove their
 containers after the services above pass in Seerr.
 

@@ -261,8 +261,11 @@ Media Manager can be Seerr's Radarr and Sonarr server. Set `SERVARR_API_KEY` in
 | Radarr | `media-manager-api-1` | `8080` | off | `/radarr` | `SERVARR_API_KEY` |
 | Sonarr | `media-manager-api-1` | `8080` | off | `/sonarr` | `SERVARR_API_KEY` |
 
-Seerr reads Media Manager's enabled library roots and quality profiles from
-these services. Adds are acknowledged without a second catalog: the Seerr
+Seerr reads Media Manager's enabled quality profiles and a single root folder,
+`/srv/media/Auto`, from these services. For Auto requests Media Manager picks
+the library root (kids, documentary, Christmas, Danish original, or default)
+and, for kids content, the profile without required subtitles, from the
+title's metadata. Adds are acknowledged without a second catalog: the Seerr
 request itself (webhook/poll) creates the workflow. Availability scans read
 Plex-confirmed publications. Requests created while Seerr still pointed at an
 older server keep working through the Seerr root-folder routes in Settings →

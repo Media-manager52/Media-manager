@@ -228,7 +228,7 @@ An empty `SERVARR_API_KEY` disables the surface (`503 not_configured`).
 | --- | --- | --- |
 | GET | `/radarr/api/v3/system/status` | Server identity/version for Seerr's settings test (Radarr 5.x). |
 | GET | `/radarr/api/v3/qualityProfile` | Enabled movie quality profiles with synthetic integer IDs. |
-| GET | `/radarr/api/v3/rootfolder` | Enabled movie library roots (`destination_root` as the path). |
+| GET | `/radarr/api/v3/rootfolder` | The single synthetic Auto root `/srv/media/Auto` when an enabled, Plex-backed movie root exists, otherwise `[]`. Media Manager chooses the real root from metadata ([workflows §3.2](workflows.md#32-seerr-intake-webhook--polling)). |
 | GET | `/radarr/api/v3/tag` | Empty list. |
 | GET | `/radarr/api/v3/movie` | Movie catalog with `hasFile` from Plex-confirmed publications. |
 | GET | `/radarr/api/v3/movie?tmdbId=` | One movie or `[]`. |
@@ -244,7 +244,7 @@ An empty `SERVARR_API_KEY` disables the surface (`503 not_configured`).
 | --- | --- | --- |
 | GET | `/sonarr/api/v3/system/status` | Server identity/version (Sonarr 4.x so Seerr skips removed language profiles). |
 | GET | `/sonarr/api/v3/qualityProfile` | Enabled series quality profiles. |
-| GET | `/sonarr/api/v3/rootfolder` | Enabled series library roots. |
+| GET | `/sonarr/api/v3/rootfolder` | The single synthetic Auto root, as for Radarr. |
 | GET | `/sonarr/api/v3/languageprofile` | English language profile. |
 | GET | `/sonarr/api/v3/series` | Series catalog with per-season `episodeFileCount`/`totalEpisodeCount`. |
 | GET | `/sonarr/api/v3/series?tvdbId=` | One series or `[]`. |
