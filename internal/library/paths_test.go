@@ -185,6 +185,62 @@ func TestMoveSymlinkIsIdempotentAndRestorable(t *testing.T) {
 	}
 }
 
+// TestRelocateSymlinkMovesAcrossRoots pins the relocation primitive used to
+// correct a movie published into the wrong library root: the link moves
+// between roots, stays idempotent, never overwrites a different target, and
+// rejects escaping paths.
+func TestRelocateSymlinkMovesAcrossRoots(t *testing.T) {
+	fromRoot, toRoot := t.TempDir(), t.TempDir()
+	target := filepath.Join(t.TempDir(), "Movie (2026).mkv")
+	if err := os.WriteFile(target, []byte("target fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	relative := "Movie (2026)/Movie (2026).mkv"
+	if err := os.MkdirAll(filepath.Join(fromRoot, "Movie (2026)"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(fromRoot, relative)); err != nil {
+		t.Fatal(err)
+	}
+	if err := RelocateSymlink(fromRoot, toRoot, relative, relative, target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(fromRoot, relative)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source link still present: %v", err)
+	}
+	moved, err := os.Readlink(filepath.Join(toRoot, relative))
+	if err != nil || moved != target {
+		t.Fatalf("relocated target=%q err=%v, want %q", moved, err, target)
+	}
+	// Idempotent rerun.
+	if err := RelocateSymlink(fromRoot, toRoot, relative, relative, target); err != nil {
+		t.Fatal(err)
+	}
+	// A different target at the destination is never overwritten.
+	other := filepath.Join(t.TempDir(), "Other.mkv")
+	if err := os.WriteFile(other, []byte("other"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(toRoot, "Other (2026)"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(fromRoot, "Other (2026)"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, filepath.Join(toRoot, "Other (2026)/Other.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(fromRoot, "Other (2026)/Other.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	if err := RelocateSymlink(fromRoot, toRoot, "Other (2026)/Other.mkv", "Other (2026)/Other.mkv", target); !errors.Is(err, ErrCollision) {
+		t.Fatalf("collision err=%v, want ErrCollision", err)
+	}
+	if err := RelocateSymlink(fromRoot, toRoot, "../escape", "../escape", target); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("escape err=%v, want ErrUnsafePath", err)
+	}
+}
+
 func TestTransferRegularFileVerifiesAndReconcilesUnknownOutcomes(t *testing.T) {
 	t.Parallel()
 	temp := t.TempDir()

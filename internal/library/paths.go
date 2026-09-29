@@ -302,6 +302,90 @@ func MoveSymlink(destinationRoot, fromRelative, toRelative, expectedTarget strin
 	return nil
 }
 
+// RelocateSymlink moves one published Plex-facing symlink from one library
+// root to another without touching the link target or the source content. It
+// is idempotent: a link already at the destination with the expected target is
+// accepted, and a completed move whose source removal failed is finished on
+// the next call. Destinations are never overwritten and both roots are opened
+// with os.Root so path escapes and intermediate symlinks are rejected.
+func RelocateSymlink(fromRoot, toRoot, fromRelative, toRelative, expectedTarget string) error {
+	if !filepath.IsAbs(fromRoot) || !filepath.IsAbs(toRoot) || !filepath.IsAbs(expectedTarget) {
+		return ErrUnsafePath
+	}
+	if filepath.Clean(fromRoot) != fromRoot || filepath.Clean(toRoot) != toRoot || filepath.Clean(expectedTarget) != expectedTarget {
+		return ErrUnsafePath
+	}
+	from, err := ValidateRelative(fromRelative)
+	if err != nil {
+		return err
+	}
+	to, err := ValidateRelative(toRelative)
+	if err != nil {
+		return err
+	}
+	if fromRoot == toRoot {
+		return MoveSymlink(fromRoot, from, to, expectedTarget)
+	}
+	source, err := os.OpenRoot(fromRoot)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	destination, err := os.OpenRoot(toRoot)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+	current, readErr := source.Readlink(from)
+	if errors.Is(readErr, fs.ErrNotExist) {
+		relocated, relocateErr := destination.Readlink(to)
+		if relocateErr == nil && relocated == expectedTarget {
+			return nil
+		}
+		return ErrCollision
+	}
+	if readErr != nil || current != expectedTarget {
+		return ErrCollision
+	}
+	parent := filepath.Dir(to)
+	if parent != "." {
+		if err := destination.MkdirAll(parent, 0o755); err != nil {
+			return err
+		}
+	}
+	if existing, existingErr := destination.Readlink(to); existingErr == nil {
+		if existing != expectedTarget {
+			return ErrCollision
+		}
+		// The link was created by an earlier attempt; finish the move by
+		// removing the source copy.
+		if err := source.Remove(from); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	} else if !errors.Is(existingErr, fs.ErrNotExist) {
+		return existingErr
+	}
+	if _, err := destination.Lstat(to); err == nil {
+		return ErrCollision
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	// Create then remove instead of os.Rename so the move also works when the
+	// two roots live on different filesystems.
+	if err := destination.Symlink(expectedTarget, to); err != nil {
+		return err
+	}
+	if err := source.Remove(from); err != nil {
+		return err
+	}
+	moved, err := destination.Readlink(to)
+	if err != nil || moved != expectedTarget {
+		return ErrCollision
+	}
+	return nil
+}
+
 // MoveRegularFile moves only a regular file whose size and modification time
 // still match the durable review fingerprint. It never follows the file itself
 // if it has been replaced by a symlink.

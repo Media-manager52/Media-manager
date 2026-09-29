@@ -328,6 +328,14 @@ normal guards:
   removed, together with their attempt markers, package guards, and exclusion
   rows; the audit event `workflow.archive_rejections_revived` records the
   count. Queue-time archive failures stay excluded.
+- `POST /api/v1/workflows/{id}/relocate-links`
+  (`Store.RelocateWorkflowLinks`) moves a published workflow's current links
+  and verified subtitle companions to another enabled root of the same media
+  kind, updating `library_links.root_id` and the workflow root with a
+  `library.links_relocated` audit event. Link targets and AltMount content are
+  never touched, destinations are never overwritten, and a partially applied
+  move is completed by a rerun. Use it when a title was published into the
+  wrong Plex folder (for example before Seerr root routing existed).
 
 ## 6. Retrieval and AltMount submission
 

@@ -107,6 +107,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/acquisition-rounds", server.requireOwner(server.openAcquisitionRound))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/acquisition-rounds/from-known", server.requireOwner(server.openKnownAcquisitionRound))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/revive-rejected-archives", server.requireOwner(server.reviveRejectedArchives))
+	server.mux.HandleFunc("POST /api/v1/workflows/{id}/relocate-links", server.requireOwner(server.relocateWorkflowLinks))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/recover-altmount-submission", server.requireOwner(server.recoverAltMountSubmission))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconcile-altmount", server.requireOwner(server.reconcileAltMount))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reverify-retained-output", server.requireOwner(server.reverifyRetainedOutput))
@@ -1401,6 +1402,35 @@ func (server *Server) reviveRejectedArchives(writer http.ResponseWriter, request
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]any{"status": "rejections_revived", "id": id.String(), "revived": revived}})
+}
+
+func (server *Server) relocateWorkflowLinks(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
+		return
+	}
+	var input struct {
+		RootID string `json:"root_id"`
+	}
+	if err := decodeJSON(request, &input, 8<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	rootID, parseErr := uuid.Parse(input.RootID)
+	if input.RootID == "" || parseErr != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_root", "root_id must be a library root ID")
+		return
+	}
+	moved, err := server.store.RelocateWorkflowLinks(request.Context(), id, rootID, time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "workflow or root was not found")
+		return
+	} else if err != nil {
+		writeError(writer, http.StatusConflict, "relocate_failed", err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]any{"status": "links_relocated", "id": id.String(), "moved": moved}})
 }
 
 func (server *Server) recoverAltMountSubmission(writer http.ResponseWriter, request *http.Request) {
