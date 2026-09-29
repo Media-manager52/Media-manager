@@ -53,9 +53,10 @@ type SeerrIntake struct {
 }
 
 type IntakeResult struct {
-	MediaID     uuid.UUID   `json:"media_id"`
-	WorkflowIDs []uuid.UUID `json:"workflow_ids"`
-	Created     bool        `json:"created"`
+	MediaID          uuid.UUID   `json:"media_id"`
+	WorkflowIDs      []uuid.UUID `json:"workflow_ids"`
+	Created          bool        `json:"created"`
+	AlreadyAvailable bool        `json:"already_available"`
 }
 
 var (
@@ -269,6 +270,8 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		Name   string
 		Season *int16
 	}{{Name: "default"}}
+	alreadyAvailable := false
+	pendingVariants := 0
 	if intake.Kind == catalog.KindSeries && len(intake.Seasons) > 0 {
 		variants = variants[:0]
 		for index := range intake.Seasons {
@@ -346,12 +349,38 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 					return IntakeResult{}, err
 				}
 				result.WorkflowIDs = append(result.WorkflowIDs, existing)
+				pendingVariants++
 				continue
 			}
 			err = pgx.ErrNoRows
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return IntakeResult{}, err
+		}
+		// A terminal plex_confirmed workflow for this exact variant means the
+		// content is already in Plex. Attach this request to it, queue the Seerr
+		// availability sync, and never download a duplicate. Recycled media is
+		// rejected earlier, so a confirmed workflow still means live content.
+		var confirmedText string
+		var confirmedRevision int64
+		confirmedErr := transaction.QueryRow(ctx, `SELECT id::text,revision FROM workflows WHERE media_id=$1 AND variant=$2 AND state='plex_confirmed' ORDER BY terminal_at DESC NULLS LAST,id LIMIT 1`, result.MediaID.String(), variant.Name).Scan(&confirmedText, &confirmedRevision)
+		if confirmedErr == nil {
+			confirmed, parseErr := uuid.Parse(confirmedText)
+			if parseErr != nil {
+				return IntakeResult{}, parseErr
+			}
+			if _, err := transaction.Exec(ctx, `INSERT INTO seerr_request_workflows(seerr_instance_id,request_id,workflow_id,attached_snapshot_revision,owns_workflow) VALUES($1,$2,$3,$4,false) ON CONFLICT(seerr_instance_id,request_id,workflow_id) DO UPDATE SET attached_snapshot_revision=EXCLUDED.attached_snapshot_revision`, intake.InstanceID, intake.RequestID, confirmedText, snapshotRevision); err != nil {
+				return IntakeResult{}, err
+			}
+			if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'seerr.status_sync_requested',$4,$5,$5) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), confirmedText, confirmedRevision, seerrStatusEventPayload(confirmed), now.UTC()); err != nil {
+				return IntakeResult{}, err
+			}
+			result.WorkflowIDs = append(result.WorkflowIDs, confirmed)
+			alreadyAvailable = true
+			continue
+		}
+		if !errors.Is(confirmedErr, pgx.ErrNoRows) {
+			return IntakeResult{}, confirmedErr
 		}
 		workflowID := uuid.NewV7()
 		if _, err := transaction.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at) VALUES($1,$2,'monitored',$3,$4,$5,$6,1,$7,$7)`, workflowID.String(), result.MediaID.String(), rootID.String(), profileID.String(), clientID.String(), variant.Name, now.UTC()); err != nil {
@@ -391,7 +420,9 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 			return IntakeResult{}, err
 		}
 		result.WorkflowIDs = append(result.WorkflowIDs, workflowID)
+		pendingVariants++
 	}
+	result.AlreadyAvailable = alreadyAvailable && pendingVariants == 0
 	detail, _ := json.Marshal(map[string]any{"seerr_request_id": intake.RequestID, "workflow_ids": result.WorkflowIDs})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'seerr','request.intake','media',$2,$3,$4)`, uuid.NewV7().String(), result.MediaID.String(), string(detail), now.UTC()); err != nil {
 		return IntakeResult{}, err

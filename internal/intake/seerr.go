@@ -191,7 +191,8 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 	if intake.Title == "" || intake.Year == nil || !hasPublicationIdentity(intake.Kind, intake.Identities) {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "title, year, or verified Plex-supported identity is missing")
 	}
-	if _, err := service.Store.EnsureMediaFromSeerr(ctx, intake, time.Now().UTC()); errors.Is(err, postgres.ErrDefaultsMissing) {
+	result, err := service.Store.EnsureMediaFromSeerr(ctx, intake, time.Now().UTC())
+	if errors.Is(err, postgres.ErrDefaultsMissing) {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", "default root or quality profile is missing")
 	} else if errors.Is(err, postgres.ErrIdentityNeedsAttention) {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "verified identities resolve to different media")
@@ -211,6 +212,9 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", fmt.Sprintf("the Media Manager root or quality profile mapped to Seerr folder %q is disabled or unavailable", intake.RootFolder))
 	} else if err != nil {
 		return err
+	}
+	if result.AlreadyAvailable {
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "already_available", "matching Plex-confirmed media already exists")
 	}
 	return service.Store.MarkSeerrDelivery(ctx, deliveryID, "media_manager_added", "")
 }

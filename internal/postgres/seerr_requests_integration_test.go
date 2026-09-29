@@ -328,3 +328,111 @@ func TestSeerrSnapshotEqualCursorChangeIsAccepted(t *testing.T) {
 		t.Fatalf("stored snapshot revision=%d hash=%v state=%q", revision, storedHash, storedState)
 	}
 }
+
+// TestSeerrIntakeMarksConfirmedMediaAvailable proves that a new request for
+// media that already has a plex_confirmed workflow for the same variant is
+// attached to it and reported as already available instead of downloading a
+// duplicate.
+func TestSeerrIntakeMarksConfirmedMediaAvailable(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	store := subtitleIntegrationStore(t, ctx, databaseURL)
+	defer store.Close()
+
+	plex, err := store.CreateIntegration(ctx, Integration{Kind: "plex", Name: "Plex", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://plex:32400","allow_http":true}`), SecretRef: "PLEX_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateIntegration(ctx, Integration{Kind: "altmount", Name: "AltMount", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://altmount:8080","allow_http":true}`)}); err != nil {
+		t.Fatal(err)
+	}
+	seerr, err := store.CreateIntegration(ctx, Integration{Kind: "seerr", Name: "Seerr", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://seerr:5055","allow_http":true}`), SecretRef: "SEERR_API_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Indexer", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "INDEXER_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialects := newznab.SearchDialects{
+		Movie:  newznab.SearchDialect{Mode: "movie", Params: []string{"q", "imdbid"}},
+		Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "tvdbid", "season"}},
+	}
+	if _, err := store.CompleteNewznabCommission(ctx, indexer.ID, newznab.CapsSnapshot{ServerVersion: "test", BodyHash: "test", DefaultLimit: 100, MaximumLimit: 100}, dialects, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateLibraryRoot(ctx, LibraryRoot{MediaKind: catalog.KindMovie, Name: "Movies", DestinationRoot: "/libraries/movies", PlexVisibleRoot: "/libraries/movies", SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: &plex.ID, PlexLibraryID: "1", Default: true, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	rules := []releases.Rule{{Name: "Required resolution", Fact: "resolution", AllowedValues: []string{"1080p"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold}}
+	policy, _ := json.Marshal(map[string]any{"rules": rules, "required_subtitle_languages": []string{"da"}})
+	if _, err := store.CreateQualityProfile(ctx, QualityProfile{MediaKind: catalog.KindMovie, Name: "Movie Danish Subs", Policy: policy, UpgradesEnabled: true, Default: true, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	ingest := func(t *testing.T, requestID, tmdb string) (SeerrIntake, IntakeResult) {
+		t.Helper()
+		now := time.Now().UTC()
+		year := uint16(2026)
+		deliveryID := uuid.NewV7()
+		intake := SeerrIntake{
+			InstanceID: seerr.ID.String(), RequestID: requestID, UpdatedAt: now, RequestState: "2",
+			Kind: catalog.KindMovie, Title: "Duplicate Check", Year: &year,
+			Identities: []catalog.ExternalIdentity{{Namespace: "tmdb", Value: tmdb, State: catalog.IdentityVerified, Source: "seerr"}},
+			Metadata:   &catalog.MediaMetadata{}, PayloadHash: []byte(requestID), DeliveryID: deliveryID,
+		}
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO seerr_deliveries(id,seerr_instance_id,source,event_id,request_id,payload_sha256,payload,received_at) VALUES($1,$2,'webhook',$3,$4,$5,'{}',$6)`, deliveryID.String(), seerr.ID.String(), "event-"+requestID, requestID, intake.PayloadHash, now); err != nil {
+			t.Fatal(err)
+		}
+		if changed, err := store.UpsertSeerrSnapshot(ctx, intake); err != nil || !changed {
+			t.Fatalf("snapshot changed=%v err=%v", changed, err)
+		}
+		result, err := store.EnsureMediaFromSeerr(ctx, intake, now)
+		if err != nil {
+			t.Fatalf("intake %s: %v", requestID, err)
+		}
+		return intake, result
+	}
+
+	_, first := ingest(t, "dup-first", "940001")
+	if len(first.WorkflowIDs) != 1 || first.AlreadyAvailable {
+		t.Fatalf("first intake result=%+v", first)
+	}
+	workflowID := first.WorkflowIDs[0]
+	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='plex_confirmed',terminal_at=$2,updated_at=$2 WHERE id=$1`, workflowID.String(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	secondIntake, second := ingest(t, "dup-second", "940001")
+	if !second.AlreadyAvailable {
+		t.Fatalf("second intake result=%+v, want AlreadyAvailable", second)
+	}
+	if second.MediaID != first.MediaID {
+		t.Fatalf("second media=%s, want %s", second.MediaID, first.MediaID)
+	}
+	var workflowCount int
+	if err := store.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflows WHERE media_id=$1 AND variant='default'`, first.MediaID.String()).Scan(&workflowCount); err != nil {
+		t.Fatal(err)
+	}
+	if workflowCount != 1 {
+		t.Fatalf("workflows for media=%d, want 1 (no duplicate acquisition)", workflowCount)
+	}
+	var provenanceCount int
+	if err := store.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM seerr_request_workflows WHERE request_id=$1 AND workflow_id=$2`, secondIntake.RequestID, workflowID.String()).Scan(&provenanceCount); err != nil {
+		t.Fatal(err)
+	}
+	if provenanceCount != 1 {
+		t.Fatalf("provenance rows=%d, want 1", provenanceCount)
+	}
+	var syncEvents int
+	if err := store.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='seerr.status_sync_requested'`, workflowID.String()).Scan(&syncEvents); err != nil {
+		t.Fatal(err)
+	}
+	if syncEvents < 1 {
+		t.Fatalf("status sync events=%d, want at least 1", syncEvents)
+	}
+}
