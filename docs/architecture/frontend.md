@@ -11,6 +11,8 @@ success. All durable behavior lives in the Go API.
 | Framework | Next.js 16 App Router rendered by **Vinext** on **Vite 8** (`vinext` package) |
 | Runtime | Cloudflare Workers semantics via `@cloudflare/vite-plugin`; `worker/index.ts` is the entry, Node serves it in the container (`vinext start`). The bundle imports `cloudflare:workers` for optional tracing, so the container sets `NODE_OPTIONS=--import=/app/scripts/register-cloudflare-loader.mjs`, which resolves `cloudflare:` imports to an inert module (`scripts/cloudflare-scheme-loader.mjs`); `tests/rendered-html.test.mjs` registers the same loader. |
 | UI | React 19, TypeScript 5.9, Tailwind CSS 4, shadcn-style primitives (`components/ui/*`) built on Base UI/Radix packages |
+| Fonts | Geist and Geist Mono (`@fontsource-variable/*`), imported by `app/layout.tsx` and bundled as hashed assets; no font CDN is contacted at runtime |
+| Theme | Semantic design tokens in `app/globals.css`; dark (default), light, or system, chosen in the header and stored per browser (`lib/theme.ts`) |
 | Icons | `lucide-react` |
 | Charts | `recharts` |
 | Router | Next App Router file routing; route → screen mapping is a hand-written switch (see §3) |
@@ -18,7 +20,9 @@ success. All durable behavior lives in the Go API.
 
 Key files:
 
-- `app/layout.tsx` — HTML shell, fonts, `globals.css`.
+- `app/layout.tsx` — HTML shell, bundled fonts, `globals.css`, and the inline
+  `themeBootScript` that applies the stored theme before first paint.
+- `lib/theme.ts` — theme preference parsing and resolution (pure).
 - `app/page.tsx` — home entry rendering the app shell.
 - `app/[...route]/page.tsx` — catch-all route; validates the path with
   `isKnownRoute`, otherwise `notFound()`; renders `<MediaManagerApp path=... />`.
@@ -72,16 +76,25 @@ Route metadata lives in `lib/media-manager-routes.ts`:
 
 `components/media-manager/app-shell.tsx` is the single app shell:
 
-- Sidebar navigation (`liveNavigation`) grouped into Product, Operations,
-  Sources, Settings, System, Advanced. Every route stays reachable; groups are
-  collapsible and Advanced is visually de-emphasized.
-- Ctrl/Cmd-K command palette.
-- Service status footer (health + version) and the **Owner attention** bell
-  (loads `loadWanted` + `loadWorkflows` and uses `collectOwnerAttention`).
+- Sidebar navigation (`liveNavigation`) grouped into Library, Operations,
+  Sources, Settings, System, and Advanced. Every route stays reachable; groups
+  are collapsible, Advanced is visually de-emphasized, and the whole sidebar
+  collapses to icons (`collapsible="icon"`, Ctrl/Cmd-B or the header toggle).
+- Live counts: `OwnerAttentionProvider` loads `loadWanted` + active
+  `loadWorkflows` once per page for the whole shell; Wanted shows the
+  owner-attention count, Workflows the actively-acquiring count, and the
+  **Owner attention** bell shows its count before it is opened
+  (`collectOwnerAttention`, `isActivelyAcquiring`).
+- Header: sidebar toggle, breadcrumb (area → title, with detail pages linking
+  back to their list via `detailParents`), the Ctrl/Cmd-K command palette, the
+  theme menu, and the bell.
+- Phones (`< md`): a fixed bottom tab bar (`aria-label="Mobile navigation"`) for
+  Overview, Movies, TV Shows, Requests, and More (opens the sidebar sheet).
 - `RouteContent` is the authoritative route → screen switch. Unknown known-route
   combinations render `LiveUnavailableScreen`.
-- Library routes (`/media`, `/media/series`) and media detail routes use a
-  full-height layout; other routes get a padded page with `PageHeader`.
+- Library routes (`/media`, `/media/series`) use a full-height layout; media
+  detail routes render their own hero; other routes get a padded page with
+  `PageHeader` (title + subtitle; the area lives in the breadcrumb).
 
 Screen components live in two large files (this is intentional; keep changes
 near the relevant screen and extract pure logic into `lib/`):
@@ -126,9 +139,13 @@ near the relevant screen and extract pure logic into `lib/`):
 | `LiveBackupsScreen` | `/system/backups` |
 
 Shared presentation primitives live in `components/media-manager/ui.tsx`:
-`PageHeader`, `Panel`, `MetricCard`, `describeStatus`, `StateBadge`,
-`StatusChip`, `KeyValue`, `WorkProgress`, `InlineNotice`, `EmptyAction`,
-`SectionLabel`.
+`PageHeader`, `Panel` (pass `flush` for edge-to-edge tables and lists under a
+padded header), `MetricCard`, `describeStatus`, `StateBadge`, `StatusChip`,
+`KeyValue`, `WorkProgress`, `InlineNotice`, `EmptyAction`, `SectionLabel`.
+
+Media detail (`LiveMediaDetailScreen`) is a hero (backdrop, poster, identity
+chips, facts, ratings, and actions) above tabs: Overview, Seasons (series),
+Workflows, and Files, each with a count.
 
 ## 4. Pure helper modules (`lib/`)
 
@@ -164,12 +181,28 @@ Keep classification/filtering/formatting logic here so screens stay testable.
 
 ## 6. Styling
 
-- Tailwind 4 via `@tailwindcss/postcss`; design tokens and dark theme live in
-  `app/globals.css`.
-- The product is a dense dark owner console; use the existing primitives and
-  Tailwind utilities rather than adding CSS modules.
-- Accessibility is expected: keyboard navigation, focus rings, aria labels on
-  icon buttons, and axe checks in the browser suite.
+- Tailwind 4 via `@tailwindcss/postcss`. All colour goes through the semantic
+  tokens in `app/globals.css`; **never add a literal hex colour to a screen.**
+  Use the Tailwind names the tokens generate:
+  - surfaces `bg-canvas` < `bg-surface` (panels) < `bg-surface-2` (insets,
+    inputs, table headers) < `bg-surface-3` (hover, selected);
+  - borders `border-line`, `border-line-strong`;
+  - text `text-fg` > `text-fg-secondary` > `text-fg-muted` > `text-fg-subtle`
+    (every level meets WCAG AA on every surface in both themes);
+  - accent `bg-brand` / `text-brand-fg`, `bg-brand-soft`, `text-brand-text`,
+    `border-brand-line`;
+  - status `text-good|info|warn|bad` (readable text shade), `bg-*-soft`,
+    `border-*-line`, and `bg-good-solid`/`bg-warn-solid`/`bg-bad-solid` for dots.
+- `:root` holds the light theme and `.dark` the dark theme; shadcn tokens
+  (`--background`, `--primary`, ...) and the canonical `--status-*` variables
+  resolve through the same roles, so primitives and screens always agree.
+- Type: Geist at a 14px base; screen text is at least 11px. Use
+  `font-medium`/`font-semibold` (the bold weights are intentionally unused)
+  and `font-mono` for paths, IDs, and scopes.
+- Use the existing primitives and component classes (`mm-panel`, `mm-metric`,
+  `mm-input`, `mm-tabs`, `mm-media-hero`, `mm-timeline`) rather than CSS modules.
+- Accessibility is expected: keyboard navigation, focus rings, accessible names
+  on icon buttons and form controls, and axe checks in both themes.
 
 ## 7. Tests
 
@@ -180,12 +213,15 @@ Local gates (no network required beyond localhost):
 | `npm run lint` | ESLint (Next config). |
 | `npm run typecheck` | `tsc --noEmit`. |
 | `npm test` | Builds the UI then runs `tests/*.test.mjs` with `node --test`: rendered HTML/worker, UI components, movie library joins, series variants, requests filters. |
-| `npm run test:browser` | Builds then runs Playwright Chromium specs in `tests/browser/` (add-media, media-library, profiles, workflow-recovery) against a local `vinext start` on port 4174. |
+| `npm run test:browser` | Builds then runs Playwright Chromium specs in `tests/browser/` against a local `vinext start` on port 4174 (the web server registers the same `cloudflare:` loader as the container). Includes the **route tour** (`route-tour.spec.ts`): every route at desktop dark, desktop light, and mobile, with the complete local owner API in `tests/browser/fixtures/owner-api.ts`, asserting no console errors, no unexpected or mutating requests, no horizontal overflow, and no serious axe violations. Set `MM_TOUR_SCREENSHOTS=<dir>` to save full-page screenshots. |
 | `npm run bench:library` | Deterministic benchmark of the library transformation. |
 | `npm run test:live-browser` | Read-only acceptance against the **deployed** UI/API through `scripts/live-acceptance-proxy.mjs`; see [07-operations.md](../operations/runbook.md#6-health-checks-and-smoke-tests). |
 
 Browser tests use Playwright + `@axe-core/playwright` and block unexpected
-network access. Preserve that property.
+network access. Preserve that property. The shell loads owner attention on every
+page, so a spec with its own API mock must answer `GET /api/v1/wanted` and
+`GET /api/v1/workflows?active=true`. Both GitLab CI and GitHub Actions run the
+browser suite in the pinned `mcr.microsoft.com/playwright` image.
 
 ## 8. Adding or changing a screen
 
@@ -195,7 +231,9 @@ network access. Preserve that property.
 3. Implement/reuse the screen. Put pure logic in `lib/` and add a unit test.
 4. Wire the component in `RouteContent` (`app-shell.tsx`) and add a nav item if
    it is owner-facing.
-5. Add/extend a Playwright spec or `tests/*.test.mjs` case.
+5. Add/extend a Playwright spec or `tests/*.test.mjs` case. New routes are
+   covered by the route tour automatically; extend `owner-api.ts` with any new
+   GET endpoint the screen loads.
 6. Run `npm run lint && npm run typecheck && npm test && npm run test:browser`.
 7. Update this document and `docs/status/implementation.md` if the route's
    status changed.

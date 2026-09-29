@@ -65,7 +65,8 @@ Two equivalent pipelines:
   `npm test`, `npm audit --omit=dev`), `browser` (Playwright image), `backend` (PostgreSQL
   18.6 service; `gofmt -l`, `go vet`, `go test -race`, `migrate`, then
   `git diff --exit-code -- go.mod go.sum`).
-- **GitHub Actions** (`.github/workflows/verify.yml`): same jobs plus a
+- **GitHub Actions** (`.github/workflows/verify.yml`): the same `frontend`,
+  `browser` (pinned Playwright image), and `backend` jobs, plus a
   `containers` job that builds the stack, checks the API auth boundary
   (`401` unauthenticated, `200` with owner token), asserts the unconfigured
   Seerr webhook returns `503`, and verifies `pg_dump` works.

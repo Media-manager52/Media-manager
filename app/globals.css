@@ -293,6 +293,9 @@ body {
 
 button, a, input, select, textarea { outline-color: var(--ring); }
 
+/* Form values never inherit a label's emphasis. */
+input, select, textarea, [data-slot="select-trigger"] { font-weight: 400; }
+
 :focus-visible {
   outline: 2px solid color-mix(in srgb, var(--ring) 80%, transparent);
   outline-offset: 2px;
@@ -434,7 +437,7 @@ label:has(> select.mm-input), label:has(> .mm-input) { min-width: 0; }
 
 [data-slot="table-container"] { scrollbar-width: thin; }
 
-[data-slot="table"] { min-width: 720px; font-size: 13px; }
+[data-slot="table"] { min-width: 640px; font-size: 13px; }
 
 [data-slot="table-head"] {
   height: 38px;
@@ -452,6 +455,10 @@ label:has(> select.mm-input), label:has(> .mm-input) { min-width: 0; }
 [data-slot="table-cell"] { padding-top: 11px; padding-bottom: 11px; color: var(--fg-secondary); }
 
 [data-slot="table-row"] { border-color: var(--line); }
+
+/* Flush tables align their outer columns with the panel's 20px padding. */
+.mm-panel [data-slot="table-head"]:first-child, .mm-panel [data-slot="table-cell"]:first-child { padding-left: 20px; }
+.mm-panel [data-slot="table-head"]:last-child, .mm-panel [data-slot="table-cell"]:last-child { padding-right: 20px; }
 [data-slot="table-body"] [data-slot="table-row"]:hover, [data-slot="table-row"][data-state="selected"] { background: var(--surface-2); }
 
 [data-slot="button"] { font-size: 13px; font-weight: 550; }
@@ -470,7 +477,7 @@ label:has(> select.mm-input), label:has(> .mm-input) { min-width: 0; }
 @media (max-width: 640px) {
   .mm-panel { border-radius: 12px; padding: 16px; }
   .mm-metric { padding: 14px; }
-  [data-slot="table"] { min-width: 640px; }
+  [data-slot="table"] { min-width: 600px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
