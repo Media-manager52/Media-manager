@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import test from "node:test";
+
+// The production bundle imports the Workers-only "cloudflare:workers" module.
+register(new URL("./cloudflare-scheme-loader.mjs", import.meta.url));
 
 const developmentPreviewMeta =
   /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
