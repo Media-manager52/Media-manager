@@ -24,7 +24,9 @@ rollout is here.
 ## 1. What changed
 
 All of it is merged into `main` on GitHub. The server's old build may predate
-some or all of it; §3.1 shows how to find out exactly which.
+some or all of it, and also earlier work that is not listed here (for example
+acquisition hardening and Seerr root routing). §3.1 and §3.5 show how to find
+out exactly what the upgrade brings in.
 
 | PR | What it did | Server impact |
 | --- | --- | --- |
@@ -134,8 +136,58 @@ From the `/api/v1/system/health` output in §3.2, note the outbox
 anything is downloading or publishing. The upgrade restarts the API. Durable
 work is resumed from PostgreSQL, but a quiet moment is still the better time.
 
-**Stop and report** what you found: running commit, schema, what the upgrade
-brings in, which metadata keys exist, and in-flight work.
+### 3.5 Upgrading from an older build
+
+The server runs an older build, so this upgrade brings in **everything merged
+since that build**, not only the console work in §1. Work out exactly what
+that is before deploying. All of these commands are read-only:
+
+```sh
+OLD=<running commit from §3.1>
+git log --oneline "$OLD"..origin/main                       # every change coming in
+git diff "$OLD"..origin/main -- CHANGELOG.md                # the same, in plain language
+git diff --stat "$OLD"..origin/main -- internal/postgres/migrations   # migrations that will run
+git diff "$OLD"..origin/main -- compose.yaml .env.example .env.integrations.example
+```
+
+What to look for, and what it means:
+
+- **Migrations.** Every migration after the current schema runs once, in
+  order, at start-up (§3.2 gives the current number). Most only add tables
+  or columns. A few older ones deliberately change existing rows. Read the
+  comment at the top of each one that will run. In particular:
+  - `0032` introduces acquisition rounds. It also labels existing failed
+    AltMount jobs, and workflows that need attention because of one, with an
+    explicit `altmount_submission_rejected` reason.
+  - `0037` and `0038` recover workflows that older builds left stuck.
+    Exhausted rounds get a paced, low-priority retry discovery; stranded
+    `held` workflows go back onto the normal search path.
+  - `0033` adds explicit movie and TV category settings to each stored indexer
+    configuration, copied from its existing categories.
+  - **So within minutes of the upgrade, Media Manager may start paced indexer
+    searches for workflows that were idle before.** This is intended, it stays
+    within the configured Newznab pacing, and it is the automatic behavior the
+    new build is designed to have. It is not the server session doing a live
+    search. Tell the owner beforehand.
+- **Configuration.** New optional settings have safe defaults, for example
+  `SERVARR_API_KEY`, `MEDIA_LIBRARY_HOST_PATH`/`MEDIA_LIBRARY_GID` and the
+  `METADATA_*_SOURCE_FILE` secrets. If `compose.yaml` gained a required
+  variable (written `${NAME:?...}`) that `.env` lacks, `docker compose` refuses
+  to start and names it; it never starts half-configured. Compare `.env`
+  against `.env.example` **by variable name only** and list any names that
+  are missing.
+- **Behavior.** Read the `CHANGELOG.md` diff. It lists every behavior change
+  since the old build, including acquisition, Seerr routing and recovery
+  changes that are not part of the console work.
+
+If the server's checkout is not a git clone of this repository (for example,
+files copied by hand), or `$OLD` is not found in the history, stop and report
+that rather than guessing.
+
+**Stop and report** what you found: running commit, schema, the migrations
+that will run (flagging the row-changing ones), any configuration names missing
+from `.env`, the main behavior changes from the changelog, which metadata keys
+exist, and in-flight work.
 
 ## 4. Back up (required)
 
