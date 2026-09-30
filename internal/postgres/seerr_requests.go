@@ -173,6 +173,12 @@ func seerrRequestLifecycle(item SeerrRequestSummary) string {
 			return "approved_in_seerr"
 		case "3":
 			return "declined"
+		case "4":
+			return "failed"
+		case "5":
+			// Seerr completed the request itself because the media became
+			// available. Older builds recorded that as not approved.
+			return "available"
 		}
 		return "not_approved"
 	case "already_available":

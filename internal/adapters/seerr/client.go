@@ -255,11 +255,14 @@ const (
 	DecisionDecline RequestDecision = "decline"
 )
 
-// Seerr request statuses returned after a decision.
+// Seerr request statuses. Seerr sets Completed itself once it considers the
+// requested media available (or deleted); it is not an owner decision.
 const (
-	RequestStatusPending  = 1
-	RequestStatusApproved = 2
-	RequestStatusDeclined = 3
+	RequestStatusPending   = 1
+	RequestStatusApproved  = 2
+	RequestStatusDeclined  = 3
+	RequestStatusFailed    = 4
+	RequestStatusCompleted = 5
 )
 
 // DecideRequest approves or declines one pending Seerr request and returns

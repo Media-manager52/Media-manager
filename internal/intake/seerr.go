@@ -158,7 +158,14 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		// it (for example a request stranded by an earlier intake conflict), so
 		// evaluate it again instead of ignoring it forever.
 	}
-	if request.Status != 2 {
+	switch seerrRequestDisposition(request.Status) {
+	case seerrRequestCompleted:
+		// Seerr completes a request itself once it considers the media available
+		// (its own Plex or *arr scan, or Media Manager's availability sync). That
+		// is not a revocation: linked workflows keep their state and no new work
+		// is created.
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "already_available", "Seerr reports the request completed")
+	case seerrRequestWithdrawn:
 		needsAttention, revokeErr := service.Store.ReconcileSeerrRevocation(ctx, intake.InstanceID, intake.RequestID, time.Now().UTC())
 		if revokeErr != nil {
 			return revokeErr
@@ -271,4 +278,25 @@ func hasIdentity(identities []catalog.ExternalIdentity, namespace string) bool {
 		}
 	}
 	return false
+}
+
+type seerrRequestAction int
+
+const (
+	seerrRequestAdmit seerrRequestAction = iota
+	seerrRequestCompleted
+	seerrRequestWithdrawn
+)
+
+// seerrRequestDisposition classifies a Seerr request status for intake:
+// approved requests are admitted, completed ones are already available, and
+// every other status (pending, declined, failed, unknown) withdraws the work.
+func seerrRequestDisposition(status int) seerrRequestAction {
+	switch status {
+	case seerradapter.RequestStatusApproved:
+		return seerrRequestAdmit
+	case seerradapter.RequestStatusCompleted:
+		return seerrRequestCompleted
+	}
+	return seerrRequestWithdrawn
 }

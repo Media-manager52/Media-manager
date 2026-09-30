@@ -311,9 +311,13 @@ scanning never moves files.
   request, deduplicates by `ReceiptKey`, verifies TMDB/TVDB/IMDb identities,
   enriches through `metadata.Service`, then persists request + seasons +
   workflows transactionally (movies `default`, series per selected season).
-- Handles deletion/revocation: a deleted request marks the delivery
-  `observed_not_approved`; if retrieval already started, it surfaces
-  `needs_attention`.
+- Handles deletion/revocation: a deleted request, or one whose Seerr status
+  is pending, declined or failed, marks the delivery `observed_not_approved`;
+  if retrieval already started, it surfaces `needs_attention`
+  (`seerr_request_revoked`).
+- Seerr's own Completed status (5), which Seerr sets once it sees the media
+  available, is not a revocation: the delivery is `already_available`, linked
+  workflows keep their state, and no new work is created.
 - `SeerrStatusService.Handle`: pushes availability only after exact Plex
   confirmation; partial TV requests keep unconfirmed seasons `requested`.
   `ErrSeerrStatusIdentityMismatch` protects against drift.
