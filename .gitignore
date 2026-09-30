@@ -47,3 +47,6 @@ next-env.d.ts
 !/data/backups/.gitkeep
 /data/provider-secrets/
 /work/
+
+# Server-local Claude Code notes (paths, launch commands); never committed
+CLAUDE.local.md
