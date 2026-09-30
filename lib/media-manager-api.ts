@@ -19,7 +19,7 @@ export type APIWorkflow = {
   retained_output_count?: number; retained_output_bytes?: number; excluded_release_count?: number
   search_allowed?: boolean; search_blocked_reason?: string; adopted_replacement_confirmation_required: boolean
   /** Exactly what AltMount last reported for the in-flight attempt; absent when it reported nothing. */
-  download_percent?: number; download_stage?: string; download_observed_at?: string
+  quality_profile?: string; download_percent?: number; download_stage?: string; download_observed_at?: string
   owner_action_required?: boolean
   terminal_at?: string; created_at: string; updated_at: string
 }

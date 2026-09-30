@@ -25,6 +25,12 @@ func TestMediaDetailListsExpectedEpisodes(t *testing.T) {
 	if len(detail.Seasons) != 1 {
 		t.Fatalf("seasons=%d, want 1", len(detail.Seasons))
 	}
+	// The profile is visible before any file exists.
+	for _, workflow := range detail.Workflows {
+		if workflow.QualityProfile == "" {
+			t.Fatalf("workflow %s has no quality profile name", workflow.Variant)
+		}
+	}
 	episodes := detail.Seasons[0].Episodes
 	if len(episodes) != 3 {
 		t.Fatalf("episodes=%+v, want 3", episodes)
