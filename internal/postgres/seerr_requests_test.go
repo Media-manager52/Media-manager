@@ -64,6 +64,23 @@ func TestSeerrRequestLifecycleMapping(t *testing.T) {
 			want:    "declined",
 		},
 		{
+			// Recorded by builds that read Seerr's Completed status as a
+			// revocation; the request is available, not awaiting approval.
+			name:    "completed in Seerr after an older intake saw it as not approved",
+			summary: SeerrRequestSummary{IntakeOutcome: "observed_not_approved", SeerrState: "5"},
+			want:    "available",
+		},
+		{
+			name:    "failed in Seerr is not awaiting approval",
+			summary: SeerrRequestSummary{IntakeOutcome: "observed_not_approved", SeerrState: "4"},
+			want:    "failed",
+		},
+		{
+			name:    "completed with a cancelled workflow is available, not cancelled",
+			summary: SeerrRequestSummary{IntakeOutcome: "observed_not_approved", SeerrState: "5", WorkflowCount: 1, CurrentState: "cancelled"},
+			want:    "available",
+		},
+		{
 			name:    "approved in Seerr before intake re-reads it is not yet monitored",
 			summary: SeerrRequestSummary{IntakeOutcome: "observed_not_approved", SeerrState: "2"},
 			want:    "approved_in_seerr",

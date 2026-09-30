@@ -42,3 +42,27 @@ func TestSeerrIntakeHashIsOrderStableAndEpisodeSensitive(t *testing.T) {
 		t.Fatal("changed exact episode snapshot produced the same hash")
 	}
 }
+
+// Seerr marks a request Completed on its own once it sees the media available
+// (its Plex or *arr scan, or Media Manager's own availability sync). Intake must
+// not treat that as a revocation: doing so cancelled waiting work and flagged
+// failed work as "seerr_request_revoked" for titles that were in Plex.
+func TestSeerrRequestDispositionTreatsCompletedAsAvailableNotRevoked(t *testing.T) {
+	cases := []struct {
+		status int
+		want   seerrRequestAction
+	}{
+		{seerradapter.RequestStatusPending, seerrRequestWithdrawn},
+		{seerradapter.RequestStatusApproved, seerrRequestAdmit},
+		{seerradapter.RequestStatusDeclined, seerrRequestWithdrawn},
+		{seerradapter.RequestStatusFailed, seerrRequestWithdrawn},
+		{seerradapter.RequestStatusCompleted, seerrRequestCompleted},
+		{0, seerrRequestWithdrawn},
+		{99, seerrRequestWithdrawn},
+	}
+	for _, test := range cases {
+		if got := seerrRequestDisposition(test.status); got != test.want {
+			t.Errorf("status %d disposition=%d, want %d", test.status, got, test.want)
+		}
+	}
+}
