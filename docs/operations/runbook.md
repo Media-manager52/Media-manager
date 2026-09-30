@@ -280,3 +280,16 @@ workflow; never delete links or edit rows.
 - Do not restore a production database into the live instance as a "test".
 - Do not rotate credentials by editing sanitized DB columns; use the provider's
   supported mechanism and the secret references.
+
+## Retrying a release after provider access is repaired
+
+When a credential or NZB download contract is fixed, plain Search/Retry still
+honors exact release exclusions and current-round provider avoidance. In
+**Workflows**, eligible pre-submission HTTP 401/403 failures offer
+**Retry access-rejected release**, naming the selected release and provider.
+Confirm only after access has been repaired. Start with one workflow and
+check its retrieval, output verification, publication, and exact Plex
+confirmation before authorizing more. A successful NZB grab alone is not
+proof that the media can be published. If the action is absent or conflicts,
+refresh and review the policy, round, blocks, jobs, and retained output;
+never clear exclusions through manual database edits.

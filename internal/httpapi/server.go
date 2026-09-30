@@ -104,6 +104,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/workflows", server.requireOwner(server.listWorkflows))
 	server.mux.HandleFunc("GET /api/v1/workflows/{id}", server.requireOwner(server.getWorkflow))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/search", server.requireOwner(server.searchWorkflow))
+	server.mux.HandleFunc("POST /api/v1/workflows/{id}/retry-access-rejected-release", server.requireOwner(server.retryAccessRejectedRelease))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/acquisition-rounds", server.requireOwner(server.openAcquisitionRound))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/acquisition-rounds/from-known", server.requireOwner(server.openKnownAcquisitionRound))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/revive-rejected-archives", server.requireOwner(server.reviveRejectedArchives))

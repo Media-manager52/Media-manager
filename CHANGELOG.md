@@ -8,6 +8,8 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Added
 
+- Workflows offers “Retry access-rejected release” after provider access is repaired. The owner confirms the exact selected release and workflow revision; only pre-submission HTTP 401/403 exclusions in the existing open round can be lifted, including the exact historical failure messages from before schema 41. The action preserves the original rejection in audit history and queues normal paced retrieval without searching or opening a round. Payload, output, owner-block, policy, retained-output and submission guards remain in force.
+
 - Read-only console screens now keep themselves current. Overview, Library, Requests, Wanted, Calendar, component health, tasks, and title pages re-read Media Manager's persisted state every 15 seconds (Workflows every 8), pausing in a background tab and catching up when it is visible again, so download progress and request decisions show without pressing Refresh. Form and settings screens stay manual.
 - The Requests page follows Seerr's own state for requests intake saw before approval: "Awaiting approval" while pending (still under Needs attention), "Approved in Seerr" once approved (active, not success, until intake admits it), and "Declined" once declined, which no longer counts as needing attention.
 - Owner actions in the console: Approve and Decline for Seerr requests that are still pending there (the decision is made in Seerr, audited, and followed by normal intake; declining asks first), and "Re-check Plex" for titles whose Plex confirmation timed out, which re-queues the existing exact-path confirmation for each of them within its retry limit and never requests a library-wide scan.

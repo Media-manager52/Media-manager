@@ -11,6 +11,7 @@ export type APIMetadataEvent = { type: string; date: string; season_number?: num
 export type APIMediaMetadata = { original_title?: string; overview?: string; tagline?: string; original_language?: string; format?: string; status?: string; release_date?: string; end_date?: string; certification?: string; runtime_minutes?: number; season_count?: number; episode_count?: number; poster_url?: string; backdrop_url?: string; genres: string[]; keywords?: string[]; countries: string[]; networks: APIMetadataNetwork[]; companies?: APIMetadataCompany[]; credits?: APIMetadataCredit[]; aliases: APIMetadataAlias[]; sources: APIMetadataSource[]; ratings: APIMetadataRating[]; events: APIMetadataEvent[]; observed_at: string }
 export type APIMedia = { id: string; kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; metadata?: APIMediaMetadata }
 export type APIWorkflow = {
+  access_rejected_candidate_id?: string; access_rejected_release_title?: string; access_rejected_indexer_name?: string
   id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number
   attention_code?: string; attention_detail?: string; acquisition_attempts?: number
   round_ordinal?: number; round_state?: string; round_slots_used?: number; round_attempt_limit?: number
@@ -176,6 +177,7 @@ export const createLibraryRoot = (input: Omit<APILibraryRoot, "id">) => requestJ
 export const createQualityProfile = (input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>("/api/v1/settings/quality-profiles", { method: "POST", body: JSON.stringify(input) })
 export const updateQualityProfile = (id: string, input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })
 export const createExistingWorkflow = (mediaId: string, input: Record<string, unknown>) => requestJSON<Record<string, unknown>>(`/api/v1/media/${encodeURIComponent(mediaId)}/workflows`, { method: "POST", body: JSON.stringify(input) })
+export const retryAccessRejectedRelease = (workflow: APIWorkflow) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(workflow.id)}/retry-access-rejected-release`, { method: "POST", body: JSON.stringify({ candidate_id: workflow.access_rejected_candidate_id, revision: workflow.revision }) })
 export const searchWorkflow = (id: string, adoptedReplacementConfirmation = "") => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/search`, { method: "POST", body: JSON.stringify({ adopted_replacement_confirmation: adoptedReplacementConfirmation }) })
 export const openAcquisitionRound = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/acquisition-rounds`, { method: "POST" })
 export const reconcileAltMount = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/reconcile-altmount`, { method: "POST" })

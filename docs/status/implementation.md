@@ -6,6 +6,20 @@ at `c6bf1b8` and schema 40. The audit covers the Go route registry, PostgreSQL
 migrations/store methods, and the React route switch. This document describes
 implemented behavior, not the development fixture's claims.
 
+## Access rejection recovery follow-up (2026-09-30, not deployed)
+
+The owner-only `retry-access-rejected-release` action and Workflows control
+are implemented in the recovery branch. They retry the exact selected
+pre-submission HTTP 401/403 release inside its open round, with candidate and
+revision guards, an audit of the original exclusion, and the existing policy,
+submission, retrieval, output-retention, block and publication protections.
+Exact historical access rejection messages from before schema 41 are also
+recognized. A read-only production eligibility check matched all 38 selected
+treasure-maps failures (26 structured and 12 historical). No production
+workflow was resumed; deployment and a first owner-approved trial remain
+pending. See [the API contract](../architecture/api.md#access-rejection-recovery)
+and [the workflow rules](../architecture/workflows.md#owner-recovery-after-nzb-access-rejection).
+
 ## Status definitions
 
 - **Real** — persisted or directly observed behavior is connected end to end and

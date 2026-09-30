@@ -289,3 +289,21 @@ that address directly over the integrations network.
    existing fakes/in-memory patterns).
 6. Update [04-api.md](api.md) (this file) and the UI client if it is used by
    the web app.
+
+## Access rejection recovery
+
+`POST /api/v1/workflows/{id}/retry-access-rejected-release` is owner-only and
+requires `{ "candidate_id": "<uuid>", "revision": <current workflow revision> }`.
+It returns `202` with `status: retrieval_queued`, `400` for malformed input,
+`404` for an unknown workflow, and `409` when the reviewed selection changed
+or is no longer eligible. Workflow summaries expose
+`access_rejected_candidate_id`, `access_rejected_release_title`, and
+`access_rejected_indexer_name` only while the action is eligible.
+
+The transaction retries the exact selected release inside the existing open
+round, removes only its pre-submission HTTP 401/403 exclusion, advances the
+workflow revision, and queues `release.retrieve_requested`. The original
+reason and timestamp are retained in audit event
+`workflow.access_rejected_release_retried`. An old worker event or duplicate
+owner request cannot act on the new revision. No provider request happens in
+the handler; retrieval follows the existing durable pacing and grab budgets.

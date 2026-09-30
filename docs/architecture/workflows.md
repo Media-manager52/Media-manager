@@ -683,3 +683,28 @@ not create subtitle facts, change eligibility, or qualify an upgrade by
 increasing its policy score. Output inspection and exact Plex verification
 remain mandatory. See the [review](../status/retrieval-recovery-review.md) for
 live evidence, limitations and the owner decisions for deploying/resuming work.
+
+## Owner recovery after NZB access rejection
+
+A 401/403 access rejection excludes the exact release and avoids its provider
+for the remainder of the open round. After repairing provider access, the
+owner can use **Retry access-rejected release** in Workflows and confirm the
+release and provider. This retries that exact selection without a new search
+or round. The UI sends the candidate ID and reviewed workflow revision.
+
+Eligibility requires a `release_retrieval_failed` or `release_retrieval_limit`
+attention state, an unsubmitted selected candidate with a current eligible
+policy decision on a commissioned provider, unchanged round policy and
+publication baseline, a remaining submission slot, fewer than four retained
+failed outputs, and room under the retrieval cap after lifting this exclusion.
+Owner blocks, attempted releases, active jobs, begun publication, other
+current-round access rejections on that provider, and missing adopted-file
+replacement authorization prevent the action. Payload and output exclusions
+are never lifted. Structured access errors and the four exact legacy 401/403
+failure messages are accepted; legacy rows must have been recorded after the
+current round opened. Unknown historical failure text remains excluded.
+
+The transaction preserves the original failure in audit history when removing
+its exclusion. Repeated
+access rejection restores normal exclusion and provider avoidance. Recovery
+does not change any other workflow or globally enable/disable the provider.
