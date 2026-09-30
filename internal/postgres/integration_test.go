@@ -672,7 +672,7 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	clonedWorkflow := workflows.NewWithClient(series.ID, seriesRoot, seriesProfile, seriesClient, time.Now().UTC())
-	if err := insertManualWorkflow(ctx, cloneTransaction, clonedWorkflow, "season:02", false); err != nil {
+	if err := store.insertManualWorkflow(ctx, cloneTransaction, clonedWorkflow, "season:02", false); err != nil {
 		_ = cloneTransaction.Rollback(ctx)
 		t.Fatal(err)
 	}

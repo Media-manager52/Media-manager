@@ -119,7 +119,7 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 	created := make([]workflows.Workflow, 0, max(1, len(seasons)))
 	if item.Kind == catalog.KindMovie {
 		workflow := workflows.NewWithClient(item.ID, rootID, profileID, clientID, item.CreatedAt)
-		if err := insertManualWorkflow(ctx, transaction, workflow, "default", searchMovie); err != nil {
+		if err := store.insertManualWorkflow(ctx, transaction, workflow, "default", searchMovie); err != nil {
 			return nil, err
 		}
 		created = append(created, workflow)
@@ -139,7 +139,7 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 			}
 			workflow := workflows.NewWithClient(item.ID, rootID, profileID, clientID, item.CreatedAt)
 			variant := fmt.Sprintf("season:%02d", season.Number)
-			if err := insertManualWorkflow(ctx, transaction, workflow, variant, season.Monitored && season.SearchImmediately); err != nil {
+			if err := store.insertManualWorkflow(ctx, transaction, workflow, variant, season.Monitored && season.SearchImmediately); err != nil {
 				return nil, err
 			}
 			if _, err := transaction.Exec(ctx, `INSERT INTO season_monitoring(media_id,season_number,monitored,prefer_season_pack,search_immediately,state,updated_at) VALUES($1,$2,$3,$4,$5,'wanted',$6)`, item.ID.String(), int16(season.Number), season.Monitored, season.PreferSeasonPack, season.SearchImmediately, item.CreatedAt); err != nil {
@@ -269,7 +269,7 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 		return workflows.Workflow{}, ErrAdoptedReplacementConfirmationRequired
 	}
 	workflow := workflows.NewWithClient(item.ID, rootID, profileID, clientID, now)
-	if err := insertManualWorkflow(ctx, transaction, workflow, variant, search); err != nil {
+	if err := store.insertManualWorkflow(ctx, transaction, workflow, variant, search); err != nil {
 		return workflows.Workflow{}, err
 	}
 	for _, adopted := range adoptedFiles {
@@ -466,11 +466,11 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	return transaction.Commit(ctx)
 }
 
-func insertManualWorkflow(ctx context.Context, transaction pgx.Tx, workflow workflows.Workflow, variant string, search bool) error {
+func (store *Store) insertManualWorkflow(ctx context.Context, transaction pgx.Tx, workflow workflows.Workflow, variant string, search bool) error {
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, workflow.ID.String(), workflow.MediaID.String(), workflow.State, workflow.RootID.String(), workflow.QualityProfileID.String(), workflow.DownloadClientID.String(), variant, int64(workflow.Revision), workflow.CreatedAt, workflow.UpdatedAt); err != nil {
 		return err
 	}
-	if err := insertInitialAcquisitionRound(ctx, transaction, workflow.ID, workflow.MediaID, workflow.QualityProfileID, variant, workflow.CreatedAt); err != nil {
+	if err := store.insertInitialAcquisitionRound(ctx, transaction, workflow.ID, workflow.MediaID, workflow.QualityProfileID, variant, workflow.CreatedAt); err != nil {
 		return err
 	}
 	if search {

@@ -33,14 +33,14 @@ type acquisitionFailureResult struct {
 	RoundExhausted bool
 }
 
-func insertInitialAcquisitionRound(ctx context.Context, transaction pgx.Tx, workflowID, mediaID, profileID uuid.UUID, variant string, now time.Time) error {
+func (store *Store) insertInitialAcquisitionRound(ctx context.Context, transaction pgx.Tx, workflowID, mediaID, profileID uuid.UUID, variant string, now time.Time) error {
 	roundID := uuid.NewV7()
 	command, err := transaction.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,upgrade_baseline_link_versions,opened_at)
-		SELECT $1,$2,1,'open',2,0,profile.policy_version,profile.policy,
+		SELECT $1,$2,1,'open',$7,0,profile.policy_version,profile.policy,
 		COALESCE((SELECT string_agg(version.id::text,',' ORDER BY version.id) FROM library_link_versions version
 		 JOIN workflows published ON published.id=version.workflow_id
 		 WHERE published.media_id=$3 AND published.variant=$5 AND version.state='current'),''),$6
-		FROM quality_profiles profile WHERE profile.id=$4`, roundID.String(), workflowID.String(), mediaID.String(), profileID.String(), variant, now.UTC())
+		FROM quality_profiles profile WHERE profile.id=$4`, roundID.String(), workflowID.String(), mediaID.String(), profileID.String(), variant, now.UTC(), store.AcquisitionLimits().AttemptsPerRound)
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func (store *Store) ensureOpenAcquisitionRound(ctx context.Context, transaction 
 	if err != nil {
 		return AcquisitionRound{}, err
 	}
-	result.ID, result.Ordinal, result.State, result.AttemptLimit, result.PolicyVersion = uuid.NewV7(), 1, "open", maxAcquisitionAttemptsPerRound, uint64(currentPolicy)
+	result.ID, result.Ordinal, result.State, result.AttemptLimit, result.PolicyVersion = uuid.NewV7(), 1, "open", store.AcquisitionLimits().AttemptsPerRound, uint64(currentPolicy)
 	if _, err := transaction.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,upgrade_baseline_link_versions,opened_at)
 		VALUES($1,$2,1,'open',$3,0,$4,$5,$6,$7)`, result.ID.String(), workflowID.String(), result.AttemptLimit, currentPolicy, result.Policy, result.UpgradeBaseline, now.UTC()); err != nil {
 		return AcquisitionRound{}, err
@@ -206,7 +206,7 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 	attentionCode, attentionDetail := "", ""
 	if exhausted {
 		attentionCode = workflows.AttentionRoundExhaustedWaitingNewIdentity
-		attentionDetail = "Two release-attributable acquisition slots were used. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner."
+		attentionDetail = fmt.Sprintf("All %d acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner.", attemptLimit)
 		var cutoff int64
 		if err := transaction.QueryRow(ctx, `SELECT COALESCE(max(first_seen_sequence),0) FROM release_candidates WHERE workflow_id=$1`, job.Workflow.ID.String()).Scan(&cutoff); err != nil {
 			return acquisitionFailureResult{}, err
@@ -247,7 +247,7 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 		if exhausted {
 			return attentionDetail
 		}
-		return "one remaining acquisition slot; exact failed release and package excluded"
+		return fmt.Sprintf("%d acquisition slots remain; exact failed release and package excluded", attemptLimit-roundSlot)
 	}()); err != nil {
 		return acquisitionFailureResult{}, err
 	}
@@ -302,7 +302,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		WHERE job.workflow_id=$1 AND job.acquisition_outcome IS NOT NULL AND job.acquisition_outcome <> 'output_verified'`, workflowID.String()).Scan(&retainedOutputs); err != nil {
 		return err
 	}
-	if retainedOutputs >= 4 {
+	if retainedOutputs >= store.AcquisitionLimits().RetainedFailedOutputs {
 		return errors.New("retained failed-output limit reached; owner storage review is required before another round")
 	}
 	var exhaustedRoundText, readyCandidateText string
@@ -354,7 +354,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 	}
 	roundID := uuid.NewV7()
 	if _, err := transaction.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,upgrade_baseline_link_versions,opened_at)
-		VALUES($1,$2,$3,'open',2,$4,$5,$6,$7,$8)`, roundID.String(), workflowID.String(), ordinal+1, cutoff, policyVersion, policySnapshot, baseline, now.UTC()); err != nil {
+		VALUES($1,$2,$3,'open',$9,$4,$5,$6,$7,$8)`, roundID.String(), workflowID.String(), ordinal+1, cutoff, policyVersion, policySnapshot, baseline, now.UTC(), store.AcquisitionLimits().AttemptsPerRound); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1 AND rescan_generation=$3`, workflowID.String(), now.UTC(), generation); err != nil {
@@ -365,7 +365,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at)
-		VALUES($1,$2,$3,'searching','owner opened a new two-slot acquisition round after new eligible discovery','owner',$4)`, workflowID.String(), newRevision, workflowState, now.UTC()); err != nil {
+		VALUES($1,$2,$3,'searching','owner opened a new bounded acquisition round after new eligible discovery','owner',$4)`, workflowID.String(), newRevision, workflowState, now.UTC()); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(map[string]string{"workflow_id": workflowID.String(), "round_id": roundID.String()})

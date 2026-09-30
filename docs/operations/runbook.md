@@ -80,6 +80,8 @@ Runtime variables in `.env` (Compose interpolation):
 | --- | --- | --- |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | yes (password) | Database credentials. Compose passes discrete `PG*` vars so URL escaping is unnecessary. |
 | `MEDIA_MANAGER_VERSION`, `MEDIA_MANAGER_COMMIT` | recommended | Embedded in the binary and reported by `/api/v1/system/info` and `version`. |
+| `ACQUISITION_ATTEMPTS_PER_ROUND` | no (2) | Distinct submissions per newly opened acquisition round, integer 1–6. Existing round snapshots remain unchanged. |
+| `ACQUISITION_RETAINED_OUTPUT_LIMIT` | no (4) | Retained failed-output jobs per workflow before owner review, integer 1–12. Raising it never deletes failures or queues work. |
 | `OWNER_TOKEN` | yes, ≥32 bytes | Owner bearer. Cosmos injects it; loopback clients use it. |
 | `MEDIA_MANAGER_API_PORT` | no (28081) | Loopback port for direct API. Never expose. |
 | `COMMISSIONING_V2_OWNER_ORIGIN` | for v2 UI | Trusted `Origin` for commissioning-v2 mutations. |
@@ -314,3 +316,19 @@ confirmation before authorizing more. A successful NZB grab alone is not
 proof that the media can be published. If the action is absent or conflicts,
 refresh and review the policy, round, blocks, jobs, and retained output;
 never clear exclusions through manual database edits.
+
+### Acquisition budget changes
+
+Set both budgets in `.env`, validate Compose, and rebuild/recreate the API.
+Invalid or out-of-range values fail startup rather than silently enabling
+unbounded retries. `/api/v1/system/info` reports `acquisition_limits`; workflow
+rows report their immutable `round_attempt_limit` and the configured
+`retained_output_limit`. A balanced owner setting is 4 attempts and 8 retained
+outputs. Preserve Danish and all other verification requirements.
+
+For an exhausted workflow, use the owner next-round or from-known action;
+configuration does not rewrite the exhausted round or remove exact exclusions.
+For `retained_failed_output_limit` with an open round and available slots,
+review its failed inventories and use the supported Retry action after raising
+the retention budget. Existing infrastructure, episode-snapshot and publication
+failures still require their own recovery; more slots cannot repair them.

@@ -266,3 +266,10 @@ expose them as `download_percent`, `download_stage`, and
 `download_observed_at` only for the current grab attempt while the workflow is
 submitting, queued, downloading, or streaming ready.
 
+
+### Configurable acquisition bounds (schema 43)
+
+`0043_configurable_acquisition_limits.sql` allows attempt snapshots and round
+slots in the bounded range 1–6. It does not update historical rows or relax
+the immutable acquisition-round snapshot trigger. API startup configuration
+chooses new-round budgets and the independent retained-output admission limit.

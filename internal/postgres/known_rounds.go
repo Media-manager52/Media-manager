@@ -11,11 +11,7 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-// maxRetainedFailedOutputs bounds how many failed-output inventories a
-// workflow may retain before further submissions require owner storage review.
-const maxRetainedFailedOutputs = 4
-
-// OpenKnownAcquisitionRound opens one two-slot acquisition round from releases
+// OpenKnownAcquisitionRound opens one bounded acquisition round from releases
 // Media Manager has already observed and judged eligible under the profile's
 // current policy. An exhausted round otherwise waits for a genuinely new post
 // even when never-attempted, never-excluded eligible releases are known.
@@ -53,7 +49,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		WHERE job.workflow_id=$1 AND job.acquisition_outcome IS NOT NULL AND job.acquisition_outcome <> 'output_verified'`, workflowID.String()).Scan(&retainedOutputs); err != nil {
 		return err
 	}
-	if retainedOutputs >= maxRetainedFailedOutputs {
+	if retainedOutputs >= store.AcquisitionLimits().RetainedFailedOutputs {
 		return errors.New("retained failed-output limit reached; owner storage review is required before another round")
 	}
 	var policyVersion int64
@@ -100,7 +96,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 	}
 	roundID := uuid.NewV7()
 	if _, err := transaction.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,upgrade_baseline_link_versions,opened_at)
-		VALUES($1,$2,$3,'open',$4,0,$5,$6,$7,$8)`, roundID.String(), workflowID.String(), maxOrdinal+1, maxAcquisitionAttemptsPerRound, policyVersion, policy, baseline, now.UTC()); err != nil {
+		VALUES($1,$2,$3,'open',$4,0,$5,$6,$7,$8)`, roundID.String(), workflowID.String(), maxOrdinal+1, store.AcquisitionLimits().AttemptsPerRound, policyVersion, policy, baseline, now.UTC()); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1 AND state IN ('waiting','ready')`, workflowID.String(), now.UTC()); err != nil {
@@ -114,7 +110,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		ON CONFLICT(workflow_id) DO UPDATE SET candidate_id=EXCLUDED.candidate_id,selected_at=EXCLUDED.selected_at,actor=EXCLUDED.actor,reason=EXCLUDED.reason`, workflowID.String(), candidateID.String(), now.UTC()); err != nil {
 		return err
 	}
-	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'candidate_selected','owner opened a new two-slot round from a known eligible release','owner',$4)`, workflowID.String(), newRevision, workflowState, now.UTC()); err != nil {
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'candidate_selected','owner opened a new bounded round from a known eligible release','owner',$4)`, workflowID.String(), newRevision, workflowState, now.UTC()); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(map[string]string{"workflow_id": workflowID.String(), "candidate_id": candidateID.String()})

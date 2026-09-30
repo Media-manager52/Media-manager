@@ -16,7 +16,10 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-type Store struct{ Pool *pgxpool.Pool }
+type Store struct {
+	Pool              *pgxpool.Pool
+	acquisitionLimits AcquisitionLimits
+}
 
 var (
 	ErrConcurrentModification = errors.New("concurrent modification")
@@ -73,7 +76,7 @@ func (store *Store) CreateMediaWorkflow(ctx context.Context, item catalog.MediaI
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,'default',$7,$8,$9)`, workflow.ID.String(), workflow.MediaID.String(), workflow.State, workflow.RootID.String(), workflow.QualityProfileID.String(), clientID, int64(workflow.Revision), workflow.CreatedAt, workflow.UpdatedAt); err != nil {
 		return err
 	}
-	if err := insertInitialAcquisitionRound(ctx, transaction, workflow.ID, workflow.MediaID, workflow.QualityProfileID, "default", workflow.CreatedAt); err != nil {
+	if err := store.insertInitialAcquisitionRound(ctx, transaction, workflow.ID, workflow.MediaID, workflow.QualityProfileID, "default", workflow.CreatedAt); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,$2,'media.created','media',$3,$4,$5)`, uuid.NewV7().String(), actor, item.ID.String(), `{"workflow_created":true}`, item.CreatedAt); err != nil {

@@ -38,6 +38,7 @@ type WorkflowSummary struct {
 	ReadyIndexerName      string            `json:"ready_indexer_name,omitempty"`
 	ReadyFirstObservedAt  *time.Time        `json:"ready_first_observed_at,omitempty"`
 	OpenNextRoundAllowed  bool              `json:"open_next_round_allowed"`
+	RetainedOutputLimit   int               `json:"retained_output_limit"`
 	RetainedOutputCount   int               `json:"retained_output_count"`
 	RetainedOutputBytes   int64             `json:"retained_output_bytes"`
 	ExcludedReleaseCount  int               `json:"excluded_release_count"`
@@ -136,7 +137,7 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
 		LEFT JOIN altmount_jobs progress ON progress.id=workflow.grab_attempt_id AND workflow.state IN ('submitting','queued','downloading','streaming_ready')
 		LEFT JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
-		LEFT JOIN LATERAL (SELECT c.id::text,c.title,i.name AS indexer_name `+accessRejectedRetryQuery+` AND w.id=workflow.id) access_retry ON true
+		LEFT JOIN LATERAL (SELECT c.id::text,c.title,i.name AS indexer_name `+store.accessRejectedRetryQuery()+` AND w.id=workflow.id) access_retry ON true
 		WHERE media.deleted_at IS NULL AND (NOT $2 OR workflow.terminal_at IS NULL)
 			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid)
 		ORDER BY workflow.updated_at DESC,workflow.id LIMIT $1`, limit, activeOnly, mediaIDValue)
@@ -183,7 +184,8 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		}
 		item.SearchAllowed, item.SearchBlockedReason = workflowSearchReadiness(item, publicationStarted, currentJobNeedsAttention)
 		item.OwnerActionRequired = workflowOwnerActionRequired(item)
-		item.OpenNextRoundAllowed = item.State == workflows.StateWaiting && item.RetryDiscoveryState == "ready" && item.NewReleaseReady && item.RetainedOutputCount < 4
+		item.RetainedOutputLimit = store.AcquisitionLimits().RetainedFailedOutputs
+		item.OpenNextRoundAllowed = item.State == workflows.StateWaiting && item.RetryDiscoveryState == "ready" && item.NewReleaseReady && item.RetainedOutputCount < item.RetainedOutputLimit
 		result = append(result, item)
 	}
 	return result, rows.Err()

@@ -6,6 +6,16 @@ at `c6bf1b8` and schema 40. The audit covers the Go route registry, PostgreSQL
 migrations/store methods, and the React route switch. This document describes
 implemented behavior, not the development fixture's claims.
 
+## Configurable acquisition budgets (2026-09-30)
+
+Acquisition attempts and retained failed-output limits are owner-configurable
+at API startup. Defaults remain two/four; bounded ranges are one–six and
+one–twelve. Schema 43 widens the database slot bounds while preserving all
+existing snapshots and their immutability trigger. All round-creation paths
+use the configured attempt budget, and every admission/read-model retention
+gate shares the configured retention budget. Larger budgets do not delete
+outputs, remove exclusions, open rounds or queue retries by themselves.
+
 ## Seerr acquisition attention follow-up (2026-09-30)
 
 Definitive AltMount errors for missing archive parts, a release reduced to PAR2

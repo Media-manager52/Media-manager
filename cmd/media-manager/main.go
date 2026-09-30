@@ -77,6 +77,13 @@ func run() error {
 		return fmt.Errorf("connect database: %w", err)
 	}
 	defer store.Close()
+	limits, err := postgres.ParseAcquisitionLimits(os.Getenv("ACQUISITION_ATTEMPTS_PER_ROUND"), os.Getenv("ACQUISITION_RETAINED_OUTPUT_LIMIT"))
+	if err != nil {
+		return err
+	}
+	if err := store.ConfigureAcquisitionLimits(limits); err != nil {
+		return err
+	}
 	if command == "migrate" {
 		return postgres.Migrate(context.Background(), store.Pool)
 	}

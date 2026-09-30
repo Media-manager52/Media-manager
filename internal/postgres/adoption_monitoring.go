@@ -135,7 +135,7 @@ func (store *Store) applyAdoptionMonitoring(ctx context.Context, transaction pgx
 	searches := 0
 	for _, scope := range scopes {
 		workflow := workflows.NewWithClient(scope.MediaID, scope.RootID, scope.QualityProfileID, defaultClientID, now)
-		if err := insertManualWorkflow(ctx, transaction, workflow, scope.Variant, false); err != nil {
+		if err := store.insertManualWorkflow(ctx, transaction, workflow, scope.Variant, false); err != nil {
 			return 0, 0, err
 		}
 		if scope.MediaKind == catalog.KindSeries {

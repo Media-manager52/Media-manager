@@ -17,7 +17,7 @@ export type APIWorkflow = {
   round_ordinal?: number; round_state?: string; round_slots_used?: number; round_attempt_limit?: number
   retry_discovery_state?: "waiting" | "ready" | "paused"; next_rescan_at?: string; last_discovery_at?: string; last_discovery_complete?: boolean
   complete_no_new_scans?: number; new_release_ready?: boolean; ready_candidate_id?: string; ready_release_title?: string; ready_indexer_name?: string; ready_first_observed_at?: string; open_next_round_allowed?: boolean
-  retained_output_count?: number; retained_output_bytes?: number; excluded_release_count?: number
+  retained_output_limit?: number; retained_output_count?: number; retained_output_bytes?: number; excluded_release_count?: number
   search_allowed?: boolean; search_blocked_reason?: string; adopted_replacement_confirmation_required: boolean
   /** Exactly what AltMount last reported for the in-flight attempt; absent when it reported nothing. */
   quality_profile?: string; download_percent?: number; download_stage?: string; download_observed_at?: string

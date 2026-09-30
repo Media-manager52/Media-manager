@@ -276,8 +276,9 @@ observations, candidates, decisions, and a selection. Then:
 Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
 `subtitle_reverification.go`.
 
-- A round is created with `attempt_limit_snapshot = 2`
-  (`maxAcquisitionAttemptsPerRound`) and an immutable policy + upgrade baseline.
+- A round snapshots `ACQUISITION_ATTEMPTS_PER_ROUND` (default 2, range 1–6)
+  with an immutable policy + upgrade baseline. Configuration changes affect
+  newly created rounds only; existing snapshots and exclusions stay intact.
 - **Release-attributable failures** are only these codes:
   `season_pack_incomplete`, `movie_primary_ambiguous`, `output_empty`,
   `media_identity_mismatch`, `media_corrupt`, `password_protected`.
@@ -290,7 +291,7 @@ Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
 - **Infrastructure failures** (network, auth, unreconcilable identity, unreadable
   output) use `CompleteImportWithCode` and reconcile the same job — they never
   exclude a release and never silently consume a slot.
-- **Both slots used** → the round closes `exhausted` with a novelty cutoff
+- **All configured slots used** → the round closes `exhausted` with a novelty cutoff
   (highest `first_seen_sequence` seen), subtitles `retry_state=exhausted`, and a
   `workflow_retry_discovery` row in `waiting` with a `workflow.discovery_rescan_requested`
   event at a deterministic time:
@@ -303,15 +304,18 @@ Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
 - Discovery can flip the row to `ready` when a newly first-seen eligible
   candidate passes policy and is not attempted/excluded. It never submits.
 - **Owner opens the next round** via `POST /api/v1/workflows/{id}/acquisition-rounds`
-  (`Store.OpenNextAcquisitionRound`): requires `waiting`, <4 retained failed
-  outputs, a `ready` discovery candidate, candidate first-seen > cutoff, still
+  (`Store.OpenNextAcquisitionRound`): requires `waiting`, fewer retained failed
+  outputs than `ACQUISITION_RETAINED_OUTPUT_LIMIT`, a `ready` discovery candidate, candidate first-seen > cutoff, still
   eligible under the round's policy version, and not attempted/excluded. It
   creates round N+1 with a fresh upgrade baseline and queues a search.
 - The owner cannot reopen an exhausted round whose policy snapshot is older
   than the profile; apply the current policy instead (§5a).
-- **Retained output limit**: 4 distinct failed-output jobs with an
-  `acquisition_outcome <> 'output_verified'` block another round until the owner
-  reviews storage.
+- **Retained output limit**: `ACQUISITION_RETAINED_OUTPUT_LIMIT` (default 4,
+  range 1–12) counts distinct failed-output jobs with an
+  `acquisition_outcome <> 'output_verified'`. It gates retrieval before a
+  provider grab, submission, owner round opening, access recovery and policy
+  application. Raising the owner-configured limit preserves every failed
+  inventory and file and never queues work or opens a round by itself.
 - **Reverification**: an owner may reverify each exact retained output once
   after a probe correction (`altmount.output_reverify_requested`), reusing the
   frozen inventory and original subtitle policy, making no AltMount request. It
@@ -346,7 +350,7 @@ round is older:
   pending retrieval becomes a stale no-op;
 - `waiting` after round exhaustion or with `quality_policy_changed`: the
   attention is cleared, discovery is paused, and a search is queued now.
-  Exhausted workflows still honor the 4-retained-failed-output limit;
+  Exhausted workflows still honor the configured retained-failed-output limit;
 - `monitored`, `waiting`, `held`, `searching`, and `needs_attention` without an
   AltMount attempt: only the round changes, so any existing search schedule
   continues under the new policy;
@@ -366,10 +370,10 @@ Two owner endpoints support the availability audit without weakening the
 normal guards:
 
 - `POST /api/v1/workflows/{id}/acquisition-rounds/from-known`
-  (`Store.OpenKnownAcquisitionRound`) opens one two-slot round from releases
+  (`Store.OpenKnownAcquisitionRound`) opens one bounded round from releases
   Media Manager has already observed and judged eligible under the profile's
   current policy, when the workflow is `waiting` or `held` with no open round
-  and the retained failed-output count is below four. The best known candidate
+  and the retained failed-output count is below the configured limit. The best known candidate
   is selected directly, ordered by explicit Danish-subtitle evidence, then a
   Danish/Nordic title marker (`NORDiC`, `DANiSH`, `DKsubs`, `DANSK`), then
   decision score, and a `release.retrieve_requested` event is queued. The
@@ -630,7 +634,7 @@ Before an NZB is submitted to AltMount, Media Manager screens its file
 manifest. Packages that only contain archive formats AltMount cannot open
 (`.zip`, `.tar`, `.gz`, `.bz2`, `.xz`), ISO/DVD structures, or other recognized
 non-playable containers are excluded immediately **before the submission intent
-is created**, so the rejection never consumes one of the round's two attempt
+is created**, so the rejection never consumes one of the round's configured attempt
 slots; another candidate is searched inside the open round. RAR
 (`.rar`/`.r00`/`.partNNN.rar`) and 7-Zip sets are submitted: AltMount analyzes
 stored and nested RAR and RAR-in-7-Zip itself (most NORDiC/DANiSH/DKsubs scene
@@ -648,7 +652,7 @@ the persisted failure detail instead of retrying that reconcile forever.
 
 | Code / situation | Meaning | Owner action |
 | --- | --- | --- |
-| `round_exhausted_waiting_new_identity` | Both round slots used; discovery waiting for a new eligible release. | Wait for discovery `ready`, then open a new round; or open one from known eligible releases with `POST /api/v1/workflows/{id}/acquisition-rounds/from-known` (§5b). |
+| `round_exhausted_waiting_new_identity` | All configured round slots used; discovery waiting for a new eligible release. | Wait for discovery `ready`, then open a new round; or open one from known eligible releases with `POST /api/v1/workflows/{id}/acquisition-rounds/from-known` (§5b). |
 | `altmount_identity_unresolved` | Upload name not visible within 30 min. | Confirm the original upload was not accepted, then re-search. |
 | Archive/unplayable/missing-segment release | RAR set AltMount cannot stream (compressed or corrupt), zip/tar archive, ISO/DVD structure, no playable media, or Usenet articles absent from the providers. | Exact release + package excluded; next slot auto-searches. |
 | `altmount_identity_ambiguous` | Multiple queue jobs match. | Resolve queue manually; do not resubmit. |
@@ -695,8 +699,8 @@ or round. The UI sends the candidate ID and reviewed workflow revision.
 Eligibility requires a `release_retrieval_failed` or `release_retrieval_limit`
 attention state, an unsubmitted selected candidate with a current eligible
 policy decision on a commissioned provider, unchanged round policy and
-publication baseline, a remaining submission slot, fewer than four retained
-failed outputs, and room under the retrieval cap after lifting this exclusion.
+publication baseline, a remaining submission slot, fewer retained
+failed outputs than the configured limit, and room under the retrieval cap after lifting this exclusion.
 Owner blocks, attempted releases, active jobs, begun publication, other
 current-round access rejections on that provider, and missing adopted-file
 replacement authorization prevent the action. Payload and output exclusions
