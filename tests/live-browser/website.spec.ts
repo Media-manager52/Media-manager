@@ -249,7 +249,11 @@ test("validates configured movie and TV add forms without submitting", async ({ 
   await mediaType.click()
   await page.getByRole("option", { name: "TV series" }).click()
   await expect(mediaType).toContainText("TV series")
-  await expect(page.getByLabel("Exact seasons and episode counts")).toHaveValue("1:10")
+  // Seasons start empty and must be valid before the form can be submitted.
+  const seasons = page.getByLabel("Exact seasons and episode counts")
+  await expect(seasons).toHaveValue("")
+  await expect(page.getByRole("button", { name: "Add without search" })).toBeDisabled()
+  await seasons.fill("1:8")
   await expect(page.getByRole("button", { name: "Add without search" })).toBeEnabled()
   await verifyViewport(page)
 })

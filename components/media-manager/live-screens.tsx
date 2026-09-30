@@ -210,7 +210,9 @@ export function LiveDiscoverScreen() {
   const [year, setYear] = React.useState("")
   const [provider, setProvider] = React.useState("tmdb")
   const [providerID, setProviderID] = React.useState("")
-  const [seasonSpec, setSeasonSpec] = React.useState("1:10")
+  // Empty until the owner types seasons: a prefilled "1:10" added a blank
+  // ten-episode season 1 with one click.
+  const [seasonSpec, setSeasonSpec] = React.useState("")
   const [metadataQuery, setMetadataQuery] = React.useState("")
   const [metadataResults, setMetadataResults] = React.useState<APIDiscoverySearchResult[]>([])
   const [metadataDetail, setMetadataDetail] = React.useState<APIDiscoveryDetail | null>(null)
@@ -230,7 +232,7 @@ export function LiveDiscoverScreen() {
   React.useEffect(() => {
     Promise.all([loadLibraryRoots(), loadQualityProfiles(), loadIntegrations()]).then(([nextRoots, nextProfiles, integrations]) => { setRoots(nextRoots); setProfiles(nextProfiles); setClients(integrations.filter((item) => item.kind === "altmount" && item.enabled)); setIndexers(integrations.filter((item) => item.kind === "newznab" && item.enabled)) }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not load configuration")).finally(() => setLoading(false))
   }, [])
-  function changeKind(value: "movie" | "series") { setKind(value); setProvider(value === "movie" ? "tmdb" : "tvdb"); setRootID("default"); setProfileID("default"); setMetadataDetail(null); setSeasonSpec(value === "series" ? "1:10" : "") }
+  function changeKind(value: "movie" | "series") { setKind(value); setProvider(value === "movie" ? "tmdb" : "tvdb"); setRootID("default"); setProfileID("default"); setMetadataDetail(null); setSeasonSpec("") }
   const compatibleRoots = roots.filter((root) => root.media_kind === kind && root.enabled)
   const compatibleProfiles = profiles.filter((profile) => profile.media_kind === kind && profile.enabled)
   const configured = compatibleRoots.length > 0 && compatibleProfiles.length > 0 && clients.length > 0 && (!searchNow || indexers.length > 0)
@@ -244,7 +246,7 @@ export function LiveDiscoverScreen() {
     setMetadataBusy(true); setMetadataError("")
     try {
       const detail = await loadDiscoveryMetadata(result.mediaType, result.id)
-      setMetadataDetail(detail); setKind(detail.kind); setTitle(detail.title); setYear(detail.year ? String(detail.year) : ""); setProvider("tmdb"); setProviderID(String(detail.tmdb_id)); setRootID("default"); setProfileID("default"); setSeasonSpec(detail.kind === "series" ? "1" : "")
+      setMetadataDetail(detail); setKind(detail.kind); setTitle(detail.title); setYear(detail.year ? String(detail.year) : ""); setProvider("tmdb"); setProviderID(String(detail.tmdb_id)); setRootID("default"); setProfileID("default"); setSeasonSpec("")
     } catch (reason) { setMetadataError(reason instanceof Error ? reason.message : "Could not verify metadata") }
     finally { setMetadataBusy(false) }
   }
@@ -269,6 +271,8 @@ export function LiveDiscoverScreen() {
       router.push("/activity/queue")
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not add media") } finally { setSubmitting(false) }
   }
+  const seasonSpecError = kind === "series" && seasonSpec.trim() ? (() => { try { if (metadataDetail) parseSeasonNumbers(seasonSpec); else parseSeasonSpec(seasonSpec); return "" } catch (reason) { return reason instanceof Error ? reason.message : "Enter the seasons to add" } })() : ""
+  const seasonsReady = kind !== "series" || (seasonSpec.trim() !== "" && !seasonSpecError)
   return <div className="space-y-4">
     <Panel title="Search verified metadata through Seerr" subtitle="Search is owner-triggered. Selecting a result performs a detail lookup before its identities can be submitted.">
       <form className="flex flex-col gap-2 sm:flex-row" onSubmit={findMetadata}><Input className="mm-input flex-1" value={metadataQuery} onChange={(event) => setMetadataQuery(event.target.value)} minLength={2} maxLength={200} placeholder="Search movies and TV series…" required /><Button type="submit" disabled={metadataBusy}>{metadataBusy ? <LoaderCircle className="animate-spin" /> : <Search />} Search metadata</Button></form>
@@ -284,10 +288,11 @@ export function LiveDiscoverScreen() {
         <div className="grid gap-3 sm:grid-cols-2"><Field label="Media type"><Select value={kind} onValueChange={(value) => changeKind(value as "movie" | "series")}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="movie">Movie</SelectItem><SelectItem value="series">TV series</SelectItem></SelectContent></Select></Field><Field label="Release year"><Input className="mm-input" inputMode="numeric" value={year} onChange={(event) => setYear(event.target.value)} placeholder="2026" required /></Field></div>
         <Field label="Title"><Input className="mm-input" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={kind === "movie" ? "Movie title" : "Series title"} required /></Field>
         <div className="grid gap-3 sm:grid-cols-2"><Field label="Verified provider"><Select value={provider} onValueChange={(value) => { clearVerifiedSelection(); setProvider(value) }}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent>{kind === "movie" ? <><SelectItem value="tmdb">TMDB</SelectItem><SelectItem value="imdb">IMDb</SelectItem></> : <><SelectItem value="tvdb">TVDB</SelectItem><SelectItem value="tmdb">TMDB</SelectItem></>}</SelectContent></Select></Field><Field label={`${provider.toUpperCase()} ID`}><Input className="mm-input" value={providerID} onChange={(event) => { clearVerifiedSelection(); setProviderID(event.target.value) }} placeholder={provider === "imdb" ? "tt1234567" : "12345"} required /></Field></div>
-        {kind === "series" ? <Field label={metadataDetail ? "Season numbers" : "Exact seasons and episode counts"} hint={metadataDetail ? "Comma-separated seasons. Seerr supplies each exact episode snapshot, for example 1, 2." : "Format season:count. Example: 1:10, 2:8 creates two immutable episode snapshots."}><Input className="mm-input" value={seasonSpec} onChange={(event) => setSeasonSpec(event.target.value)} required /></Field> : null}
+        {kind === "series" ? <Field label={metadataDetail ? "Season numbers" : "Exact seasons and episode counts"} hint={metadataDetail ? "Comma-separated seasons. Seerr supplies each exact episode snapshot, for example 1, 2." : "Format season:count. Example: 1:10, 2:8 creates two immutable episode snapshots."}><Input className="mm-input" value={seasonSpec} onChange={(event) => setSeasonSpec(event.target.value)} placeholder={metadataDetail ? "1, 2" : "1:10, 2:8"} aria-describedby={seasonSpecError ? "add-media-season-note" : undefined} required /></Field> : null}
+        {kind === "series" && seasonSpecError ? <div id="add-media-season-note" role="status" className="-mt-2 rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-[12px] leading-[18px] text-warn">{seasonSpecError}</div> : null}
         <div className="grid gap-3 sm:grid-cols-3"><ConfigSelect label="Library root" value={rootID} onChange={setRootID} items={compatibleRoots.map((item) => ({ id: item.id, label: `${item.name}${item.is_default ? " · default" : ""}` }))} /><ConfigSelect label="Quality profile" value={profileID} onChange={setProfileID} items={compatibleProfiles.map((item) => ({ id: item.id, label: `${item.name}${item.is_default ? " · default" : ""}` }))} /><ConfigSelect label="Download client" value={clientID} onChange={setClientID} items={clients.map((item) => ({ id: item.id, label: `${item.name}${item.is_default ? " · default" : ""}` }))} /></div>
         <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2 p-3"><div><div className="text-[12px] font-semibold text-fg">Search immediately</div><div className="mt-1 text-[12px] text-fg-subtle">Turn off to leave a monitored workflow you can search later.</div></div><Switch checked={searchNow} onCheckedChange={setSearchNow} aria-label="Search immediately" /></div>
-        <Button disabled={loading || !configured || submitting} type="submit">{submitting ? <LoaderCircle className="animate-spin" /> : <Plus />} {searchNow ? "Add and search" : "Add without search"}</Button>
+        <Button disabled={loading || !configured || submitting || !seasonsReady} type="submit">{submitting ? <LoaderCircle className="animate-spin" /> : <Plus />} {searchNow ? "Add and search" : "Add without search"}</Button>
       </form>
     </Panel>
     <Panel title="Identity and season safety" subtitle="No single provider ID is required for every media type." className="h-fit">
