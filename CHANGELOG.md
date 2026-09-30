@@ -55,6 +55,8 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Fixed
 
+- A title page names the quality profile its workflows acquire under before any file exists, instead of "Not assigned" (found in the production upgrade rehearsal).
+- Review of the owner-console work: Approve and Decline on the Overview no longer navigate away (the row was a link around the buttons); a downloading workflow shows on the Download step, not Submit; a long non-ASCII AltMount stage label can no longer make PostgreSQL reject the job update; the title page lists only the newest episode expectation, so an episode removed by a correction no longer shows as missing; and "Re-check Plex" can no longer be starved by workflows at their retry limit, and reports real failures as failures instead of skipped items.
 - The API process no longer crashes when a Seerr request arrives and any of the optional direct metadata providers (TMDB, TVDB, Simkl) has no credential. The default Compose secrets are empty files, so an unconfigured provider was wired as a nil client and the first metadata enrichment dereferenced it; unconfigured providers now stay unwired and intake falls back to Seerr's TMDB data as intended.
 - An owner decision on a Seerr request now stores the status Seerr confirmed straight away, so the request's Approve and Decline buttons disappear as soon as Seerr accepts the decision instead of staying visible until intake re-reads the request. Intake still re-reads it from Seerr.
 - The local Playwright web server could not start after the `cloudflare:` loader was added only to the container; it now registers the same loader.

@@ -12,7 +12,9 @@ const stepByState: Record<string, number> = {
   searching: 0,
   candidate_selected: 1,
   submitting: 2,
-  queued: 2,
+  // "queued" is the persisted state for the whole time AltMount holds the
+  // job (accepted, downloading, repairing), so it is the Download step.
+  queued: 3,
   downloading: 3,
   streaming_ready: 3,
   import_complete: 4,

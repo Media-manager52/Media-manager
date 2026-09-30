@@ -21,6 +21,9 @@ const { workflowStep, attentionHeadline, retryPlan } = await vite.ssrLoadModule(
 
 test("steps follow persisted states and only Plex confirmation completes", () => {
   assert.deepEqual(workflowStep("searching"), { current: 0, complete: false });
+  assert.deepEqual(workflowStep("submitting"), { current: 2, complete: false });
+  // AltMount holds the job in the persisted "queued" state while it downloads.
+  assert.deepEqual(workflowStep("queued"), { current: 3, complete: false });
   assert.deepEqual(workflowStep("streaming_ready"), { current: 3, complete: false });
   assert.deepEqual(workflowStep("plex_scanning"), { current: 6, complete: false });
   assert.deepEqual(workflowStep("plex_confirmed"), { current: 7, complete: true });

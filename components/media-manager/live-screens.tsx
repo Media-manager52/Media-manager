@@ -350,7 +350,9 @@ export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
   const hue = titleHue(media.title)
   const kindLabel = media.kind === "movie" ? "Movie" : "TV series"
   const monitoredSeasons = (detail?.seasons ?? []).filter((season) => season.monitored).length
-  const profile = currentFile?.quality_profile ?? detail?.files.find((file) => file.quality_profile)?.quality_profile
+  // A file's profile is what it was verified against; before any file exists,
+  // the profile the title's workflows acquire under is the truthful answer.
+  const profile = currentFile?.quality_profile ?? detail?.files.find((file) => file.quality_profile)?.quality_profile ?? detail?.workflows.find((workflow) => !workflow.terminal_at && workflow.quality_profile)?.quality_profile
   const totalBytes = (detail?.files ?? []).filter((file) => file.state === "current").reduce((sum, file) => sum + (file.source_size_bytes ?? 0), 0)
   const heldFiles = (detail?.files ?? []).filter((file) => file.state !== "current" && !file.removed_at && !file.displaced_at).length
   const seasonCoverage = (detail?.seasons ?? []).map((season) => {

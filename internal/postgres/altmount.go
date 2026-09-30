@@ -557,9 +557,12 @@ func altMountProgress(item altmount.QueueItem) (*int16, *string) {
 		percent = &value
 	}
 	var stage *string
-	if trimmed := strings.TrimSpace(item.Stage); trimmed != "" {
-		if len(trimmed) > 64 {
-			trimmed = trimmed[:64]
+	// The stage is display-only text from AltMount: keep it valid UTF-8 and
+	// cut it by characters (the column allows 64), never mid-character, so a
+	// long or non-ASCII label can never make PostgreSQL reject the job update.
+	if trimmed := strings.TrimSpace(strings.ToValidUTF8(item.Stage, "")); trimmed != "" {
+		if runes := []rune(trimmed); len(runes) > 64 {
+			trimmed = strings.TrimSpace(string(runes[:64]))
 		}
 		stage = &trimmed
 	}

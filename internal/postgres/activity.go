@@ -49,6 +49,9 @@ type WorkflowSummary struct {
 	DownloadPercent    *int       `json:"download_percent,omitempty"`
 	DownloadStage      string     `json:"download_stage,omitempty"`
 	DownloadObservedAt *time.Time `json:"download_observed_at,omitempty"`
+	// QualityProfile is the name of the profile this workflow acquires under,
+	// so an owner sees it before any file exists.
+	QualityProfile string `json:"quality_profile,omitempty"`
 	// OwnerActionRequired is the single owner-facing "needs attention"
 	// predicate. It is true only when the workflow cannot advance without the
 	// owner: an unresolved failure state, or a waiting workflow whose paced
@@ -122,9 +125,11 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		COALESCE((SELECT job.state='needs_attention' FROM altmount_jobs job WHERE job.id=workflow.grab_attempt_id),false),
 		EXISTS(SELECT 1 FROM adopted_files adopted WHERE adopted.media_id=workflow.media_id AND adopted.variant=workflow.variant AND adopted.state='current' AND NOT EXISTS(SELECT 1 FROM adopted_replacement_authorizations replacement_auth WHERE replacement_auth.workflow_id=workflow.id AND replacement_auth.adopted_file_id=adopted.id AND replacement_auth.destination_relative=adopted.destination_relative AND replacement_auth.source_size=adopted.source_size AND replacement_auth.source_modtime_ns=adopted.source_modtime_ns)),
 		workflow.terminal_at,workflow.created_at,workflow.updated_at,
-		progress.progress_percent,COALESCE(progress.progress_stage,''),progress.progress_observed_at
+		progress.progress_percent,COALESCE(progress.progress_stage,''),progress.progress_observed_at,
+		COALESCE(profile.name,'')
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
 		LEFT JOIN altmount_jobs progress ON progress.id=workflow.grab_attempt_id AND workflow.state IN ('submitting','queued','downloading','streaming_ready')
+		LEFT JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
 		WHERE media.deleted_at IS NULL AND (NOT $2 OR workflow.terminal_at IS NULL)
 			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid)
 		ORDER BY workflow.updated_at DESC,workflow.id LIMIT $1`, limit, activeOnly, mediaIDValue)
@@ -141,7 +146,7 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		var revision int64
 		var publicationStarted, currentJobNeedsAttention bool
 		var downloadPercent *int16
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)
