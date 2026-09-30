@@ -21,7 +21,6 @@ import {
   Globe2,
   HardDrive,
   HeartPulse,
-  Library,
   List,
   ListChecks,
   Plus,
@@ -47,7 +46,6 @@ import {
   deleteReleaseBlock,
   loadActivity,
   loadCalendar,
-  loadDashboard,
   loadCatalogMedia,
   loadManagedFile,
   loadManagedFiles,
@@ -93,7 +91,9 @@ import {
 } from "@/lib/media-library"
 import { filterRequests, requestFilterCounts, seerrStateLabel, type RequestFilter } from "@/lib/media-manager-requests"
 import { parseSeriesVariant, rollupSeriesSeasons, type SeriesSeasonRollup } from "@/lib/series-variants"
-import { isActivelyAcquiring, isCompleted, isWaiting, requiresOwnerAttention } from "@/lib/workflow-states"
+import { AttentionCard, attentionEntries, ConsoleRow, mediaHref, MiniPoster, StageStepper, titleHue } from "./console"
+import { retryPlan } from "@/lib/workflow-presentation"
+import { isActivelyAcquiring } from "@/lib/workflow-states"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
 import { InlineNotice, KeyValue, MetricCard, Panel, SectionLabel, StateBadge, StatusChip } from "./ui"
 
@@ -102,7 +102,7 @@ export type { MediaLibraryFilters, MediaLibraryRecord } from "@/lib/media-librar
 
 type Tone = "good" | "info" | "warn" | "bad" | "neutral"
 
-function useLiveData<T>(loader: (signal: AbortSignal) => Promise<T>) {
+export function useLiveData<T>(loader: (signal: AbortSignal) => Promise<T>) {
   const [data, setData] = React.useState<T | null>(null)
   const [error, setError] = React.useState("")
   const [revision, setRevision] = React.useState(0)
@@ -116,11 +116,11 @@ function useLiveData<T>(loader: (signal: AbortSignal) => Promise<T>) {
   return { data, error, refresh: () => setRevision((current) => current + 1) }
 }
 
-function LoadingPanel({ label = "Loading persisted state…" }: { label?: string }) {
+export function LoadingPanel({ label = "Loading persisted state…" }: { label?: string }) {
   return <Panel><div className="py-12 text-center text-[12px] text-fg-subtle">{label}</div></Panel>
 }
 
-function ErrorNotice({ error }: { error: string }) {
+export function ErrorNotice({ error }: { error: string }) {
   return <InlineNotice tone="bad" title="Live data unavailable">{error}</InlineNotice>
 }
 
@@ -128,11 +128,11 @@ function RefreshButton({ onClick }: { onClick: () => void }) {
   return <Button variant="outline" size="sm" onClick={onClick}><RefreshCw /> Refresh</Button>
 }
 
-function pretty(value: string) {
+export function pretty(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function timeAgo(value: string) {
+export function timeAgo(value: string) {
   const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000))
   if (seconds < 60) return `${seconds}s ago`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
@@ -180,7 +180,6 @@ const releasesLoader = (signal: AbortSignal) => loadReleaseCandidates(signal)
 const blocksLoader = (signal: AbortSignal) => loadReleaseBlocks(signal)
 const sourcesLoader = (signal: AbortSignal) => loadSources(signal)
 const healthLoader = (signal: AbortSignal) => loadSystemHealth(signal)
-const wantedLoader = (signal: AbortSignal) => loadWanted(signal)
 const tasksLoader = (signal: AbortSignal) => loadTasks(signal)
 const systemInfoLoader = (signal: AbortSignal) => loadSystemInfo(signal)
 const notificationDestinationsLoader = (signal: AbortSignal) => loadNotificationDestinations(signal)
@@ -188,19 +187,6 @@ const notificationDeliveriesLoader = (signal: AbortSignal) => loadNotificationDe
 const importListsLoader = (signal: AbortSignal) => loadImportLists(signal)
 const backupsLoader = (signal: AbortSignal) => loadBackups(signal)
 const requestsLoader = (signal: AbortSignal) => loadRequests(signal)
-
-// The overview reads only existing bounded read models. It never invents a
-// statistic and it never triggers a search, scan, or publication.
-const dashboardOverviewLoader = async (signal: AbortSignal) => {
-  const [dashboard, wanted, calendar, requests, health] = await Promise.all([
-    loadDashboard(signal),
-    loadWanted(signal),
-    loadCalendar(signal),
-    loadRequests(signal),
-    loadSystemHealth(signal),
-  ])
-  return { dashboard, wanted, calendar, requests, health }
-}
 
 // The overview groups persisted workflow states truthfully. Real acquisition
 // work is "actively acquiring"; normal monitoring, pacing, and future air dates
@@ -274,92 +260,6 @@ export function overviewQueueItems(workflows: APIWorkflow[], wanted: APIWantedIt
     items.push({ id: item.workflow_id, title: item.title, year: item.year, variant: item.variant, state: item.current_state || "waiting", ownerActionRequired: Boolean(item.owner_action_required), updatedAt: item.updated_at, href: item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}` })
   }
   return items
-}
-
-export function LiveOperationalDashboardScreen() {
-  const { data, error, refresh } = useLiveData(dashboardOverviewLoader)
-  if (!data && !error) return <LoadingPanel label="Loading the live overview…" />
-  const dashboard = data?.dashboard
-  const now = new Date().getTime()
-  const workflows = dashboard?.recent_workflows ?? []
-  const queue = overviewQueueItems(workflows, data?.wanted ?? [])
-  const activelyAcquiring = queue.filter((item) => isActivelyAcquiring(item.state))
-  const waitingMonitored = queue.filter((item) => isWaiting(item.state) && !requiresOwnerAttention(item.state, item.ownerActionRequired))
-  const completed = workflows.filter((workflow) => isCompleted(workflow.state))
-  const upcoming = (data?.calendar ?? [])
-    .filter((entry) => new Date(entry.air_date).getTime() >= now)
-    .sort((left, right) => new Date(left.air_date).getTime() - new Date(right.air_date).getTime())
-    .slice(0, 6)
-  const recentRequests = [...(data?.requests ?? [])].sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()).slice(0, 5)
-  const integrationWarnings = (data?.health.components ?? []).filter((component) => component.configuration_state !== "configured")
-  const outbox = data?.health.outbox
-  const outboxAttention = Boolean(outbox && outbox.due > 0 && outbox.retrying > 0)
-  const counts = dashboard?.counts
-
-  return <div className="space-y-4">
-    {error ? <ErrorNotice error={error} /> : null}
-    {dashboard && counts ? <>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Library" value={String(counts.movies + counts.series)} note={`${counts.movies} movies · ${counts.series} series cataloged`} icon={Library} />
-        <MetricCard label="Available" value={String(counts.current_files)} note="Plex-confirmed current files" tone={counts.current_files ? "good" : "neutral"} icon={FileCheck2} />
-        <MetricCard label="Active work" value={String(counts.active_workflows)} note={`${counts.pending_events} persisted worker events`} tone={counts.active_workflows ? "info" : "neutral"} icon={Activity} />
-        <MetricCard label="Needs attention" value={String(counts.needs_attention)} note={counts.needs_attention ? "Owner decisions waiting" : "Nothing is waiting on you"} tone={counts.needs_attention ? "warn" : "good"} icon={AlertTriangle} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
-        <div className="space-y-4">
-          <Panel title="Needs your attention" subtitle="Real holds that require an owner decision — not a global failure state." action={counts.needs_attention ? <Button asChild variant="outline" size="sm"><Link href="/activity/queue">Open workflows</Link></Button> : undefined}>
-            <OwnerAttention items={data?.wanted ?? []} workflows={workflows} limit={5} />
-          </Panel>
-
-          <Panel title="Actively acquiring" subtitle="Real ongoing acquisition work: searching, selected, downloading, verifying, or publishing; no invented percentages." action={<RefreshButton onClick={refresh} />}>
-            {activelyAcquiring.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">Nothing is actively acquiring right now.</div>
-              : <div className="space-y-2">
-                {activelyAcquiring.slice(0, 6).map((item) => <Link key={item.id} href={item.href} className="flex items-center justify-between gap-3 -mx-2 rounded-lg px-2 py-2.5 outline-none transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring">
-                  <div className="min-w-0"><div className="truncate text-[13px] font-semibold text-fg">{item.title}{item.year ? ` (${item.year})` : ""}</div><div className="mt-0.5 truncate font-mono text-[12px] text-fg-subtle">{item.variant} · updated {timeAgo(item.updatedAt)}</div></div>
-                  <StateBadge state={item.state} />
-                </Link>)}
-              </div>}
-            {activelyAcquiring.length > 6 ? <div className="mt-2.5 text-[12px] text-fg-subtle">Showing 6 of {activelyAcquiring.length}. <Link className="underline underline-offset-2 hover:text-fg" href="/activity/queue">View all workflows</Link></div> : null}
-          </Panel>
-
-          <Panel title="Waiting / monitored" subtitle="Normal monitoring and pacing. No owner action is required." action={waitingMonitored.length ? <Button asChild variant="ghost" size="sm"><Link href="/wanted">Wanted</Link></Button> : undefined}>
-            {waitingMonitored.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">Nothing is waiting on a future release or paced retry.</div>
-              : <div className="space-y-2">
-                {waitingMonitored.slice(0, 6).map((item) => <Link key={item.id} href={item.href} className="flex items-center justify-between gap-3 -mx-2 rounded-lg px-2 py-2.5 outline-none transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring">
-                  <div className="min-w-0"><div className="truncate text-[13px] font-semibold text-fg">{item.title}{item.year ? ` (${item.year})` : ""}</div><div className="mt-0.5 truncate font-mono text-[12px] text-fg-subtle">{item.variant} · updated {timeAgo(item.updatedAt)}</div></div>
-                  <StateBadge state={item.state} />
-                </Link>)}
-              </div>}
-            {waitingMonitored.length > 6 ? <div className="mt-2.5 text-[12px] text-fg-subtle">Showing 6 of {waitingMonitored.length}. <Link className="underline underline-offset-2 hover:text-fg" href="/wanted">View all in Wanted</Link></div> : null}
-          </Panel>
-        </div>
-
-        <div className="space-y-4">
-          <Panel title="Recently completed" subtitle="Plex confirmed the exact managed file and provider identity." action={completed.length ? <Button asChild variant="ghost" size="sm"><Link href="/activity/history">History</Link></Button> : undefined}>
-            {completed.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">No completed publication yet.</div>
-              : <div className="space-y-2">{completed.slice(0, 5).map((workflow) => <Link key={workflow.id} href={workflow.media_kind === "movie" ? `/media/movies/${workflow.media_id}` : `/media/series/${workflow.media_id}`} className="flex items-center gap-2.5 -mx-2 rounded-lg px-2 py-2 outline-none transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"><CheckCircle2 className="size-4 shrink-0 text-good" aria-hidden /><div className="min-w-0 flex-1"><div className="truncate text-[13px] font-semibold text-fg">{workflow.title}</div><div className="mt-0.5 truncate font-mono text-[12px] text-fg-subtle">{workflow.variant} · {timeAgo(workflow.updated_at)}</div></div></Link>)}</div>}
-          </Panel>
-
-          <Panel title="Coming up" subtitle="Persisted provider dates only; a date never triggers a search." action={<Button asChild variant="ghost" size="sm"><Link href="/calendar">Calendar</Link></Button>}>
-            {upcoming.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">No exact future air dates are persisted.</div>
-              : <div className="mm-timeline">{upcoming.map((entry) => <div key={`${entry.workflow_id}:${entry.season}:${entry.episode}`} className="mm-timeline-event"><Link href={`/media/series/${entry.media_id}`} className="text-[13px] font-semibold text-fg hover:text-info">{entry.media_title}</Link><div className="mt-1 text-[12px] text-fg-subtle">S{String(entry.season).padStart(2, "0")}E{String(entry.episode).padStart(2, "0")} · {new Date(entry.air_date).toLocaleDateString()}</div></div>)}</div>}
-          </Panel>
-
-          <Panel title="Recent requests" subtitle="Seerr intake mapped to durable lifecycle state." action={<Button asChild variant="ghost" size="sm"><Link href="/requests">All requests</Link></Button>}>
-            {recentRequests.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">No Seerr requests are persisted yet.</div>
-              : <div className="space-y-1.5">{recentRequests.map((request) => <Link key={request.id} href="/requests" className="flex items-center justify-between gap-3 -mx-2 rounded-lg px-2 py-2 outline-none transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"><div className="min-w-0"><div className="truncate text-[13px] font-semibold text-fg">{request.title || `Request ${request.request_id}`}</div><div className="mt-0.5 text-[12px] text-fg-subtle">{request.requester || "Unknown requester"} · {timeAgo(request.updated_at)}</div></div><StateBadge state={request.lifecycle} /></Link>)}</div>}
-          </Panel>
-
-          {(integrationWarnings.length > 0 || outboxAttention) ? <Panel title="Integrations" subtitle="Configuration and worker state that may need attention.">
-            {outboxAttention ? <InlineNotice tone="warn" title="Worker outbox is retrying">{outbox?.due} events are due and {outbox?.retrying} are retrying. Work is not lost; it remains durable.</InlineNotice> : null}
-            <div className={cn(outboxAttention && "mt-3")}>{integrationWarnings.map((component) => <div key={component.id} className="flex items-center justify-between gap-3 border-b border-line py-2.5 last:border-0"><div className="min-w-0"><div className="truncate text-[13px] font-semibold text-fg">{component.name}</div><div className="text-[12px] text-fg-subtle">{component.kind} · {component.last_outcome ? pretty(component.last_outcome) : "No live operation observed"}</div></div><StateBadge state={component.configuration_state} /></div>)}</div>
-            <Button asChild variant="outline" size="sm" className="mt-3"><Link href="/system/health">Open health</Link></Button>
-          </Panel> : null}
-        </div>
-      </div>
-    </> : null}
-  </div>
 }
 
 async function loadMediaLibrary(kind: "movie" | "series", signal: AbortSignal) {
@@ -491,13 +391,14 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
   if (filters.managedOnly) activeFilterChips.push({ key: "managedOnly", label: "Has managed file" })
 
   return <div className={cn("mm-library-root grid h-full min-h-0 bg-canvas", selected && "xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_380px]")}>
-    <section className="flex min-h-0 min-w-0 flex-col px-3 pb-3 pt-4 sm:px-5 sm:pt-5" aria-labelledby={`${mediaKind}-library-title`}>
-      <div className="mb-3 flex min-h-9 items-center gap-3">
+    <section className="flex min-h-0 min-w-0 flex-col px-4 pb-3 pt-3 sm:px-5 lg:px-9" aria-labelledby={`${mediaKind}-library-title`}>
+      <div className="mb-4 flex min-h-9 items-end gap-3">
         <div className="min-w-0">
-          <div className="flex items-baseline gap-2.5">
-            <h1 id={`${mediaKind}-library-title`} className="text-[22px] font-semibold tracking-[-0.02em] text-fg">{copy.title}</h1>
-            <span className="rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[12px] font-semibold text-fg-muted" aria-label={`${records.length} ${records.length === 1 ? copy.singular : copy.plural}`}>{records.length}</span>
+          <div className="flex items-baseline gap-2">
+            <h1 id={`${mediaKind}-library-title`} className="text-[20px] font-bold tracking-[-0.02em] text-fg">{copy.title}</h1>
+            <span className="rounded-full border border-line bg-surface-2 px-1.5 text-[11px] font-bold text-fg-muted" aria-label={`${records.length} ${records.length === 1 ? copy.singular : copy.plural}`}>{records.length}</span>
           </div>
+          <p className="mt-1 truncate text-[12.5px] text-fg-subtle">{records.length} title{records.length === 1 ? "" : "s"} · {counts.available} available · {counts.missing} missing · {counts.upgradable} upgradable · {counts.monitoring} monitoring</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <Button variant="ghost" size="icon-sm" aria-label={`Refresh ${copy.plural}`} onClick={refresh}><RefreshCw /></Button>
@@ -508,6 +409,10 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
           {view === "grid" ? <label className="hidden shrink-0 sm:block"><span className="sr-only">Grid density</span><NativeSelect size="sm" aria-label="Grid density" value={density} onChange={(event) => setDensity(event.target.value as "comfortable" | "compact")} className="h-8 border-line bg-surface-2 px-2 pr-6 text-[12px] text-fg-secondary shadow-none"><NativeSelectOption value="compact">Compact</NativeSelectOption><NativeSelectOption value="comfortable">Comfortable</NativeSelectOption></NativeSelect></label> : null}
           <Button asChild size="sm" className="h-8 px-2.5 sm:px-3"><Link href="/discover" aria-label={copy.add}><Plus /><span className="hidden sm:inline">{copy.add}</span></Link></Button>
         </div>
+      </div>
+
+      <div className="mb-2.5 flex shrink-0 gap-2 overflow-x-auto pb-0.5 scrollbar-none" aria-label={`${copy.title} summaries`}>
+        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("h-[30px] shrink-0 rounded-lg border border-line bg-surface px-3 text-[12px] font-semibold text-fg-muted outline-none transition hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-ring", filters.summary === item.key && "border-brand-line bg-brand-soft text-fg")}>{item.label}{" "}<em className={cn("ml-1 font-medium not-italic tabular-nums text-fg-subtle", filters.summary === item.key && "text-brand-text")}>{item.count}</em></button>)}
       </div>
 
       {error ? <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-bad-line bg-bad-soft px-3 py-2 text-[12px] text-bad" role="alert"><span>{error}</span><button type="button" className="font-semibold underline underline-offset-2" onClick={refresh}>Retry</button></div> : null}
@@ -531,16 +436,12 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
         </div> : null}
       </div>
 
-      <div className="mb-2 flex shrink-0 gap-1.5 overflow-x-auto pb-0.5 scrollbar-none sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0" aria-label={`${copy.title} summaries`}>
-        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("w-[108px] shrink-0 rounded-xl border border-line bg-surface px-3 py-2.5 text-left shadow-[var(--shadow-panel)] outline-none transition hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring sm:w-auto sm:min-w-0", filters.summary === item.key && "border-brand-line bg-brand-soft")}><span className="block truncate text-[12.5px] font-medium text-fg-muted">{item.label}</span><span className={cn("mt-1 block text-[20px] font-semibold leading-none tabular-nums text-fg", filters.summary === item.key && "text-brand-text")}>{item.count}</span></button>)}
-      </div>
-
       <div className="mb-1.5 flex shrink-0 items-center justify-between text-[13px] text-fg-muted" aria-live="polite"><span>{filtered.length} {filtered.length === 1 ? copy.singular : copy.plural}</span><span>{view === "grid" ? `${density === "compact" ? "Compact" : "Comfortable"} grid` : "Title order"}</span></div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pr-0.5 scrollbar-thin">
         {!data && !error ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-line bg-surface-2 text-[12px] text-fg-muted" role="status">Loading the live {copy.title.toLocaleLowerCase()} catalog…</div>
           : visible.length === 0 ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-dashed border-line-strong bg-surface-2"><div className="px-6 text-center">{mediaKind === "movie" ? <Film className="mx-auto size-6 text-fg-subtle" /> : <Tv className="mx-auto size-6 text-fg-subtle" />}<div className="mt-2 text-[12px] font-semibold text-fg">{records.length === 0 ? `Your ${copy.singular} catalog is empty` : `No ${copy.plural} matched`}</div><div className="mt-1 text-[12px] text-fg-muted">{records.length === 0 ? `Use ${copy.add} to create a real catalog entry.` : "Change or clear the active filters."}</div></div></div>
-          : view === "grid" ? <div className={cn("grid", density === "compact" ? "gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]" : "gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]")}>
+          : view === "grid" ? <div className={cn("grid pb-2 pt-1", density === "compact" ? "gap-x-3.5 gap-y-5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]" : "gap-x-4 gap-y-6 [grid-template-columns:repeat(auto-fill,minmax(176px,1fr))]")}>
             {visible.map((item) => <MediaLibraryCard key={item.id} item={item} compact={density === "compact"} selected={item.id === selected?.id} onSelect={selectMedia} />)}
           </div> : <div className="overflow-hidden rounded-xl border border-line bg-surface">
             {visible.map((item) => <MediaLibraryRow key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMedia} />)}
@@ -568,18 +469,21 @@ function LibrarySelect({ label, value, options, onChange, className }: { label: 
 export function MediaLibraryCard({ item, compact = false, selected, onSelect }: { item: MediaLibraryRecord; compact?: boolean; selected: boolean; onSelect: (id: string) => void }) {
   const availability = mediaAvailability(item)
   const labels = uniqueValues([...item.resolutions.map(resolutionLabel), ...item.dynamicRanges])
-  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("group relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-surface text-left outline-none transition duration-150 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[var(--shadow-float)] focus-visible:ring-2 focus-visible:ring-ring", selected && "border-brand ring-1 ring-ring/45")}>
-    <div className="relative aspect-[2/3] w-full overflow-hidden bg-surface-3">
-      <MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={300} height={450} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/55 to-transparent" />
-      <div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-canvas/90 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-fg">{label}</span>)}</div>
-      {item.kind === "series" && item.metadata?.season_count ? <span className="absolute right-1.5 top-1.5 rounded-[3px] border border-white/15 bg-canvas/90 px-1.5 py-0.5 text-[12px] font-semibold text-fg">{item.metadata.season_count}S</span> : null}
-      {!item.available && item.missing ? <span className="absolute bottom-1.5 left-1.5 rounded-[3px] bg-canvas/85 px-1.5 py-0.5 text-[12px] font-semibold text-warn">Missing</span> : null}
+  const poster = item.metadata?.poster_url
+  const hue = titleHue(item.title)
+  const meta = [labels.join(" · "), item.kind === "series" && item.metadata?.season_count ? `${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : "", item.profiles[0] ?? ""].filter(Boolean).join(" · ") || "No managed file yet"
+  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className="group flex min-w-0 flex-col rounded-[10px] text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-canvas">
+    <div className={cn("relative flex aspect-[2/3] w-full items-end overflow-hidden rounded-[10px] border border-line transition duration-200 group-hover:-translate-y-[3px] group-hover:border-brand-line group-hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.6)]", selected && "border-brand ring-1 ring-brand-line")} style={poster ? undefined : { background: `linear-gradient(160deg, hsl(${hue} 50% 36%), hsl(${hue} 55% 12%))` }}>
+      {poster ? <MetadataArtwork src={poster} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={300} height={450} className="absolute inset-0 h-full w-full object-cover" /> : null}
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.05)_40%,rgba(0,0,0,.72))]" />
+      {item.year ? <span className="absolute left-2.5 top-2 z-[1] text-[10px] font-semibold text-white/80">{item.year}</span> : null}
+      {labels[0] ? <span className="absolute right-2 top-2 z-[1] rounded-[5px] border border-white/20 bg-[rgba(10,12,18,.75)] px-1.5 py-0.5 text-[9.5px] font-bold tracking-[0.05em] text-white backdrop-blur-sm">{labels[0]}</span> : null}
+      {poster ? null : <b className={cn("relative z-[1] px-2.5 pb-2.5 font-bold leading-tight tracking-[-0.01em] text-white [text-shadow:0_1px_6px_rgba(0,0,0,.8)]", compact ? "text-[12px]" : "text-[13px]")}>{item.title}</b>}
     </div>
-    <div className="flex min-w-0 flex-1 flex-col p-2">
-      <div className={cn("truncate font-semibold leading-tight text-fg", compact ? "text-[12px]" : "text-[13px]")} title={item.title}>{item.title}</div>
-      <div className="mt-0.5 truncate text-[12px] text-fg-muted">{item.year ?? "Year unknown"}{item.kind === "series" && item.metadata?.season_count ? ` · ${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : ""}</div>
-      <div className={cn("mt-1 flex items-center gap-1.5 font-semibold", compact ? "text-[12px]" : "text-[12px]", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.short}</span></div>
+    <div className="min-w-0 px-0.5 pt-2">
+      <div className={cn("truncate font-semibold tracking-[-0.01em] text-fg", compact ? "text-[12.5px]" : "text-[13px]")} title={item.title}>{item.title}</div>
+      <div className="mb-1 mt-px truncate text-[11px] text-fg-subtle">{item.year ? `${item.year} · ` : ""}{meta}</div>
+      <div className={cn("flex items-center gap-1.5 text-[11px] font-medium", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /><span className="truncate">{availability.short}</span></div>
     </div>
   </button>
 }
@@ -747,16 +651,10 @@ export function LiveRequestsScreen() {
 
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <MetricCard label="Requests" value={String(counts.total)} note="Persisted Seerr requests" icon={Search} />
-      <MetricCard label="Active" value={String(counts.active)} note="Intake or acquisition in progress" tone={counts.active ? "info" : "neutral"} icon={Activity} />
-      <MetricCard label="Completed" value={String(counts.completed)} note="Plex confirmed or already available" tone="good" icon={CheckCircle2} />
-      <MetricCard label="Needs attention" value={String(counts.attention)} note="Owner-visible failures and held work" tone={counts.attention ? "warn" : "good"} icon={AlertTriangle} />
-    </div>
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
       <Panel flush title="Seerr requests" subtitle="Every row maps to persisted Media Manager state; waiting and failed requests never look successful." action={<RefreshButton onClick={refresh} />}>
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-5 py-3">
-          {filterOptions.map((option) => <button key={option.key} type="button" aria-pressed={filter === option.key} onClick={() => setFilter(option.key)} className={cn("rounded-full border px-3 py-1 text-[12.5px] font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring", filter === option.key ? "border-brand-line bg-brand-soft text-brand-text" : "border-line bg-surface text-fg-secondary hover:bg-surface-2")}>{option.label} <span className="tabular-nums opacity-70">{option.count}</span></button>)}
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+          {filterOptions.map((option) => <button key={option.key} type="button" aria-pressed={filter === option.key} onClick={() => setFilter(option.key)} className={cn("h-[30px] rounded-lg border px-3 text-[12px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-ring", filter === option.key ? "border-brand-line bg-brand-soft text-fg" : "border-line bg-surface text-fg-muted hover:border-line-strong hover:text-fg")}>{option.label}{" "}<em className={cn("ml-1 font-medium not-italic tabular-nums", filter === option.key ? "text-brand-text" : "text-fg-subtle")}>{option.count}</em></button>)}
           <label className="relative ml-auto block w-full max-w-[230px]">
             <span className="sr-only">Search requests</span>
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-muted" />
@@ -765,13 +663,13 @@ export function LiveRequestsScreen() {
         </div>
         {!data && !error ? <div className="p-10 text-center text-[12px] text-fg-subtle">Loading persisted requests…</div>
           : filtered.length === 0 ? <div className="p-10 text-center text-[12px] text-fg-subtle">{items.length === 0 ? "No Seerr-originated requests are persisted yet." : "No requests match the active filter."}</div>
-          : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="pl-5">Media</TableHead><TableHead>Status</TableHead><TableHead>Profile</TableHead><TableHead>Requester</TableHead><TableHead className="pr-5">Updated</TableHead></TableRow></TableHeader><TableBody>
+          : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Status</TableHead><TableHead>Profile</TableHead><TableHead>Requester</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>
             {filtered.map((item) => <TableRow key={item.id} onClick={() => setSelectedID(item.id)} className={cn("cursor-pointer", selectedID === item.id && "bg-brand-soft")}>
-              <TableCell className="pl-5"><div className="flex min-w-[220px] items-center gap-3"><MetadataArtwork src={item.poster_url} fallback={item.media_kind === "series" ? "/media/series-placeholder.svg" : "/media/movie-placeholder.svg"} alt="" width={48} height={72} className="h-12 w-8 shrink-0 rounded-md border border-line object-cover" /><div className="min-w-0"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedID(item.id) }} aria-pressed={selectedID === item.id} className="block max-w-[260px] truncate text-left text-[13px] font-semibold text-fg outline-none hover:underline hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring">{item.title || `Request ${item.request_id}`}</button><div className="text-[12px] text-fg-muted">{item.media_kind === "series" ? "TV" : "Movie"} · {item.year ?? "Year unknown"} · Seerr #{item.request_id}{item.seerr_instance_name ? ` · ${item.seerr_instance_name}` : ""}</div>{item.media_kind === "series" && item.season_count ? <div className="text-[12px] text-fg-subtle">{item.available_seasons}/{item.season_count} seasons available</div> : null}</div></div></TableCell>
+              <TableCell><div className="flex min-w-[220px] items-center gap-3"><MiniPoster src={item.poster_url} title={item.title || "Request"} /><div className="min-w-0"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedID(item.id) }} aria-pressed={selectedID === item.id} className="block max-w-[260px] truncate text-left text-[13px] font-semibold text-fg outline-none hover:underline hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring">{item.title || `Request ${item.request_id}`}</button><div className="text-[12px] text-fg-muted">{item.media_kind === "series" ? "TV" : "Movie"} · {item.year ?? "Year unknown"} · Seerr #{item.request_id}{item.seerr_instance_name ? ` · ${item.seerr_instance_name}` : ""}</div>{item.media_kind === "series" && item.season_count ? <div className="text-[12px] text-fg-subtle">{item.available_seasons}/{item.season_count} seasons available</div> : null}</div></div></TableCell>
                             <TableCell><StateBadge state={item.lifecycle} />{item.attention_detail || item.intake_error ? <div className="mt-1 max-w-xs text-[12px] text-warn">{item.attention_detail || item.intake_error}</div> : null}</TableCell>
               <TableCell className="text-[12px]">{item.quality_profile || "—"}</TableCell>
               <TableCell className="text-[12px]">{item.requester || "—"}</TableCell>
-              <TableCell className="whitespace-nowrap pr-5 text-[12px] text-fg-muted">{timeAgo(item.updated_at)}</TableCell>
+              <TableCell className="whitespace-nowrap text-[12px] text-fg-subtle">{timeAgo(item.updated_at)}</TableCell>
             </TableRow>)}
           </TableBody></Table></div>}
       </Panel>
@@ -780,19 +678,67 @@ export function LiveRequestsScreen() {
   </div>
 }
 
+const wantedScreenLoader = async (signal: AbortSignal) => {
+  const [wanted, workflows, media] = await Promise.all([loadWanted(signal), loadWorkflows(false, signal), loadCatalogMedia(signal)])
+  return { wanted, workflows, posters: new Map(media.map((item) => [item.id, item.metadata?.poster_url])) }
+}
+
+/**
+ * Wanted separates what is missing by what it is actually waiting for: an
+ * owner decision, a release that does not exist yet, an upgrade, or work that
+ * is already moving. Waiting is never styled as failure.
+ */
 export function LiveWantedScreen() {
-  const { data, error, refresh } = useLiveData(wantedLoader)
-  const items = data ?? []
-  const missing = items.filter((item) => item.gap === "missing").length
-  const upgrades = items.filter((item) => item.gap === "upgrade").length
-  const attention = items.filter((item) => item.owner_action_required).length
+  const { data, error, refresh } = useLiveData(wantedScreenLoader)
+  const items = data?.wanted ?? []
+  const workflows = data?.workflows ?? []
+  const byID = new Map(workflows.map((workflow) => [workflow.id, workflow]))
+  const attention = attentionEntries(items, workflows)
+  const attentionIDs = new Set(attention.map((entry) => entry.key))
+  const inProgress = items.filter((item) => !attentionIDs.has(item.workflow_id) && isActivelyAcquiring(byID.get(item.workflow_id)?.state ?? item.current_state))
+  const progressIDs = new Set(inProgress.map((item) => item.workflow_id))
+  const missing = items.filter((item) => item.gap === "missing" && !attentionIDs.has(item.workflow_id) && !progressIDs.has(item.workflow_id))
+  const upgrades = items.filter((item) => item.gap === "upgrade" && !attentionIDs.has(item.workflow_id) && !progressIDs.has(item.workflow_id))
+  const posterFor = (id: string) => data?.posters.get(id)
+  const itemCell = (item: APIWantedItem) => <div className="flex min-w-[220px] items-center gap-2.5"><MiniPoster src={posterFor(item.media_id)} title={item.title} /><div className="min-w-0"><Link className="block truncate text-[12.5px] font-semibold text-fg hover:underline" href={mediaHref(item.media_kind, item.media_id)}>{item.title}{item.year ? ` (${item.year})` : ""}</Link><small className="text-[10.5px] text-fg-subtle">{item.media_kind === "series" ? "TV" : "Movie"} · {item.variant}</small></div></div>
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
-    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Missing" value={String(missing)} note="Active scope has no current publication" tone={missing ? "info" : "good"} icon={Search} /><MetricCard label="Upgrades" value={String(upgrades)} note="Current publication remains until replacement verification" tone={upgrades ? "info" : "good"} icon={Gauge} /><MetricCard label="Needs attention" value={String(attention)} note="Persisted workflow state, not a global failure" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
-    <Panel title="Owner attention" subtitle="The exact persisted reason, retry state, and safest next step for this item.">
-      <OwnerAttention items={items} workflows={[]} limit={6} />
-    </Panel>
-    {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Panel flush title="Wanted and upgrades" subtitle="Derived from active workflows, current publications, and persisted quality policy." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Scope</TableHead><TableHead>Gap</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.workflow_id}><TableCell><Link className="font-semibold text-fg hover:text-info" href={item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link></TableCell><TableCell className="font-mono text-[12px]">{item.variant}</TableCell><TableCell><StateBadge state={item.gap === "upgrade" ? "upgradable" : "missing"} /></TableCell><TableCell><StateBadge state={item.current_state} />{item.attention_detail ? <div className="mt-1 max-w-sm text-[12px] leading-4 text-warn">{item.attention_detail}</div> : null}</TableCell><TableCell>{item.target_profile}<div className="mt-1 text-[12px] text-fg-subtle">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell>{timeAgo(item.updated_at)}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No active missing or upgrade workflows.</div> : null}<div className="border-t border-line p-3 text-[12px] text-fg-subtle">An existing current file is never replaced here. Replacement occurs only after the new generation is verified and Plex confirms its exact path and identity.</div></Panel>}
+    {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Tabs defaultValue={attention.length ? "attention" : missing.length ? "missing" : upgrades.length ? "upgrades" : "progress"} className="gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <TabsList className="mm-seg" aria-label="Wanted sections">
+          <TabsTrigger value="attention">Needs attention <em className={cn("ml-1 not-italic", attention.length && "text-warn")}>{attention.length}</em></TabsTrigger>
+          <TabsTrigger value="missing">Missing <em className="ml-1 not-italic">{missing.length}</em></TabsTrigger>
+          <TabsTrigger value="upgrades">Upgrades <em className="ml-1 not-italic">{upgrades.length}</em></TabsTrigger>
+          <TabsTrigger value="progress">In progress <em className="ml-1 not-italic">{inProgress.length}</em></TabsTrigger>
+        </TabsList>
+        <RefreshButton onClick={refresh} />
+      </div>
+      <TabsContent value="attention">
+        <Panel flush title="Needs attention" subtitle="What happened, what Media Manager will do next, and what you can do." className={cn(attention.length && "border-warn-line")}>
+          {attention.length === 0 ? <div className="flex items-center gap-2.5 px-4 py-4 text-[12.5px] text-good"><CheckCircle2 className="size-4" aria-hidden />Nothing needs your attention. Waiting and searching continue automatically.</div>
+            : attention.map((entry) => <AttentionCard key={entry.key} item={entry.item} workflow={entry.workflow} poster={posterFor(entry.item.mediaId)} />)}
+        </Panel>
+      </TabsContent>
+      <TabsContent value="missing">
+        <Panel flush title="Missing" subtitle="Monitored items without a current publication, and when Media Manager looks again.">
+          <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Why missing</TableHead><TableHead>Next attempt</TableHead><TableHead>Profile</TableHead><TableHead /></TableRow></TableHeader><TableBody>{missing.map((item) => { const workflow = byID.get(item.workflow_id); return <TableRow key={item.workflow_id}><TableCell>{itemCell(item)}</TableCell><TableCell><StateBadge state={item.current_state || "waiting"} />{workflow?.search_blocked_reason ? <div className="mt-1 max-w-xs text-[11.5px] leading-4 text-fg-subtle">{workflow.search_blocked_reason}</div> : null}</TableCell><TableCell className="whitespace-nowrap text-[12px]">{retryPlan(workflow)}</TableCell><TableCell className="text-[12px]">{item.target_profile}</TableCell><TableCell className="text-right"><Button asChild size="sm" variant="outline"><Link href={mediaHref(item.media_kind, item.media_id)}>Open</Link></Button></TableCell></TableRow> })}</TableBody></Table></div>
+          {missing.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">Nothing is missing outside attention and active work.</div> : null}
+        </Panel>
+      </TabsContent>
+      <TabsContent value="upgrades">
+        <Panel flush title="Upgrades" subtitle="Current copies stay until the replacement passes verification and Plex confirms it.">
+          <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead><TableHead /></TableRow></TableHeader><TableBody>{upgrades.map((item) => <TableRow key={item.workflow_id}><TableCell>{itemCell(item)}</TableCell><TableCell><StateBadge state={item.current_state || "waiting"} /></TableCell><TableCell className="text-[12px]">{item.target_profile}<div className="text-[11px] text-fg-subtle">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell className="text-[12px]">{timeAgo(item.updated_at)}</TableCell><TableCell className="text-right"><Button asChild size="sm" variant="outline"><Link href={mediaHref(item.media_kind, item.media_id)}>Open</Link></Button></TableCell></TableRow>)}</TableBody></Table></div>
+          {upgrades.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">No upgrades are wanted right now.</div> : null}
+          <div className="border-t border-line px-4 py-2.5 text-[11.5px] text-fg-subtle">A failed verification leaves your current file untouched.</div>
+        </Panel>
+      </TabsContent>
+      <TabsContent value="progress">
+        <Panel flush title="In progress" subtitle="Searching, downloading, verifying, or publishing right now.">
+          {inProgress.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">Nothing is actively acquiring right now.</div>
+            : inProgress.map((item) => { const state = byID.get(item.workflow_id)?.state ?? item.current_state; return <ConsoleRow key={item.workflow_id} href={mediaHref(item.media_kind, item.media_id)} leading={<MiniPoster src={posterFor(item.media_id)} title={item.title} />} title={`${item.title}${item.year ? ` (${item.year})` : ""}`} caption={`${item.gap === "upgrade" ? "Upgrade" : "Acquisition"} · ${item.variant}`}><StageStepper state={state} className="hidden w-[150px] sm:flex" /><StateBadge state={state} /><span className="w-12 shrink-0 text-right text-[11px] text-fg-subtle">{timeAgo(item.updated_at)}</span></ConsoleRow> })}
+        </Panel>
+      </TabsContent>
+    </Tabs>}
   </div>
 }
 

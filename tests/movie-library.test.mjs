@@ -225,7 +225,9 @@ test("series records use real season state and exact series navigation", async (
   const partial = renderToStaticMarkup(React.createElement(MediaLibraryCard, { item: { ...record, missing: true }, selected: false, onSelect() {} }));
   assert.match(card, /Local Series, 2020\. Available · upgrade wanted/);
   assert.match(card, /2 seasons/);
-  assert.match(card, /series-placeholder\.svg/);
+  // Without provider artwork the card is a tinted title card, never a placeholder request.
+  assert.doesNotMatch(card, /<img/);
+  assert.match(card, /text-shadow[^>]*>Local Series</);
   assert.match(inspector, new RegExp(`/media/series/${seriesID}`));
   assert.match(inspector, />TV show details</);
   assert.match(inspector, />Seasons</);
