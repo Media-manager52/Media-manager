@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { LIVE_REFRESH_MS, useAutoRefresh } from "@/hooks/use-auto-refresh"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
@@ -102,10 +103,15 @@ export type { MediaLibraryFilters, MediaLibraryRecord } from "@/lib/media-librar
 
 type Tone = "good" | "info" | "warn" | "bad" | "neutral"
 
-export function useLiveData<T>(loader: (signal: AbortSignal) => Promise<T>) {
+/**
+ * Loads persisted state for a screen. With `autoRefresh`, read-only screens
+ * re-read it on the shared interval while the page is visible.
+ */
+export function useLiveData<T>(loader: (signal: AbortSignal) => Promise<T>, options?: { autoRefresh?: boolean }) {
   const [data, setData] = React.useState<T | null>(null)
   const [error, setError] = React.useState("")
   const [revision, setRevision] = React.useState(0)
+  useAutoRefresh(() => setRevision((current) => current + 1), LIVE_REFRESH_MS, options?.autoRefresh ?? false)
   React.useEffect(() => {
     const controller = new AbortController()
     loader(controller.signal)
@@ -320,7 +326,7 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
   const [pageSize, setPageSize] = React.useState(basePageSize)
   const [selectedID, setSelectedID] = React.useState<string | null | undefined>(undefined)
   const [detailTab, setDetailTab] = React.useState("overview")
-  const { data, error, refresh } = useLiveData(loader)
+  const { data, error, refresh } = useLiveData(loader, { autoRefresh: true })
   React.useEffect(() => {
     function update() { setPageSize(densityPageSize(window.innerWidth)) }
     update()
@@ -628,7 +634,7 @@ export function RequestInspector({ request, detail, loading, error, onDecided }:
 }
 
 export function LiveRequestsScreen() {
-  const { data, error, refresh } = useLiveData(requestsLoader)
+  const { data, error, refresh } = useLiveData(requestsLoader, { autoRefresh: true })
   const items = React.useMemo(() => data ?? [], [data])
   const [filter, setFilter] = React.useState<RequestFilter>("all")
   const [query, setQuery] = React.useState("")
@@ -636,7 +642,7 @@ export function LiveRequestsScreen() {
 
   const selected = items.find((item) => item.id === selectedID) ?? null
   const detailLoader = React.useCallback((signal: AbortSignal) => (selectedID ? loadRequest(selectedID, signal) : Promise.resolve(null)), [selectedID])
-  const detail = useLiveData<APIRequestDetail | null>(detailLoader)
+  const detail = useLiveData<APIRequestDetail | null>(detailLoader, { autoRefresh: true })
 
   const counts = React.useMemo(() => requestFilterCounts(items), [items])
   const filtered = React.useMemo(() => filterRequests(items, filter, query), [items, filter, query])
@@ -690,7 +696,7 @@ const wantedScreenLoader = async (signal: AbortSignal) => {
  * is already moving. Waiting is never styled as failure.
  */
 export function LiveWantedScreen() {
-  const { data, error, refresh } = useLiveData(wantedScreenLoader)
+  const { data, error, refresh } = useLiveData(wantedScreenLoader, { autoRefresh: true })
   const items = data?.wanted ?? []
   const workflows = data?.workflows ?? []
   const byID = new Map(workflows.map((workflow) => [workflow.id, workflow]))
@@ -769,7 +775,7 @@ function CalendarWeek({ items }: { items: APICalendarEntry[] }) {
 }
 
 export function LiveCalendarScreen() {
-  const { data, error, refresh } = useLiveData(calendarLoader)
+  const { data, error, refresh } = useLiveData(calendarLoader, { autoRefresh: true })
   const items = data ?? []
   return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}<CalendarWeek items={items} />{!data && !error ? <LoadingPanel /> : <Panel flush title="Episode availability calendar" subtitle="Exact Seerr air dates persisted with immutable season expectations; unknown dates are omitted." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Series</TableHead><TableHead>Episode</TableHead><TableHead>Monitoring</TableHead><TableHead>Workflow</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={`${item.workflow_id}:${item.season}:${item.episode}`}><TableCell>{new Date(item.air_date).toLocaleDateString()}</TableCell><TableCell><Link className="font-semibold text-fg hover:text-info" href={`/media/series/${item.media_id}`}>{item.media_title}</Link></TableCell><TableCell>S{String(item.season).padStart(2, "0")}E{String(item.episode).padStart(2, "0")}{item.episode_title ? <div className="mt-1 text-[12px] text-fg-subtle">{item.episode_title}</div> : null}</TableCell><TableCell><StateBadge state={item.monitored ? "monitored" : "unmonitored"} /></TableCell><TableCell><StateBadge state={item.workflow_state} /></TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No exact episode air dates are persisted in the current calendar window.</div> : null}</Panel>}</div>
 }
@@ -958,13 +964,13 @@ export function LiveIndexerDetailScreen({ indexerId }: { indexerId: string }) {
 }
 
 export function LiveComponentHealthScreen() {
-  const { data, error, refresh } = useLiveData(healthLoader)
+  const { data, error, refresh } = useLiveData(healthLoader, { autoRefresh: true })
   if (!data && !error) return <LoadingPanel label="Loading component health…" />
   return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <HealthContent data={data} refresh={refresh} /> : null}</div>
 }
 
 export function LiveTasksScreen() {
-  const { data, error, refresh } = useLiveData(tasksLoader)
+  const { data, error, refresh } = useLiveData(tasksLoader, { autoRefresh: true })
   if (!data && !error) return <LoadingPanel label="Loading persisted worker state…" />
   return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{data ? <TasksContent data={data} refresh={refresh} /> : null}</div>
 }

@@ -168,7 +168,8 @@ const statusVocabulary: Record<string, StatusDescriptor> = {
   complete: { label: "Complete", tone: "good", icon: CheckCircle2 },
   unsupported: { label: "Unsupported", tone: "neutral", icon: CircleDashed },
   awaiting_validation: { label: "Awaiting validation", tone: "warn", icon: CircleAlert },
-  not_approved: { label: "Not approved", tone: "neutral", icon: CircleDashed },
+  not_approved: { label: "Awaiting approval", tone: "warn", icon: Clock3, hint: "Waiting for a decision in Seerr." },
+  approved_in_seerr: { label: "Approved in Seerr", tone: "info", icon: Clock3, hint: "Approved in Seerr; Media Manager picks it up through normal intake." },
   expired: { label: "Expired", tone: "neutral", icon: Archive },
 
   // Waiting / in progress (not a warning)

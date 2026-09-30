@@ -165,6 +165,15 @@ func seerrRequestLifecycle(item SeerrRequestSummary) string {
 	case "needs_attention", "needs_configuration":
 		return "needs_attention"
 	case "observed_not_approved":
+		// Intake saw the request before it was approved. Seerr's own state
+		// says what happened since: a decision recorded by the owner (or by
+		// Seerr) shows at once, while admission still waits for intake.
+		switch item.SeerrState {
+		case "2":
+			return "approved_in_seerr"
+		case "3":
+			return "declined"
+		}
 		return "not_approved"
 	case "already_available":
 		return "available"

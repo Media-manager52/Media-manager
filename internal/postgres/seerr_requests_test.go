@@ -61,7 +61,12 @@ func TestSeerrRequestLifecycleMapping(t *testing.T) {
 		{
 			name:    "declined request",
 			summary: SeerrRequestSummary{IntakeOutcome: "observed_not_approved", SeerrState: "3"},
-			want:    "not_approved",
+			want:    "declined",
+		},
+		{
+			name:    "approved in Seerr before intake re-reads it is not yet monitored",
+			summary: SeerrRequestSummary{IntakeOutcome: "observed_not_approved", SeerrState: "2"},
+			want:    "approved_in_seerr",
 		},
 		{
 			name:    "unknown snapshot state never looks successful",

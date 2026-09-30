@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { LIVE_REFRESH_MS, useAutoRefresh } from "@/hooks/use-auto-refresh"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Activity, ArchiveRestore, Copy, FolderTree, Library, LoaderCircle, Plus, RefreshCw, Search, Settings2, Trash2, Upload } from "lucide-react"
@@ -124,7 +125,8 @@ export function LiveWorkflowScreen() {
   const refresh = React.useCallback(async () => {
     try { setWorkflows(await loadWorkflows(false)); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load workflows") }
   }, [])
-  React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); const timer = window.setInterval(() => void refresh(), 8000); return () => { window.clearTimeout(initial); window.clearInterval(timer) } }, [refresh])
+  React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(initial) }, [refresh])
+  useAutoRefresh(() => void refresh(), 8000)
   async function act(workflow: APIWorkflow, action: "search" | "round" | "reconcile" | "cancel") {
     setBusy(workflow.id)
     try {
@@ -309,6 +311,7 @@ export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
   const [busy, setBusy] = React.useState(false)
   const refresh = React.useCallback(async () => { try { setDetail(await loadMediaDetail(mediaId)); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load media") } }, [mediaId])
   React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(initial) }, [refresh])
+  useAutoRefresh(() => void refresh(), LIVE_REFRESH_MS, !busy)
   const media = detail?.media ?? null
   const seasonRollups = React.useMemo(() => new Map(rollupSeriesSeasons(detail?.workflows ?? [], detail?.files ?? []).map((season) => [season.number, season])), [detail?.workflows, detail?.files])
   async function addWorkflow() {

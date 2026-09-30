@@ -327,14 +327,21 @@ schema is older than 42, so readiness will fail until the dump is restored.
 - **Your data at scale.** The pages were exercised with fixtures and a small
   test database.
 
-**Existing behavior left unchanged (possible follow-ups, owner's call)**
+**Request labels and live refresh (added after the end-to-end test)**
 
-- A request that is declined in Seerr is labelled "Not approved". An existing
-  test in `internal/postgres/seerr_requests_test.go` asserts this on purpose.
-- Requests waiting for a decision, and declined ones, count under the Requests
-  page's "Needs attention" filter.
-- Just after Approve, the row may read "Not approved" for a few seconds until
-  intake re-reads the request from Seerr.
+- Requests follow Seerr's own state:
+  - "Awaiting approval" while pending, counted under Needs attention because
+    the owner has to decide;
+  - "Approved in Seerr" once approved, shown as active and not as success
+    until intake admits it;
+  - "Declined" once declined, and no longer counted as needing attention.
+- Read-only screens re-read Media Manager's state every 15 seconds (Workflows
+  every 8) while the tab is visible, so progress and decisions appear without
+  pressing Refresh. Form and settings screens stay manual.
+- Real posters appear wherever Media Manager has TMDB metadata for a title,
+  with a letter tile only when there is none. The test sandbox could not load
+  TMDB images, so the §6.2 browser check is the first time real posters are
+  seen.
 
 ## 10. Reference: the Seerr webhook fields Media Manager reads
 
@@ -351,3 +358,72 @@ Media Manager then fetches the full request from Seerr itself, so nothing else
 in the payload is trusted. The polling ticker (every 5 minutes) only follows up
 requests Media Manager already knows about. New requests arrive through the
 webhook.
+
+## 11. Full debugging pass on the server (read-only)
+
+Use this after §6, or at any time the owner wants a complete health check.
+Every step here only **reads**. It never starts searches, downloads,
+publication, Plex refreshes or scans, and never changes files or rows.
+
+> **Owner: how to start it.** In Claude Code on the server:
+>
+> *"Read AGENTS.md and docs/operations/owner-console-rollout.md §11. Do the
+> full debugging pass, change nothing, and give me the report."*
+
+### 11.1 Setup
+
+```sh
+cd <media-manager checkout>
+PORT=$(grep -E '^MEDIA_MANAGER_API_PORT=' .env | cut -d= -f2-); PORT=${PORT:-28081}
+TOKEN=$(grep -E '^OWNER_TOKEN=' .env | cut -d= -f2-)
+mm() { curl -fsS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT$1"; }
+pp() { python3 -m json.tool 2>/dev/null || cat; }   # pretty-print when python3 exists
+```
+
+Never echo `$TOKEN`. Run `unset TOKEN` when finished. Do **not** call
+`/api/v1/discovery/*` in this pass: those routes search Seerr and TMDB. Every
+route below reads only Media Manager's database.
+
+### 11.2 Checklist
+
+| # | Area | Read with | Healthy | Red flags |
+| --- | --- | --- | --- | --- |
+| 1 | Containers | `docker compose ps`; `docker stats --no-stream` | `api`, `ui` and `postgres` up and healthy; modest CPU and memory | restarting, unhealthy, a memory climb |
+| 2 | Crashes and errors | `docker compose logs --since 24h api \| grep -iE 'panic\|fatal\|outbox batch failed\|error' \| sort \| uniq -c \| sort -rn \| head -30` | nothing, or a few explained lines | any `panic`; repeating `outbox batch failed` |
+| 3 | Version and schema | `docker compose exec -T api media-manager version`; `mm /health/ready`; `mm /api/v1/system/health \| pp` | the expected commit; `schema_version` = `expected_schema` = 42 | a mismatch or `not_ready` |
+| 4 | Worker queue | `mm /api/v1/system/health \| pp` (outbox); `mm /api/v1/system/tasks \| pp` | `due` near 0, `retrying` small and not growing | `retrying` growing between two reads 10 minutes apart; one event type with high `attempts` |
+| 5 | Integrations | `mm /api/v1/system/health \| pp` (components); `mm /api/v1/settings/integrations \| pp` (secret **references** only) | every enabled component configured, `consecutive_failure` 0 | failures on Seerr, AltMount, Plex or an indexer; an enabled integration that is not configured |
+| 6 | Indexers | `mm /api/v1/sources \| pp` | a recent successful `last_outcome`, no long cooldown | `auth_failed`, `system_failure`, long cooldowns. Pacing deferrals are normal (runbook §9) |
+| 7 | Workflows needing the owner | `mm '/api/v1/workflows?limit=300&active=true' \| pp` | few or no `needs_attention`, `quarantined`, `blocked` or `transport_unknown` | many at once; the same `attention_code` repeated (one root cause) |
+| 8 | Retained or failed output | `mm /api/v1/acquisition-verifications \| pp` | empty or small, each explained | many retained outputs with the same failure |
+| 9 | Plex confirmation | workflows from row 7 with `attention_code` `plex_timeout` | none | many: check library paths and that Plex can resolve symlink targets (runbook §1) |
+| 10 | Seerr intake | `mm '/api/v1/requests?limit=300' \| pp` | recent requests progressing; `intake_error` empty | `needs_configuration` (a missing default root or quality profile); repeated `intake_error`; nothing new for days while Seerr has new requests (webhook, §10) |
+| 11 | Library configuration | `mm /api/v1/settings/library-roots \| pp`; `mm /api/v1/settings/quality-profiles \| pp` | one default root per media kind; enabled profiles | no default root or profile (causes `needs_configuration`) |
+| 12 | Mounts and space | `df -h` on the AltMount, movies, TV and backups host paths; `docker compose exec -T api ls /mnt/altmount /libraries/movies /libraries/tv \| head` (if the image has `ls`) | readable mounts, free space | full disks, `Permission denied`, empty AltMount |
+| 13 | Notifications and backups | `mm '/api/v1/notifications/deliveries?limit=300' \| pp`; `mm /api/v1/backups \| pp` | deliveries succeeding; a recent `verified` backup if backups are configured | failing deliveries; no backup ever verified |
+| 14 | Recent history | `mm '/api/v1/activity?limit=300' \| pp` | a steady flow of transitions | a burst of the same failure; nothing at all for a long time |
+| 15 | Website | open the public address in a browser; browser DevTools console | no red errors; pages refresh on their own; posters on titles with metadata | console errors; "Media Manager returned HTTP 404" (runbook §9) |
+
+Symlink targets are container paths (`/mnt/altmount/...`), so symlinks look
+broken when inspected from the host. Judge them only from inside the `api`
+container or from Plex.
+
+### 11.3 Report format
+
+Give the owner one table, worst first:
+
+| Area | Status (OK / Watch / Problem) | Evidence (counts, codes, times; never secrets) | Likely cause | Suggested next step |
+| --- | --- | --- | --- | --- |
+
+Then:
+
+- **Nothing is fixed during the pass.** For each Problem, say what the fix
+  would be and whether it is:
+  - an owner action in the UI;
+  - a configuration change;
+  - a code change (which goes through a branch and pull request, never an edit
+    on the server).
+- Wait for the owner's go-ahead before any change. Live actions (searches,
+  approvals, Plex re-checks) are the owner's to trigger.
+- Record anything learned about this server (paths, recurring issues, what was
+  fixed) in `CLAUDE.local.md`, so the next session starts from it.
