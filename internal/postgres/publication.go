@@ -760,6 +760,7 @@ var (
 	ErrPlexReconfirmationNotTimedOut = errors.New("workflow is not waiting on a timed-out Plex confirmation")
 	ErrPlexReconfirmationUnverified  = errors.New("publication links are not all verified; Plex confirmation cannot be retried")
 	ErrPlexReconfirmationLimit       = errors.New("Plex confirmation retry limit reached; investigate the Plex identity, path, or mount before retrying")
+	ErrPlexReconfirmationNoLibrary   = errors.New("library root has no Plex library configured")
 )
 
 // RequestPlexReconfirmation lets the owner retry exact Plex confirmation for a
@@ -805,7 +806,7 @@ func (store *Store) RequestPlexReconfirmation(ctx context.Context, workflowID uu
 		return uuid.UUID{}, ErrPlexReconfirmationNotTimedOut
 	}
 	if plexInstanceID == nil || plexLibraryID == "" {
-		return uuid.UUID{}, errors.New("library root has no Plex library configured")
+		return uuid.UUID{}, ErrPlexReconfirmationNoLibrary
 	}
 	var versions, unverified int
 	if err := transaction.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE version.state<>'verified' OR EXISTS(

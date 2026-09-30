@@ -1,6 +1,8 @@
 package postgres
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -33,5 +35,55 @@ func TestReconfirmTimedOutPlexOnlyRequeuesTimedOutWorkflows(t *testing.T) {
 	again, err := fixture.store.ReconfirmTimedOutPlex(fixture.ctx, "owner", time.Now().UTC())
 	if err != nil || len(again.Queued) != 0 || len(again.Skipped) != 0 {
 		t.Fatalf("second pass=%+v err=%v, want nothing to do", again, err)
+	}
+}
+
+// TestReconfirmTimedOutPlexReachesRetryableWorkflowsPastExhaustedOnes proves
+// that workflows which can no longer be retried (here: at the retry limit)
+// do not use up a pass, so a newer retryable workflow is still re-queued.
+func TestReconfirmTimedOutPlexReachesRetryableWorkflowsPastExhaustedOnes(t *testing.T) {
+	previous := maxBulkPlexReconfirmations
+	maxBulkPlexReconfirmations = 1
+	t.Cleanup(func() { maxBulkPlexReconfirmations = previous })
+
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	exhausted, _, _, _ := publishTimedOutMovie(t, fixture, "Exhausted Reconfirm Movie", "770011", "bulk-exhausted")
+	retryable, _, _, _ := publishTimedOutMovie(t, fixture, "Retryable Reconfirm Movie", "770012", "bulk-retryable")
+	// The exhausted workflow is the oldest and has already used every retry.
+	for retry := 1; retry <= maxPlexReconfirmations; retry++ {
+		scan, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, exhausted, "owner", time.Now().UTC())
+		if err != nil {
+			t.Fatalf("exhaust retry %d: %v", retry, err)
+		}
+		timeOutScan(t, fixture, scan)
+	}
+	if _, err := fixture.store.Pool.Exec(fixture.ctx, `UPDATE workflows SET updated_at=now()-interval '1 day' WHERE id=$1`, exhausted.String()); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := fixture.store.ReconfirmTimedOutPlex(fixture.ctx, "owner", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Queued) != 1 || result.Queued[0] != retryable {
+		t.Fatalf("result=%+v, want the retryable workflow %s queued", result, retryable)
+	}
+	if len(result.Skipped) != 1 || result.Skipped[0].WorkflowID != exhausted || result.Skipped[0].Reason != ErrPlexReconfirmationLimit.Error() {
+		t.Fatalf("skipped=%+v, want the exhausted workflow with the retry-limit reason", result.Skipped)
+	}
+}
+
+// TestPlexReconfirmSkippableOnlyCoversOwnerExplainableReasons proves real
+// failures are never reported as a quietly skipped workflow.
+func TestPlexReconfirmSkippableOnlyCoversOwnerExplainableReasons(t *testing.T) {
+	for _, err := range []error{ErrNotFound, ErrPlexReconfirmationNotTimedOut, ErrPlexReconfirmationUnverified, ErrPlexReconfirmationLimit, ErrPlexReconfirmationNoLibrary, ErrConcurrentModification} {
+		if !plexReconfirmSkippable(err) {
+			t.Fatalf("%v should be a skip reason", err)
+		}
+	}
+	for _, err := range []error{context.Canceled, context.DeadlineExceeded, errors.New("connection reset")} {
+		if plexReconfirmSkippable(err) {
+			t.Fatalf("%v must fail the pass, not be skipped", err)
+		}
 	}
 }

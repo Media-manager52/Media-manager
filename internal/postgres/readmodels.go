@@ -388,11 +388,15 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 // seasonEpisodes returns each expected episode once, from the most recently
 // frozen expectation of the season workflow.
 func (store *Store) seasonEpisodes(ctx context.Context, workflowID uuid.UUID) ([]MediaEpisode, error) {
-	rows, err := store.Pool.Query(ctx, `SELECT DISTINCT ON (episode.episode) episode.episode,episode.title,episode.air_date
+	// Only the newest frozen expectation counts, exactly as acquisition uses
+	// it: an episode dropped by a later correction must not linger as missing.
+	rows, err := store.Pool.Query(ctx, `SELECT episode.episode,episode.title,episode.air_date
 		FROM pack_expected_episodes episode
-		JOIN pack_expectation_sets set_row ON set_row.id=episode.expectation_id
-		WHERE set_row.workflow_id=$1
-		ORDER BY episode.episode,set_row.frozen_at DESC,set_row.id DESC`, workflowID.String())
+		WHERE episode.expectation_id=(
+			SELECT set_row.id FROM pack_expectation_sets set_row
+			WHERE set_row.workflow_id=$1
+			ORDER BY set_row.frozen_at DESC,set_row.id DESC LIMIT 1)
+		ORDER BY episode.episode`, workflowID.String())
 	if err != nil {
 		return nil, err
 	}
