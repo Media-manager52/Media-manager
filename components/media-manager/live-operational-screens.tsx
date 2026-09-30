@@ -21,7 +21,6 @@ import {
   Globe2,
   HardDrive,
   HeartPulse,
-  Library,
   List,
   ListChecks,
   Plus,
@@ -47,7 +46,6 @@ import {
   deleteReleaseBlock,
   loadActivity,
   loadCalendar,
-  loadDashboard,
   loadCatalogMedia,
   loadManagedFile,
   loadManagedFiles,
@@ -93,8 +91,8 @@ import {
 } from "@/lib/media-library"
 import { filterRequests, requestFilterCounts, seerrStateLabel, type RequestFilter } from "@/lib/media-manager-requests"
 import { parseSeriesVariant, rollupSeriesSeasons, type SeriesSeasonRollup } from "@/lib/series-variants"
-import { isActivelyAcquiring, isCompleted, isWaiting, requiresOwnerAttention } from "@/lib/workflow-states"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
+import { Backdrop, Poster } from "./poster"
 import { InlineNotice, KeyValue, MetricCard, Panel, SectionLabel, StateBadge, StatusChip } from "./ui"
 
 export { buildMediaLibraryRecords, filterMediaLibraryRecords } from "@/lib/media-library"
@@ -102,7 +100,7 @@ export type { MediaLibraryFilters, MediaLibraryRecord } from "@/lib/media-librar
 
 type Tone = "good" | "info" | "warn" | "bad" | "neutral"
 
-function useLiveData<T>(loader: (signal: AbortSignal) => Promise<T>) {
+export function useLiveData<T>(loader: (signal: AbortSignal) => Promise<T>) {
   const [data, setData] = React.useState<T | null>(null)
   const [error, setError] = React.useState("")
   const [revision, setRevision] = React.useState(0)
@@ -116,11 +114,11 @@ function useLiveData<T>(loader: (signal: AbortSignal) => Promise<T>) {
   return { data, error, refresh: () => setRevision((current) => current + 1) }
 }
 
-function LoadingPanel({ label = "Loading persisted state…" }: { label?: string }) {
+export function LoadingPanel({ label = "Loading persisted state…" }: { label?: string }) {
   return <Panel><div className="py-12 text-center text-[12px] text-fg-subtle">{label}</div></Panel>
 }
 
-function ErrorNotice({ error }: { error: string }) {
+export function ErrorNotice({ error }: { error: string }) {
   return <InlineNotice tone="bad" title="Live data unavailable">{error}</InlineNotice>
 }
 
@@ -132,7 +130,7 @@ function pretty(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function timeAgo(value: string) {
+export function timeAgo(value: string) {
   const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000))
   if (seconds < 60) return `${seconds}s ago`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
@@ -188,19 +186,6 @@ const notificationDeliveriesLoader = (signal: AbortSignal) => loadNotificationDe
 const importListsLoader = (signal: AbortSignal) => loadImportLists(signal)
 const backupsLoader = (signal: AbortSignal) => loadBackups(signal)
 const requestsLoader = (signal: AbortSignal) => loadRequests(signal)
-
-// The overview reads only existing bounded read models. It never invents a
-// statistic and it never triggers a search, scan, or publication.
-const dashboardOverviewLoader = async (signal: AbortSignal) => {
-  const [dashboard, wanted, calendar, requests, health] = await Promise.all([
-    loadDashboard(signal),
-    loadWanted(signal),
-    loadCalendar(signal),
-    loadRequests(signal),
-    loadSystemHealth(signal),
-  ])
-  return { dashboard, wanted, calendar, requests, health }
-}
 
 // The overview groups persisted workflow states truthfully. Real acquisition
 // work is "actively acquiring"; normal monitoring, pacing, and future air dates
@@ -276,92 +261,6 @@ export function overviewQueueItems(workflows: APIWorkflow[], wanted: APIWantedIt
   return items
 }
 
-export function LiveOperationalDashboardScreen() {
-  const { data, error, refresh } = useLiveData(dashboardOverviewLoader)
-  if (!data && !error) return <LoadingPanel label="Loading the live overview…" />
-  const dashboard = data?.dashboard
-  const now = new Date().getTime()
-  const workflows = dashboard?.recent_workflows ?? []
-  const queue = overviewQueueItems(workflows, data?.wanted ?? [])
-  const activelyAcquiring = queue.filter((item) => isActivelyAcquiring(item.state))
-  const waitingMonitored = queue.filter((item) => isWaiting(item.state) && !requiresOwnerAttention(item.state, item.ownerActionRequired))
-  const completed = workflows.filter((workflow) => isCompleted(workflow.state))
-  const upcoming = (data?.calendar ?? [])
-    .filter((entry) => new Date(entry.air_date).getTime() >= now)
-    .sort((left, right) => new Date(left.air_date).getTime() - new Date(right.air_date).getTime())
-    .slice(0, 6)
-  const recentRequests = [...(data?.requests ?? [])].sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()).slice(0, 5)
-  const integrationWarnings = (data?.health.components ?? []).filter((component) => component.configuration_state !== "configured")
-  const outbox = data?.health.outbox
-  const outboxAttention = Boolean(outbox && outbox.due > 0 && outbox.retrying > 0)
-  const counts = dashboard?.counts
-
-  return <div className="space-y-4">
-    {error ? <ErrorNotice error={error} /> : null}
-    {dashboard && counts ? <>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Library" value={String(counts.movies + counts.series)} note={`${counts.movies} movies · ${counts.series} series cataloged`} icon={Library} />
-        <MetricCard label="Available" value={String(counts.current_files)} note="Plex-confirmed current files" tone={counts.current_files ? "good" : "neutral"} icon={FileCheck2} />
-        <MetricCard label="Active work" value={String(counts.active_workflows)} note={`${counts.pending_events} persisted worker events`} tone={counts.active_workflows ? "info" : "neutral"} icon={Activity} />
-        <MetricCard label="Needs attention" value={String(counts.needs_attention)} note={counts.needs_attention ? "Owner decisions waiting" : "Nothing is waiting on you"} tone={counts.needs_attention ? "warn" : "good"} icon={AlertTriangle} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
-        <div className="space-y-4">
-          <Panel title="Needs your attention" subtitle="Real holds that require an owner decision — not a global failure state." action={counts.needs_attention ? <Button asChild variant="outline" size="sm"><Link href="/activity/queue">Open workflows</Link></Button> : undefined}>
-            <OwnerAttention items={data?.wanted ?? []} workflows={workflows} limit={5} />
-          </Panel>
-
-          <Panel title="Actively acquiring" subtitle="Real ongoing acquisition work: searching, selected, downloading, verifying, or publishing; no invented percentages." action={<RefreshButton onClick={refresh} />}>
-            {activelyAcquiring.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">Nothing is actively acquiring right now.</div>
-              : <div className="space-y-2">
-                {activelyAcquiring.slice(0, 6).map((item) => <Link key={item.id} href={item.href} className="flex items-center justify-between gap-3 -mx-2 rounded-lg px-2 py-2.5 outline-none transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring">
-                  <div className="min-w-0"><div className="truncate text-[13px] font-semibold text-fg">{item.title}{item.year ? ` (${item.year})` : ""}</div><div className="mt-0.5 truncate font-mono text-[12px] text-fg-subtle">{item.variant} · updated {timeAgo(item.updatedAt)}</div></div>
-                  <StateBadge state={item.state} />
-                </Link>)}
-              </div>}
-            {activelyAcquiring.length > 6 ? <div className="mt-2.5 text-[12px] text-fg-subtle">Showing 6 of {activelyAcquiring.length}. <Link className="underline underline-offset-2 hover:text-fg" href="/activity/queue">View all workflows</Link></div> : null}
-          </Panel>
-
-          <Panel title="Waiting / monitored" subtitle="Normal monitoring and pacing. No owner action is required." action={waitingMonitored.length ? <Button asChild variant="ghost" size="sm"><Link href="/wanted">Wanted</Link></Button> : undefined}>
-            {waitingMonitored.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">Nothing is waiting on a future release or paced retry.</div>
-              : <div className="space-y-2">
-                {waitingMonitored.slice(0, 6).map((item) => <Link key={item.id} href={item.href} className="flex items-center justify-between gap-3 -mx-2 rounded-lg px-2 py-2.5 outline-none transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring">
-                  <div className="min-w-0"><div className="truncate text-[13px] font-semibold text-fg">{item.title}{item.year ? ` (${item.year})` : ""}</div><div className="mt-0.5 truncate font-mono text-[12px] text-fg-subtle">{item.variant} · updated {timeAgo(item.updatedAt)}</div></div>
-                  <StateBadge state={item.state} />
-                </Link>)}
-              </div>}
-            {waitingMonitored.length > 6 ? <div className="mt-2.5 text-[12px] text-fg-subtle">Showing 6 of {waitingMonitored.length}. <Link className="underline underline-offset-2 hover:text-fg" href="/wanted">View all in Wanted</Link></div> : null}
-          </Panel>
-        </div>
-
-        <div className="space-y-4">
-          <Panel title="Recently completed" subtitle="Plex confirmed the exact managed file and provider identity." action={completed.length ? <Button asChild variant="ghost" size="sm"><Link href="/activity/history">History</Link></Button> : undefined}>
-            {completed.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">No completed publication yet.</div>
-              : <div className="space-y-2">{completed.slice(0, 5).map((workflow) => <Link key={workflow.id} href={workflow.media_kind === "movie" ? `/media/movies/${workflow.media_id}` : `/media/series/${workflow.media_id}`} className="flex items-center gap-2.5 -mx-2 rounded-lg px-2 py-2 outline-none transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"><CheckCircle2 className="size-4 shrink-0 text-good" aria-hidden /><div className="min-w-0 flex-1"><div className="truncate text-[13px] font-semibold text-fg">{workflow.title}</div><div className="mt-0.5 truncate font-mono text-[12px] text-fg-subtle">{workflow.variant} · {timeAgo(workflow.updated_at)}</div></div></Link>)}</div>}
-          </Panel>
-
-          <Panel title="Coming up" subtitle="Persisted provider dates only; a date never triggers a search." action={<Button asChild variant="ghost" size="sm"><Link href="/calendar">Calendar</Link></Button>}>
-            {upcoming.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">No exact future air dates are persisted.</div>
-              : <div className="mm-timeline">{upcoming.map((entry) => <div key={`${entry.workflow_id}:${entry.season}:${entry.episode}`} className="mm-timeline-event"><Link href={`/media/series/${entry.media_id}`} className="text-[13px] font-semibold text-fg hover:text-info">{entry.media_title}</Link><div className="mt-1 text-[12px] text-fg-subtle">S{String(entry.season).padStart(2, "0")}E{String(entry.episode).padStart(2, "0")} · {new Date(entry.air_date).toLocaleDateString()}</div></div>)}</div>}
-          </Panel>
-
-          <Panel title="Recent requests" subtitle="Seerr intake mapped to durable lifecycle state." action={<Button asChild variant="ghost" size="sm"><Link href="/requests">All requests</Link></Button>}>
-            {recentRequests.length === 0 ? <div className="py-6 text-center text-[13px] text-fg-subtle">No Seerr requests are persisted yet.</div>
-              : <div className="space-y-1.5">{recentRequests.map((request) => <Link key={request.id} href="/requests" className="flex items-center justify-between gap-3 -mx-2 rounded-lg px-2 py-2 outline-none transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"><div className="min-w-0"><div className="truncate text-[13px] font-semibold text-fg">{request.title || `Request ${request.request_id}`}</div><div className="mt-0.5 text-[12px] text-fg-subtle">{request.requester || "Unknown requester"} · {timeAgo(request.updated_at)}</div></div><StateBadge state={request.lifecycle} /></Link>)}</div>}
-          </Panel>
-
-          {(integrationWarnings.length > 0 || outboxAttention) ? <Panel title="Integrations" subtitle="Configuration and worker state that may need attention.">
-            {outboxAttention ? <InlineNotice tone="warn" title="Worker outbox is retrying">{outbox?.due} events are due and {outbox?.retrying} are retrying. Work is not lost; it remains durable.</InlineNotice> : null}
-            <div className={cn(outboxAttention && "mt-3")}>{integrationWarnings.map((component) => <div key={component.id} className="flex items-center justify-between gap-3 border-b border-line py-2.5 last:border-0"><div className="min-w-0"><div className="truncate text-[13px] font-semibold text-fg">{component.name}</div><div className="text-[12px] text-fg-subtle">{component.kind} · {component.last_outcome ? pretty(component.last_outcome) : "No live operation observed"}</div></div><StateBadge state={component.configuration_state} /></div>)}</div>
-            <Button asChild variant="outline" size="sm" className="mt-3"><Link href="/system/health">Open health</Link></Button>
-          </Panel> : null}
-        </div>
-      </div>
-    </> : null}
-  </div>
-}
-
 async function loadMediaLibrary(kind: "movie" | "series", signal: AbortSignal) {
   const [media, files, wanted, workflows] = await Promise.all([
     loadCatalogMedia(signal),
@@ -418,7 +317,7 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
   const [moreOpen, setMoreOpen] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(basePageSize)
-  const [selectedID, setSelectedID] = React.useState<string | null | undefined>(undefined)
+  const [selectedID, setSelectedID] = React.useState<string | null>(null)
   const [detailTab, setDetailTab] = React.useState("overview")
   const { data, error, refresh } = useLiveData(loader)
   React.useEffect(() => {
@@ -446,8 +345,15 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const currentPage = Math.min(page, pageCount)
   const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const requestedSelection = selectedID === undefined ? filtered[0] : records.find((item) => item.id === selectedID)
-  const selected = selectedID === null ? null : requestedSelection && filtered.some((item) => item.id === requestedSelection.id) ? requestedSelection : filtered[0] ?? null
+  // The details drawer opens only on an explicit choice and closes when the
+  // chosen title leaves the filtered set.
+  const selected = selectedID ? filtered.find((item) => item.id === selectedID) ?? null : null
+  React.useEffect(() => {
+    if (!selected) return
+    function onKey(event: KeyboardEvent) { if (event.key === "Escape") setSelectedID(null) }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [selected])
 
   function setFilter<K extends keyof MediaLibraryFilters>(key: K, value: MediaLibraryFilters[K]) {
     setFilters((current) => ({ ...current, [key]: value }))
@@ -490,12 +396,12 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
   if (filters.plexConfirmedOnly) activeFilterChips.push({ key: "plexConfirmedOnly", label: "Plex confirmed" })
   if (filters.managedOnly) activeFilterChips.push({ key: "managedOnly", label: "Has managed file" })
 
-  return <div className={cn("mm-library-root grid h-full min-h-0 bg-canvas", selected && "xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_380px]")}>
-    <section className="flex min-h-0 min-w-0 flex-col px-3 pb-3 pt-4 sm:px-5 sm:pt-5" aria-labelledby={`${mediaKind}-library-title`}>
-      <div className="mb-3 flex min-h-9 items-center gap-3">
+  return <div className="mm-library-root relative h-full min-h-0 bg-canvas">
+    <section className={cn("mx-auto flex h-full min-h-0 w-full max-w-[1680px] min-w-0 flex-col px-4 pb-3 pt-5 transition-[padding] sm:px-8 sm:pt-7 lg:px-12", selected && "xl:pr-[452px]")} aria-labelledby={`${mediaKind}-library-title`}>
+      <div className="mb-4 flex min-h-9 items-center gap-3">
         <div className="min-w-0">
-          <div className="flex items-baseline gap-2.5">
-            <h1 id={`${mediaKind}-library-title`} className="text-[22px] font-semibold tracking-[-0.02em] text-fg">{copy.title}</h1>
+          <div className="flex items-baseline gap-3">
+            <h1 id={`${mediaKind}-library-title`} className="text-[28px] font-bold tracking-[-0.03em] text-fg sm:text-[34px]">{copy.title}</h1>
             <span className="rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[12px] font-semibold text-fg-muted" aria-label={`${records.length} ${records.length === 1 ? copy.singular : copy.plural}`}>{records.length}</span>
           </div>
         </div>
@@ -531,8 +437,8 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
         </div> : null}
       </div>
 
-      <div className="mb-2 flex shrink-0 gap-1.5 overflow-x-auto pb-0.5 scrollbar-none sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0" aria-label={`${copy.title} summaries`}>
-        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("w-[108px] shrink-0 rounded-xl border border-line bg-surface px-3 py-2.5 text-left shadow-[var(--shadow-panel)] outline-none transition hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring sm:w-auto sm:min-w-0", filters.summary === item.key && "border-brand-line bg-brand-soft")}><span className="block truncate text-[12.5px] font-medium text-fg-muted">{item.label}</span><span className={cn("mt-1 block text-[20px] font-semibold leading-none tabular-nums text-fg", filters.summary === item.key && "text-brand-text")}>{item.count}</span></button>)}
+      <div className="mb-3 flex shrink-0 gap-2 overflow-x-auto pb-0.5 scrollbar-none" aria-label={`${copy.title} summaries`}>
+        {summaryItems.map((item) => <button key={item.key} type="button" aria-pressed={filters.summary === item.key} onClick={() => setFilter("summary", item.key)} className={cn("inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-line bg-surface/70 px-4 text-[13px] font-semibold text-fg-secondary outline-none transition hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-ring", filters.summary === item.key && "border-fg bg-fg text-canvas hover:text-canvas")}><span>{item.label}</span><span className={cn("tabular-nums text-fg-muted", filters.summary === item.key && "text-canvas/70")}>{item.count}</span></button>)}
       </div>
 
       <div className="mb-1.5 flex shrink-0 items-center justify-between text-[13px] text-fg-muted" aria-live="polite"><span>{filtered.length} {filtered.length === 1 ? copy.singular : copy.plural}</span><span>{view === "grid" ? `${density === "compact" ? "Compact" : "Comfortable"} grid` : "Title order"}</span></div>
@@ -540,7 +446,7 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
       <div className="min-h-0 flex-1 overflow-y-auto pr-0.5 scrollbar-thin">
         {!data && !error ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-line bg-surface-2 text-[12px] text-fg-muted" role="status">Loading the live {copy.title.toLocaleLowerCase()} catalog…</div>
           : visible.length === 0 ? <div className="grid h-full min-h-44 place-items-center rounded-md border border-dashed border-line-strong bg-surface-2"><div className="px-6 text-center">{mediaKind === "movie" ? <Film className="mx-auto size-6 text-fg-subtle" /> : <Tv className="mx-auto size-6 text-fg-subtle" />}<div className="mt-2 text-[12px] font-semibold text-fg">{records.length === 0 ? `Your ${copy.singular} catalog is empty` : `No ${copy.plural} matched`}</div><div className="mt-1 text-[12px] text-fg-muted">{records.length === 0 ? `Use ${copy.add} to create a real catalog entry.` : "Change or clear the active filters."}</div></div></div>
-          : view === "grid" ? <div className={cn("grid", density === "compact" ? "gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]" : "gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]")}>
+          : view === "grid" ? <div className={cn("grid pb-2", density === "compact" ? "gap-x-3 gap-y-5 [grid-template-columns:repeat(auto-fill,minmax(132px,1fr))] sm:[grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]" : "gap-x-5 gap-y-7 [grid-template-columns:repeat(auto-fill,minmax(170px,1fr))] sm:[grid-template-columns:repeat(auto-fill,minmax(200px,1fr))]")}>
             {visible.map((item) => <MediaLibraryCard key={item.id} item={item} compact={density === "compact"} selected={item.id === selected?.id} onSelect={selectMedia} />)}
           </div> : <div className="overflow-hidden rounded-xl border border-line bg-surface">
             {visible.map((item) => <MediaLibraryRow key={item.id} item={item} selected={item.id === selected?.id} onSelect={selectMedia} />)}
@@ -554,8 +460,9 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
     </section>
 
     {selected ? <>
-      {selectedID !== undefined ? <button type="button" aria-label={`Close ${copy.singular} details`} onClick={() => setSelectedID(null)} className="fixed inset-0 z-40 bg-black/60 xl:hidden" /> : null}
-      <MediaInspector key={selected.id} item={selected} tab={detailTab} auto={selectedID === undefined} onTabChange={setDetailTab} onClose={() => setSelectedID(null)} onRefresh={refresh} />
+      {/* On wide screens the drawer docks beside the grid so browsing continues. */}
+      <button type="button" aria-label={`Close ${copy.singular} details`} onClick={() => setSelectedID(null)} className="mm-fade-in fixed inset-0 z-40 bg-black/55 backdrop-blur-[2px] xl:hidden" />
+      <MediaInspector key={selected.id} item={selected} tab={detailTab} onTabChange={setDetailTab} onClose={() => setSelectedID(null)} onRefresh={refresh} />
     </> : null}
 
   </div>
@@ -568,18 +475,18 @@ function LibrarySelect({ label, value, options, onChange, className }: { label: 
 export function MediaLibraryCard({ item, compact = false, selected, onSelect }: { item: MediaLibraryRecord; compact?: boolean; selected: boolean; onSelect: (id: string) => void }) {
   const availability = mediaAvailability(item)
   const labels = uniqueValues([...item.resolutions.map(resolutionLabel), ...item.dynamicRanges])
-  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("group relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-surface text-left outline-none transition duration-150 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[var(--shadow-float)] focus-visible:ring-2 focus-visible:ring-ring", selected && "border-brand ring-1 ring-ring/45")}>
-    <div className="relative aspect-[2/3] w-full overflow-hidden bg-surface-3">
-      <MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={300} height={450} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/55 to-transparent" />
-      <div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[3px] border border-white/15 bg-canvas/90 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-fg">{label}</span>)}</div>
-      {item.kind === "series" && item.metadata?.season_count ? <span className="absolute right-1.5 top-1.5 rounded-[3px] border border-white/15 bg-canvas/90 px-1.5 py-0.5 text-[12px] font-semibold text-fg">{item.metadata.season_count}S</span> : null}
-      {!item.available && item.missing ? <span className="absolute bottom-1.5 left-1.5 rounded-[3px] bg-canvas/85 px-1.5 py-0.5 text-[12px] font-semibold text-warn">Missing</span> : null}
+  return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className="group flex min-w-0 flex-col rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-canvas">
+    <div className={cn("relative w-full rounded-lg shadow-[var(--shadow-panel)] ring-1 ring-line transition duration-200 group-hover:-translate-y-1 group-hover:shadow-[var(--shadow-float)] group-hover:ring-line-strong", selected && "ring-2 ring-brand")}>
+      <Poster src={item.metadata?.poster_url} title={item.title} subtitle={item.year ? String(item.year) : undefined} sizes={compact ? "160px" : "220px"} />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-12 rounded-t-lg bg-gradient-to-b from-black/50 to-transparent opacity-0 transition group-hover:opacity-100" />
+      <div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">{labels.slice(0, 2).map((label) => <span key={label} className="rounded-[4px] bg-black/70 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white backdrop-blur">{label}</span>)}</div>
+      {item.kind === "series" && item.metadata?.season_count ? <span className="absolute right-1.5 top-1.5 rounded-[4px] bg-black/70 px-1.5 py-0.5 text-[11px] font-bold text-white backdrop-blur">{item.metadata.season_count}S</span> : null}
+      <span className={cn("absolute bottom-1.5 right-1.5 size-2.5 rounded-full ring-2 ring-black/60", availability.dot)} aria-hidden />
     </div>
-    <div className="flex min-w-0 flex-1 flex-col p-2">
-      <div className={cn("truncate font-semibold leading-tight text-fg", compact ? "text-[12px]" : "text-[13px]")} title={item.title}>{item.title}</div>
+    <div className="mt-2 min-w-0 px-0.5">
+      <div className={cn("truncate font-semibold leading-tight text-fg", compact ? "text-[13px]" : "text-[14px]")} title={item.title}>{item.title}</div>
       <div className="mt-0.5 truncate text-[12px] text-fg-muted">{item.year ?? "Year unknown"}{item.kind === "series" && item.metadata?.season_count ? ` · ${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : ""}</div>
-      <div className={cn("mt-1 flex items-center gap-1.5 font-semibold", compact ? "text-[12px]" : "text-[12px]", availability.tone)}><span className={cn("size-1.5 shrink-0 rounded-full", availability.dot)} aria-hidden /> <span className="truncate">{availability.short}</span></div>
+      <div className={cn("mt-0.5 truncate text-[12px] font-medium", availability.tone)}>{availability.short}</div>
     </div>
   </button>
 }
@@ -589,7 +496,7 @@ function MediaLibraryRow({ item, selected, onSelect }: { item: MediaLibraryRecor
   return <button type="button" onClick={() => onSelect(item.id)} aria-label={`${item.title}${item.year ? `, ${item.year}` : ""}. ${availability.label}`} aria-pressed={selected} className={cn("flex w-full items-center gap-3 border-b border-line px-3 py-2.5 text-left outline-none last:border-0 hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selected && "bg-brand-soft")}><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt="" width={72} height={96} className="h-14 w-10 shrink-0 rounded-[4px] border border-line-strong object-cover" /><div className="min-w-0 flex-1"><div className="truncate text-[13px] font-semibold text-fg">{item.title} <span className="font-normal text-fg-muted">{item.year ? `(${item.year})` : ""}</span></div><div className="mt-1 truncate text-[12px] text-fg-muted">{item.profiles.join(" · ") || "No managed quality profile"}</div></div><div className={cn("hidden items-center gap-1.5 text-[12px] font-semibold sm:flex", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} />{availability.label}</div><ChevronRight className="size-4 shrink-0 text-fg-muted" /></button>
 }
 
-export function MediaInspector({ item, tab, auto, onTabChange, onClose, onRefresh }: { item: MediaLibraryRecord; tab: string; auto: boolean; onTabChange: (tab: string) => void; onClose: () => void; onRefresh?: () => void }) {
+export function MediaInspector({ item, tab, onTabChange, onClose, onRefresh }: { item: MediaLibraryRecord; tab: string; onTabChange: (tab: string) => void; onClose: () => void; onRefresh?: () => void }) {
   const availability = mediaAvailability(item)
   const currentFile = [...item.files].sort((left, right) => right.generation - left.generation).find((file) => file.state === "current") ?? item.files[0]
   const qualityProfile = currentFile?.quality_profile ?? item.wanted[0]?.target_profile ?? "Not assigned"
@@ -602,11 +509,12 @@ export function MediaInspector({ item, tab, auto, onTabChange, onClose, onRefres
     catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not refresh metadata") }
     finally { setRefreshing(false) }
   }
-  return <aside aria-label={`Details for ${item.title}`} className={cn("fixed inset-0 z-50 min-h-0 flex-col overflow-hidden border-l border-line bg-surface sm:bottom-0 sm:left-auto sm:top-14 sm:w-[380px] xl:static xl:z-auto xl:flex xl:h-full xl:w-auto", auto ? "hidden" : "flex")}>
+  return <aside aria-label={`Details for ${item.title}`} className="mm-drawer fixed inset-x-0 bottom-0 top-16 z-50 flex min-h-0 flex-col overflow-hidden border-l border-line bg-surface shadow-[var(--shadow-float)] sm:left-auto sm:w-[420px]">
     <div className="flex h-11 shrink-0 items-center justify-between border-b border-line px-3.5"><span className="text-[13px] font-semibold text-fg">{item.kind === "movie" ? "Movie" : "TV show"} details</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Close details" onClick={onClose}><X /></Button></div>
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-      <div className="border-b border-line p-3.5">
-        <div className="flex gap-3"><MetadataArtwork src={item.metadata?.poster_url} fallback={item.kind === "movie" ? "/media/movie-placeholder.svg" : "/media/series-placeholder.svg"} alt={`${item.title} poster`} width={300} height={450} className="aspect-[2/3] w-[104px] shrink-0 rounded-[7px] border border-line-strong object-cover" /><div className="min-w-0 pt-1"><h2 className="text-[17px] font-semibold leading-tight tracking-[-0.02em] text-fg">{item.title}</h2><div className="mt-1 text-[13px] text-fg-muted">{item.year ?? "Year unknown"}{item.kind === "series" && item.metadata?.season_count ? ` · ${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : ""}</div><div className={cn("mt-2 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-fg/[0.03] px-2 py-0.5 text-[12px] font-semibold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} aria-hidden />{availability.label}</div></div></div>
+      <div className="relative isolate border-b border-line p-4">
+        <Backdrop src={item.metadata?.backdrop_url} title={item.title} className="-z-10" />
+        <div className="flex gap-3.5 pt-6"><Poster src={item.metadata?.poster_url} title={item.title} className="w-[112px] shrink-0 shadow-[var(--shadow-float)] ring-1 ring-line-strong" sizes="112px" /><div className="min-w-0 pt-1"><h2 className="text-[17px] font-semibold leading-tight tracking-[-0.02em] text-fg">{item.title}</h2><div className="mt-1 text-[13px] text-fg-muted">{item.year ?? "Year unknown"}{item.kind === "series" && item.metadata?.season_count ? ` · ${item.metadata.season_count} season${item.metadata.season_count === 1 ? "" : "s"}` : ""}</div><div className={cn("mt-2 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-fg/[0.03] px-2 py-0.5 text-[12px] font-semibold", availability.tone)}><span className={cn("size-1.5 rounded-full", availability.dot)} aria-hidden />{availability.label}</div></div></div>
         <Button asChild size="sm" className="mt-3.5 h-9 w-full bg-brand text-brand-fg hover:bg-brand"><Link href={item.kind === "movie" ? `/media/movies/${item.id}` : `/media/series/${item.id}`}>{item.kind === "movie" ? <Film /> : <Tv />} Open {item.kind === "movie" ? "movie" : "TV show"} details</Link></Button>
         <Button type="button" variant="outline" size="sm" className="mt-2 h-8 w-full" disabled={refreshing || !canRefreshMetadata} onClick={() => void refreshMetadata()}><RefreshCw className={cn(refreshing && "animate-spin")} /> Refresh metadata</Button>
       </div>
@@ -745,38 +653,53 @@ export function LiveRequestsScreen() {
     { key: "series", label: "TV", count: counts.series },
   ]
 
-  return <div className="space-y-4">
+  React.useEffect(() => {
+    if (!selected) return
+    function onKey(event: KeyboardEvent) { if (event.key === "Escape") setSelectedID(null) }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [selected])
+
+  return <div className="space-y-5">
     {error ? <ErrorNotice error={error} /> : null}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <MetricCard label="Requests" value={String(counts.total)} note="Persisted Seerr requests" icon={Search} />
-      <MetricCard label="Active" value={String(counts.active)} note="Intake or acquisition in progress" tone={counts.active ? "info" : "neutral"} icon={Activity} />
-      <MetricCard label="Completed" value={String(counts.completed)} note="Plex confirmed or already available" tone="good" icon={CheckCircle2} />
-      <MetricCard label="Needs attention" value={String(counts.attention)} note="Owner-visible failures and held work" tone={counts.attention ? "warn" : "good"} icon={AlertTriangle} />
-    </div>
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
-      <Panel flush title="Seerr requests" subtitle="Every row maps to persisted Media Manager state; waiting and failed requests never look successful." action={<RefreshButton onClick={refresh} />}>
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-5 py-3">
-          {filterOptions.map((option) => <button key={option.key} type="button" aria-pressed={filter === option.key} onClick={() => setFilter(option.key)} className={cn("rounded-full border px-3 py-1 text-[12.5px] font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring", filter === option.key ? "border-brand-line bg-brand-soft text-brand-text" : "border-line bg-surface text-fg-secondary hover:bg-surface-2")}>{option.label} <span className="tabular-nums opacity-70">{option.count}</span></button>)}
-          <label className="relative ml-auto block w-full max-w-[230px]">
+    <section aria-labelledby="seerr-requests-heading" className="space-y-4">
+      <h2 id="seerr-requests-heading" className="sr-only">Seerr requests</h2>
+      <div className="flex flex-wrap items-center gap-2">
+        {filterOptions.map((option) => <button key={option.key} type="button" aria-pressed={filter === option.key} onClick={() => setFilter(option.key)} className={cn("inline-flex h-9 items-center gap-2 rounded-full border px-4 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-ring", filter === option.key ? "border-fg bg-fg text-canvas" : option.key === "attention" && option.count ? "border-warn-line bg-warn-soft text-warn hover:border-warn" : "border-line bg-surface/70 text-fg-secondary hover:border-line-strong hover:text-fg")}>{option.label} <span className={cn("tabular-nums", filter === option.key ? "text-canvas/70" : "opacity-70")}>{option.count}</span></button>)}
+        <div className="ml-auto flex w-full items-center gap-2 sm:w-auto">
+          <label className="relative block flex-1 sm:w-[260px] sm:flex-none">
             <span className="sr-only">Search requests</span>
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-muted" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, requester, ID" className="h-8 border-line bg-surface-2 pl-8 text-[12px] shadow-none" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-fg-muted" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, requester, ID" className="h-9 rounded-full border-line bg-surface-2 pl-8 text-[13px] shadow-none" />
           </label>
+          <Button variant="ghost" size="icon" className="rounded-full" aria-label="Refresh requests" onClick={refresh}><RefreshCw /></Button>
         </div>
-        {!data && !error ? <div className="p-10 text-center text-[12px] text-fg-subtle">Loading persisted requests…</div>
-          : filtered.length === 0 ? <div className="p-10 text-center text-[12px] text-fg-subtle">{items.length === 0 ? "No Seerr-originated requests are persisted yet." : "No requests match the active filter."}</div>
-          : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="pl-5">Media</TableHead><TableHead>Status</TableHead><TableHead>Profile</TableHead><TableHead>Requester</TableHead><TableHead className="pr-5">Updated</TableHead></TableRow></TableHeader><TableBody>
-            {filtered.map((item) => <TableRow key={item.id} onClick={() => setSelectedID(item.id)} className={cn("cursor-pointer", selectedID === item.id && "bg-brand-soft")}>
-              <TableCell className="pl-5"><div className="flex min-w-[220px] items-center gap-3"><MetadataArtwork src={item.poster_url} fallback={item.media_kind === "series" ? "/media/series-placeholder.svg" : "/media/movie-placeholder.svg"} alt="" width={48} height={72} className="h-12 w-8 shrink-0 rounded-md border border-line object-cover" /><div className="min-w-0"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedID(item.id) }} aria-pressed={selectedID === item.id} className="block max-w-[260px] truncate text-left text-[13px] font-semibold text-fg outline-none hover:underline hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring">{item.title || `Request ${item.request_id}`}</button><div className="text-[12px] text-fg-muted">{item.media_kind === "series" ? "TV" : "Movie"} · {item.year ?? "Year unknown"} · Seerr #{item.request_id}{item.seerr_instance_name ? ` · ${item.seerr_instance_name}` : ""}</div>{item.media_kind === "series" && item.season_count ? <div className="text-[12px] text-fg-subtle">{item.available_seasons}/{item.season_count} seasons available</div> : null}</div></div></TableCell>
-                            <TableCell><StateBadge state={item.lifecycle} />{item.attention_detail || item.intake_error ? <div className="mt-1 max-w-xs text-[12px] text-warn">{item.attention_detail || item.intake_error}</div> : null}</TableCell>
-              <TableCell className="text-[12px]">{item.quality_profile || "—"}</TableCell>
-              <TableCell className="text-[12px]">{item.requester || "—"}</TableCell>
-              <TableCell className="whitespace-nowrap pr-5 text-[12px] text-fg-muted">{timeAgo(item.updated_at)}</TableCell>
-            </TableRow>)}
-          </TableBody></Table></div>}
-      </Panel>
-      {selected ? <RequestInspector request={selected} detail={detail.data} loading={detail.data === null && !detail.error} error={detail.error} /> : <Panel title="Request detail" subtitle="Select a request to inspect its exact intake and lifecycle state."><div className="rounded-lg border border-dashed border-line-strong px-3 py-10 text-center text-[13px] text-fg-muted">No request is selected.</div></Panel>}
-    </div>
+      </div>
+      {!data && !error ? <div className="rounded-xl border border-line bg-surface p-10 text-center text-[13px] text-fg-subtle">Loading persisted requests…</div>
+        : filtered.length === 0 ? <div className="rounded-xl border border-dashed border-line-strong p-10 text-center text-[13px] text-fg-subtle">{items.length === 0 ? "No Seerr-originated requests are persisted yet." : "No requests match the active filter."}</div>
+        : <ul className="grid gap-x-4 gap-y-6 [grid-template-columns:repeat(auto-fill,minmax(140px,1fr))] sm:[grid-template-columns:repeat(auto-fill,minmax(168px,1fr))]">
+          {filtered.map((item) => { const attention = Boolean(item.attention_detail || item.intake_error); return <li key={item.id}>
+            <button type="button" onClick={() => setSelectedID(item.id)} aria-pressed={selectedID === item.id} aria-label={`${item.title || `Request ${item.request_id}`}${item.year ? ` (${item.year})` : ""}, ${pretty(item.lifecycle)}`} className="group block w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-canvas">
+              <div className={cn("relative rounded-lg shadow-[var(--shadow-panel)] ring-1 ring-line transition duration-200 group-hover:-translate-y-1 group-hover:ring-line-strong", selectedID === item.id && "ring-2 ring-brand", attention && "ring-warn-line")}>
+                <Poster src={item.poster_url} title={item.title || `Request ${item.request_id}`} subtitle={item.year ? String(item.year) : undefined} sizes="200px" />
+                <div className="absolute left-1.5 top-1.5"><StateBadge state={item.lifecycle} /></div>
+              </div>
+              <div className="mt-2 min-w-0 px-0.5">
+                <div className="truncate text-[13.5px] font-semibold text-fg">{item.title || `Request ${item.request_id}`}</div>
+                <div className="truncate text-[12px] text-fg-muted">{item.requester || "Unknown requester"} · {timeAgo(item.updated_at)}</div>
+                {attention ? <div className="mt-0.5 line-clamp-2 text-[12px] leading-4 text-warn">{item.attention_detail || item.intake_error}</div> : item.media_kind === "series" && item.season_count ? <div className="text-[12px] text-fg-subtle">{item.available_seasons}/{item.season_count} seasons available</div> : null}
+              </div>
+            </button>
+          </li> })}
+        </ul>}
+    </section>
+    {selected ? <>
+      <button type="button" aria-label="Close request details" onClick={() => setSelectedID(null)} className="mm-fade-in fixed inset-0 z-40 bg-black/55 backdrop-blur-[2px]" />
+      <aside aria-label={`Request details for ${selected.title || `Request ${selected.request_id}`}`} className="mm-drawer fixed inset-x-0 bottom-0 top-16 z-50 flex min-h-0 flex-col border-l border-line bg-canvas shadow-[var(--shadow-float)] sm:left-auto sm:w-[440px]">
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-line px-4"><span className="text-[13px] font-semibold text-fg">Request</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Close details" onClick={() => setSelectedID(null)}><X /></Button></div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 scrollbar-thin"><RequestInspector request={selected} detail={detail.data} loading={detail.data === null && !detail.error} error={detail.error} /></div>
+      </aside>
+    </> : null}
   </div>
 }
 

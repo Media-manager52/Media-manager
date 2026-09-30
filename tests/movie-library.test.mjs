@@ -221,11 +221,13 @@ test("series records use real season state and exact series navigation", async (
   assert.deepEqual(filterMediaLibraryRecords([record], { ...baseFilters, query: "tvdb 303" }).map((item) => item.id), [seriesID]);
 
   const card = renderToStaticMarkup(React.createElement(MediaLibraryCard, { item: record, selected: true, onSelect() {} }));
-  const inspector = renderToStaticMarkup(React.createElement(MediaInspector, { item: record, tab: "overview", auto: false, onTabChange() {}, onClose() {} }));
+  const inspector = renderToStaticMarkup(React.createElement(MediaInspector, { item: record, tab: "overview", onTabChange() {}, onClose() {} }));
   const partial = renderToStaticMarkup(React.createElement(MediaLibraryCard, { item: { ...record, missing: true }, selected: false, onSelect() {} }));
   assert.match(card, /Local Series, 2020\. Available · upgrade wanted/);
   assert.match(card, /2 seasons/);
-  assert.match(card, /series-placeholder\.svg/);
+  // Without provider artwork the poster is a typographic title card, not a request.
+  assert.doesNotMatch(card, /<img/);
+  assert.match(card, /tracking-\[0\.04em\][^>]*>Local Series</);
   assert.match(inspector, new RegExp(`/media/series/${seriesID}`));
   assert.match(inspector, />TV show details</);
   assert.match(inspector, />Seasons</);
@@ -261,17 +263,17 @@ test("desktop and mobile layout contracts remain explicit in the focused screen"
     readFile(path.join(root, "components/media-manager/live-operational-screens.tsx"), "utf8"),
   ]);
 
-  assert.match(shell, /--sidebar-width": "15rem"/);
-  assert.match(shell, /collapsible="icon"/);
-  assert.match(shell, /h-14/);
-  assert.match(shell, /aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0[^"]*md:hidden"/);
-  assert.match(screen, /xl:grid-cols-\[minmax\(0,1fr\)_320px\]/);
+  assert.match(shell, /sticky top-0 z-40/);
+  assert.match(shell, /h-16/);
+  assert.match(shell, /aria-label="Primary"/);
+  assert.match(shell, /aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0[^"]*lg:hidden"/);
   assert.match(screen, /mm-library-root/);
-  assert.match(screen, /sm:px-5/);
+  assert.match(screen, /sm:px-8/);
   assert.match(screen, /grid-template-columns:repeat\(auto-fill,minmax\(150px,1fr\)\)/);
   assert.match(screen, /const basePageSize = 24/);
-  assert.match(screen, /sm:w-\[380px\][\s\S]*xl:static/);
-  assert.match(screen, /sm:top-14 sm:w-\[380px\]/);
+  // The details drawer sits under the 4rem top bar and never auto-opens.
+  assert.match(screen, /mm-drawer fixed inset-x-0 bottom-0 top-16[^"]*sm:w-\[420px\]/);
+  assert.match(screen, /useState<string \| null>\(null\)/);
 });
 
 test("catalog loader returns only complete bounded pagination results", async (t) => {

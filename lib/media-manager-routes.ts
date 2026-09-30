@@ -1,5 +1,5 @@
 export const routeTitles: Record<string, { area: string; title: string; subtitle: string }> = {
-  "/": { area: "Home", title: "Overview", subtitle: "The operational state of your library, automation, and release intelligence." },
+  "/": { area: "Home", title: "Home", subtitle: "What arrived, what is on its way, and what needs you." },
   "/media": { area: "Library", title: "Movies", subtitle: "Browse, filter, and inspect the complete bounded movie catalog." },
   "/media/series": { area: "Library", title: "TV Shows", subtitle: "Browse series, inspect season-pack state, and open exact series details." },
   "/files": { area: "Library", title: "File Manager", subtitle: "Inspect real files, virtual files, symlinks, provenance, and safe operations." },
@@ -8,7 +8,7 @@ export const routeTitles: Record<string, { area: string; title: string; subtitle
   "/wanted": { area: "Library", title: "Wanted & Upgrades", subtitle: "Missing media and independent quality, language, audio, and subtitle goals." },
   "/requests": { area: "Library", title: "Requests", subtitle: "Seerr-originated requests and their exact Media Manager lifecycle, from intake to Plex confirmation." },
   "/import": { area: "Library", title: "Import", subtitle: "Build a reviewed, reversible plan before adopting or publishing files." },
-  "/activity/queue": { area: "Activity", title: "Queue", subtitle: "Live work across AltMount, import, verification, and Plex publication." },
+  "/activity/queue": { area: "Operations", title: "Control room", subtitle: "Every title moving from request to Plex, stage by stage, with owner-gated recovery." },
   "/activity/recycle": { area: "Activity", title: "Recycle", subtitle: "Restore managed links during the 30-day retention window; AltMount source files remain untouched." },
   "/activity/history": { area: "Activity", title: "History", subtitle: "Durable grabs, imports, upgrades, failures, and file operations." },
   "/activity/blocklist": { area: "Activity", title: "Blocklist", subtitle: "Bad releases are isolated without damaging unrelated provider health." },

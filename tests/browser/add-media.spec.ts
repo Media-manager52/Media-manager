@@ -82,6 +82,8 @@ async function installAddMediaAPI(page: Page, scenario: Scenario) {
     // The shell loads owner attention on every page.
     else if (request.method() === "GET" && path === "/api/v1/workflows?limit=300&active=true") data = []
     else if (request.method() === "GET" && path === "/api/v1/wanted?limit=300") data = []
+    // The control-room board loads catalog artwork once.
+    else if (request.method() === "GET" && path === "/api/v1/media?limit=200&offset=0") data = []
     else {
       unexpected.push(`${request.method()} ${path}`)
       await route.fulfill({ status: 501, json: { error: { message: "Unexpected local test request" } } })
@@ -115,7 +117,7 @@ test("adds a verified movie without starting a search", async ({ page }) => {
   await page.getByRole("button", { name: "Add without search" }).click()
 
   await expect(page).toHaveURL(/\/activity\/queue$/)
-  await expect(page.getByRole("heading", { level: 1, name: "Queue" })).toBeVisible()
+  await expect(page.getByRole("heading", { level: 1, name: "Control room" })).toBeVisible()
   expect(audit.created).toHaveLength(1)
   expect(audit.created[0]).toEqual(expect.objectContaining({
     kind: "movie",
@@ -149,7 +151,7 @@ test("adds exact TV season packs without starting a search", async ({ page }) =>
   await page.getByRole("button", { name: "Add without search" }).click()
 
   await expect(page).toHaveURL(/\/activity\/queue$/)
-  await expect(page.getByRole("heading", { level: 1, name: "Queue" })).toBeVisible()
+  await expect(page.getByRole("heading", { level: 1, name: "Control room" })).toBeVisible()
   expect(audit.created).toHaveLength(1)
   expect(audit.created[0]).toEqual(expect.objectContaining({
     kind: "series",

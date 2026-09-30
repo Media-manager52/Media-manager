@@ -212,9 +212,9 @@ test("exercises safe Requests interactions", async ({ page }) => {
   await search.fill("")
   await section.getByRole("button", { name: /^All / }).click()
 
-  const rows = section.locator("tbody tr")
-  if ((await rows.count()) > 0) {
-    await rows.first().click()
+  const cards = section.getByRole("listitem")
+  if ((await cards.count()) > 0) {
+    await cards.first().getByRole("button").click()
     await expect(page.getByText("Request detail", { exact: true })).toBeVisible()
     await expect(page.getByText("Seerr request ID", { exact: true })).toBeVisible()
   }
@@ -228,8 +228,8 @@ test("opens navigation controls without changing server state", async ({ page },
   await page.keyboard.press("Escape")
 
   if (testInfo.project.name === "mobile") {
-    await page.getByRole("button", { name: "Toggle Sidebar" }).click()
-    await expect(page.getByRole("link", { name: /Media Manager/ })).toBeVisible()
+    await page.getByRole("navigation", { name: "Mobile navigation" }).getByRole("button", { name: "More" }).click()
+    await expect(page.getByRole("dialog").getByRole("link", { name: /Media Manager/ })).toBeVisible()
   }
   await verifyViewport(page)
 })

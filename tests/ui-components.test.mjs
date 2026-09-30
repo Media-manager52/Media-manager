@@ -116,6 +116,7 @@ test("maps persisted operational read models into the live route switch", async 
     readFile(path.join(root, "components/media-manager/live-operational-screens.tsx"), "utf8"),
     readFile(path.join(root, "components/media-manager/live-screens.tsx"), "utf8"),
   ]);
+  const home = await readFile(path.join(root, "components/media-manager/home-feed.tsx"), "utf8");
 
   for (const route of [
     "/files",
@@ -171,7 +172,7 @@ test("maps persisted operational read models into the live route switch", async 
   ]) {
     assert.match(client, new RegExp(endpoint.replaceAll("/", "\\/")));
   }
-  assert.match(screens, /no invented percentages/i);
+  assert.match(home, /no invented percentages/i);
   assert.match(screens, /does not manufacture connection-test success/i);
   assert.match(primaryScreens, /REPLACE ADOPTED FILE AFTER PLEX VERIFICATION/);
   assert.match(client, /adopted_replacement_confirmation_required/);

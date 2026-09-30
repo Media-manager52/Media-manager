@@ -76,25 +76,42 @@ Route metadata lives in `lib/media-manager-routes.ts`:
 
 `components/media-manager/app-shell.tsx` is the single app shell:
 
-- Sidebar navigation (`liveNavigation`) grouped into Library, Operations,
-  Sources, Settings, System, and Advanced. Every route stays reachable; groups
-  are collapsible, Advanced is visually de-emphasized, and the whole sidebar
-  collapses to icons (`collapsible="icon"`, Ctrl/Cmd-B or the header toggle).
+- Top navigation (`TopBar`): the primary pages (`primaryNavigation`: Home,
+  Movies, TV Shows, Requests, Wanted, Control room) as pills with live counts,
+  the Ctrl/Cmd-K "Go to page" palette, **+ Add**, the theme menu, the bell, and
+  an **All pages** menu that lists every secondary page (`sectionNavigation`:
+  Library, Operations, Intelligence, Sources, Settings, System). On Home and
+  title pages the bar turns translucent over the backdrop.
+- Section tabs (`SectionTabs`): every non-immersive page shows its section
+  eyebrow, title, subtitle, and a tab row of its sibling pages.
 - Live counts: `OwnerAttentionProvider` loads `loadWanted` + active
   `loadWorkflows` once per page for the whole shell; Wanted shows the
-  owner-attention count, Workflows the actively-acquiring count, and the
+  owner-attention count, Control room the actively-acquiring count, and the
   **Owner attention** bell shows its count before it is opened
   (`collectOwnerAttention`, `isActivelyAcquiring`).
-- Header: sidebar toggle, breadcrumb (area → title, with detail pages linking
-  back to their list via `detailParents`), the Ctrl/Cmd-K command palette, the
-  theme menu, and the bell.
-- Phones (`< md`): a fixed bottom tab bar (`aria-label="Mobile navigation"`) for
-  Overview, Movies, TV Shows, Requests, and More (opens the sidebar sheet).
+- Phones and tablets (`< lg`): a fixed bottom tab bar
+  (`aria-label="Mobile navigation"`) for Home, Movies, TV Shows, Requests, and
+  More (opens the **All pages** sheet, which lists each page once).
 - `RouteContent` is the authoritative route → screen switch. Unknown known-route
   combinations render `LiveUnavailableScreen`.
-- Library routes (`/media`, `/media/series`) use a full-height layout; media
-  detail routes render their own hero; other routes get a padded page with
-  `PageHeader` (title + subtitle; the area lives in the breadcrumb).
+- Layouts: library routes (`/media`, `/media/series`) are full height; Home and
+  title pages are immersive (full-bleed backdrop under the top bar); every
+  other route gets the padded page header with section tabs.
+
+Streaming surfaces:
+
+- `home-feed.tsx` (`HomeFeed`, route `/`): a hero for the newest
+  Plex-confirmed arrival, a status strip, and poster shelves (Needs you, On its
+  way, Recently added, Coming up, Requests, Movies, TV Shows) built only from
+  the dashboard, wanted, calendar, requests, health, and catalog read models.
+- `pipeline-board.tsx` (`PipelineBoard`, route `/activity/queue`, the Control
+  room): stage columns from `lib/pipeline.ts`. Cards only link; every recovery
+  action stays in the owner-gated workflow table below the board.
+- `poster.tsx`: `Poster` and `Backdrop` render provider artwork, or a
+  typographic title card / gradient when a title has none. They never fetch
+  anything else.
+- The movie/TV library and Requests are poster grids; details open in a
+  slide-over drawer (`mm-drawer`) that docks beside the grid from `xl`.
 
 Screen components live in two large files (this is intentional; keep changes
 near the relevant screen and extract pure logic into `lib/`):
@@ -103,7 +120,7 @@ near the relevant screen and extract pure logic into `lib/`):
 
 | Component | Route(s) |
 | --- | --- |
-| `LiveWorkflowScreen` | `/activity/queue` |
+| `LiveWorkflowScreen` (Control room, with `PipelineBoard`) | `/activity/queue` |
 | `LiveDiscoverScreen` | `/discover` |
 | `LiveMediaDetailScreen` | `/media/movies/:id`, `/media/series/:id` |
 | `LiveRecycleScreen` | `/activity/recycle` |
@@ -119,7 +136,7 @@ near the relevant screen and extract pure logic into `lib/`):
 
 | Component | Route(s) |
 | --- | --- |
-| `LiveOperationalDashboardScreen` | `/` |
+| `HomeFeed` (`home-feed.tsx`) | `/` |
 | `LiveLibraryScreen` (`mediaKind`) | `/media`, `/media/series` |
 | `LiveRequestsScreen` | `/requests` |
 | `LiveWantedScreen` | `/wanted` |
@@ -143,8 +160,8 @@ Shared presentation primitives live in `components/media-manager/ui.tsx`:
 padded header), `MetricCard`, `describeStatus`, `StateBadge`, `StatusChip`,
 `KeyValue`, `WorkProgress`, `InlineNotice`, `EmptyAction`, `SectionLabel`.
 
-Media detail (`LiveMediaDetailScreen`) is a hero (backdrop, poster, identity
-chips, facts, ratings, and actions) above tabs: Overview, Seasons (series),
+Media detail (`LiveMediaDetailScreen`) opens on a full-bleed hero (backdrop,
+poster, identity chips, facts, ratings, and actions) above tabs: Overview, Seasons (series),
 Workflows, and Files, each with a count.
 
 ## 4. Pure helper modules (`lib/`)
@@ -155,6 +172,7 @@ Keep classification/filtering/formatting logic here so screens stay testable.
 | --- | --- |
 | `media-manager-api.ts` | Types, fetchers, mutations, envelope handling. |
 | `workflow-states.ts` | Canonical UI grouping of workflow states (`activelyAcquiring`, `waiting`, `completed`, `ownerAttention`), `requiresOwnerAttention`, `collectOwnerAttention`. The backend owns the durable machine; this only classifies. |
+| `pipeline.ts` | Control-room stages (`pipelineStages`, `pipelineStage`, `groupPipeline`): persisted workflow states grouped left to right; unknown states stay in Requested and only `plex_confirmed` counts as In Plex. |
 | `media-library.ts` | `buildMediaLibraryRecords` (join media + workflows + files), filters, summaries, initial filter state. Pure; benchmarked by `npm run bench:library`. |
 | `series-variants.ts` | Parse/format `season:NN[:episode:NN]`, `rollupSeriesSeasons` for season coverage UI. |
 | `media-manager-requests.ts` | Request lifecycle tone/labels, filter sets, `filterRequests`, counts. |

@@ -265,8 +265,10 @@ test("mobile layout fits the viewport and exposes existing navigation", async ({
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport)
   expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport)
 
-  await page.getByRole("button", { name: "Toggle Sidebar" }).click()
-  await expect(page.getByRole("link", { name: /Media Manager/ })).toBeVisible()
+  await page.getByRole("navigation", { name: "Mobile navigation" }).getByRole("button", { name: "More" }).click()
+  const sheet = page.getByRole("dialog")
+  await expect(sheet.getByRole("link", { name: /Media Manager/ })).toBeVisible()
+  await expect(sheet.getByRole("navigation", { name: "All pages" }).getByRole("link", { name: "Control room" })).toBeVisible()
 })
 
 test("library exposes density control, advanced filters, and one-click reset", async ({ page }) => {
