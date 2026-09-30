@@ -91,7 +91,7 @@ import {
 } from "@/lib/media-library"
 import { filterRequests, requestFilterCounts, seerrStateLabel, type RequestFilter } from "@/lib/media-manager-requests"
 import { parseSeriesVariant, rollupSeriesSeasons, type SeriesSeasonRollup } from "@/lib/series-variants"
-import { AttentionCard, attentionEntries, ConsoleRow, mediaHref, MiniPoster, StageStepper, titleHue } from "./console"
+import { AttentionCard, attentionEntries, ConsoleRow, DownloadProgress, mediaHref, MiniPoster, StageStepper, titleHue } from "./console"
 import { retryPlan } from "@/lib/workflow-presentation"
 import { isActivelyAcquiring } from "@/lib/workflow-states"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
@@ -735,7 +735,7 @@ export function LiveWantedScreen() {
       <TabsContent value="progress">
         <Panel flush title="In progress" subtitle="Searching, downloading, verifying, or publishing right now.">
           {inProgress.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">Nothing is actively acquiring right now.</div>
-            : inProgress.map((item) => { const state = byID.get(item.workflow_id)?.state ?? item.current_state; return <ConsoleRow key={item.workflow_id} href={mediaHref(item.media_kind, item.media_id)} leading={<MiniPoster src={posterFor(item.media_id)} title={item.title} />} title={`${item.title}${item.year ? ` (${item.year})` : ""}`} caption={`${item.gap === "upgrade" ? "Upgrade" : "Acquisition"} · ${item.variant}`}><StageStepper state={state} className="hidden w-[150px] sm:flex" /><StateBadge state={state} /><span className="w-12 shrink-0 text-right text-[11px] text-fg-subtle">{timeAgo(item.updated_at)}</span></ConsoleRow> })}
+            : inProgress.map((item) => { const state = byID.get(item.workflow_id)?.state ?? item.current_state; return <ConsoleRow key={item.workflow_id} href={mediaHref(item.media_kind, item.media_id)} leading={<MiniPoster src={posterFor(item.media_id)} title={item.title} />} title={`${item.title}${item.year ? ` (${item.year})` : ""}`} caption={`${item.gap === "upgrade" ? "Upgrade" : "Acquisition"} · ${item.variant}`}>{byID.get(item.workflow_id)?.download_percent !== undefined ? <DownloadProgress workflow={byID.get(item.workflow_id)!} className="hidden w-[150px] sm:inline-flex" /> : <StageStepper state={state} className="hidden w-[150px] sm:flex" />}<StateBadge state={state} /><span className="w-12 shrink-0 text-right text-[11px] text-fg-subtle">{timeAgo(item.updated_at)}</span></ConsoleRow> })}
         </Panel>
       </TabsContent>
     </Tabs>}

@@ -18,6 +18,8 @@ export type APIWorkflow = {
   complete_no_new_scans?: number; new_release_ready?: boolean; ready_candidate_id?: string; ready_release_title?: string; ready_indexer_name?: string; ready_first_observed_at?: string; open_next_round_allowed?: boolean
   retained_output_count?: number; retained_output_bytes?: number; excluded_release_count?: number
   search_allowed?: boolean; search_blocked_reason?: string; adopted_replacement_confirmation_required: boolean
+  /** Exactly what AltMount last reported for the in-flight attempt; absent when it reported nothing. */
+  download_percent?: number; download_stage?: string; download_observed_at?: string
   owner_action_required?: boolean
   terminal_at?: string; created_at: string; updated_at: string
 }
@@ -42,7 +44,8 @@ export type APIManagedFile = { id: string; media_id: string; media_kind: "movie"
 export type APIReleaseCandidate = { id: string; workflow_id: string; media_id: string; media_kind: "movie" | "series"; media_title: string; media_year?: number; variant: string; title: string; indexer_id: string; indexer_name: string; size_bytes?: number; published_at?: string; verdict?: string; score?: number; reasons: unknown[]; normalized_facts: Record<string, unknown>; problems: unknown[]; selected: boolean; observed_at: string }
 export type APISourceStatus = APIIntegration & { configuration_state: "configured" | "disabled" | "awaiting_commission"; minimum_interval_ms?: number; next_allowed_at?: string; cooldown_until?: string; consecutive_failure: number; last_outcome?: string; budget_updated_at?: string }
 export type APISystemHealth = { database_state: string; database_latency_ms: number; schema_version: number; expected_schema: number; outbox: { pending: number; due: number; retrying: number; oldest_due_at?: string }; components: APISourceStatus[]; checked_at: string }
-export type APIMediaSeason = { number: number; monitored: boolean; prefer_season_pack: boolean; search_immediately: boolean; state: string; expected_episodes: number; released_episodes?: number; future_episodes?: number; workflow_id?: string; workflow_state?: string; waiting_reason?: string; last_search_at?: string; next_search_at?: string; updated_at: string }
+export type APIMediaSeason = { number: number; monitored: boolean; prefer_season_pack: boolean; search_immediately: boolean; state: string; expected_episodes: number; released_episodes?: number; future_episodes?: number; workflow_id?: string; workflow_state?: string; waiting_reason?: string; last_search_at?: string; next_search_at?: string; updated_at: string; episodes?: APIMediaEpisode[] }
+export type APIMediaEpisode = { number: number; title?: string; air_date?: string }
 export type APIMediaDetail = { media: APIMedia; workflows: APIWorkflow[]; seasons: APIMediaSeason[]; files: APIManagedFile[] }
 export type APIWantedItem = { workflow_id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; gap: "missing" | "upgrade"; current_state: string; target_profile: string; upgrades_enabled: boolean; attention_detail?: string; owner_action_required?: boolean; updated_at: string }
 export type APIRequestSeason = { number: number; availability: number; requested: boolean; monitored?: boolean; workflow_id?: string; workflow_state?: string }
@@ -61,7 +64,7 @@ export type APIRequest = {
 export type APIRequestDetail = { request: APIRequest; workflows: APIWorkflow[]; seasons: APIRequestSeason[]; files: APIManagedFile[] }
 export type APITaskStatus = { event_type: string; pending: number; due: number; retrying: number; completed: number; highest_attempts: number; oldest_due_at?: string; latest_at: string }
 export type APITasks = { event_types: APITaskStatus[]; recurring: Array<{ name: string; schedule: string; automatic: boolean }> }
-export type APISystemInfo = { version: string; owner_only: boolean; browser_auth: string; api_auth: string; seerr_webhook_enabled: boolean; metadata_providers: Record<"tmdb" | "tvdb" | "simkl" | "imdb", string>; altmount_source_policy: string; publication_type: string; upgrade_replacement_gate: string; recycle_retention_days: number; public_edge_owner: string; machine_api_keys: boolean; api_prefix: string; checked_at: string }
+export type APISystemInfo = { version: string; started_at?: string; owner_only: boolean; browser_auth: string; api_auth: string; seerr_webhook_enabled: boolean; metadata_providers: Record<"tmdb" | "tvdb" | "simkl" | "imdb", string>; altmount_source_policy: string; publication_type: string; upgrade_replacement_gate: string; recycle_retention_days: number; public_edge_owner: string; machine_api_keys: boolean; api_prefix: string; checked_at: string }
 export type APIDiscoverySearchResult = { id: number; mediaType: "movie" | "tv"; title?: string; name?: string; releaseDate?: string; firstAirDate?: string; overview?: string; posterPath?: string }
 export type APIDiscoverySearchPage = { page: number; totalPages: number; totalResults: number; results: APIDiscoverySearchResult[] }
 export type APIDiscoverySeason = { number: number; episodes: Array<{ number: number; provider_id: string; title: string; air_date: string }> }

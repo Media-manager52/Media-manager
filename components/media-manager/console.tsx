@@ -114,3 +114,17 @@ export function CoverageBar({ total, acquired, acquiring = 0, attention = 0, rel
 export function CoverageLegend({ items }: { items: Array<{ kind: "a" | "b" | "c" | "m" | "u"; label: string }> }) {
   return <div className="flex flex-wrap gap-3.5 text-[10.5px] text-fg-subtle">{items.map((item) => <span key={item.label} className="flex items-center gap-1.5"><i className={cn("size-2 rounded-[2.5px]", item.kind === "a" ? "bg-good-solid" : item.kind === "b" ? "bg-brand" : item.kind === "c" ? "bg-warn-solid" : item.kind === "m" ? "bg-fg-subtle/35" : "bg-surface-3")} />{item.label}</span>)}</div>
 }
+
+/**
+ * The download percentage exactly as AltMount last reported it. Renders
+ * nothing when AltMount reported no percentage; it is never estimated.
+ */
+export function DownloadProgress({ workflow, className }: { workflow: Pick<APIWorkflow, "download_percent" | "download_stage" | "download_observed_at">; className?: string }) {
+  if (workflow.download_percent === undefined || workflow.download_percent === null) return null
+  const percent = Math.max(0, Math.min(100, workflow.download_percent))
+  const observed = workflow.download_observed_at ? new Date(workflow.download_observed_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : ""
+  return <span className={cn("inline-flex min-w-[96px] flex-col gap-1", className)} title={`Reported by AltMount${observed ? ` at ${observed}` : ""}`}>
+    <span className="flex items-baseline justify-between gap-2 text-[11px]"><span className="truncate text-fg-subtle">{workflow.download_stage || "AltMount"}</span><b className="font-semibold tabular-nums text-brand-text">{percent}%</b></span>
+    <span className="h-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label="Download progress reported by AltMount" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><i className="block h-full rounded-full bg-brand" style={{ width: `${percent}%` }} /></span>
+  </span>
+}

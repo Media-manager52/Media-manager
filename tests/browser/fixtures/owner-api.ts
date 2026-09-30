@@ -133,8 +133,8 @@ const detailFor = (id: string) => {
     media: item,
     workflows: workflows.filter((workflow) => workflow.media_id === item.id),
     seasons: item.kind === "series" ? [
-      { number: 1, monitored: true, prefer_season_pack: true, search_immediately: true, state: "available", expected_episodes: 8, released_episodes: 8, workflow_id: ids.wfSeries, workflow_state: "plex_confirmed", updated_at: observed },
-      { number: 2, monitored: true, prefer_season_pack: true, search_immediately: true, state: "wanted", expected_episodes: 6, released_episodes: 3, future_episodes: 3, workflow_state: "waiting", waiting_reason: "Airing season: released episodes are acquired individually.", updated_at: observed },
+      { number: 1, monitored: true, prefer_season_pack: true, search_immediately: true, state: "available", expected_episodes: 8, released_episodes: 8, workflow_id: ids.wfSeries, workflow_state: "plex_confirmed", updated_at: observed, episodes: [{ number: 1, title: "The First One", air_date: "2021-03-04" }, { number: 2, title: "The Second One", air_date: "2021-03-11" }] },
+      { number: 2, monitored: true, prefer_season_pack: true, search_immediately: true, state: "wanted", expected_episodes: 6, released_episodes: 3, future_episodes: 3, workflow_state: "waiting", waiting_reason: "Airing season: released episodes are acquired individually.", updated_at: observed, episodes: [{ number: 3, title: "The Third One", air_date: "2026-09-28" }, { number: 4, title: "The Fourth One", air_date: "2026-10-05" }] },
     ] : [],
     files: files.filter((file) => file.media_id === item.id),
   }

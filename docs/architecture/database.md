@@ -7,7 +7,7 @@ belongs. Reading this before touching SQL saves hours.
 
 - Migrations are **embedded** Go/SQL: `internal/postgres/migrations/NNNN_name.sql`,
   embedded via `//go:embed migrations/*.sql` in `migrate.go`.
-- `CurrentSchemaVersion int64 = 41` in `migrate.go` is the single version gate.
+- `CurrentSchemaVersion int64 = 42` in `migrate.go` is the single version gate.
   `Migrate` applies every file whose numeric prefix is `<= CurrentSchemaVersion`
   and not yet in `schema_migrations`.
 - Each migration runs in its own transaction; a global advisory lock
@@ -109,7 +109,7 @@ non-obvious.
 
 | Table | Purpose |
 | --- | --- |
-| `altmount_jobs` | Submission intent, upload name, queue id, job revision/state, attempts. |
+| `altmount_jobs` | Submission intent, upload name, queue id, job revision/state, attempts, and the latest AltMount-reported progress (display only). |
 | `altmount_job_observations` | Queue observations over time. |
 | `altmount_output_inventories` | Frozen inventory per job (local relative, completeness). |
 | `altmount_output_assets` | Files inside an inventory (path, size, kind). |
@@ -254,3 +254,15 @@ candidate retrievals pause the round separately from its two submission slots.
 HTTP 401/403 records prevent reuse of that provider inside this round. Historical
 rows remain unassigned; migration never resumes parked workflows. The runtime
 admission and atomic alternative selection live in `retrieval_recovery.go`.
+
+## Schema 42: AltMount-reported progress
+
+Migration `0042_altmount_job_progress.sql` adds nullable `progress_percent`
+(0-100), `progress_stage` (at most 64 characters), and `progress_observed_at`
+to `altmount_jobs`. `ObserveAltMountAndReschedule` stores exactly what
+AltMount reported on each observation; an absent or out-of-range percentage is
+stored as NULL. The columns never drive workflow state. Workflow summaries
+expose them as `download_percent`, `download_stage`, and
+`download_observed_at` only for the current grab attempt while the workflow is
+submitting, queued, downloading, or streaming ready.
+

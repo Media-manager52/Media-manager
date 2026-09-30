@@ -1052,6 +1052,7 @@ func (server *Server) systemInfo(writer http.ResponseWriter, request *http.Reque
 		"public_edge_owner":        "Cosmos Cloud",
 		"machine_api_keys":         false,
 		"api_prefix":               "/api/v1",
+		"started_at":               server.readySince,
 		"checked_at":               time.Now().UTC(),
 	}})
 }

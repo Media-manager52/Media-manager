@@ -11,6 +11,7 @@ import {
   loadDashboard,
   loadRequests,
   loadSystemHealth,
+  loadSystemInfo,
   loadWanted,
   loadWorkflows,
   type APISourceStatus,
@@ -18,14 +19,14 @@ import {
 } from "@/lib/media-manager-api"
 import { cn } from "@/lib/utils"
 import { isActivelyAcquiring, isCompleted } from "@/lib/workflow-states"
-import { AttentionCard, attentionEntries, ConsoleRow, mediaHref, MiniPoster, StageStepper } from "./console"
+import { AttentionCard, attentionEntries, ConsoleRow, DownloadProgress, mediaHref, MiniPoster, StageStepper } from "./console"
 import { ErrorNotice, LoadingPanel, timeAgo, useLiveData } from "./live-operational-screens"
 import { PageHeader, Panel, StateBadge, StatusChip } from "./ui"
 
 // The overview reads only existing bounded read models. It never invents a
 // statistic and it never triggers a search, scan, or publication.
 const overviewLoader = async (signal: AbortSignal) => {
-  const [dashboard, wanted, workflows, calendar, requests, health, media] = await Promise.all([
+  const [dashboard, wanted, workflows, calendar, requests, health, media, info] = await Promise.all([
     loadDashboard(signal),
     loadWanted(signal),
     loadWorkflows(false, signal),
@@ -33,8 +34,9 @@ const overviewLoader = async (signal: AbortSignal) => {
     loadRequests(signal),
     loadSystemHealth(signal),
     loadCatalogMedia(signal),
+    loadSystemInfo(signal),
   ])
-  return { dashboard, wanted, workflows, calendar, requests, health, media }
+  return { dashboard, wanted, workflows, calendar, requests, health, media, info }
 }
 
 type Tile = { key: string; tone: "good" | "warn" | "idle"; title: string; detail: string; href?: string }
@@ -44,7 +46,18 @@ function sourceHealthy(component: APISourceStatus) {
 }
 
 /** Five status tiles built from persisted health; nothing is guessed. */
-export function systemTiles(health: APISystemHealth): Tile[] {
+/** "14d 6h", "3h 12m", or "8m" since a persisted start time. */
+export function uptimeLabel(startedAt: string | undefined, now = Date.now()) {
+  if (!startedAt) return ""
+  const minutes = Math.floor((now - new Date(startedAt).getTime()) / 60000)
+  if (!Number.isFinite(minutes) || minutes < 0) return ""
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ${minutes % 60}m`
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`
+}
+
+export function systemTiles(health: APISystemHealth, startedAt?: string): Tile[] {
   const components = health.components ?? []
   const byKind = (kind: string) => components.filter((component) => component.kind === kind && component.enabled)
   const indexers = byKind("newznab")
@@ -54,7 +67,7 @@ export function systemTiles(health: APISystemHealth): Tile[] {
   const coreReady = health.database_state === "ready" && health.schema_version === health.expected_schema
   const outbox = health.outbox
   return [
-    { key: "core", tone: coreReady ? "good" : "warn", title: coreReady ? "Core healthy" : "Core needs attention", detail: coreReady ? `Database ready · schema ${health.schema_version}` : `Database ${health.database_state} · schema ${health.schema_version}/${health.expected_schema}`, href: "/system/health" },
+    { key: "core", tone: coreReady ? "good" : "warn", title: coreReady ? "Core healthy" : "Core needs attention", detail: coreReady ? `${uptimeLabel(startedAt) ? `Up ${uptimeLabel(startedAt)} · ` : ""}schema ${health.schema_version}` : `Database ${health.database_state} · schema ${health.schema_version}/${health.expected_schema}`, href: "/system/health" },
     { key: "indexers", tone: indexers.length === 0 ? "idle" : healthyIndexers === indexers.length ? "good" : "warn", title: indexers.length === 0 ? "No indexers enabled" : `${healthyIndexers} of ${indexers.length} indexers healthy`, detail: indexers.length === healthyIndexers ? "Searching within pacing" : `${indexers.length - healthyIndexers} need${indexers.length - healthyIndexers === 1 ? "s" : ""} owner action`, href: "/sources/indexers" },
     { key: "altmount", tone: clients.length === 0 ? "idle" : clients.every(sourceHealthy) ? "good" : "warn", title: clients.length === 0 ? "No download client" : clients.every(sourceHealthy) ? "AltMount connected" : "AltMount needs attention", detail: clients[0]?.last_outcome ? `Last: ${clients[0].last_outcome.replaceAll("_", " ")}` : "Read-only output", href: "/sources/download-clients" },
     { key: "plex", tone: plex.length === 0 ? "idle" : plex.every(sourceHealthy) ? "good" : "warn", title: plex.length === 0 ? "Plex not configured" : plex.every(sourceHealthy) ? "Plex connected" : "Plex needs attention", detail: plex.length ? `${plex.length} server${plex.length === 1 ? "" : "s"} · exact confirmation` : "Publication needs Plex", href: "/settings/connections" },
@@ -86,7 +99,7 @@ export function LiveOverviewScreen() {
     {error ? <ErrorNotice error={error} /> : null}
 
     <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-5">
-      {systemTiles(data.health).map((tile) => <Link key={tile.key} href={tile.href ?? "/system/health"} className="flex items-center gap-3 rounded-[11px] border border-line bg-surface px-3.5 py-3 outline-none transition hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring">
+      {systemTiles(data.health, data.info.started_at).map((tile) => <Link key={tile.key} href={tile.href ?? "/system/health"} className="flex items-center gap-3 rounded-[11px] border border-line bg-surface px-3.5 py-3 outline-none transition hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring">
         <span className={cn("size-[9px] shrink-0 rounded-full", tile.tone === "good" ? "bg-good-solid shadow-[0_0_8px_var(--good)]" : tile.tone === "warn" ? "bg-warn-solid shadow-[0_0_8px_var(--warn)]" : "bg-fg-subtle")} aria-hidden />
         <div className="min-w-0"><div className="truncate text-[12px] font-semibold text-fg">{tile.title}</div><div className="truncate text-[10.5px] text-fg-subtle">{tile.detail}</div></div>
       </Link>)}
@@ -102,7 +115,7 @@ export function LiveOverviewScreen() {
         <Panel flush title="Active now" subtitle={`${active.length} workflow${active.length === 1 ? "" : "s"} moving toward Plex`} action={<Button asChild variant="ghost" size="sm"><Link href="/activity/queue">All workflows →</Link></Button>}>
           {active.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">Nothing is actively acquiring right now.</div>
             : active.slice(0, 6).map((workflow) => <ConsoleRow key={workflow.id} href={mediaHref(workflow.media_kind, workflow.media_id)} leading={<MiniPoster src={posters.get(workflow.media_id)} title={workflow.title} />} title={`${workflow.title}${workflow.year ? ` (${workflow.year})` : ""}`} caption={`${workflow.variant} · ${workflow.round_ordinal ? `round ${workflow.round_ordinal}` : "first attempt"}`}>
-              <StageStepper state={workflow.state} className="hidden w-[150px] sm:flex" />
+              {workflow.download_percent !== undefined ? <DownloadProgress workflow={workflow} className="hidden w-[150px] sm:inline-flex" /> : <StageStepper state={workflow.state} className="hidden w-[150px] sm:flex" />}
               <StateBadge state={workflow.state} />
               <span className="w-12 shrink-0 text-right text-[11px] text-fg-subtle">{timeAgo(workflow.updated_at)}</span>
             </ConsoleRow>)}

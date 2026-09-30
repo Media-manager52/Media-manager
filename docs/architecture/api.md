@@ -73,7 +73,7 @@ Notes:
 | GET | `/api/v1/media` | Bounded catalog pages (`limit`/`offset`; client caps at 200×50). |
 | POST | `/api/v1/media` | Create media + workflow(s) transactionally; optional immediate search. |
 | GET | `/api/v1/media/{id}` | Media item incl. identities/metadata. |
-| GET | `/api/v1/media/{id}/detail` | Media + workflows + seasons + files. |
+| GET | `/api/v1/media/{id}/detail` | Media + workflows + seasons (each with its expected `episodes`: number, title, air date) + files. |
 | POST | `/api/v1/media/{id}/metadata/refresh` | Owner-triggered exact-ID enrichment. |
 | POST | `/api/v1/media/{id}/workflows` | Create another scope workflow for existing media. |
 | DELETE | `/api/v1/media/{id}` | Recycle/archive a media item (safe delete path). |
@@ -83,7 +83,7 @@ Notes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/v1/workflows` | Bounded list (`limit`, `active`). |
+| GET | `/api/v1/workflows` | Bounded list (`limit`, `active`). In-flight attempts carry `download_percent`/`download_stage`/`download_observed_at` exactly as AltMount reported them. |
 | GET | `/api/v1/workflows/{id}` | One workflow + transitions. |
 | POST | `/api/v1/workflows/{id}/search` | Queue a targeted search; may require `adopted_replacement_confirmation`. |
 | POST | `/api/v1/workflows/{id}/acquisition-rounds` | Owner opens the next fixed two-slot round. |
@@ -213,7 +213,7 @@ All mutation routes below require `requireOwnerMutation`.
 | --- | --- | --- |
 | GET | `/api/v1/system/health` | DB/schema/outbox/component status; no synthetic success. |
 | GET | `/api/v1/system/tasks` | Per-event-type outbox aggregates + recurring schedules. |
-| GET | `/api/v1/system/info` | Version, auth boundaries, provider states, contracts. |
+| GET | `/api/v1/system/info` | Version, `started_at` (API process start), auth boundaries, provider states, contracts. |
 | GET/POST | `/api/v1/backups` | Backup overview / queue encrypted backup. |
 | GET | `/api/v1/backups/{id}/download` | Checksum-matching encrypted download only. |
 
