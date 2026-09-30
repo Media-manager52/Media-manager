@@ -296,7 +296,14 @@ func TestCloseInterruptedAfterUncertainFinalizationAgainstDurableStore(t *testin
 	select {
 	case <-signal.Invalidated:
 	case err := <-done:
-		t.Fatalf("executor method returned before invalidation fired: %v", err)
+		// select picks among ready cases at random; returning is only a
+		// failure when invalidation had not fired by then.
+		select {
+		case <-signal.Invalidated:
+			done <- err
+		default:
+			t.Fatalf("executor method returned before invalidation fired: %v", err)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("invalidation did not fire")
 	}

@@ -132,7 +132,15 @@ func TestCloseSucceededAfterKnownSuccessfulCompletionInvalidatesBeforeRelease(t 
 	select {
 	case <-signal.Invalidated:
 	case err := <-done:
-		t.Fatalf("finalization returned before invalidation fired: %v", err)
+		// Both channels may be ready when select runs, and select picks
+		// among ready cases at random. Finalization returning is only a
+		// failure when invalidation had not fired by then.
+		select {
+		case <-signal.Invalidated:
+			done <- err
+		default:
+			t.Fatalf("finalization returned before invalidation fired: %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("invalidation did not fire before release")
 	}
