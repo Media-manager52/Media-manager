@@ -90,6 +90,7 @@ Notes:
 | POST | `/api/v1/workflows/{id}/recover-altmount-submission` | Reconcile an unknown submission outcome. |
 | POST | `/api/v1/workflows/{id}/reconcile-altmount` | Force a safe queue reconciliation. |
 | POST | `/api/v1/workflows/{id}/reverify-retained-output` | Re-inspect one retained output (`job_id`), no AltMount call. |
+| POST | `/api/v1/plex/reconfirm-timed-out` | Owner "re-check Plex": runs `reconfirm-plex` for every workflow in `needs_attention`/`plex_timeout` (at most 50 per call) and reports `queued` and `skipped` with reasons. Only exact-path scans; never a library-wide scan. |
 | POST | `/api/v1/workflows/{id}/reconfirm-plex` | Retry exact Plex confirmation after `plex_timeout` from the attempt's existing verified links (idempotent, audited, ≤3 retries per publication; `409` if not timed out, links not verified, or limit reached). |
 | POST | `/api/v1/workflows/{id}/cancel` | Cancel workflow (no fake success). |
 
@@ -110,6 +111,8 @@ Notes:
 | GET | `/api/v1/wanted` | Missing/upgrade gaps derived from workflows, links, adopted files. |
 | GET | `/api/v1/requests` | Persisted Seerr requests + lifecycle. |
 | GET | `/api/v1/requests/{id}` | Request detail + workflows/seasons/files. |
+| POST | `/api/v1/requests/{id}/approve` | Owner approves a request that is still pending in Seerr (`409 not_pending` otherwise). Seerr must echo the same request with status approved (`502` if not); the decision is audited (`seerr.request_approved_by_owner`) and a `seerr.reconcile` delivery is queued so normal intake re-reads Seerr. Nothing is admitted locally. |
+| POST | `/api/v1/requests/{id}/decline` | Same as approve for a decline (`seerr.request_declined_by_owner`); Seerr may notify the requester. |
 
 ### Sources
 

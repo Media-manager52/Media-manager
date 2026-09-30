@@ -180,6 +180,10 @@ export const searchWorkflow = (id: string, adoptedReplacementConfirmation = "") 
 export const openAcquisitionRound = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/acquisition-rounds`, { method: "POST" })
 export const reconcileAltMount = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/workflows/${encodeURIComponent(id)}/reconcile-altmount`, { method: "POST" })
 export const reverifyRetainedOutput = (workflowID: string, jobID: string) => requestJSON<{ status: string; workflow_id: string; job_id: string }>(`/api/v1/workflows/${encodeURIComponent(workflowID)}/reverify-retained-output`, { method: "POST", body: JSON.stringify({ job_id: jobID }) })
+/** Sends the owner's decision to Seerr for a request still pending there; intake then re-reads Seerr. */
+export const decideRequest = (id: string, decision: "approve" | "decline") => requestJSON<{ status: "approved" | "declined"; request_id: string; seerr_status: number }>(`/api/v1/requests/${encodeURIComponent(id)}/${decision}`, { method: "POST" })
+/** Re-queues exact-path Plex confirmation for every timed-out publication; never a library-wide scan. */
+export const reconfirmTimedOutPlex = () => requestJSON<{ queued: string[]; skipped: Array<{ workflow_id: string; reason: string }> }>("/api/v1/plex/reconfirm-timed-out", { method: "POST" })
 export const cancelWorkflow = (id: string) => requestJSON<Record<string, unknown>>(`/api/v1/workflows/${encodeURIComponent(id)}/cancel`, { method: "POST" })
 export const createReleaseBlock = (input: { candidate_id: string; scope: "native_release" | "pack_release"; reason: string; retention_days?: 30 | 90 }) => requestJSON<APIReleaseBlock>("/api/v1/blocklist", { method: "POST", body: JSON.stringify(input) })
 export const deleteReleaseBlock = (id: string) => requestJSON<void>(`/api/v1/blocklist/${encodeURIComponent(id)}`, { method: "DELETE" })
