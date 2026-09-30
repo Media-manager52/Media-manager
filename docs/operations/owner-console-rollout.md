@@ -69,6 +69,16 @@ These restate `AGENTS.md` for this rollout. They override convenience.
 - **Explain first, then fix with the owner's OK.** Before any change, tell the
   owner what is wrong, the evidence, the proposed fix, and its risk, then wait
   for a go-ahead.
+- **Use the remote that points to GitHub.** GitHub is the source of truth, but
+  its remote is not always called `origin`: on some servers `origin` is an old
+  mirror and GitHub is another remote. Check with `git remote -v` and use the
+  remote whose URL is `github.com/Media-manager52/Media-manager`. The commands
+  in this note find it themselves and keep its name in `$GH`:
+  ```sh
+  GH=$(git remote -v | awk '$2 ~ /github\.com[:\/]Media-manager52\/Media-manager(\.git)?$/ && $3 == "(fetch)" {print $1; exit}')
+  : "${GH:?no git remote points to GitHub; see §2}"
+  ```
+  The second line stops with a clear message when no remote points to GitHub.
 - **Preserve local state.** Run `git status` first. If the checkout has local
   changes or is not on `main`, stop and report; do not stash, reset, or
   discard anything.
@@ -100,8 +110,10 @@ docker compose exec -T api media-manager version
 the upgrade brings in (read-only):
 
 ```sh
-git fetch origin main
-git log --oneline <running-commit>..origin/main
+GH=$(git remote -v | awk '$2 ~ /github\.com[:\/]Media-manager52\/Media-manager(\.git)?$/ && $3 == "(fetch)" {print $1; exit}')
+: "${GH:?no git remote points to GitHub; see §2}"
+git fetch "$GH" main
+git log --oneline <running-commit>.."$GH"/main
 ```
 
 If the running commit is `local` or unknown (the build did not set
@@ -153,10 +165,12 @@ that is before deploying. All of these commands are read-only:
 
 ```sh
 OLD=<running commit from §3.1>
-git log --oneline "$OLD"..origin/main                       # every change coming in
-git diff "$OLD"..origin/main -- CHANGELOG.md                # the same, in plain language
-git diff --stat "$OLD"..origin/main -- internal/postgres/migrations   # migrations that will run
-git diff "$OLD"..origin/main -- compose.yaml .env.example .env.integrations.example
+GH=$(git remote -v | awk '$2 ~ /github\.com[:\/]Media-manager52\/Media-manager(\.git)?$/ && $3 == "(fetch)" {print $1; exit}')
+: "${GH:?no git remote points to GitHub; see §2}"
+git log --oneline "$OLD".."$GH"/main                         # every change coming in
+git diff "$OLD".."$GH"/main -- CHANGELOG.md                  # the same, in plain language
+git diff --stat "$OLD".."$GH"/main -- internal/postgres/migrations   # migrations that will run
+git diff "$OLD".."$GH"/main -- compose.yaml .env.example .env.integrations.example
 ```
 
 What to look for, and what it means:
@@ -230,7 +244,9 @@ Follows runbook §4.
 
 ```sh
 git checkout main                      # only if §3.1 showed a clean checkout
-git pull --ff-only origin main
+GH=$(git remote -v | awk '$2 ~ /github\.com[:\/]Media-manager52\/Media-manager(\.git)?$/ && $3 == "(fetch)" {print $1; exit}')
+: "${GH:?no git remote points to GitHub; see §2}"
+git pull --ff-only "$GH" main
 export MEDIA_MANAGER_VERSION=$(date +%Y.%m.%d)
 export MEDIA_MANAGER_COMMIT=$(git rev-parse --short HEAD)
 docker compose build
@@ -518,7 +534,7 @@ database.
 - **GitHub access,** so the session can push a branch and open a pull request.
   Either install the GitHub CLI and run `gh auth login` (the owner completes the
   browser step), or use an SSH key with push access.
-  - Check with `git ls-remote origin HEAD`.
+  - Check with `git ls-remote "$GH" HEAD` (`$GH` as in §2).
 - **Commit identity:** set `git config user.name` and `git config user.email`
   to the owner's choice, in this repository only.
 - **Docker only:** nothing else needs installing. The tests below run in the
@@ -528,8 +544,10 @@ database.
 
 1. **Separate fix folder.** The live checkout is never edited:
    ```sh
-   git fetch origin main
-   git worktree add ../media-manager-fix -b fix/<short-name> origin/main
+   GH=$(git remote -v | awk '$2 ~ /github\.com[:\/]Media-manager52\/Media-manager(\.git)?$/ && $3 == "(fetch)" {print $1; exit}')
+   : "${GH:?no git remote points to GitHub; see §2}"
+   git fetch "$GH" main
+   git worktree add ../media-manager-fix -b fix/<short-name> "$GH"/main
    cd ../media-manager-fix
    ```
 2. **Smallest change that fixes the root cause, plus a test that fails
@@ -563,7 +581,7 @@ database.
      ```
    Run the ones that match what changed; CI runs all of them anyway.
 4. **Commit and open a pull request.** Use one clear commit per fix. Then:
-   - `git push -u origin fix/<short-name>`;
+   - `git push -u "$GH" fix/<short-name>`;
    - `gh pr create --fill`, or open it on GitHub.
 
    CI then runs the full suite; watch it with `gh pr checks --watch`. If CI
@@ -572,7 +590,7 @@ database.
    `gh pr merge --squash --delete-branch`.
 6. **Deploy the merged fix.** This is the normal procedure:
    - back up as in §4;
-   - in the live checkout, `git pull --ff-only origin main`;
+   - in the live checkout, `git pull --ff-only "$GH" main` (`$GH` as in §2);
    - then §5 (build and up) and §6.1 (verify).
 
    If it makes things worse, roll back (§8).
