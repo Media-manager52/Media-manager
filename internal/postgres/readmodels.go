@@ -451,14 +451,18 @@ func (store *Store) ListCalendar(ctx context.Context, from, to time.Time, limit 
 		limit = 500
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT media_id,media_kind,media_title,workflow_id,variant,season,episode,episode_title,air_date,monitored,workflow_state FROM (
-		SELECT DISTINCT ON (workflow.id,episode.season,episode.episode) media.id::text AS media_id,media.kind AS media_kind,media.title AS media_title,workflow.id::text AS workflow_id,workflow.variant,episode.season,episode.episode,episode.title AS episode_title,episode.air_date,monitoring.monitored,workflow.state AS workflow_state,expectation.frozen_at
+		SELECT DISTINCT ON (media.id,episode.season,episode.episode) media.id::text AS media_id,media.kind AS media_kind,media.title AS media_title,workflow.id::text AS workflow_id,workflow.variant,episode.season,episode.episode,episode.title AS episode_title,episode.air_date,monitoring.monitored,workflow.state AS workflow_state,expectation.frozen_at
 		FROM pack_expected_episodes episode
 		JOIN pack_expectation_sets expectation ON expectation.id=episode.expectation_id
 		JOIN workflows workflow ON workflow.id=expectation.workflow_id
 		JOIN media_items media ON media.id=workflow.media_id
 		JOIN season_monitoring monitoring ON monitoring.media_id=media.id AND monitoring.season_number=episode.season
 		WHERE episode.air_date BETWEEN $1::date AND $2::date AND media.deleted_at IS NULL
-		ORDER BY workflow.id,episode.season,episode.episode,expectation.frozen_at DESC
+		-- One row per episode even when its season workflow and its own episode
+		-- workflow both expect it: a live workflow before a cancelled one, a
+		-- Plex-confirmed one first, then the episode's own workflow, then the
+		-- newest snapshot.
+		ORDER BY media.id,episode.season,episode.episode,workflow.state='cancelled',workflow.state<>'plex_confirmed',workflow.variant NOT LIKE '%:episode:%',expectation.frozen_at DESC,workflow.id
 		) item ORDER BY air_date,media_title,season,episode LIMIT $3`, from.UTC(), to.UTC(), limit)
 	if err != nil {
 		return nil, err
