@@ -20,6 +20,9 @@ rollout is here.
 >
 > The server session should stop and report after each numbered stage below
 > that says **Stop and report**.
+>
+> Later, to find problems: *"Do the full debugging pass in §11 and give me the
+> report."* To fix one: *"Fix <the problem> following §12."*
 
 ## 1. What changed
 
@@ -39,6 +42,8 @@ out exactly what the upgrade brings in.
 | #8 | Step 3: **Approve / Decline** Seerr requests from the console; **Re-check Plex** for timed-out titles. Also a flaky-test fix. | New owner-only API routes. |
 | #10 | Step 4: calendar week view, health tiles, mobile polish. | UI only. |
 | #11 | Two bugs found by testing against a real Seerr (§7), plus this note. | **Important crash fix** (§7.1). |
+| #12 | Read-only screens refresh themselves; request labels follow Seerr ("Awaiting approval", "Approved in Seerr", "Declined"). | UI and read model only. |
+| #13 | Fixes from the full code review and the upgrade rehearsal (§9). | Behavior fixes; no migration. |
 
 (#5 was an alternative design that was closed, and #9 was a duplicate of the
 test fix that went in through #8.)
@@ -57,9 +62,13 @@ New owner-only API routes (all behind the owner token, like every `/api` route):
 
 These restate `AGENTS.md` for this rollout. They override convenience.
 
-- **Do not change code on the server.** If something needs fixing, describe it
-  to the owner; fixes go through a branch and a pull request, not edits in the
-  production checkout.
+- **Never hand-edit the live checkout or running containers.** Fixes follow
+  §12: configuration changes are backed up first, and code changes are made in
+  a separate fix folder, tested, and merged through a pull request before a
+  normal deploy.
+- **Explain first, then fix with the owner's OK.** Before any change, tell the
+  owner what is wrong, the evidence, the proposed fix, and its risk, then wait
+  for a go-ahead.
 - **Preserve local state.** Run `git status` first. If the checkout has local
   changes or is not on `main`, stop and report; do not stash, reset, or
   discard anything.
@@ -450,13 +459,136 @@ Give the owner one table, worst first:
 
 Then:
 
-- **Nothing is fixed during the pass.** For each Problem, say what the fix
+- **Nothing is changed during the pass.** For each Problem, say what the fix
   would be and whether it is:
   - an owner action in the UI;
-  - a configuration change;
-  - a code change (which goes through a branch and pull request, never an edit
-    on the server).
-- Wait for the owner's go-ahead before any change. Live actions (searches,
-  approvals, Plex re-checks) are the owner's to trigger.
+  - a configuration change (§12.2);
+  - a code change (§12.3).
+- Offer to fix the Problems in order, worst first, and wait for the owner's
+  go-ahead on each. Live actions (searches, approvals, Plex re-checks) are the
+  owner's to trigger.
 - Record anything learned about this server (paths, recurring issues, what was
   fixed) in `CLAUDE.local.md`, so the next session starts from it.
+
+## 12. Fixing problems on the server
+
+The server session is expected to fix problems, not only report them, in a
+way that keeps production safe and every change reviewable and reversible.
+Every fix starts the same way: find the root cause (read-only, as in §11), then
+explain it to the owner with the evidence, the proposed fix, and its risk, and
+wait for a go-ahead.
+
+### 12.1 Which kind of fix
+
+| Kind | Examples | How |
+| --- | --- | --- |
+| Owner action | Approve a request, open a new acquisition round, re-check Plex, fix a Plex match | Tell the owner exactly what to click. The owner performs live actions. |
+| Configuration | A missing key in `.env.integrations`, a wrong path, a missing library root or default profile | §12.2 |
+| Code | A crash, wrong behavior, a wrong label | §12.3 |
+| Emergency | The site or API is down after a deploy and no quick fix is clear | Roll back (§8), then fix with §12.3 |
+
+Never:
+- edit database rows by hand (runbook §9 lists the supported endpoints);
+- disable or skip a test to get green;
+- weaken Newznab pacing, redirect pinning, header stripping, or secret
+  sanitization (`AGENTS.md`);
+- commit or print secrets.
+
+### 12.2 Configuration fixes
+
+1. Back up first:
+   `cp .env .env.bak-$(date +%F-%H%M); cp .env.integrations .env.integrations.bak-$(date +%F-%H%M); chmod 600 .env*.bak-*`
+2. Change only the named setting. Refer to it by name in chat, never by value.
+   Ask the owner to paste a new secret straight into the file, not into the chat.
+3. Apply it:
+   - for `.env.integrations` or API settings,
+     `docker compose up -d --force-recreate api` (`restart` does not reload env
+     files);
+   - for `compose.yaml` or `.env` path changes, `docker compose up -d`.
+4. Verify with §6.1 and the relevant §11 rows. If it made things worse,
+   restore the `.bak` files and apply again.
+
+Settings stored in Media Manager itself (integrations, library roots, quality
+profiles) are changed through the website or the owner API, never in the
+database.
+
+### 12.3 Code fixes
+
+**One-time setup** (with the owner's OK):
+- **GitHub access,** so the session can push a branch and open a pull request.
+  Either install the GitHub CLI and run `gh auth login` (the owner completes the
+  browser step), or use an SSH key with push access.
+  - Check with `git ls-remote origin HEAD`.
+- **Commit identity:** set `git config user.name` and `git config user.email`
+  to the owner's choice, in this repository only.
+- **Docker only:** nothing else needs installing. The tests below run in the
+  same public images CI uses.
+
+**Workflow:**
+
+1. **Separate fix folder.** The live checkout is never edited:
+   ```sh
+   git fetch origin main
+   git worktree add ../media-manager-fix -b fix/<short-name> origin/main
+   cd ../media-manager-fix
+   ```
+2. **Smallest change that fixes the root cause, plus a test that fails
+   without it.** Run the test once against the unfixed code to prove it catches
+   the problem (`AGENTS.md`: focused tests for behavior changes). Update the
+   docs and `CHANGELOG.md` when behavior changes.
+3. **Run the checks locally in Docker** from the fix folder. They were verified
+   to pass on `main` exactly as written.
+   - Go (about 6 minutes the first time, mostly downloads):
+     ```sh
+     docker network create mm-fix-net 2>/dev/null || true
+     docker run -d --rm --name mm-fix-pg --network mm-fix-net -e POSTGRES_PASSWORD=test -e POSTGRES_DB=media_manager_test postgres:18.6-alpine3.24
+     until docker exec mm-fix-pg pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
+     docker run --rm --network mm-fix-net --user "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOPATH=/tmp/gopath -e GOFLAGS=-mod=readonly \
+       -e MEDIA_MANAGER_TEST_DATABASE_URL='postgres://postgres:test@mm-fix-pg:5432/media_manager_test?sslmode=disable' \
+       -v "$PWD":/src -w /src golang:1.27 \
+       sh -c 'test -z "$(gofmt -l cmd internal)" && go vet ./cmd/... ./internal/... && go test -count=1 -race ./cmd/... ./internal/...'
+     docker stop mm-fix-pg
+     ```
+   - Website (about 1 minute):
+     ```sh
+     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src node:24 \
+       sh -c 'npm ci --no-audit --no-fund && npm run lint && npm run typecheck && npm run docs:check && npm test'
+     ```
+     "WebSocket server error: Port 24678 is already in use" is a known,
+     harmless warning.
+   - Browser suite (about 4 minutes):
+     ```sh
+     docker run --rm --ipc=host --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src mcr.microsoft.com/playwright:v1.62.1-noble \
+       sh -c 'npm ci --no-audit --no-fund && npm run test:browser'
+     ```
+   Run the ones that match what changed; CI runs all of them anyway.
+4. **Commit and open a pull request.** Use one clear commit per fix. Then:
+   - `git push -u origin fix/<short-name>`;
+   - `gh pr create --fill`, or open it on GitHub.
+
+   CI then runs the full suite; watch it with `gh pr checks --watch`. If CI
+   fails, find the cause, fix it and push again. Never skip a test.
+5. **Merge with the owner's OK** once CI is green:
+   `gh pr merge --squash --delete-branch`.
+6. **Deploy the merged fix.** This is the normal procedure:
+   - back up as in §4;
+   - in the live checkout, `git pull --ff-only origin main`;
+   - then §5 (build and up) and §6.1 (verify).
+
+   If it makes things worse, roll back (§8).
+7. **Clean up.**
+   - `cd` back to the live checkout;
+   - `git worktree remove ../media-manager-fix`;
+   - note the problem, cause, fix, pull request and deploy time in
+     `CLAUDE.local.md`.
+
+### 12.4 Keeping the server current
+
+To update to a newer `main` later, run the same sequence:
+- §3 pre-flight, including §3.5 for the commits, migrations and configuration
+  that come in;
+- §4 back up;
+- §5 deploy;
+- §6 verify;
+- §11 debugging pass.
+
