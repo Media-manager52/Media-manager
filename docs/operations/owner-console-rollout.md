@@ -314,6 +314,39 @@ schema is older than 42, so readiness will fail until the dump is restored.
   - a wrong API key refused (`403`);
   - the full browser flow described in §7.
 
+**Upgrade rehearsal from an older build**
+
+The 14 September build (schema 36) was run on a fresh database and configured
+the way a production server is: Seerr, Plex, AltMount, a commissioned indexer
+(all pointing at unreachable `.invalid` addresses so nothing could search,
+download or contact Plex), library roots and default profiles. Through its own
+webhook intake from a real Seerr 3.5.0 it created movie and TV requests,
+media, and search, airing-season and episode workflows. The database was then
+backed up, the new build was started on it with `AUTO_MIGRATE`, and the
+result was checked:
+
+- Migrations 37–42 applied in one start-up and `/health/ready` answered
+  ready at schema 42.
+- Every media item, workflow, Seerr request, expectation and setting was
+  preserved, and every workflow's state and revision was unchanged.
+- The new build re-read the approved Seerr requests on its own start-up poll.
+- The repository's live read-only acceptance suite passed 114 of 117 checks
+  at desktop, tablet and mobile sizes. The other three are one pre-existing
+  test that times out when the Files list is empty (the rehearsal had no
+  downloaded files). On a server with files it finds them.
+- In a browser on the upgraded stack:
+  - approving a pending TV request from the Overview stayed on the Overview;
+    Seerr recorded it and intake created the season workflow;
+  - declining a movie was recorded in Seerr;
+  - the airing season listed its unaired episode;
+  - there were no page errors or failed API calls.
+- Rollback: the pre-upgrade dump restored into a fresh database and the old
+  build ran on it. The old build pointed at the upgraded database correctly
+  refused readiness, as §8 says.
+- Found and fixed along the way (§7.1 and the changelog):
+  - the old build also has the metadata-provider crash;
+  - a title page read "Quality profile: Not assigned" before any file existed.
+
 **Not tested before reaching the server** (so they are the §6.2 checks)
 
 - **Seerr's own webhook and TMDB lookups.** The test sandbox blocks TMDB, so
