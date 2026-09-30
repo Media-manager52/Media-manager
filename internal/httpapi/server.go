@@ -1537,20 +1537,11 @@ func (server *Server) cancelWorkflow(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
 		return
 	}
-	workflow, err := server.store.GetWorkflow(request.Context(), id)
+	workflow, err := server.store.CancelWorkflowForOwner(request.Context(), id, time.Now().UTC())
 	if errors.Is(err, postgres.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
 		return
 	}
-	if err != nil {
-		writeError(writer, http.StatusInternalServerError, "database_error", "could not load workflow")
-		return
-	}
-	if workflow.State != workflows.StateMonitored && workflow.State != workflows.StateWaiting && workflow.State != workflows.StateSearching && workflow.State != workflows.StateCandidateSelected && workflow.State != workflows.StateHeld && workflow.State != workflows.StateBlocked {
-		writeError(writer, http.StatusConflict, "cancel_failed", "workflow can no longer be cancelled safely")
-		return
-	}
-	workflow, err = server.store.TransitionWorkflow(request.Context(), workflow.ID, workflow.Revision, workflows.StateCancelled, "owner cancelled before retrieval", "owner", time.Now().UTC())
 	if err != nil {
 		writeError(writer, http.StatusConflict, "cancel_failed", err.Error())
 		return
