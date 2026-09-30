@@ -150,7 +150,7 @@ func run() error {
 			return err
 		}
 	}
-	metadataService := &metadataservice.Service{TMDB: tmdbClient, TVDB: tvdbClient, Simkl: simklClient}
+	metadataService := newMetadataService(tmdbClient, tvdbClient, simklClient)
 	metadataProviderStates := map[string]string{"tmdb": "not_configured", "tvdb": "not_configured", "simkl": "not_configured", "imdb": "identity_only"}
 	if seerrEnabled {
 		metadataProviderStates["tmdb"] = "seerr_fallback"
@@ -296,4 +296,22 @@ func workerOwner() string {
 		hostname = "media-manager"
 	}
 	return fmt.Sprintf("%s-%d", hostname, os.Getpid())
+}
+
+// newMetadataService wires only the direct metadata providers that are
+// configured. An unconfigured provider stays a nil interface: storing a nil
+// client pointer would make the interface non-nil, so enrichment would call
+// Lookup on a nil client and crash the worker.
+func newMetadataService(tmdb *metadataproviders.TMDBClient, tvdb *metadataproviders.TVDBClient, simkl *metadataproviders.SimklClient) *metadataservice.Service {
+	service := &metadataservice.Service{}
+	if tmdb != nil {
+		service.TMDB = tmdb
+	}
+	if tvdb != nil {
+		service.TVDB = tvdb
+	}
+	if simkl != nil {
+		service.Simkl = simkl
+	}
+	return service
 }

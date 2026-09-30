@@ -135,6 +135,15 @@ func TestOwnerRequestDecisionReachesSeerrAndQueuesIntake(t *testing.T) {
 	if got := count(`SELECT count(*) FROM seerr_deliveries delivery JOIN outbox_events event ON event.aggregate_id=delivery.id AND event.event_type='seerr.reconcile' WHERE delivery.request_id='1001' AND delivery.event_id LIKE 'owner-decision:%'`); got != 1 {
 		t.Fatalf("queued intake reconciles=%d, want 1", got)
 	}
+	// Seerr's confirmed status is stored at once, before intake re-reads the
+	// request, so the owner cannot decide the same request twice. The update
+	// cursor is untouched so the re-read still replaces the whole snapshot.
+	if got := count(`SELECT count(*) FROM seerr_request_snapshots WHERE request_id='1001' AND state='2' AND external_updated_at IS NULL`); got != 1 {
+		t.Fatalf("approved request snapshot not updated to Seerr's confirmed status")
+	}
+	if status, _ := post("/api/v1/requests/1001/decline"); status != http.StatusConflict {
+		t.Fatalf("second decision on an approved request status=%d, want 409", status)
+	}
 
 	if status, _ := post("/api/v1/requests/1002/approve"); status != http.StatusConflict {
 		t.Fatalf("already approved status=%d, want 409", status)
@@ -144,6 +153,9 @@ func TestOwnerRequestDecisionReachesSeerrAndQueuesIntake(t *testing.T) {
 	}
 	if status, _ := post("/api/v1/requests/1003/decline"); status != http.StatusBadGateway {
 		t.Fatalf("unconfirmed decline status=%d, want 502", status)
+	}
+	if got := count(`SELECT count(*) FROM seerr_request_snapshots WHERE request_id='1003' AND state='1'`); got != 1 {
+		t.Fatalf("unconfirmed decision changed the stored Seerr state")
 	}
 	if got := count(`SELECT count(*) FROM audit_events WHERE detail->>'request_id' IN ('1002','1003','9999')`); got != 0 {
 		t.Fatalf("audits for refused decisions=%d, want 0", got)

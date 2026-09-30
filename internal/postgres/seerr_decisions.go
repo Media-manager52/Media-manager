@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 	"uuid"
 )
@@ -27,9 +28,17 @@ func (store *Store) SeerrRequestPending(ctx context.Context, instanceID, request
 // confirmed and queues the same reconcile a Seerr webhook would. Intake then
 // re-reads the request from Seerr, so Media Manager never trusts the decision
 // locally: an approved request is admitted only through normal intake.
-func (store *Store) RecordSeerrOwnerDecision(ctx context.Context, instanceID, requestID, decision string, now time.Time) error {
+//
+// The stored Seerr state of a still-pending request is set to the status Seerr
+// confirmed, so the owner never sees decision buttons for a request Seerr has
+// already decided. The Seerr update cursor is left alone, so the re-read still
+// replaces the whole snapshot with Seerr's authoritative data.
+func (store *Store) RecordSeerrOwnerDecision(ctx context.Context, instanceID, requestID, decision string, confirmedStatus int, now time.Time) error {
 	if decision != "approve" && decision != "decline" {
 		return errors.New("invalid Seerr decision")
+	}
+	if (decision == "approve" && confirmedStatus != 2) || (decision == "decline" && confirmedStatus != 3) {
+		return errors.New("Seerr status does not match the decision")
 	}
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
@@ -42,6 +51,9 @@ func (store *Store) RecordSeerrOwnerDecision(ctx context.Context, instanceID, re
 	}
 	detail, _ := json.Marshal(map[string]string{"seerr_instance_id": instanceID, "request_id": requestID, "decision": decision})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner',$2,'seerr_request',NULL,$3,$4)`, uuid.NewV7().String(), action, string(detail), now.UTC()); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE seerr_request_snapshots SET state=$3,revision=revision+1 WHERE seerr_instance_id=$1 AND request_id=$2 AND state='1'`, instanceID, requestID, strconv.Itoa(confirmedStatus)); err != nil {
 		return err
 	}
 	deliveryID := uuid.NewV7()

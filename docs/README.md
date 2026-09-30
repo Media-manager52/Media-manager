@@ -33,6 +33,7 @@ behavioral truth is always the code and the SQL migrations.
 | Document | Contents |
 | --- | --- |
 | [operations/runbook.md](operations/runbook.md) | Deploy, Cosmos edge, env vars, backup/restore, smoke tests, troubleshooting |
+| [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 
 ## Status, audits, and evidence
 

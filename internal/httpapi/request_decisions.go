@@ -58,7 +58,7 @@ func (server *Server) decideRequest(decision seerr.RequestDecision) http.Handler
 			writeError(writer, http.StatusBadGateway, "seerr_error", "Seerr did not confirm the decision")
 			return
 		}
-		if err := server.store.RecordSeerrOwnerDecision(request.Context(), instanceID, requestID, string(decision), time.Now().UTC()); err != nil {
+		if err := server.store.RecordSeerrOwnerDecision(request.Context(), instanceID, requestID, string(decision), result.Status, time.Now().UTC()); err != nil {
 			writeError(writer, http.StatusInternalServerError, "database_error", "Seerr accepted the decision, but it could not be recorded; intake will still see it on the next Seerr poll")
 			return
 		}
