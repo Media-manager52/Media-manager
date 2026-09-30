@@ -91,7 +91,7 @@ import {
 } from "@/lib/media-library"
 import { filterRequests, requestFilterCounts, seerrStateLabel, type RequestFilter } from "@/lib/media-manager-requests"
 import { parseSeriesVariant, rollupSeriesSeasons, type SeriesSeasonRollup } from "@/lib/series-variants"
-import { AttentionCard, attentionEntries, ConsoleRow, DownloadProgress, mediaHref, MiniPoster, StageStepper, titleHue } from "./console"
+import { AttentionCard, attentionEntries, ConsoleRow, DownloadProgress, mediaHref, MiniPoster, RequestDecisionButtons, requestAwaitingApproval, StageStepper, titleHue } from "./console"
 import { retryPlan } from "@/lib/workflow-presentation"
 import { isActivelyAcquiring } from "@/lib/workflow-states"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
@@ -594,7 +594,7 @@ function InspectorEmpty({ children }: { children: React.ReactNode }) {
   return <div className="rounded-[5px] border border-dashed border-line-strong px-3 py-6 text-center text-[13px] text-fg-muted">{children}</div>
 }
 
-export function RequestInspector({ request, detail, loading, error }: { request: APIRequest; detail: APIRequestDetail | null; loading: boolean; error: string }) {
+export function RequestInspector({ request, detail, loading, error, onDecided }: { request: APIRequest; detail: APIRequestDetail | null; loading: boolean; error: string; onDecided?: () => void }) {
   const mediaHref = request.media_id ? (request.media_kind === "series" ? `/media/series/${request.media_id}` : `/media/movies/${request.media_id}`) : null
   return <Panel title="Request detail" subtitle="Durable Seerr intake and Media Manager lifecycle state." action={mediaHref ? <Button asChild size="sm" variant="outline"><Link href={mediaHref}><ExternalLink /> Open media</Link></Button> : undefined}>
     <div className="flex items-start gap-3">
@@ -605,6 +605,7 @@ export function RequestInspector({ request, detail, loading, error }: { request:
         <div className="mt-1.5 flex flex-wrap gap-1"><StateBadge state={request.lifecycle} /><StatusChip tone="neutral">Seerr {seerrStateLabel(request.seerr_state)}</StatusChip></div>
       </div>
     </div>
+    {requestAwaitingApproval(request) ? <div className="mt-3 rounded-lg border border-brand-line bg-brand-soft px-3 py-2.5"><div className="text-[12.5px] font-semibold text-fg">Waiting for your approval in Seerr</div><div className="mt-0.5 text-[12px] text-fg-muted">Approving sends the decision to Seerr; Media Manager then takes the request through normal intake.</div><div className="mt-2"><RequestDecisionButtons request={request} onDone={onDecided} /></div></div> : null}
     {request.attention_detail || request.intake_error ? <div className="mt-3"><InlineNotice tone="warn" title="Needs attention">{request.attention_detail || request.intake_error}</InlineNotice></div> : null}
     <div className="mt-3">
       <KeyValue label="Seerr request ID" value={request.request_id} />
@@ -666,14 +667,14 @@ export function LiveRequestsScreen() {
           : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Status</TableHead><TableHead>Profile</TableHead><TableHead>Requester</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>
             {filtered.map((item) => <TableRow key={item.id} onClick={() => setSelectedID(item.id)} className={cn("cursor-pointer", selectedID === item.id && "bg-brand-soft")}>
               <TableCell><div className="flex min-w-[220px] items-center gap-3"><MiniPoster src={item.poster_url} title={item.title || "Request"} /><div className="min-w-0"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedID(item.id) }} aria-pressed={selectedID === item.id} className="block max-w-[260px] truncate text-left text-[13px] font-semibold text-fg outline-none hover:underline hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring">{item.title || `Request ${item.request_id}`}</button><div className="text-[12px] text-fg-muted">{item.media_kind === "series" ? "TV" : "Movie"} · {item.year ?? "Year unknown"} · Seerr #{item.request_id}{item.seerr_instance_name ? ` · ${item.seerr_instance_name}` : ""}</div>{item.media_kind === "series" && item.season_count ? <div className="text-[12px] text-fg-subtle">{item.available_seasons}/{item.season_count} seasons available</div> : null}</div></div></TableCell>
-                            <TableCell><StateBadge state={item.lifecycle} />{item.attention_detail || item.intake_error ? <div className="mt-1 max-w-xs text-[12px] text-warn">{item.attention_detail || item.intake_error}</div> : null}</TableCell>
+                            <TableCell>{requestAwaitingApproval(item) ? <div onClick={(event) => event.stopPropagation()}><RequestDecisionButtons request={item} onDone={refresh} /></div> : <StateBadge state={item.lifecycle} />}{item.attention_detail || item.intake_error ? <div className="mt-1 max-w-xs text-[12px] text-warn">{item.attention_detail || item.intake_error}</div> : null}</TableCell>
               <TableCell className="text-[12px]">{item.quality_profile || "—"}</TableCell>
               <TableCell className="text-[12px]">{item.requester || "—"}</TableCell>
               <TableCell className="whitespace-nowrap text-[12px] text-fg-subtle">{timeAgo(item.updated_at)}</TableCell>
             </TableRow>)}
           </TableBody></Table></div>}
       </Panel>
-      {selected ? <RequestInspector request={selected} detail={detail.data} loading={detail.data === null && !detail.error} error={detail.error} /> : <Panel title="Request detail" subtitle="Select a request to inspect its exact intake and lifecycle state."><div className="rounded-lg border border-dashed border-line-strong px-3 py-10 text-center text-[13px] text-fg-muted">No request is selected.</div></Panel>}
+      {selected ? <RequestInspector request={selected} detail={detail.data} loading={detail.data === null && !detail.error} error={detail.error} onDecided={refresh} /> : <Panel title="Request detail" subtitle="Select a request to inspect its exact intake and lifecycle state."><div className="rounded-lg border border-dashed border-line-strong px-3 py-10 text-center text-[13px] text-fg-muted">No request is selected.</div></Panel>}
     </div>
   </div>
 }

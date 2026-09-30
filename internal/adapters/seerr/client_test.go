@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
@@ -160,5 +161,63 @@ func TestMetadataParsesRichTMDBFields(t *testing.T) {
 	}
 	if metadata.OriginalName != "Original" || metadata.Overview != "Overview" || metadata.OriginalLanguage != "da" || len(metadata.EpisodeRunTime) != 1 || metadata.EpisodeRunTime[0] != 45 || len(metadata.Genres) != 1 || metadata.Networks[0].Name != "DR" || metadata.VoteCount != 100 {
 		t.Fatalf("rich metadata was not decoded: %+v", metadata)
+	}
+}
+
+func TestDecideRequestPostsExactDecisionAndVerifiesResult(t *testing.T) {
+	for _, test := range []struct {
+		decision RequestDecision
+		status   int
+	}{{DecisionApprove, RequestStatusApproved}, {DecisionDecline, RequestStatusDeclined}} {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.Method != http.MethodPost || request.URL.Path != "/api/v1/request/42/"+string(test.decision) {
+				t.Fatalf("unexpected decision call %s %s", request.Method, request.URL.Path)
+			}
+			if request.Header.Get("X-Api-Key") != "secret" {
+				t.Fatal("missing Seerr API key")
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"id":42,"status":` + strconv.Itoa(test.status) + `,"type":"movie","media":{"id":7}}`))
+		}))
+		client, err := New(Config{BaseURL: server.URL, APIKey: "secret", AllowHTTP: true}, server.Client().Transport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := client.DecideRequest(context.Background(), 42, test.decision)
+		server.Close()
+		if err != nil || result.ID != 42 || result.Status != test.status {
+			t.Fatalf("%s result=%+v err=%v", test.decision, result, err)
+		}
+	}
+}
+
+func TestDecideRequestRejectsMismatchedOrUnconfirmedResults(t *testing.T) {
+	for name, body := range map[string]string{
+		"other request":  `{"id":43,"status":2}`,
+		"still pending":  `{"id":42,"status":1}`,
+		"declined twist": `{"id":42,"status":3}`,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			_, _ = writer.Write([]byte(body))
+		}))
+		client, err := New(Config{BaseURL: server.URL, APIKey: "secret", AllowHTTP: true}, server.Client().Transport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.DecideRequest(context.Background(), 42, DecisionApprove)
+		server.Close()
+		if err == nil {
+			t.Fatalf("%s: approval was accepted without Seerr confirming it", name)
+		}
+	}
+	client, err := New(Config{BaseURL: "https://seerr.invalid", APIKey: "secret"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DecideRequest(context.Background(), 42, RequestDecision("delete")); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("unknown decision err=%v, want ErrInvalidConfig", err)
+	}
+	if _, err := client.DecideRequest(context.Background(), 0, DecisionApprove); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid id err=%v, want ErrInvalidConfig", err)
 	}
 }

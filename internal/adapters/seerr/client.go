@@ -247,6 +247,73 @@ func (client *Client) Request(ctx context.Context, id int64) (Request, error) {
 	return result, nil
 }
 
+// RequestDecision is an owner decision on a pending Seerr request.
+type RequestDecision string
+
+const (
+	DecisionApprove RequestDecision = "approve"
+	DecisionDecline RequestDecision = "decline"
+)
+
+// Seerr request statuses returned after a decision.
+const (
+	RequestStatusPending  = 1
+	RequestStatusApproved = 2
+	RequestStatusDeclined = 3
+)
+
+// DecideRequest approves or declines one pending Seerr request and returns
+// Seerr's resulting request. It succeeds only when Seerr echoes the same
+// request identity with the status that matches the decision.
+func (client *Client) DecideRequest(ctx context.Context, id int64, decision RequestDecision) (Request, error) {
+	want := RequestStatusApproved
+	if decision == DecisionDecline {
+		want = RequestStatusDeclined
+	} else if decision != DecisionApprove {
+		return Request{}, ErrInvalidConfig
+	}
+	if id <= 0 {
+		return Request{}, ErrInvalidConfig
+	}
+	endpoint := *client.base
+	endpoint.Path = strings.TrimSuffix(client.base.Path, "/") + "/api/v1/request/" + strconv.FormatInt(id, 10) + "/" + string(decision)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), nil)
+	if err != nil {
+		return Request{}, err
+	}
+	request.Header.Set("X-Api-Key", client.apiKey)
+	request.Header.Set("Accept", "application/json")
+	response, err := client.http.Do(request)
+	if err != nil {
+		return Request{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return Request{}, ErrRequestNotFound
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return Request{}, fmt.Errorf("Seerr returned HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, client.responseLimit+1))
+	if err != nil {
+		return Request{}, err
+	}
+	if int64(len(body)) > client.responseLimit {
+		return Request{}, ErrResponseTooLarge
+	}
+	var result Request
+	if err := json.Unmarshal(body, &result); err != nil {
+		return Request{}, err
+	}
+	if result.ID != id {
+		return Request{}, errors.New("Seerr returned a different request identity")
+	}
+	if result.Status != want {
+		return Request{}, fmt.Errorf("Seerr reported request status %d after %s", result.Status, decision)
+	}
+	return result, nil
+}
+
 func (client *Client) SetMediaStatus(ctx context.Context, id int64, status MediaStatus, seasons []int16) (Media, error) {
 	if id <= 0 || (status != MediaStatusAvailable && status != MediaStatusPartial) {
 		return Media{}, ErrInvalidConfig

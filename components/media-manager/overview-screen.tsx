@@ -4,6 +4,8 @@ import * as React from "react"
 import Link from "next/link"
 import { CheckCircle2, Plus, RefreshCw } from "lucide-react"
 
+import { toast } from "sonner"
+
 import { Button } from "@/components/ui/button"
 import {
   loadCalendar,
@@ -14,12 +16,13 @@ import {
   loadSystemInfo,
   loadWanted,
   loadWorkflows,
+  reconfirmTimedOutPlex,
   type APISourceStatus,
   type APISystemHealth,
 } from "@/lib/media-manager-api"
 import { cn } from "@/lib/utils"
 import { isActivelyAcquiring, isCompleted } from "@/lib/workflow-states"
-import { AttentionCard, attentionEntries, ConsoleRow, DownloadProgress, mediaHref, MiniPoster, StageStepper } from "./console"
+import { AttentionCard, attentionEntries, ConsoleRow, DownloadProgress, mediaHref, MiniPoster, RequestDecisionButtons, requestAwaitingApproval, StageStepper } from "./console"
 import { ErrorNotice, LoadingPanel, timeAgo, useLiveData } from "./live-operational-screens"
 import { PageHeader, Panel, StateBadge, StatusChip } from "./ui"
 
@@ -77,6 +80,7 @@ export function systemTiles(health: APISystemHealth, startedAt?: string): Tile[]
 
 export function LiveOverviewScreen() {
   const { data, error, refresh } = useLiveData(overviewLoader)
+  const [rechecking, setRechecking] = React.useState(false)
   const header = <PageHeader title="Overview" subtitle={`${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })} — everything below is live persisted state`} actions={<><Button variant="outline" size="sm" onClick={refresh}><RefreshCw /> Refresh</Button><Button asChild size="sm"><Link href="/discover"><Plus /> Add media</Link></Button></>} />
   if (!data && !error) return <div className="space-y-5">{header}<LoadingPanel label="Loading the live overview…" /></div>
   if (!data) return <div className="space-y-5">{header}<ErrorNotice error={error} /></div>
@@ -92,6 +96,20 @@ export function LiveOverviewScreen() {
   const airing = data.calendar.filter((entry) => new Date(entry.air_date).getTime() >= now - 86400000).sort((left, right) => new Date(left.air_date).getTime() - new Date(right.air_date).getTime()).slice(0, 4)
   const retries = workflows.filter((workflow) => workflow.next_rescan_at && !workflow.owner_action_required && new Date(workflow.next_rescan_at).getTime() >= now).sort((left, right) => new Date(left.next_rescan_at ?? 0).getTime() - new Date(right.next_rescan_at ?? 0).getTime()).slice(0, 4)
   const monitored = data.wanted.filter((item) => !item.owner_action_required).length
+  const plexTimedOut = workflows.filter((workflow) => workflow.attention_code === "plex_timeout" && workflow.state === "needs_attention").length
+  async function recheckPlex() {
+    setRechecking(true)
+    try {
+      const result = await reconfirmTimedOutPlex()
+      toast.success(result.queued.length ? `Plex re-check queued for ${result.queued.length} title${result.queued.length === 1 ? "" : "s"}` : "Nothing could be re-checked")
+      if (result.skipped.length) toast.warning(`${result.skipped.length} left alone: ${result.skipped[0].reason}`)
+      refresh()
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Could not re-check Plex")
+    } finally {
+      setRechecking(false)
+    }
+  }
   const requests = [...data.requests].sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()).slice(0, 4)
 
   return <div className="space-y-4">
@@ -143,7 +161,7 @@ export function LiveOverviewScreen() {
         <Panel flush title="Recent requests" subtitle="From Seerr" action={<Button asChild variant="ghost" size="sm"><Link href="/requests">View all →</Link></Button>}>
           {requests.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">No Seerr requests are persisted yet.</div>
             : requests.map((request) => <ConsoleRow key={request.id} href="/requests" leading={<MiniPoster src={request.poster_url ?? (request.media_id ? posters.get(request.media_id) : undefined)} title={request.title || "Request"} />} title={request.title || `Request ${request.request_id}`} caption={`${request.media_kind === "series" ? "TV" : "Movie"} · ${request.requester || "Unknown requester"} · ${timeAgo(request.updated_at)}`}>
-              <StateBadge state={request.lifecycle} />
+              {requestAwaitingApproval(request) ? <RequestDecisionButtons request={request} onDone={refresh} /> : <StateBadge state={request.lifecycle} />}
             </ConsoleRow>)}
         </Panel>
 
@@ -153,6 +171,7 @@ export function LiveOverviewScreen() {
             <div><div className="text-[22px] font-extrabold tabular-nums text-fg">{data.dashboard.counts.current_files}</div><div className="text-[10.5px] text-fg-subtle">current managed files</div></div>
             <div><div className="text-[22px] font-extrabold tabular-nums text-fg">{data.dashboard.counts.movies + data.dashboard.counts.series}</div><div className="text-[10.5px] text-fg-subtle">titles cataloged</div></div>
           </div>
+          {plexTimedOut ? <div className="mt-3 rounded-lg border border-warn-line bg-warn-soft px-3 py-2.5 text-[12px] text-warn"><div className="font-semibold">{plexTimedOut} title{plexTimedOut === 1 ? "" : "s"} waiting on Plex confirmation</div><div className="mt-0.5 text-fg-muted">Re-checking asks Plex about each exact path again, within each title&apos;s retry limit.</div><Button size="sm" variant="outline" className="mt-2" disabled={rechecking} onClick={() => void recheckPlex()}><RefreshCw className={cn(rechecking && "animate-spin")} /> Re-check Plex</Button></div> : null}
           <div className="mt-3"><StatusChip tone="good">Nothing reaches Plex unverified</StatusChip></div>
         </Panel>
       </div>

@@ -4,8 +4,11 @@ import * as React from "react"
 import Link from "next/link"
 import Image from "next/image"
 
+import { toast } from "sonner"
+
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import type { APIWantedItem, APIWorkflow } from "@/lib/media-manager-api"
+import { decideRequest, type APIRequest, type APIWantedItem, type APIWorkflow } from "@/lib/media-manager-api"
 import { cn } from "@/lib/utils"
 import { attentionHeadline, retryPlan, workflowStep, workflowSteps } from "@/lib/workflow-presentation"
 import { StatusChip } from "./ui"
@@ -126,5 +129,42 @@ export function DownloadProgress({ workflow, className }: { workflow: Pick<APIWo
   return <span className={cn("inline-flex min-w-[96px] flex-col gap-1", className)} title={`Reported by AltMount${observed ? ` at ${observed}` : ""}`}>
     <span className="flex items-baseline justify-between gap-2 text-[11px]"><span className="truncate text-fg-subtle">{workflow.download_stage || "AltMount"}</span><b className="font-semibold tabular-nums text-brand-text">{percent}%</b></span>
     <span className="h-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label="Download progress reported by AltMount" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><i className="block h-full rounded-full bg-brand" style={{ width: `${percent}%` }} /></span>
+  </span>
+}
+
+/** True only for a request Seerr still holds for approval. */
+export function requestAwaitingApproval(request: Pick<APIRequest, "seerr_state" | "lifecycle">) {
+  return request.seerr_state === "1" && request.lifecycle === "not_approved"
+}
+
+/**
+ * Approve or decline a pending Seerr request. The decision is made in Seerr;
+ * Media Manager then re-reads the request through normal intake. Declining
+ * asks for confirmation because Seerr notifies the requester.
+ */
+export function RequestDecisionButtons({ request, onDone, size = "sm" }: { request: Pick<APIRequest, "id" | "title" | "request_id" | "requester">; onDone?: () => void; size?: "sm" | "default" }) {
+  const [busy, setBusy] = React.useState(false)
+  async function decide(decision: "approve" | "decline") {
+    setBusy(true)
+    try {
+      await decideRequest(request.id, decision)
+      toast.success(decision === "approve" ? "Approved in Seerr · intake will pick it up" : "Declined in Seerr")
+      onDone?.()
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Seerr did not confirm the decision")
+    } finally {
+      setBusy(false)
+    }
+  }
+  const name = request.title || `Request ${request.request_id}`
+  return <span className="flex shrink-0 items-center gap-1.5">
+    <Button type="button" size={size} disabled={busy} onClick={() => void decide("approve")} aria-label={`Approve ${name}`}>Approve</Button>
+    <AlertDialog>
+      <AlertDialogTrigger asChild><Button type="button" size={size} variant="ghost" disabled={busy} aria-label={`Decline ${name}`}>Decline</Button></AlertDialogTrigger>
+      <AlertDialogContent className="border-line-strong bg-surface-2 text-fg">
+        <AlertDialogHeader><AlertDialogTitle>Decline {name}?</AlertDialogTitle><AlertDialogDescription>Seerr marks the request declined{request.requester ? ` and may notify ${request.requester}` : ""}. Media Manager will not search for it.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel>Keep pending</AlertDialogCancel><AlertDialogAction onClick={() => void decide("decline")}>Decline in Seerr</AlertDialogAction></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </span>
 }
