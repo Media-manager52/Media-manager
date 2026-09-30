@@ -57,8 +57,8 @@ func TestParseRejectsUnknownOrMissingVideoEvidence(t *testing.T) {
 	if _, err := Parse([]byte(`{"format":{"format_name":"matroska"},"streams":[],"invented":true}`)); err == nil {
 		t.Fatal("unknown document field was accepted")
 	}
-	if _, err := Parse([]byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"audio","codec_name":"aac","channels":2,"tags":{},"disposition":{}}]}`)); err == nil {
-		t.Fatal("document without video was accepted")
+	if _, err := Parse([]byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"audio","codec_name":"aac","channels":2,"tags":{},"disposition":{}}]}`)); !errors.Is(err, ErrNoVideoTrack) {
+		t.Fatalf("audio-only document error=%v, want ErrNoVideoTrack", err)
 	}
 	if _, err := Parse([]byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"video","codec_name":"hevc","width":3840,"height":2160,"tags":{},"disposition":{},"invented":true}]}`)); err == nil {
 		t.Fatal("unknown stream field was accepted")

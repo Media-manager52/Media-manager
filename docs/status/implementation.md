@@ -17,6 +17,16 @@ they are not evidence that a release is defective. Deleted Seerr requests are
 shown as deleted rather than awaiting approval, while linked workflow attention
 and Plex confirmation still take precedence.
 
+A successfully parsed audio-only media document now reports a typed
+`ErrNoVideoTrack`. Acquisition preserves that evidence through subtitle
+inspection and records `no_playable_media` using normal exact-package failure
+recovery. Timeouts, unavailable codecs and generic probe errors remain
+infrastructure failures; matching error text alone cannot exclude a release.
+Output inventories stay retained. A held search with no workflow attention
+appears as waiting in Requests because its bounded retry is already scheduled;
+intake configuration failures and attention on other linked workflows retain
+precedence.
+
 The companion AltMount fixes are maintained in the local AltMount source branch
 `fix/bounded-probe-failover`: commit `0c3325b` gives provider fallback its bounded
 15-second budget instead of cutting it off at two seconds; `c724ec8` recognizes

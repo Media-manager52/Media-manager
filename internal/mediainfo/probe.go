@@ -27,6 +27,10 @@ const (
 
 var ErrOutputLimit = errors.New("media-info output exceeded its limit")
 
+// ErrNoVideoTrack identifies a successfully parsed media document with no
+// video. It is distinct from an unavailable or inconclusive inspection.
+var ErrNoVideoTrack = errors.New("media-info has no video track")
+
 type Evidence struct {
 	SchemaVersion   int            `json:"schema_version"`
 	ContainerNames  []string       `json:"container_names"`
@@ -218,7 +222,7 @@ func Parse(body []byte) (Evidence, error) {
 		}
 	}
 	if len(result.VideoTracks) == 0 {
-		return Evidence{}, errors.New("media-info has no video track")
+		return Evidence{}, ErrNoVideoTrack
 	}
 	result.Facts = deriveFacts(result)
 	return result, nil
