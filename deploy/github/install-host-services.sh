@@ -14,6 +14,7 @@ install -m 755 "${source_dir}/runner-hook.sh" /usr/local/libexec/mm-ci-job-compl
 install -m 755 "${source_dir}/deploy-broker.py" /usr/local/libexec/media-manager-deploy.py
 install -m 644 "${source_dir}/deploy.service" /etc/systemd/system/media-manager-github-deploy.service
 install -m 644 "${source_dir}/deploy.path" /etc/systemd/system/media-manager-github-deploy.path
+install -m 755 -o mm-ci -g mm-ci /var/lib/media-manager-ci/runner/bin/runsvc.sh /var/lib/media-manager-ci/runner/runsvc.sh
 install -m 644 "${source_dir}/runner.service" /var/lib/media-manager-ci/.config/systemd/user/mm-github-runner.service
 install -d -m 755 "/etc/systemd/system/user-${ci_uid}.slice.d" "/etc/systemd/system/user@${ci_uid}.service.d"
 cat >"/etc/systemd/system/user-${ci_uid}.slice.d/resources.conf" <<'UNIT'

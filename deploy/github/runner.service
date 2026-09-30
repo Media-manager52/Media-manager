@@ -5,7 +5,7 @@ Requires=docker.service
 
 [Service]
 WorkingDirectory=/var/lib/media-manager-ci/runner
-ExecStart=/var/lib/media-manager-ci/runner/run.sh
+ExecStart=/var/lib/media-manager-ci/runner/runsvc.sh
 Restart=on-failure
 RestartSec=10
 KillMode=mixed
@@ -17,7 +17,7 @@ Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/mm-ci-job-started
 Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/mm-ci-job-completed.sh
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+InaccessiblePaths=/home /root
 ReadWritePaths=/var/lib/media-manager-ci /run/user/%U /var/lib/media-manager-deploy/inbox
 PrivateTmp=true
 UMask=0077
