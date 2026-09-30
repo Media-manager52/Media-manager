@@ -14,8 +14,6 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-const maxAcquisitionAttemptsPerRound = 2
-
 type SubtitleVerificationRecord struct {
 	ID                 uuid.UUID       `json:"id"`
 	WorkflowID         uuid.UUID       `json:"workflow_id"`

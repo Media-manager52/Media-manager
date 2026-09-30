@@ -193,7 +193,7 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 		if command.RowsAffected() != 1 {
 			continue
 		}
-		if err := insertInitialAcquisitionRound(ctx, transaction, episodeWorkflowID, mediaID, profileID, episodeVariant, now); err != nil {
+		if err := store.insertInitialAcquisitionRound(ctx, transaction, episodeWorkflowID, mediaID, profileID, episodeVariant, now); err != nil {
 			return true, err
 		}
 		if err := insertEpisodeExpectation(ctx, transaction, episodeWorkflowID, mediaID, seriesIdentity, sourceRevision, scope.Season, episode.Episode, now); err != nil {

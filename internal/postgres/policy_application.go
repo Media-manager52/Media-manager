@@ -128,7 +128,7 @@ func (store *Store) ApplyQualityProfilePolicy(ctx context.Context, profileID uui
 	closeReason := fmt.Sprintf("quality policy superseded by profile version %d", profileVersion)
 	for _, item := range candidates {
 		outcome := PolicyWorkflowOutcome{WorkflowID: item.id, State: string(item.state)}
-		skip := policySkipReason(item, profileVersion)
+		skip := policySkipReason(item, profileVersion, store.AcquisitionLimits().RetainedFailedOutputs)
 		if skip != "" {
 			outcome.Outcome = skip
 			result.Skipped++
@@ -150,7 +150,7 @@ func (store *Store) ApplyQualityProfilePolicy(ctx context.Context, profileID uui
 		}
 		roundID := uuid.NewV7()
 		if _, err := transaction.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,upgrade_baseline_link_versions,opened_at)
-			VALUES($1,$2,$3,'open',$4,0,$5,$6,$7,$8)`, roundID.String(), item.id.String(), item.maxOrdinal+1, maxAcquisitionAttemptsPerRound, profileVersion, policy, baseline, now.UTC()); err != nil {
+			VALUES($1,$2,$3,'open',$4,0,$5,$6,$7,$8)`, roundID.String(), item.id.String(), item.maxOrdinal+1, store.AcquisitionLimits().AttemptsPerRound, profileVersion, policy, baseline, now.UTC()); err != nil {
 			return PolicyApplication{}, err
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1 AND state IN ('waiting','ready')`, item.id.String(), now.UTC()); err != nil {
@@ -218,7 +218,7 @@ func (store *Store) ApplyQualityProfilePolicy(ctx context.Context, profileID uui
 	return result, transaction.Commit(ctx)
 }
 
-func policySkipReason(item policyWorkflow, profileVersion int64) string {
+func policySkipReason(item policyWorkflow, profileVersion int64, retainedLimit int) string {
 	var roundVersion int64
 	switch {
 	case item.openRoundVersion != nil:
@@ -254,7 +254,7 @@ func policySkipReason(item policyWorkflow, profileVersion int64) string {
 		if item.state != workflows.StateWaiting {
 			return PolicyOutcomeOwnerRecoveryRequired
 		}
-		if item.retainedFailedCount >= 4 {
+		if item.retainedFailedCount >= retainedLimit {
 			return PolicyOutcomeRetainedOutputLimit
 		}
 	}

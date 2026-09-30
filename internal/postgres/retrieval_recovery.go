@@ -28,7 +28,7 @@ type retrievalAdmission struct {
 
 // inspectRetrievalAdmission locks the exact selection, then checks the gates
 // that can be known before spending a provider grab. It never opens a round.
-func inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, retrieval RetrievalContext) (retrievalAdmission, error) {
+func (store *Store) inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, retrieval RetrievalContext) (retrievalAdmission, error) {
 	var result retrievalAdmission
 	var state, selected string
 	var revision, policyVersion int64
@@ -75,8 +75,8 @@ func inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, retrieval Retriev
 		result.code, result.detail = "release_retrieval_policy_changed", "The policy or current publication changed after this round opened; review the candidate before retrieving another NZB."
 	case used >= limit:
 		result.code, result.detail = "release_retrieval_round_full", "The open acquisition round has no submission slots left; no further NZB was requested."
-	case retained >= maxRetainedFailedOutputs:
-		result.code, result.detail = "retained_failed_output_limit", "Four failed outputs are retained; owner storage review is required before another NZB request."
+	case retained >= store.AcquisitionLimits().RetainedFailedOutputs:
+		result.code, result.detail = "retained_failed_output_limit", fmt.Sprintf("%d failed outputs are retained (limit %d); owner storage review is required before another NZB request.", retained, store.AcquisitionLimits().RetainedFailedOutputs)
 	case result.failures >= maxRoundRetrievalFailures:
 		result.code, result.detail = "release_retrieval_limit", "Four candidates failed NZB retrieval in this round; owner review is required. Submission slots were not consumed by these failures."
 	}
@@ -100,7 +100,7 @@ func (store *Store) PrepareReleaseRetrieval(ctx context.Context, retrieval Retri
 		return false, err
 	}
 	defer tx.Rollback(ctx)
-	admission, err := inspectRetrievalAdmission(ctx, tx, retrieval)
+	admission, err := store.inspectRetrievalAdmission(ctx, tx, retrieval)
 	if errors.Is(err, ErrConcurrentModification) || errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -130,7 +130,7 @@ func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval
 		return err
 	}
 	defer tx.Rollback(ctx)
-	admission, err := inspectRetrievalAdmission(ctx, tx, retrieval)
+	admission, err := store.inspectRetrievalAdmission(ctx, tx, retrieval)
 	if errors.Is(err, ErrConcurrentModification) || errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

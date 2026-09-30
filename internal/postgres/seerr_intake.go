@@ -383,7 +383,7 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		if _, err := transaction.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at) VALUES($1,$2,'monitored',$3,$4,$5,$6,1,$7,$7)`, workflowID.String(), result.MediaID.String(), rootID.String(), profileID.String(), clientID.String(), variant.Name, now.UTC()); err != nil {
 			return IntakeResult{}, err
 		}
-		if err := insertInitialAcquisitionRound(ctx, transaction, workflowID, result.MediaID, profileID, variant.Name, now); err != nil {
+		if err := store.insertInitialAcquisitionRound(ctx, transaction, workflowID, result.MediaID, profileID, variant.Name, now); err != nil {
 			return IntakeResult{}, err
 		}
 		if variant.Season != nil {

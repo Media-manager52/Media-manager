@@ -86,6 +86,14 @@ transmission; external artwork therefore exercises the local placeholder
 without contacting its provider. Traces and video are disabled. Results stay
 under `.sites-runtime/live-playwright-results/`.
 
+Owner retry budgets are configurable in `.env`: `ACQUISITION_ATTEMPTS_PER_ROUND`
+(default 2, range 1–6) and `ACQUISITION_RETAINED_OUTPUT_LIMIT` (default 4, range
+1–12). Four attempts and eight retained failures allow more distinct alternatives
+while keeping work bounded. Old rounds retain their immutable limits; open a
+new round through the owner action. Failed files, exact exclusions, indexer
+pacing and verification requirements remain enforced. See the
+[operations runbook](docs/operations/runbook.md#acquisition-budget-changes).
+
 Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, the UI, and the API use isolated private networks; only the authenticated API also joins the external integrations network. Cosmos Cloud terminates TLS and authenticates the owner, then routes `/api/*` and `/health/*` to the API and every other path to the UI on one origin. The Cosmos `/api` route injects the owner bearer token server-side. The loopback API listener is bound to `127.0.0.1:${MEDIA_MANAGER_API_PORT}` and is never published to a LAN or public address.
 
 ### Public edge routing

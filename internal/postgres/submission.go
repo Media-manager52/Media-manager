@@ -214,7 +214,7 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 		WHERE job.workflow_id=$1 AND job.acquisition_outcome IS NOT NULL AND job.acquisition_outcome <> 'output_verified'`, retrieval.Workflow.ID.String()).Scan(&retainedOutputs); err != nil {
 		return SubmissionIntent{}, err
 	}
-	if retainedOutputs >= 4 {
+	if retainedOutputs >= store.AcquisitionLimits().RetainedFailedOutputs {
 		return SubmissionIntent{}, errors.New("retained failed-output limit reached; owner storage review is required before another submission")
 	}
 	var priorJobText string

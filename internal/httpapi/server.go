@@ -1053,6 +1053,7 @@ func (server *Server) systemInfo(writer http.ResponseWriter, request *http.Reque
 		"publication_type":         "plex_safe_symlink",
 		"upgrade_replacement_gate": "plex_path_and_identity_confirmation",
 		"recycle_retention_days":   30,
+		"acquisition_limits":       server.store.AcquisitionLimits(),
 		"public_edge_owner":        "Cosmos Cloud",
 		"machine_api_keys":         false,
 		"api_prefix":               "/api/v1",

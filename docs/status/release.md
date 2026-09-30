@@ -1,5 +1,23 @@
 # Media Manager core release status
 
+## Configurable acquisition budget verification (2026-09-30)
+
+The owner requested more acquisition slots after reviewing the remaining Seerr
+backlog. Startup configuration now supports bounded round attempts (default 2,
+range 1–6) and retained failed outputs (default 4, range 1–12). New rounds
+snapshot the attempt budget; old snapshots and exact release/package exclusions
+stay unchanged. Raising retention never deletes failed media or starts work.
+Schema 43 widens slot constraints while preserving the immutable-round trigger.
+
+Verification passed: full Go vet and race suite with disposable PostgreSQL
+(postgres package: 377 seconds), focused configurable-budget and schema-42
+upgrade regressions, lint/typecheck/build, 45 UI unit cases, 133 browser cases,
+docs links, Compose configuration, and an isolated container build/smoke with
+schema 43 and four/eight limits. The default two/four behavior remains tested.
+The workflow table displays the configured retention limit and actual round
+snapshot; messages no longer assume every round has two slots. Production
+recovery evidence is recorded separately in the owner's private report.
+
 ## Seerr acquisition and request-status follow-up (2026-09-30)
 
 Production was verified at `ef6a628`, schema 42, after PRs #25–29. Provider

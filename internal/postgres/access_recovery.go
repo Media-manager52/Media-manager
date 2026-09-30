@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 	"uuid"
 
@@ -33,7 +34,7 @@ const accessRejectedRetryQuery = `FROM workflows w
  AND (SELECT count(*) FROM altmount_jobs j WHERE j.round_id=r.id)<r.attempt_limit_snapshot
  AND (SELECT count(*) FROM workflow_release_exclusions x WHERE x.retrieval_round_id=r.id)<4+CASE WHEN e.retrieval_round_id=r.id THEN 1 ELSE 0 END
  AND (SELECT count(DISTINCT j.id) FROM altmount_jobs j JOIN altmount_output_inventories v ON v.job_id=j.id
-  WHERE j.workflow_id=w.id AND j.acquisition_outcome IS NOT NULL AND j.acquisition_outcome<>'output_verified')<4
+  WHERE j.workflow_id=w.id AND j.acquisition_outcome IS NOT NULL AND j.acquisition_outcome<>'output_verified')<%d
  AND r.upgrade_baseline_link_versions=(SELECT COALESCE(string_agg(v.id::text,',' ORDER BY v.id),'') FROM workflows published
   JOIN library_link_versions v ON v.workflow_id=published.id AND v.state='current' WHERE published.media_id=w.media_id AND published.variant=w.variant)
  AND NOT EXISTS(SELECT 1 FROM workflow_attempted_releases a JOIN release_candidates attempted ON attempted.id=a.candidate_id
@@ -49,6 +50,10 @@ const accessRejectedRetryQuery = `FROM workflows w
  AND NOT EXISTS(SELECT 1 FROM adopted_files a WHERE a.media_id=w.media_id AND a.variant=w.variant AND a.state='current'
   AND NOT EXISTS(SELECT 1 FROM adopted_replacement_authorizations auth WHERE auth.workflow_id=w.id AND auth.adopted_file_id=a.id
    AND auth.destination_relative=a.destination_relative AND auth.source_size=a.source_size AND auth.source_modtime_ns=a.source_modtime_ns))`
+
+func (store *Store) accessRejectedRetryQuery() string {
+	return fmt.Sprintf(accessRejectedRetryQuery, store.AcquisitionLimits().RetainedFailedOutputs)
+}
 
 // RetryAccessRejectedRelease queues only the owner-reviewed selected release
 // inside its existing round. Revision and candidate guards prevent a stale UI
@@ -71,7 +76,7 @@ func (store *Store) RetryAccessRejectedRelease(ctx context.Context, workflowID, 
 	}
 	var roundID, indexerID, nativeKey, errorCode, originalReason string
 	var originalCreatedAt time.Time
-	err = tx.QueryRow(ctx, `SELECT r.id::text,i.id::text,c.native_key,COALESCE(e.retrieval_error_code,CASE WHEN e.reason LIKE '%(newznab_http_401)' THEN 'newznab_http_401' ELSE 'newznab_http_403' END),e.reason,e.created_at `+accessRejectedRetryQuery+`
+	err = tx.QueryRow(ctx, `SELECT r.id::text,i.id::text,c.native_key,COALESCE(e.retrieval_error_code,CASE WHEN e.reason LIKE '%(newznab_http_401)' THEN 'newznab_http_401' ELSE 'newznab_http_403' END),e.reason,e.created_at `+store.accessRejectedRetryQuery()+`
   AND w.id=$1 AND c.id=$2 FOR UPDATE OF r,c,e`, workflowID.String(), candidateID.String()).Scan(&roundID, &indexerID, &nativeKey, &errorCode, &originalReason, &originalCreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errors.New("this release cannot be retried: recovery requires an eligible, unsubmitted 401/403 rejection in the current open round")

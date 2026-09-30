@@ -21,8 +21,9 @@ const workflows = [
     round_ordinal: 1,
     round_state: "open",
     round_slots_used: 0,
-    round_attempt_limit: 2,
-    retained_output_count: 0,
+    round_attempt_limit: 4,
+    retained_output_count: 4,
+    retained_output_limit: 8,
     retained_output_bytes: 0,
     excluded_release_count: 1,
     search_allowed: true,
@@ -152,5 +153,12 @@ test("workflow table shows every column at 1440px without sideways scrolling", a
   expect(fit).not.toBeNull()
   expect(fit!.scroll, `table is ${fit!.scroll}px inside a ${fit!.visible}px panel`).toBeLessThanOrEqual(fit!.visible + 1)
   await expect(page.getByRole("columnheader", { name: "Actions" })).toBeInViewport()
+  expect(unexpected).toEqual([])
+})
+
+test("workflow table shows configured attempt and retention budgets", async ({ page }) => {
+  const unexpected = await openQueue(page, 1440)
+  await expect(page.getByText("Round 1 · 0/4 slots · 0 lifetime", { exact: true })).toBeVisible()
+  await expect(page.getByText(/4\/8 retained/)).toBeVisible()
   expect(unexpected).toEqual([])
 })
