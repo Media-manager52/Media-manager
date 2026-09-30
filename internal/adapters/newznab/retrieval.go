@@ -22,6 +22,7 @@ var (
 		"msgnews.live":       path32Permalink,
 		"ninjacentral.co.za": path32Permalink,
 		"nzbfinder.ws":       nzbFinderPermalink,
+		"treasure-maps.com":  path32Permalink,
 	}
 	sameOriginPathDownloadContracts = map[string]pathDownloadContract{
 		"abnzb.com":          {permalink: path32Permalink, download: path32Download},
@@ -40,7 +41,60 @@ var (
 	canonicalDownloadHosts = map[string]string{
 		"msgnews.live": "www.msgnews.live",
 	}
+	// releaseIDDownloadContracts are verified provider-specific download
+	// endpoints built from the release's own identifier. They exist only for
+	// providers whose t=get answers with a redirect that carries the API key,
+	// which the redirect credential policy must strip. Each entry records one
+	// provider's exact, observed contract; providers do not share a shape.
+	//
+	// treasure-maps (sNZB 1.0.0-snzb, verified 2026-09-30): the feed advertises
+	// https://file.treasure-maps.com/getnzb/<32 hex>?r=<key>, the same 32-hex
+	// ID as its /details/<32 hex> permalink, and t=get answers 302 to
+	// https://file.treasure-maps.com/getnzb?r=<key>&id=<id>. Without r= the
+	// file host answers 403, so the advertised link is requested directly with
+	// the key and no redirect.
+	releaseIDDownloadContracts = map[string]releaseIDDownloadContract{
+		"treasure-maps.com": {host: "file.treasure-maps.com", pathPrefix: "/getnzb/", id: hex32ReleaseID, credentialParam: "r"},
+	}
+	hex32ReleaseID = regexp.MustCompile(`(?i)^[0-9a-f]{32}$`)
 )
+
+type releaseIDDownloadContract struct {
+	host            string
+	pathPrefix      string
+	id              *regexp.Regexp
+	credentialParam string
+}
+
+// releaseIDDownloadTarget returns the verified direct download URL for a
+// provider with a release-ID contract. It reports false for every other
+// provider, which keep their advertised-locator or t=get path unchanged. The
+// API key exists only in the in-memory URL.
+func releaseIDDownloadTarget(nativeKey, configuredBaseURL, apiKey string) (*url.URL, bool, error) {
+	configured, err := url.ParseRequestURI(strings.TrimSpace(configuredBaseURL))
+	if err != nil || !configured.IsAbs() || configured.User != nil {
+		return nil, false, nil
+	}
+	contract, known := releaseIDDownloadContracts[strings.ToLower(configured.Hostname())]
+	if !known {
+		return nil, false, nil
+	}
+	if configured.Scheme != "https" || configured.Port() != "" {
+		return nil, true, errors.New("configured Newznab endpoint does not match the verified download contract")
+	}
+	retrievalID, err := RetrievalID(nativeKey, configuredBaseURL)
+	if err != nil || !contract.id.MatchString(retrievalID) {
+		return nil, true, errors.New("release identifier does not match the verified download contract")
+	}
+	if strings.TrimSpace(apiKey) == "" || len(apiKey) > 512 {
+		return nil, true, errors.New("verified download contract requires the configured API key")
+	}
+	target := &url.URL{Scheme: "https", Host: contract.host, Path: contract.pathPrefix + strings.ToLower(retrievalID)}
+	query := url.Values{}
+	query.Set(contract.credentialParam, apiKey)
+	target.RawQuery = query.Encode()
+	return target, true, nil
+}
 
 type pathDownloadContract struct {
 	permalink *regexp.Regexp

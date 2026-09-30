@@ -289,6 +289,14 @@ func (client *Client) GetNZBPackageFromLocatorGuarded(ctx context.Context, nativ
 	if err != nil {
 		return NZBPackage{}, classified("newznab_download_locator_rejected", errors.New("advertised Newznab download locator was rejected"))
 	}
+	if !advertised {
+		// Providers with a verified release-ID contract are fetched directly;
+		// every other provider keeps the standard t=get path.
+		target, advertised, err = releaseIDDownloadTarget(nativeID, client.config.BaseURL, client.config.APIKey)
+		if err != nil {
+			return NZBPackage{}, classified("newznab_download_locator_rejected", errors.New("verified Newznab download target was rejected"))
+		}
+	}
 	var body []byte
 	if advertised {
 		body, err = client.requestTargetGuarded(ctx, indexers.WorkloadRetrieval, target, client.nzbLimit, guard, true, validate)
