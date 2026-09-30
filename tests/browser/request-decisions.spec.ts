@@ -53,3 +53,35 @@ test("owner approves a pending Seerr request and declining asks first", async ({
   await expect.poll(() => decisions).toEqual([`${seerrInstance}:777 approved`, `${seerrInstance}:777 declined`])
   expect(recorder.unexpected).toEqual([])
 })
+
+test("deciding a request from the Overview stays on the Overview", async ({ page }) => {
+  const recorder = await installOwnerAPI(page, baseURL)
+  const decisions: string[] = []
+  await page.route("**/api/v1/requests**", async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === "POST" && /\/api\/v1\/requests\/[^/]+\/(approve|decline)$/.test(path)) {
+      decisions.push(path.endsWith("/approve") ? "approved" : "declined")
+      await route.fulfill({ status: 202, json: { data: { status: "approved", request_id: "777", seerr_status: 2 } } })
+      return
+    }
+    if (request.method() === "GET" && path === "/api/v1/requests") {
+      await route.fulfill({ status: 200, json: { data: [pending] } })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto("/")
+  await page.getByRole("button", { name: "Decline Pending Browser Movie" }).click()
+  const dialog = page.getByRole("alertdialog", { name: "Decline Pending Browser Movie?" })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole("button", { name: "Keep pending" }).click()
+  await expect(page).toHaveURL(`${baseURL}/`)
+
+  await page.getByRole("button", { name: "Approve Pending Browser Movie" }).click()
+  await expect.poll(() => decisions).toEqual(["approved"])
+  await expect(page).toHaveURL(`${baseURL}/`)
+  await expect(page.getByRole("link", { name: "Pending Browser Movie" })).toHaveAttribute("href", "/requests")
+  expect(recorder.unexpected).toEqual([])
+})

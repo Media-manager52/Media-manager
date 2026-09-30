@@ -160,9 +160,15 @@ export function LiveOverviewScreen() {
 
         <Panel flush title="Recent requests" subtitle="From Seerr" action={<Button asChild variant="ghost" size="sm"><Link href="/requests">View all →</Link></Button>}>
           {requests.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">No Seerr requests are persisted yet.</div>
-            : requests.map((request) => <ConsoleRow key={request.id} href="/requests" leading={<MiniPoster src={request.poster_url ?? (request.media_id ? posters.get(request.media_id) : undefined)} title={request.title || "Request"} />} title={request.title || `Request ${request.request_id}`} caption={`${request.media_kind === "series" ? "TV" : "Movie"} · ${request.requester || "Unknown requester"} · ${timeAgo(request.updated_at)}`}>
-              {requestAwaitingApproval(request) ? <RequestDecisionButtons request={request} onDone={refresh} /> : <StateBadge state={request.lifecycle} />}
-            </ConsoleRow>)}
+            : requests.map((request) => {
+              // A row with decision buttons must not itself be a link: a click
+              // on Approve, Decline, or the confirmation dialog would navigate.
+              const pending = requestAwaitingApproval(request)
+              const title = request.title || `Request ${request.request_id}`
+              return <ConsoleRow key={request.id} href={pending ? undefined : "/requests"} leading={<MiniPoster src={request.poster_url ?? (request.media_id ? posters.get(request.media_id) : undefined)} title={request.title || "Request"} />} title={pending ? <Link href="/requests" className="rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{title}</Link> : title} caption={`${request.media_kind === "series" ? "TV" : "Movie"} · ${request.requester || "Unknown requester"} · ${timeAgo(request.updated_at)}`}>
+                {pending ? <RequestDecisionButtons request={request} onDone={refresh} /> : <StateBadge state={request.lifecycle} />}
+              </ConsoleRow>
+            })}
         </Panel>
 
         <Panel title="Plex publication">
