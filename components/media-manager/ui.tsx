@@ -36,16 +36,20 @@ export function PageHeader({
   actions?: React.ReactNode
 }) {
   return (
-    <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.025em] text-fg">{title}</h1>
-        <p className="mt-1.5 max-w-3xl text-[14px] leading-6 text-fg-muted">{subtitle}</p>
+        <h1 className="text-[20px] font-bold leading-tight tracking-[-0.02em] text-fg">{title}</h1>
+        <p className="mt-1 max-w-3xl text-[12.5px] leading-5 text-fg-subtle">{subtitle}</p>
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </header>
   )
 }
 
+/**
+ * The console card: a header row (title, quiet count or subtitle, one action)
+ * over a padded body. `flush` bodies (tables, lists) run edge to edge.
+ */
 export function Panel({
   title,
   subtitle,
@@ -63,17 +67,17 @@ export function Panel({
   flush?: boolean
 }) {
   return (
-    <section className={cn("mm-panel", flush && "overflow-hidden !p-0", className)}>
+    <section className={cn("mm-panel", className)}>
       {title || action ? (
-        <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4", flush ? "border-b border-line px-5 py-4" : "mb-4")}>
+        <div className="flex flex-col gap-2 border-b border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0">
-            {title ? <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-fg">{title}</h2> : null}
-            {subtitle ? <p className="mt-0.5 text-[13px] leading-5 text-fg-muted">{subtitle}</p> : null}
+            {title ? <h2 className="text-[13px] font-bold tracking-[-0.005em] text-fg">{title}</h2> : null}
+            {subtitle ? <p className="mt-0.5 text-[12px] leading-[18px] text-fg-subtle">{subtitle}</p> : null}
           </div>
           {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
         </div>
       ) : null}
-      {children}
+      <div className={cn(!flush && "p-4")}>{children}</div>
     </section>
   )
 }
@@ -94,11 +98,11 @@ export function MetricCard({
   return (
     <div className="mm-metric">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[13px] font-medium text-fg-muted">{label}</span>
-        {Icon ? <span className={cn("grid size-7 place-items-center rounded-md", toneTile[tone])}><Icon className="size-4" aria-hidden /></span> : null}
+        <span className="text-[12px] font-semibold text-fg-muted">{label}</span>
+        {Icon ? <span className={cn("grid size-6 place-items-center rounded-md", toneTile[tone])}><Icon className="size-3.5" aria-hidden /></span> : null}
       </div>
-      <div className="mt-3 text-[28px] font-semibold leading-none tracking-[-0.03em] text-fg tabular-nums">{value}</div>
-      <div className="mt-2 text-[12.5px] leading-5 text-fg-muted">{note}</div>
+      <div className="mt-2 text-[22px] font-extrabold leading-none tracking-[-0.02em] text-fg tabular-nums">{value}</div>
+      <div className="mt-1.5 text-[11.5px] leading-[17px] text-fg-subtle">{note}</div>
     </div>
   )
 }
@@ -223,18 +227,14 @@ export function describeStatus(state: string): StatusDescriptor {
  */
 export function StateBadge({ state, label, className }: { state: string; label?: string; className?: string }) {
   const descriptor = describeStatus(state)
-  const Icon = descriptor.icon
-  return (
-    <StatusChip tone={descriptor.tone} className={className}>
-      <Icon className="size-3" aria-hidden />
-      {label ?? descriptor.label}
-    </StatusChip>
-  )
+  return <StatusChip tone={descriptor.tone} className={className}>{label ?? descriptor.label}</StatusChip>
 }
 
-export function StatusChip({ children, tone = "neutral", className }: { children: React.ReactNode; tone?: StatusTone; className?: string }) {
+/** A status pill: a coloured dot and a short label, tinted by tone. */
+export function StatusChip({ children, tone = "neutral", className, dot = true }: { children: React.ReactNode; tone?: StatusTone; className?: string; dot?: boolean }) {
   return (
-    <Badge variant="outline" className={cn("h-6 gap-1 rounded-full px-2 text-[11.5px] font-medium", toneBadge[tone], className)}>
+    <Badge variant="outline" className={cn("h-[22px] gap-1.5 rounded-full px-2 text-[11px] font-semibold", toneBadge[tone], className)}>
+      {dot ? <i className="size-1.5 shrink-0 rounded-full bg-current not-italic" aria-hidden /> : null}
       {children}
     </Badge>
   )
@@ -242,9 +242,9 @@ export function StatusChip({ children, tone = "neutral", className }: { children
 
 export function KeyValue({ label, value, valueClassName }: { label: string; value: React.ReactNode; valueClassName?: string }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-line py-2.5 last:border-0">
-      <span className="text-[13px] leading-5 text-fg-muted">{label}</span>
-      <span className={cn("text-right text-[13px] font-medium leading-5 text-fg", valueClassName)}>{value}</span>
+    <div className="flex items-start justify-between gap-4 border-t border-line py-[7px] first:border-0">
+      <span className="text-[12.5px] leading-5 text-fg-subtle">{label}</span>
+      <span className={cn("text-right text-[12.5px] font-semibold leading-5 text-fg", valueClassName)}>{value}</span>
     </div>
   )
 }

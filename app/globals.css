@@ -61,12 +61,12 @@
   --fg-muted: #505967;
   --fg-subtle: #5f6878;
 
-  --brand: #2f5fd8;
-  --brand-hover: #2752c2;
+  --brand: #4f5bd5;
+  --brand-hover: #4450c4;
   --brand-fg: #ffffff;
-  --brand-text: #2451c4;
-  --brand-soft: rgba(47, 95, 216, 0.1);
-  --brand-line: rgba(47, 95, 216, 0.32);
+  --brand-text: #3f4ac0;
+  --brand-soft: rgba(79, 91, 213, 0.1);
+  --brand-line: rgba(79, 91, 213, 0.32);
 
   --good: #1f9d62;
   --good-text: #12704a;
@@ -96,49 +96,50 @@
 }
 
 .dark {
-  --canvas: #0c0d10;
-  --surface: #131519;
-  --surface-2: #1a1d22;
-  --surface-3: #22262c;
-  --line: #262a31;
-  --line-strong: #353a44;
-  --fg: #eceef1;
-  --fg-secondary: #bcc2cb;
-  --fg-muted: #9aa1ac;
-  --fg-subtle: #878e99;
+  /* Owner console palette: near-black blue-grey surfaces, one indigo accent. */
+  --canvas: #0b0d11;
+  --surface: #11141a;
+  --surface-2: #161a22;
+  --surface-3: #1d222c;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --fg: #e8ebf2;
+  --fg-secondary: #b9c0cf;
+  --fg-muted: #a6aec0;
+  --fg-subtle: #8189a0;
 
-  --brand: #3a6cf4;
-  --brand-hover: #4d7bf6;
-  --brand-fg: #ffffff;
-  --brand-text: #93b4ff;
-  --brand-soft: rgba(76, 125, 255, 0.14);
-  --brand-line: rgba(110, 150, 255, 0.4);
+  --brand: #7c8cff;
+  --brand-hover: #93a1ff;
+  --brand-fg: #0b0d11;
+  --brand-text: #a3acff;
+  --brand-soft: rgba(124, 140, 255, 0.12);
+  --brand-line: rgba(124, 140, 255, 0.4);
 
-  --good: #34b27b;
-  --good-text: #5fd39b;
-  --good-soft: rgba(52, 178, 123, 0.13);
-  --good-line: rgba(52, 178, 123, 0.36);
-  --info: #3b9fe0;
-  --info-text: #7cc4f2;
-  --info-soft: rgba(59, 159, 224, 0.13);
-  --info-line: rgba(59, 159, 224, 0.36);
-  --warn: #e0a030;
-  --warn-text: #efbe5f;
-  --warn-soft: rgba(224, 160, 48, 0.13);
-  --warn-line: rgba(224, 160, 48, 0.38);
-  --bad: #e0524d;
-  --bad-text: #f59a95;
-  --bad-soft: rgba(224, 82, 77, 0.13);
-  --bad-line: rgba(224, 82, 77, 0.38);
-  --neutral-text: #a7aeb8;
-  --neutral-soft: rgba(154, 161, 172, 0.12);
-  --neutral-line: rgba(154, 161, 172, 0.28);
+  --good: #46c08a;
+  --good-text: #4ed9a0;
+  --good-soft: rgba(78, 217, 160, 0.07);
+  --good-line: rgba(78, 217, 160, 0.3);
+  --info: #5ca9ff;
+  --info-text: #8cc4ff;
+  --info-soft: rgba(92, 169, 255, 0.08);
+  --info-line: rgba(92, 169, 255, 0.32);
+  --warn: #f2b24c;
+  --warn-text: #f6bc68;
+  --warn-soft: rgba(242, 178, 76, 0.08);
+  --warn-line: rgba(242, 178, 76, 0.35);
+  --bad: #f26d6d;
+  --bad-text: #f88686;
+  --bad-soft: rgba(242, 109, 109, 0.08);
+  --bad-line: rgba(242, 109, 109, 0.35);
+  --neutral-text: #aab4c6;
+  --neutral-soft: rgba(152, 162, 184, 0.07);
+  --neutral-line: rgba(152, 162, 184, 0.3);
 
   --shadow-panel: none;
-  --shadow-float: 0 18px 48px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
-  --scrim: rgba(0, 0, 0, 0.6);
-  --artwork-a: #1b1e24;
-  --artwork-b: #14161a;
+  --shadow-float: 0 40px 90px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --scrim: rgba(5, 6, 10, 0.6);
+  --artwork-a: #1b1f29;
+  --artwork-b: #12151c;
 }
 
 :root, .dark {
@@ -263,7 +264,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -285,8 +286,9 @@ body {
   background: var(--canvas);
   color: var(--fg);
   font-family: var(--font-sans);
-  font-size: 14px;
-  font-feature-settings: "ss01", "cv11";
+  font-size: 13px;
+  font-feature-settings: "cv11", "ss01";
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -306,10 +308,10 @@ input, select, textarea, [data-slot="select-trigger"] { font-weight: 400; }
 .mm-panel {
   position: relative;
   min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--surface);
-  padding: 20px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
   box-shadow: var(--shadow-panel);
 }
 
@@ -317,9 +319,9 @@ input, select, textarea, [data-slot="select-trigger"] { font-weight: 400; }
   position: relative;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 11px;
   background: var(--surface);
-  padding: 16px 18px;
+  padding: 13px 14px;
   box-shadow: var(--shadow-panel);
 }
 
@@ -385,6 +387,40 @@ label:has(> select.mm-input), label:has(> .mm-input) { min-width: 0; }
   box-shadow: none;
 }
 
+/* Segmented control (Wanted, Files): a compact pill group, not underline tabs. */
+.mm-seg {
+  height: auto;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  padding: 3px;
+}
+
+.mm-seg [data-slot="tabs-trigger"] {
+  height: 27px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 13px;
+  color: var(--fg-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mm-seg [data-slot="tabs-trigger"]:hover { color: var(--fg); }
+
+.mm-seg [data-slot="tabs-trigger"][data-state="active"] {
+  background: var(--surface-3);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+.mm-seg em { font-size: 10.5px; }
+
 .mm-timeline {
   position: relative;
   padding-left: 22px;
@@ -440,29 +476,29 @@ label:has(> select.mm-input), label:has(> .mm-input) { min-width: 0; }
 [data-slot="table"] { min-width: 640px; font-size: 13px; }
 
 [data-slot="table-head"] {
-  height: 38px;
-  color: var(--fg-muted);
-  font-size: 12px;
-  font-weight: 550;
-  letter-spacing: 0;
-  text-transform: none;
+  height: 34px;
+  color: var(--fg-subtle);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
-[data-slot="table-header"] [data-slot="table-row"] { background: var(--surface-2); }
-[data-slot="table-header"] [data-slot="table-row"]:hover { background: var(--surface-2); }
+[data-slot="table-header"] [data-slot="table-row"] { border-bottom-color: var(--line-strong); background: transparent; }
+[data-slot="table-header"] [data-slot="table-row"]:hover { background: transparent; }
 
-[data-slot="table-cell"] { padding-top: 11px; padding-bottom: 11px; color: var(--fg-secondary); }
+[data-slot="table-cell"] { padding-top: 10px; padding-bottom: 10px; color: var(--fg-secondary); font-size: 12.5px; }
 
 [data-slot="table-row"] { border-color: var(--line); }
 
-/* Flush tables align their outer columns with the panel's 20px padding. */
-.mm-panel [data-slot="table-head"]:first-child, .mm-panel [data-slot="table-cell"]:first-child { padding-left: 20px; }
-.mm-panel [data-slot="table-head"]:last-child, .mm-panel [data-slot="table-cell"]:last-child { padding-right: 20px; }
-[data-slot="table-body"] [data-slot="table-row"]:hover, [data-slot="table-row"][data-state="selected"] { background: var(--surface-2); }
+/* Flush tables align their outer columns with the card's 16px padding. */
+.mm-panel [data-slot="table-head"]:first-child, .mm-panel [data-slot="table-cell"]:first-child { padding-left: 16px; }
+.mm-panel [data-slot="table-head"]:last-child, .mm-panel [data-slot="table-cell"]:last-child { padding-right: 16px; }
+[data-slot="table-body"] [data-slot="table-row"]:hover, [data-slot="table-row"][data-state="selected"] { background: color-mix(in srgb, var(--fg) 2%, transparent); }
 
-[data-slot="button"] { font-size: 13px; font-weight: 550; }
-[data-slot="button"] svg { width: 15px; height: 15px; }
+[data-slot="button"] { font-size: 12.5px; font-weight: 600; }
+[data-slot="button"] svg { width: 14px; height: 14px; }
 
 [data-slot="dialog-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="select-content"] {
   border-color: var(--line);
@@ -475,8 +511,7 @@ label:has(> select.mm-input), label:has(> .mm-input) { min-width: 0; }
 [cmdk-group-heading] { color: var(--fg-subtle) !important; font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0.04em; }
 
 @media (max-width: 640px) {
-  .mm-panel { border-radius: 12px; padding: 16px; }
-  .mm-metric { padding: 14px; }
+  .mm-metric { padding: 12px; }
   [data-slot="table"] { min-width: 600px; }
 }
 

@@ -85,7 +85,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 import { cn } from "@/lib/utils"
-import { loadSystemHealth, loadSystemInfo, loadWanted, loadWorkflows, type APIWantedItem, type APIWorkflow } from "@/lib/media-manager-api"
+import { loadSystemHealth, loadSystemInfo, loadWanted, loadWorkflows, type APISystemHealth, type APIWantedItem, type APIWorkflow } from "@/lib/media-manager-api"
 import { collectOwnerAttention, isActivelyAcquiring, type OwnerAttentionEntry } from "@/lib/workflow-states"
 import { normalizeRoute, routeTitles } from "@/lib/media-manager-routes"
 import { parseThemePreference, resolveDarkTheme, themeStorageKey, type ThemePreference } from "@/lib/theme"
@@ -115,7 +115,6 @@ import {
   LiveLibraryScreen,
   LiveMetadataSettingsScreen,
   LiveNotificationsScreen,
-  LiveOperationalDashboardScreen,
   LiveReleaseIntelligenceScreen,
   LiveRequestsScreen,
   LiveSourcesScreen,
@@ -123,62 +122,67 @@ import {
   LiveTasksScreen,
   LiveWantedScreen,
 } from "./live-operational-screens"
+import { LiveOverviewScreen } from "./overview-screen"
 import { PageHeader, StateBadge } from "./ui"
 
 type NavBadge = "attention" | "active"
 type NavItem = { label: string; href: string; icon: LucideIcon; badge?: NavBadge }
-type NavGroup = { label: string; items: NavItem[]; advanced?: boolean; description?: string }
+type NavGroup = { label: string; items: NavItem[]; advanced?: boolean; collapsed?: boolean; description?: string }
 
 /**
- * Navigation deliberately separates the everyday product from advanced tooling.
- * Every route stays reachable; only its visual weight changes. Advanced
- * observability surfaces live in the collapsible Advanced group instead of
- * competing with Movies, TV Shows, and Requests.
+ * Navigation follows the owner's day: the library first, then intake and the
+ * acquisition machinery, then sources, settings, and system. Every route stays
+ * reachable; settings, system, and advanced evidence start collapsed so they
+ * never compete with Movies, TV Shows, and what needs attention.
  */
 const liveNavigation: NavGroup[] = [
-  { label: "Library", description: "Everyday library work", items: [
+  { label: "Home", items: [
     { label: "Overview", href: "/", icon: LayoutGrid },
+  ] },
+  { label: "Library", description: "Everyday library work", items: [
     { label: "Movies", href: "/media", icon: Library },
     { label: "TV Shows", href: "/media/series", icon: Tv },
-    { label: "Requests", href: "/requests", icon: Inbox },
-    { label: "Wanted", href: "/wanted", icon: ListChecks, badge: "attention" },
     { label: "Calendar", href: "/calendar", icon: FileClock },
+    { label: "Wanted", href: "/wanted", icon: ListChecks, badge: "attention" },
+    { label: "Collections", href: "/collections", icon: BookOpenCheck },
+  ] },
+  { label: "Intake", description: "How media arrives", items: [
+    { label: "Requests", href: "/requests", icon: Inbox },
     { label: "Add media", href: "/discover", icon: Plus },
+    { label: "Adoption", href: "/import", icon: DatabaseBackup },
+    { label: "Import lists", href: "/sources/import-lists", icon: ListChecks },
   ] },
   { label: "Operations", description: "Acquisition and files", items: [
     { label: "Workflows", href: "/activity/queue", icon: Activity, badge: "active" },
-    { label: "File Manager", href: "/files", icon: Files },
-    { label: "Adoption", href: "/import", icon: DatabaseBackup },
+    { label: "Files", href: "/files", icon: Files },
     { label: "Recycle", href: "/activity/recycle", icon: ArchiveRestore },
   ] },
   { label: "Sources", description: "Where media comes from", items: [
     { label: "Indexers", href: "/sources/indexers", icon: Globe2 },
-    { label: "Clients", href: "/sources/download-clients", icon: ServerCog },
-    { label: "Import Lists", href: "/sources/import-lists", icon: ListChecks },
-    { label: "Prowlarr", href: "/sources/indexer-lab", icon: DatabaseBackup },
+    { label: "Download clients", href: "/sources/download-clients", icon: ServerCog },
+    { label: "Prowlarr import", href: "/sources/indexer-lab", icon: DatabaseBackup },
   ] },
-  { label: "Settings", description: "Policy and connections", items: [
-    { label: "Profiles", href: "/settings/profiles", icon: Gauge },
+  { label: "Settings", description: "Policy and connections", collapsed: true, items: [
+    { label: "Quality profiles", href: "/settings/profiles", icon: Gauge },
     { label: "Storage", href: "/settings/storage", icon: HardDrive },
-    { label: "Metadata", href: "/settings/metadata", icon: BookOpenCheck },
-    { label: "Media mgmt", href: "/settings/media-management", icon: Settings2 },
     { label: "Connections", href: "/settings/connections", icon: Webhook },
+    { label: "Metadata", href: "/settings/metadata", icon: BookOpenCheck },
+    { label: "Media management", href: "/settings/media-management", icon: Settings2 },
     { label: "Notifications", href: "/settings/notifications", icon: Bell },
   ] },
-  { label: "System", description: "Health and access", items: [
+  { label: "System", description: "Health and access", collapsed: true, items: [
     { label: "Health", href: "/system/health", icon: HeartPulse },
     { label: "Tasks", href: "/system/tasks", icon: ListChecks },
     { label: "Backups", href: "/system/backups", icon: DatabaseBackup },
     { label: "Security", href: "/system/security", icon: ShieldCheck },
     { label: "API", href: "/system/api", icon: TerminalSquare },
-    { label: "Logs & Audit", href: "/system/logs", icon: TerminalSquare },
   ] },
-  { label: "Advanced", description: "Evidence and observability", advanced: true, items: [
-    { label: "Collections", href: "/collections", icon: BookOpenCheck },
+  { label: "Advanced", description: "Evidence and observability", advanced: true, collapsed: true, items: [
+    { label: "History & evidence", href: "/activity/history", icon: FileClock },
+    { label: "Logs & audit", href: "/system/logs", icon: TerminalSquare },
     { label: "Releases", href: "/intelligence/releases", icon: Sparkles },
     { label: "Release groups", href: "/intelligence/groups", icon: Users },
     { label: "Evidence", href: "/intelligence/evidence", icon: BookOpenCheck },
-    { label: "History", href: "/activity/history", icon: FileClock },
     { label: "Blocklist", href: "/activity/blocklist", icon: ShieldCheck },
   ] },
 ]
@@ -259,7 +263,8 @@ function ShellLayout({ path }: { path: string }) {
   const page = detailTitles[normalized] ?? routeTitles[normalized] ?? { area: "Media Manager", title: "Not found", subtitle: "This route is not in the locked screen map." }
   const [commandOpen, setCommandOpen] = React.useState(false)
   const libraryLayout = path === "/media" || path === "/media/series"
-  const mediaDetailLayout = normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId"
+  // These screens render their own header (actions, hero, or live date line).
+  const mediaDetailLayout = path === "/" || normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId"
 
   React.useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -278,29 +283,27 @@ function ShellLayout({ path }: { path: string }) {
   }, [router])
 
   return <>
-    <AppSidebar path={path} />
+    <AppSidebar path={path} onSearch={() => setCommandOpen(true)} />
 
     <SidebarInset className="min-w-0 bg-canvas">
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-canvas/85 px-3 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/70 sm:px-4">
+      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 bg-canvas/85 px-3 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/70 sm:px-5 lg:px-9">
         <SidebarTrigger className="-ml-1 text-fg-muted hover:text-fg" />
-        <span className="hidden h-5 w-px bg-line md:block" aria-hidden />
+        <span className="hidden h-4 w-px bg-line-strong md:block" aria-hidden />
         <ShellBreadcrumb normalized={normalized} page={page} />
-        <button type="button" onClick={() => setCommandOpen(true)} className="ml-auto flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-left text-[13px] text-fg-muted shadow-[var(--shadow-panel)] outline-none transition hover:border-line-strong hover:text-fg-secondary focus-visible:ring-2 focus-visible:ring-ring md:max-w-[300px] md:flex-none lg:w-[300px]">
-          <Search className="size-4 shrink-0" /><span className="truncate">Go to page…</span><kbd className="ml-auto hidden rounded-md border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-fg-muted sm:inline">Ctrl K</kbd>
-        </button>
-        <div className="flex items-center gap-0.5">
+        <div className="ml-auto flex items-center gap-0.5">
+          <Button variant="ghost" size="icon" aria-label="Go to page…" className="text-fg-muted hover:text-fg" onClick={() => setCommandOpen(true)}><Search /></Button>
           <ThemeMenu />
           <OwnerAttentionBell />
         </div>
       </header>
 
-      <main className={cn("w-full", libraryLayout ? "h-[calc(100dvh-7rem)] min-h-0 overflow-hidden md:h-[calc(100dvh-3.5rem)]" : "mx-auto max-w-[1600px] px-4 pb-24 pt-6 sm:px-6 md:pb-12 lg:px-8 lg:pt-8")}>
+      <main className={cn("w-full", libraryLayout ? "h-[calc(100dvh-7rem)] min-h-0 overflow-hidden md:h-[calc(100dvh-3.5rem)]" : "mx-auto max-w-[1560px] px-4 pb-24 pt-3 sm:px-5 md:pb-12 lg:px-9 lg:pt-4 min-[2200px]:max-w-[2040px]")}>
         {libraryLayout || mediaDetailLayout ? <RouteContent path={path} /> : <>
           <PageHeader
             {...page}
             actions={isAddContext(path) ? <Button asChild size="sm"><Link href="/discover"><Plus /> Add media</Link></Button> : undefined}
           />
-          <div className="mt-6"><RouteContent path={path} /></div>
+          <div className="mt-5"><RouteContent path={path} /></div>
         </>}
       </main>
       <MobileTabBar path={path} />
@@ -315,63 +318,73 @@ function ShellLayout({ path }: { path: string }) {
 }
 
 function BrandMark({ className }: { className?: string }) {
-  // A stack of frames: one managed library assembled from verified sources.
-  return <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg bg-brand text-brand-fg shadow-[0_1px_0_rgba(255,255,255,0.18)_inset]", className)} aria-hidden>
-    <svg viewBox="0 0 20 20" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="6.5" width="14" height="10" rx="2" />
-      <path d="M5.5 3.5h9" opacity="0.75" />
-      <path d="M8.5 9.5v4l3.5-2z" fill="currentColor" stroke="none" />
-    </svg>
-  </span>
+  return <span className={cn("grid size-[26px] shrink-0 place-items-center rounded-[7px] bg-[linear-gradient(135deg,#7c8cff,#4e5ba8)] text-[11px] font-extrabold text-[#0b0d11]", className)} aria-hidden>MM</span>
 }
 
-function AppSidebar({ path }: { path: string }) {
+type ServiceStatus = { loaded: boolean; ready: boolean; version?: string; warnings: Array<{ name: string; reason: string }> }
+
+/** One sentence per degraded component, from persisted source state only. */
+function componentWarnings(components: APISystemHealth["components"]) {
+  return components.filter((component) => component.enabled && (component.configuration_state !== "configured" || component.consecutive_failure > 0)).map((component) => ({
+    name: component.name,
+    reason: component.configuration_state === "awaiting_commission" ? "awaiting commission" : component.configuration_state === "disabled" ? "disabled" : component.last_outcome ? component.last_outcome.replaceAll("_", " ") : `${component.consecutive_failure} failed attempts`,
+  }))
+}
+
+function AppSidebar({ path, onSearch }: { path: string; onSearch: () => void }) {
   const { state, isMobile, setOpenMobile } = useSidebar()
   const iconMode = state === "collapsed" && !isMobile
   const { attention, activeCount } = React.useContext(OwnerAttentionContext)
-  const [openGroups, setOpenGroups] = React.useState<Set<string>>(() => new Set(["Library", "Operations"]))
-  const [serviceStatus, setServiceStatus] = React.useState<{ ready?: boolean; version?: string }>({})
+  const [openGroups, setOpenGroups] = React.useState<Set<string>>(() => new Set(liveNavigation.filter((group) => !group.collapsed).map((group) => group.label)))
+  const [service, setService] = React.useState<ServiceStatus>({ loaded: false, ready: false, warnings: [] })
 
   React.useEffect(() => {
     const controller = new AbortController()
     Promise.all([loadSystemHealth(controller.signal), loadSystemInfo(controller.signal)])
-      .then(([health, info]) => setServiceStatus({ ready: health.database_state === "ready" && health.schema_version === health.expected_schema, version: info.version }))
-      .catch(() => { if (!controller.signal.aborted) setServiceStatus({ ready: false }) })
+      .then(([health, info]) => setService({ loaded: true, ready: health.database_state === "ready" && health.schema_version === health.expected_schema, version: info.version, warnings: componentWarnings(health.components ?? []) }))
+      .catch(() => { if (!controller.signal.aborted) setService({ loaded: true, ready: false, warnings: [] }) })
     return () => controller.abort()
   }, [])
 
   const badgeValue = (badge?: NavBadge) => badge === "attention" ? attention.length : badge === "active" ? activeCount : 0
   const closeOnMobile = () => { if (isMobile) setOpenMobile(false) }
+  const warningCount = service.warnings.length + (service.loaded && !service.ready ? 1 : 0)
+  const statusTitle = !service.loaded ? "Checking system" : warningCount ? `${warningCount} system warning${warningCount === 1 ? "" : "s"}` : "All systems healthy"
+  const statusDetail = !service.loaded ? "Health & version" : !service.ready ? "Database or schema needs attention" : service.warnings[0] ? `${service.warnings[0].name} · ${service.warnings[0].reason}` : "Database, worker, and sources"
 
   return (
     <Sidebar collapsible="icon" className="border-r border-line">
-      <SidebarHeader className="h-14 justify-center border-b border-line px-3 py-0 group-data-[collapsible=icon]:px-2">
-        <Link href="/" onClick={closeOnMobile} className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <SidebarHeader className="gap-3 px-3 pb-2 pt-3.5 group-data-[collapsible=icon]:px-2">
+        <Link href="/" onClick={closeOnMobile} className="flex min-w-0 items-center gap-2.5 rounded-lg px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <BrandMark />
-          <div className="min-w-0 group-data-[collapsible=icon]:hidden"><div className="truncate text-[14px] font-semibold tracking-[-0.01em] text-fg">Media Manager</div><div className="truncate text-[11.5px] text-fg-muted">Owner console</div></div>
+          <div className="min-w-0 group-data-[collapsible=icon]:hidden"><div className="truncate text-[13.5px] font-bold tracking-[-0.01em] text-fg">Media Manager</div><div className="truncate text-[9.5px] font-semibold tracking-[0.14em] text-fg-subtle">OWNER CONSOLE</div></div>
         </Link>
+        <button type="button" onClick={() => { closeOnMobile(); onSearch() }} className="flex h-[34px] items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 text-left text-[12.5px] text-fg-subtle outline-none transition hover:border-line-strong hover:text-fg-muted focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:hidden">
+          <Search className="size-3.5 shrink-0" aria-hidden /><span className="truncate">Search and go to page…</span><kbd className="ml-auto rounded-[5px] border border-line-strong bg-surface px-1.5 py-px text-[10px] font-semibold text-fg-subtle">⌘K</kbd>
+        </button>
       </SidebarHeader>
-      <SidebarContent className="gap-0 px-2 py-3 scrollbar-thin">
+      <SidebarContent className="gap-0 px-2 pb-3 scrollbar-thin">
         {liveNavigation.map((group) => {
           const groupActive = group.items.some((item) => isRouteActive(path, item.href))
           const open = iconMode || openGroups.has(group.label) || groupActive
+          const headless = group.label === "Home"
           return (
-            <SidebarGroup key={group.label} className={cn("px-0 py-1", group.advanced && "mt-2 border-t border-line pt-3")}>
-              <SidebarGroupLabel asChild className="h-7 rounded-md px-2 text-[11.5px] font-semibold tracking-[0.02em] text-fg-subtle hover:bg-surface-3 hover:text-fg-secondary">
-                <button type="button" title={group.description} aria-expanded={open} onClick={() => setOpenGroups((current) => { const next = new Set(current); if (next.has(group.label)) next.delete(group.label); else next.add(group.label); return next })}><span>{group.label}</span><ChevronDown className={cn("ml-auto size-3.5 transition-transform", !open && "-rotate-90")} /></button>
-              </SidebarGroupLabel>
+            <SidebarGroup key={group.label} className={cn("px-0 py-0", !headless && "pt-2.5")}>
+              {headless ? null : <SidebarGroupLabel asChild className="h-6 rounded-md px-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-fg-subtle hover:text-fg-muted">
+                <button type="button" title={group.description} aria-expanded={open} onClick={() => setOpenGroups((current) => { const next = new Set(current); if (next.has(group.label)) next.delete(group.label); else next.add(group.label); return next })}><span>{group.label}</span><ChevronDown className={cn("ml-auto size-3 opacity-60 transition-transform", !open && "-rotate-90")} /></button>
+              </SidebarGroupLabel>}
               {open ? <SidebarGroupContent>
-                <SidebarMenu className="gap-0.5">
+                <SidebarMenu className="gap-px">
                   {group.items.map((item) => {
                     const active = isRouteActive(path, item.href)
                     const Icon = item.icon
                     const count = badgeValue(item.badge)
                     return (
                       <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={active} tooltip={item.label} className={cn("h-8 rounded-md px-2 text-[13px] text-fg-secondary hover:bg-surface-3 hover:text-fg data-[active=true]:bg-brand-soft data-[active=true]:font-medium data-[active=true]:text-brand-text", group.advanced && "text-fg-muted")}>
-                          <Link href={item.href} onClick={closeOnMobile}><Icon className={cn("size-4", active ? "text-brand-text" : "text-fg-subtle")} /><span>{item.label}</span></Link>
+                        <SidebarMenuButton asChild isActive={active} tooltip={item.label} className={cn("h-[34px] rounded-lg px-2.5 text-[13px] font-medium text-fg-muted hover:bg-surface-2 hover:text-fg data-[active=true]:bg-brand-soft data-[active=true]:font-medium data-[active=true]:text-fg", group.advanced && "text-[12.5px] text-fg-subtle")}>
+                          <Link href={item.href} onClick={closeOnMobile}><Icon className={cn("size-4", active ? "text-brand" : "text-fg-subtle")} /><span>{item.label}</span></Link>
                         </SidebarMenuButton>
-                        {count > 0 ? <SidebarMenuBadge className={cn("h-5 min-w-5 rounded-full px-1.5 text-[11px] font-semibold tabular-nums", item.badge === "attention" ? "bg-warn-soft text-warn" : "bg-surface-3 text-fg-secondary")} aria-label={item.badge === "attention" ? `${count} need attention` : `${count} active`}>{count}</SidebarMenuBadge> : null}
+                        {count > 0 ? <SidebarMenuBadge className={cn("h-[18px] min-w-5 rounded-full border px-1.5 text-[10.5px] font-bold tabular-nums", item.badge === "attention" ? "border-warn-line bg-warn-soft text-warn" : "border-brand-line bg-brand-soft text-brand-text")} aria-label={item.badge === "attention" ? `${count} need attention` : `${count} active`}>{count}</SidebarMenuBadge> : null}
                       </SidebarMenuItem>
                     )
                   })}
@@ -381,13 +394,12 @@ function AppSidebar({ path }: { path: string }) {
           )
         })}
       </SidebarContent>
-      <SidebarFooter className="border-t border-line p-2">
-        <Link href="/system/health" onClick={closeOnMobile} title={serviceStatus.ready === undefined ? "Checking service" : serviceStatus.ready ? "Service healthy" : "Service attention"} className="flex items-center gap-2.5 rounded-md p-2 outline-none transition hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:justify-center">
-          <span className={cn("relative flex size-2.5 shrink-0 rounded-full", serviceStatus.ready === undefined ? "bg-fg-subtle" : serviceStatus.ready ? "bg-good-solid" : "bg-warn-solid")}>
-            {serviceStatus.ready ? <span className="absolute inset-0 animate-ping rounded-full bg-good-solid opacity-40 motion-reduce:hidden" aria-hidden /> : null}
-          </span>
-          <div className="min-w-0 group-data-[collapsible=icon]:hidden"><div className="truncate text-[12.5px] font-medium text-fg">{serviceStatus.ready === undefined ? "Checking service" : serviceStatus.ready ? "Service healthy" : "Service attention"}</div><div className="truncate text-[11.5px] text-fg-muted">{serviceStatus.version ? `Version ${serviceStatus.version}` : "Health & version"}</div></div>
+      <SidebarFooter className="border-t border-line p-2.5">
+        <Link href="/system/health" onClick={closeOnMobile} title={statusTitle} className={cn("flex items-center gap-2.5 rounded-lg border bg-surface-2 px-2.5 py-2 outline-none transition focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-2", warningCount ? "border-warn-line hover:border-warn" : "border-line hover:border-line-strong")}>
+          <span className={cn("size-2 shrink-0 rounded-full", !service.loaded ? "bg-fg-subtle" : warningCount ? "bg-warn-solid shadow-[0_0_8px_var(--warn)]" : "bg-good-solid shadow-[0_0_8px_var(--good)]")} />
+          <div className="min-w-0 group-data-[collapsible=icon]:hidden"><div className={cn("truncate text-[11.5px] font-semibold", warningCount ? "text-warn" : "text-fg")}>{statusTitle}</div><div className="truncate text-[10.5px] text-fg-subtle">{statusDetail}</div></div>
         </Link>
+        <div className="truncate text-center text-[10px] text-fg-subtle group-data-[collapsible=icon]:hidden">{service.version ? `Media Manager ${service.version} · self-hosted` : "Media Manager · self-hosted"}</div>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
@@ -510,7 +522,7 @@ function OwnerAttentionBell() {
 
 function RouteContent({ path }: { path: string }) {
   const normalized = normalizeRoute(path)
-  if (path === "/") return <LiveOperationalDashboardScreen />
+  if (path === "/") return <LiveOverviewScreen />
   if (path === "/media") return <LiveLibraryScreen />
   if (path === "/media/series") return <LiveLibraryScreen mediaKind="series" />
   if (path === "/collections") return <LiveCollectionsScreen />

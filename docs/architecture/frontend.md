@@ -76,10 +76,13 @@ Route metadata lives in `lib/media-manager-routes.ts`:
 
 `components/media-manager/app-shell.tsx` is the single app shell:
 
-- Sidebar navigation (`liveNavigation`) grouped into Library, Operations,
-  Sources, Settings, System, and Advanced. Every route stays reachable; groups
-  are collapsible, Advanced is visually de-emphasized, and the whole sidebar
-  collapses to icons (`collapsible="icon"`, Ctrl/Cmd-B or the header toggle).
+- Owner-console sidebar (`liveNavigation`): Overview, then Library, Intake,
+  Operations, Sources, Settings, System, and Advanced. Every route stays
+  reachable; Settings, System, and Advanced start collapsed (a group opens when
+  it holds the current page), and the whole sidebar collapses to icons
+  (`collapsible="icon"`, Ctrl/Cmd-B or the header toggle). The sidebar carries
+  the search button and a footer status chip that names the first degraded
+  enabled source from persisted health.
 - Live counts: `OwnerAttentionProvider` loads `loadWanted` + active
   `loadWorkflows` once per page for the whole shell; Wanted shows the
   owner-attention count, Workflows the actively-acquiring count, and the
@@ -92,9 +95,20 @@ Route metadata lives in `lib/media-manager-routes.ts`:
   Overview, Movies, TV Shows, Requests, and More (opens the sidebar sheet).
 - `RouteContent` is the authoritative route → screen switch. Unknown known-route
   combinations render `LiveUnavailableScreen`.
-- Library routes (`/media`, `/media/series`) use a full-height layout; media
-  detail routes render their own hero; other routes get a padded page with
-  `PageHeader` (title + subtitle; the area lives in the breadcrumb).
+- Library routes (`/media`, `/media/series`) use a full-height layout; the
+  Overview and media detail routes render their own header; other routes get a
+  padded page with `PageHeader` (title + subtitle; the area lives in the
+  breadcrumb).
+
+Console building blocks live in `components/media-manager/console.tsx`:
+`MiniPoster` (poster thumbnail or tinted initials, never a placeholder
+request), `StageStepper` (eight steps from the persisted state only),
+`ConsoleRow`, `AttentionCard` (kind of problem, exact persisted reason, and
+retry plan in plain language), `attentionEntries`, and `CoverageBar` (season
+coverage as counts, with unaired episodes deliberately calm).
+`overview-screen.tsx` holds the Overview: system tiles from persisted health,
+Needs attention, Active now, Recently completed, Waiting, Recent requests,
+and Plex publication.
 
 Screen components live in two large files (this is intentional; keep changes
 near the relevant screen and extract pure logic into `lib/`):
@@ -119,7 +133,7 @@ near the relevant screen and extract pure logic into `lib/`):
 
 | Component | Route(s) |
 | --- | --- |
-| `LiveOperationalDashboardScreen` | `/` |
+| `LiveOverviewScreen` (`overview-screen.tsx`) | `/` |
 | `LiveLibraryScreen` (`mediaKind`) | `/media`, `/media/series` |
 | `LiveRequestsScreen` | `/requests` |
 | `LiveWantedScreen` | `/wanted` |
@@ -143,9 +157,13 @@ Shared presentation primitives live in `components/media-manager/ui.tsx`:
 padded header), `MetricCard`, `describeStatus`, `StateBadge`, `StatusChip`,
 `KeyValue`, `WorkProgress`, `InlineNotice`, `EmptyAction`, `SectionLabel`.
 
-Media detail (`LiveMediaDetailScreen`) is a hero (backdrop, poster, identity
-chips, facts, ratings, and actions) above tabs: Overview, Seasons (series),
-Workflows, and Files, each with a count.
+Media detail (`LiveMediaDetailScreen`) is a hero card (poster, kind, state,
+facts, profile, identities, and actions) over two columns: seasons with
+coverage bars (series) or the acquisition pipeline (movies), workflows, and
+files on the left; coverage or availability, profile, files, and details on
+the right. Wanted splits into Needs attention, Missing, Upgrades, and In
+progress; Workflows groups rows into Needs attention, Active, Scheduled &
+waiting, and Completed without removing any recovery control.
 
 ## 4. Pure helper modules (`lib/`)
 
@@ -154,6 +172,7 @@ Keep classification/filtering/formatting logic here so screens stay testable.
 | Module | Responsibility |
 | --- | --- |
 | `media-manager-api.ts` | Types, fetchers, mutations, envelope handling. |
+| `workflow-presentation.ts` | Plain-language presentation: `workflowSteps`/`workflowStep` (stepper position from the persisted state; unknown states never look further along), `attentionHeadline`, and `retryPlan` (persisted schedule facts only). |
 | `workflow-states.ts` | Canonical UI grouping of workflow states (`activelyAcquiring`, `waiting`, `completed`, `ownerAttention`), `requiresOwnerAttention`, `collectOwnerAttention`. The backend owns the durable machine; this only classifies. |
 | `media-library.ts` | `buildMediaLibraryRecords` (join media + workflows + files), filters, summaries, initial filter state. Pure; benchmarked by `npm run bench:library`. |
 | `series-variants.ts` | Parse/format `season:NN[:episode:NN]`, `rollupSeriesSeasons` for season coverage UI. |
