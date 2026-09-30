@@ -1,5 +1,44 @@
 # Media Manager core release status
 
+## Seerr acquisition and request-status follow-up (2026-09-30)
+
+Production was verified at `ef6a628`, schema 42, after PRs #25–29. Provider
+download recovery, IPv4-only indexer egress, definitive incomplete-package
+fallback, deleted-request lifecycle handling and audio-only output recovery
+are deployed. The request-notice follow-up in this change also fixes the
+detail banner that called every intake message “Needs attention”, including
+“Seerr reports the request completed”. Notice labels/tones now follow the
+actual lifecycle, while original messages and genuine attention remain visible.
+
+The companion AltMount source branch `fix/bounded-probe-failover` is deployed
+at `321b3ba`: provider fallback has its bounded time budget, legacy renamed
+gzip NZBs are decoded correctly, and single-file metadata names retain their
+extension when no separate extension override is supplied. Pending NZB queue
+and upload directories now have protected persistent host mounts. Verified
+database/configuration backups and all three source patches are retained.
+
+Live recovery reduced the overview from 87 to 31 attention items at the
+post-PR-#29 snapshot. All eight S.W.A.T. seasons and Supernatural S05 are
+Plex-confirmed; the stale Minions & Monsters intake was recovered through
+normal authoritative Seerr re-reading. Newly added Runner, Coyote vs. Acme
+and The Uprising requests also reached Plex confirmation. The remaining
+backlog includes retained-output limits, unusable or uninspectable media,
+older pruned/generic import failures, an immutable episode-snapshot conflict
+and new-round decisions. It is not declared resolved or silently cleared.
+
+The backend milestones passed full race suites with disposable PostgreSQL,
+vet, focused regressions and all eight CI checks each. AltMount passed its
+full backend race suite and vet for each source milestone. The deployed
+read-only browser suite passed 117 checks before the final notice change;
+the notice change has its own focused render/browser regressions and full
+frontend gates. Required Danish subtitles, failed-output retention, exact
+release/job identities, shared pacing and publication verification remain
+enforced. Only MediaManager uses current indexer keys on this VPS, through
+IPv4 egress `159.195.149.137`; other machines' historical activity remains
+unverified. Off-server backups are still outstanding.
+
+The older assessments below are historical evidence.
+
 Assessed against the live stack on 2026-09-02, updated at the V1 release
 closeout on 2026-09-14, and refreshed on 2026-09-28. The deployed API and UI
 were independently verified at `78c127b`, schema 40, on 2026-09-28; see the
