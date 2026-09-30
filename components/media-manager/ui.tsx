@@ -69,7 +69,7 @@ export function Panel({
   return (
     <section className={cn("mm-panel", className)}>
       {title || action ? (
-        <div className="flex flex-col gap-2 border-b border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:gap-4">
           <div className="min-w-0">
             {title ? <h2 className="text-[13px] font-bold tracking-[-0.005em] text-fg">{title}</h2> : null}
             {subtitle ? <p className="mt-0.5 text-[12px] leading-[18px] text-fg-subtle">{subtitle}</p> : null}
