@@ -161,6 +161,9 @@ func seerrRequestLifecycle(item SeerrRequestSummary) string {
 	if item.WorkflowCount > 0 && item.ConfirmedCount == item.WorkflowCount {
 		return "plex_confirmed"
 	}
+	if item.SeerrState == "deleted" {
+		return "deleted"
+	}
 	switch item.IntakeOutcome {
 	case "needs_attention", "needs_configuration":
 		if item.SeerrState == "5" {

@@ -274,6 +274,17 @@ func terminalAltMountJob(state string) bool {
 // attention items.
 func releaseAttributableQueueFailure(detail string) (string, bool) {
 	normalized := strings.ToLower(detail)
+	// A provider or filesystem failure is not evidence of a defective release,
+	// even when its wrapper mentions archive iteration or missing parts.
+	for _, infrastructure := range []string{
+		"context deadline exceeded", "context canceled", "permission denied",
+		"connection refused", "connection reset", "i/o timeout",
+		"socket not connected", "fast-fail stat probe inconclusive",
+	} {
+		if strings.Contains(normalized, infrastructure) {
+			return "", false
+		}
+	}
 	switch {
 	case strings.Contains(normalized, "compressed files are not supported"),
 		strings.Contains(normalized, "failed to iterate rar archive"),
@@ -282,7 +293,11 @@ func releaseAttributableQueueFailure(detail string) (string, bool) {
 		return releases.PackageFailureArchiveUnsupported, true
 	case strings.Contains(normalized, "no files with allowed extensions"):
 		return releases.PackageFailureNoPlayableMedia, true
-	case strings.Contains(normalized, "incomplete or missing parts"):
+	case strings.Contains(normalized, "incomplete or missing parts"),
+		strings.Contains(normalized, "nzb file contains only par2 files. this indicates that there are missing segments in your providers"),
+		strings.Contains(normalized, "no valid first rar part found in archive"),
+		strings.Contains(normalized, "invalid nzb: total size is zero"),
+		strings.Contains(normalized, "fast-fail segment check failed: no regular files were successfully processed (all files failed validation)"):
 		return releases.PackageFailureReleaseIncomplete, true
 	}
 	return "", false
