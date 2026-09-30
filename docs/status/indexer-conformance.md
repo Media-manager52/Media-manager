@@ -29,6 +29,22 @@ failures. Parameters not listed above remain CAPS-advertised or unknown; absence
 from this table is not evidence that a parameter is unsupported. Existing
 runtime allowlists therefore remain unchanged.
 
+### Re-verification 2026-09-30
+
+The same `media-manager` profile (DRI Indexer Lab `0.2.4-mm1`) was re-run from
+the production server against all nine enabled providers, one at a time, with
+each credential passed only through its process environment: 7 requests per
+provider (63 in total), at least 3,000 ms apart, no redirects, no DETAILS,
+GETNFO, NZB or website requests. Every provider was reachable and authenticated
+with zero operation failures, including Nzb.life and treasure-maps after their
+keys were replaced that day. The shapes above were re-verified, with two
+additions: altHUB and NinjaCentral now also verify `imdbid` in the
+complete-season shape. NZBgeek's movie probe was inconclusive this time because
+the sampled candidate's derived `q` was not a title (`BluRayRIP TrueHD Atmos`);
+its 2026-09-01 verification stands. A secret scan of all 190 evidence files
+(exact and three levels of percent-encoding, all ten keys) found nothing, and no
+lab state or secrets store was written. Runtime allowlists are unchanged.
+
 ## Observed download locators
 
 NZBFinder search results advertise a same-origin `/api/v1/getnzb` locator whose
@@ -43,6 +59,22 @@ adapter tests verify the request shapes and reject mismatched origins, paths,
 IDs, ports, duplicate parameters, and additional query parameters. The DRI
 `media-manager` profile did not retrieve an NZB, so the provider responses
 remain live-workflow evidence rather than conformance-lab grabs.
+
+treasure-maps (sNZB `1.0.0-snzb`) uses a different contract, verified live on
+2026-09-30 from the production server with one request per step: its feed
+advertises `https://file.treasure-maps.com/getnzb/<32 hex>?r=<key>` on a
+separate file host, with the same 32-character ID as its `/details/<32 hex>`
+permalink. `t=get` answers `302` to `https://file.treasure-maps.com/getnzb?r=<key>&id=<id>`;
+Media Manager's redirect policy strips the key from that redirect, and the file
+host then answers `403` (reproduced), which is why every treasure-maps grab
+failed after 2026-08-31. Media Manager therefore requests the advertised file-host
+link directly, built from the stored release ID, with the credential only in the
+in-memory `r` parameter and no redirect. The contract applies to the exact
+`treasure-maps.com` HTTPS endpoint and 32-hex IDs only; local tests pin the
+shape, reject other IDs, schemes and ports, and prove every other provider keeps
+its own path. The live check made one search, one `t=get` without following the
+redirect, one keyless file-host request (403) and one NZB retrieval (200), and
+one search plus one retrieval for Nzb.life after its key was replaced.
 
 OldBoys remains disabled and was not contacted. Its bearer/filter interface is
 not standard Newznab and must not be enabled through the generic adapter.
