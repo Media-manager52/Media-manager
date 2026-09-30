@@ -200,17 +200,17 @@ for (const library of [
 test("exercises safe Requests interactions", async ({ page }) => {
   await visit(page, "/requests")
   const section = page.locator("section").filter({ hasText: "Seerr requests" }).first()
-  await expect(section.getByRole("button", { name: /^All / })).toHaveAttribute("aria-pressed", "true")
+  await expect(section.getByRole("button", { name: /^All \d+$/ })).toHaveAttribute("aria-pressed", "true")
 
-  await section.getByRole("button", { name: /Needs attention/ }).click()
-  await expect(section.getByRole("button", { name: /Needs attention/ })).toHaveAttribute("aria-pressed", "true")
+  await section.getByRole("button", { name: /^Needs attention \d+$/ }).click()
+  await expect(section.getByRole("button", { name: /^Needs attention \d+$/ })).toHaveAttribute("aria-pressed", "true")
   await verifyViewport(page)
 
   const search = page.getByPlaceholder("Search title, requester, ID")
   await search.fill("__media_manager_live_test_no_match__")
   await expect(page.getByText("No requests match the active filter.", { exact: true })).toBeVisible()
   await search.fill("")
-  await section.getByRole("button", { name: /^All / }).click()
+  await section.getByRole("button", { name: /^All \d+$/ }).click()
 
   const rows = section.locator("tbody tr")
   if ((await rows.count()) > 0) {
