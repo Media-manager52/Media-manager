@@ -146,6 +146,12 @@ test("adds exact TV season packs without starting a search", async ({ page }) =>
   await expect(page.getByLabel("Title")).toHaveValue("Browser Add Series")
   await expect(page.getByLabel("Release year")).toHaveValue("2023")
   await expect(page.getByLabel("TMDB ID")).toHaveValue("202")
+  // The season box starts empty; nothing can be added until seasons are typed.
+  await expect(page.getByLabel("Season numbers")).toHaveValue("")
+  await expect(page.getByRole("button", { name: "Add and search" })).toBeDisabled()
+  await page.getByLabel("Season numbers").fill("1, one")
+  await expect(page.getByRole("status").filter({ hasText: "Use unique season numbers" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Add and search" })).toBeDisabled()
   await page.getByLabel("Season numbers").fill("1, 2")
   await turnOffImmediateSearch(page)
   await page.getByRole("button", { name: "Add without search" }).click()
@@ -187,5 +193,42 @@ test("adds exact TV season packs without starting a search", async ({ page }) =>
       },
     ],
   }))
+  expect(audit.unexpected).toEqual([])
+})
+
+// A manually entered series used to start with "1:10", so one click added a
+// blank ten-episode season 1. The box now starts empty and is validated inline.
+test("manual TV seasons start empty and must be valid before anything is added", async ({ page }) => {
+  const audit = await installAddMediaAPI(page, "series")
+  await page.goto("/discover")
+
+  const mediaType = page.getByLabel("Media type")
+  await mediaType.click()
+  await page.getByRole("option", { name: "TV series" }).click()
+  await expect(mediaType).toContainText("TV series")
+
+  const seasons = page.getByLabel("Exact seasons and episode counts")
+  const add = page.getByRole("button", { name: "Add and search" })
+  await expect(seasons).toHaveValue("")
+  await expect(add).toBeDisabled()
+
+  await seasons.fill("1:10, 2")
+  await expect(page.getByRole("status").filter({ hasText: "Use season:episode-count" })).toBeVisible()
+  await expect(add).toBeDisabled()
+  await seasons.fill("1:10, 1:8")
+  await expect(page.getByRole("status").filter({ hasText: "must be unique" })).toBeVisible()
+  await expect(add).toBeDisabled()
+
+  await seasons.fill("1:10, 2:8")
+  await expect(page.locator("#add-media-season-note")).toHaveCount(0)
+  await expect(add).toBeEnabled()
+
+  // Switching back to a movie and to TV again starts empty again.
+  await mediaType.click()
+  await page.getByRole("option", { name: "Movie" }).click()
+  await mediaType.click()
+  await page.getByRole("option", { name: "TV series" }).click()
+  await expect(seasons).toHaveValue("")
+  expect(audit.created).toEqual([])
   expect(audit.unexpected).toEqual([])
 })
