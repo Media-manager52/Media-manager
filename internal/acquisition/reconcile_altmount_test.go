@@ -13,10 +13,27 @@ import (
 	"github.com/media-manager/media-manager/internal/subtitles"
 )
 
-type failingSubtitleProbe struct{}
+type failingSubtitleProbe struct{ err error }
 
-func (failingSubtitleProbe) InspectWithin(context.Context, string, string) (mediainfo.Evidence, error) {
+func (probe failingSubtitleProbe) InspectWithin(context.Context, string, string) (mediainfo.Evidence, error) {
+	if probe.err != nil {
+		return mediainfo.Evidence{}, probe.err
+	}
 	return mediainfo.Evidence{}, errors.New("bounded probe failed")
+}
+
+func TestInspectSubtitleRequirementsPreservesDefinitiveNoVideoEvidence(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Movie.mkv"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	asset := subtitles.Asset{ID: uuid.NewV7(), RelativePath: "Movie.mkv", Size: 7}
+	for _, probeErr := range []error{mediainfo.ErrNoVideoTrack, errors.New("media-info has no video track"), context.DeadlineExceeded} {
+		verification, err := inspectSubtitleRequirements(t.Context(), root, []subtitles.Asset{asset}, []subtitles.Asset{asset}, subtitles.Policy{Required: []string{"da"}}, failingSubtitleProbe{err: probeErr}, nil)
+		if err == nil || verification.Status != "" || errors.Is(err, mediainfo.ErrNoVideoTrack) != errors.Is(probeErr, mediainfo.ErrNoVideoTrack) {
+			t.Fatalf("probe error=%v verification=%+v returned error=%v", probeErr, verification, err)
+		}
+	}
 }
 
 func TestInspectSubtitleRequirementsClassifiesProbeFailureAsInfrastructure(t *testing.T) {

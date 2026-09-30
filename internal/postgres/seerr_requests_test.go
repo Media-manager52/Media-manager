@@ -34,6 +34,16 @@ func TestSeerrRequestLifecycleMapping(t *testing.T) {
 			want:    "held",
 		},
 		{
+			name:    "held search with automatic retry is waiting",
+			summary: SeerrRequestSummary{WorkflowCount: 1, CurrentState: "held", IntakeOutcome: "media_manager_added", SeerrState: "2"},
+			want:    "waiting",
+		},
+		{
+			name:    "held search does not hide intake configuration failure",
+			summary: SeerrRequestSummary{WorkflowCount: 1, CurrentState: "held", IntakeOutcome: "needs_configuration", SeerrState: "2"},
+			want:    "needs_attention",
+		},
+		{
 			name:    "intake needs attention without a workflow",
 			summary: SeerrRequestSummary{IntakeOutcome: "needs_attention", IntakeError: "identity missing", SeerrState: "2"},
 			want:    "needs_attention",

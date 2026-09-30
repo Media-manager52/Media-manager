@@ -181,6 +181,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, inventory.LocalRelative)
 		verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe, rootErr)
 		if inspectionErr != nil {
+			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) {
+				return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureNoPlayableMedia, inspectionErr.Error(), time.Now().UTC())
+			}
 			return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", inspectionErr.Error(), time.Now().UTC())
 		}
 		recorded, recordErr := service.Store.RecordSubtitleVerification(ctx, job, inventoryID, verification, time.Now().UTC())
@@ -250,11 +253,10 @@ func inspectSubtitleRequirements(ctx context.Context, authorizedRoot string, sel
 		}
 		inspectionErr = err
 	}
-	detail := "completed AltMount output could not be inspected safely"
 	if inspectionErr != nil {
-		detail = inspectionErr.Error()
+		return subtitles.Verification{}, inspectionErr
 	}
-	return subtitles.Verification{}, errors.New(detail)
+	return subtitles.Verification{}, errors.New("completed AltMount output could not be inspected safely")
 }
 
 func terminalAltMountJob(state string) bool {

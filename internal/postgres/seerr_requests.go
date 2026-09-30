@@ -194,6 +194,12 @@ func seerrRequestLifecycle(item SeerrRequestSummary) string {
 		return "available"
 	}
 	if item.WorkflowCount > 0 && item.CurrentState != "" {
+		if item.CurrentState == "held" {
+			// Held search results already schedule a paced retry. Workflow
+			// attention and intake problems were handled above; this request
+			// is waiting for eligible evidence, not an owner decision.
+			return "waiting"
+		}
 		return item.CurrentState
 	}
 	switch item.SeerrState {
