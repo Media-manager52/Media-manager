@@ -67,7 +67,8 @@ test("maps durable request lifecycles to owner-facing tones and labels", async (
   assert.equal(requestLifecycleLabel("plex_confirmed"), "Plex confirmed");
   assert.equal(requestLifecycleLabel("needs_attention"), "Needs Attention");
   assert.equal(requestLifecycleLabel("searching"), "Searching");
-  assert.equal(requestLifecycleLabel("not_approved"), "Not approved");
+  assert.equal(requestLifecycleLabel("not_approved"), "Awaiting approval");
+  assert.equal(requestLifecycleLabel("approved_in_seerr"), "Approved in Seerr");
 
   assert.equal(seerrStateLabel("1"), "Pending approval");
   assert.equal(seerrStateLabel("5"), "Available");
@@ -88,6 +89,17 @@ test("filters requests by lifecycle, type, and free text with real API shape", a
   assert.deepEqual(filterRequests(requests, "attention", "completed"), []);
   assert.deepEqual(filterRequests([], "all", ""), []);
   assert.deepEqual(requestFilterCounts(requests), { total: 4, active: 1, completed: 2, attention: 1, movie: 3, series: 1 });
+
+  // A decision already made in Seerr is not something the owner still has to
+  // act on; a request still waiting for that decision is.
+  const decided = [
+    { ...requests[0], request_id: "9", lifecycle: "declined" },
+    { ...requests[0], request_id: "10", lifecycle: "approved_in_seerr" },
+    { ...requests[0], request_id: "11", lifecycle: "not_approved" },
+  ];
+  assert.deepEqual(filterRequests(decided, "attention", "").map((item) => item.request_id), ["11"]);
+  assert.deepEqual(filterRequests(decided, "active", "").map((item) => item.request_id), ["10"]);
+  assert.deepEqual(filterRequests(decided, "completed", ""), []);
 });
 
 test("renders a Plex-confirmed request without inventing extra success", async () => {

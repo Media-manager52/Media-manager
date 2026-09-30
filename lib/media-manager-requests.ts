@@ -3,9 +3,9 @@ import type { StatusTone } from "@/lib/media-manager-data"
 
 export type RequestFilter = "all" | "active" | "completed" | "attention" | "movie" | "series"
 
-export const requestAttentionStates = new Set(["needs_attention", "held", "blocked", "quarantined", "transport_unknown", "not_approved", "declined", "failed"])
+export const requestAttentionStates = new Set(["needs_attention", "held", "blocked", "quarantined", "transport_unknown", "not_approved", "failed"])
 export const requestCompletedStates = new Set(["plex_confirmed", "available"])
-export const requestActiveStates = new Set(["monitored", "waiting", "searching", "candidate_selected", "submitting", "queued", "streaming_ready", "import_complete", "verifying", "publishing", "plex_scanning"])
+export const requestActiveStates = new Set(["approved_in_seerr", "monitored", "waiting", "searching", "candidate_selected", "submitting", "queued", "streaming_ready", "import_complete", "verifying", "publishing", "plex_scanning"])
 
 export function requestLifecycleTone(lifecycle: string): StatusTone {
   if (lifecycle === "plex_confirmed" || lifecycle === "available") return "good"
@@ -18,7 +18,8 @@ export function requestLifecycleTone(lifecycle: string): StatusTone {
 export function requestLifecycleLabel(lifecycle: string): string {
   if (lifecycle === "plex_confirmed") return "Plex confirmed"
   if (lifecycle === "available") return "Available"
-  if (lifecycle === "not_approved") return "Not approved"
+  if (lifecycle === "not_approved") return "Awaiting approval"
+  if (lifecycle === "approved_in_seerr") return "Approved in Seerr"
   return lifecycle.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
