@@ -82,7 +82,7 @@ import { isActivelyAcquiring, isCompleted } from "@/lib/workflow-states"
 import { cn } from "@/lib/utils"
 import { retryPlan, workflowStep, workflowSteps } from "@/lib/workflow-presentation"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
-import { episodeStatus, formatSeasonVariant, parseSeriesVariant, rollupSeriesSeasons } from "@/lib/series-variants"
+import { episodeStatus, formatSeasonVariant, parseSeriesVariant, rollupSeriesSeasons, seasonAddCheck } from "@/lib/series-variants"
 
 function prettyState(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
@@ -306,7 +306,10 @@ export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
   const router = useRouter()
   const [detail, setDetail] = React.useState<APIMediaDetail | null>(null)
   const [error, setError] = React.useState("")
-  const [seasonSpec, setSeasonSpec] = React.useState("1:10")
+  // Empty until the owner types a season: a prefilled value made one click
+  // add a blank season 1 that searched immediately.
+  const [seasonSpec, setSeasonSpec] = React.useState("")
+  const [seasonAddConfirmed, setSeasonAddConfirmed] = React.useState(false)
   const [replacementConfirmation, setReplacementConfirmation] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const refresh = React.useCallback(async () => { try { setDetail(await loadMediaDetail(mediaId)); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load media") } }, [mediaId])
@@ -324,7 +327,7 @@ export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
         if (seasons.length !== 1) throw new Error("Add one season at a time from this screen")
         await createExistingWorkflow(media.id, { search_immediately: true, season: seasons[0], adopted_replacement_confirmation: replacementConfirmation })
       }
-      toast.success(media.kind === "movie" ? "Upgrade workflow created" : "Season-pack workflow created"); await refresh()
+      toast.success(media.kind === "movie" ? "Upgrade workflow created" : "Season-pack workflow created"); setSeasonSpec(""); setSeasonAddConfirmed(false); await refresh()
     } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not create workflow") } finally { setBusy(false) }
   }
   async function refreshMetadata() {
@@ -343,6 +346,9 @@ export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
   const selectedSeason = media.kind === "series" ? Number.parseInt(seasonSpec.split(":", 1)[0] ?? "", 10) : undefined
   const selectedVariant = media.kind === "movie" ? "default" : selectedSeason !== undefined && Number.isInteger(selectedSeason) ? formatSeasonVariant(selectedSeason) : ""
   const hasAdoptedForVariant = detail?.files.some((file) => file.origin === "adoption" && file.state === "current" && file.variant === selectedVariant) ?? false
+  const seasonSpecError = media.kind === "series" && seasonSpec.trim() ? (() => { try { return parseSeasonSpec(seasonSpec).length === 1 ? "" : "Add one season at a time from this screen" } catch (reason) { return reason instanceof Error ? reason.message : "Use season:episode-count, for example 5:8" } })() : ""
+  const seasonCheck = media.kind === "series" && seasonSpec.trim() && !seasonSpecError && selectedSeason !== undefined ? seasonAddCheck(selectedSeason, detail?.workflows ?? [], seasonRollups.get(selectedSeason), detail?.seasons.find((season) => season.number === selectedSeason)?.expected_episodes) : undefined
+  const seasonAddAllowed = media.kind !== "series" || (seasonCheck !== undefined && (seasonCheck.status === "ready" || (seasonCheck.status === "confirm" && seasonAddConfirmed)))
   const replacementConfirmed = !hasAdoptedForVariant || replacementConfirmation === "REPLACE ADOPTED FILE AFTER PLEX VERIFICATION"
   const currentFile = detail?.files.find((file) => file.state === "current" && file.plex_confirmed) ?? detail?.files.find((file) => file.state === "current")
   const attentionWorkflow = detail?.workflows.find((workflow) => workflow.owner_action_required || ["needs_attention", "blocked", "quarantined", "transport_unknown"].includes(workflow.state))
@@ -395,7 +401,11 @@ export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
             {attentionWorkflow ? <StatusChip tone="warn">{retryPlan(attentionWorkflow)}</StatusChip> : null}
             {(media.identities ?? []).map((identity) => <StatusChip key={`${identity.namespace}-${identity.value}`} dot={false}><span className="font-mono">{identity.namespace.toUpperCase()} {identity.value}</span></StatusChip>)}
           </div>
-          <div className="flex flex-wrap items-center gap-2">{media.kind === "series" ? <Input className="mm-input h-8 w-28" value={seasonSpec} onChange={(event) => { setSeasonSpec(event.target.value); setReplacementConfirmation("") }} aria-label="Season and episode count" /> : null}<Button size="sm" className="h-8" disabled={busy || !replacementConfirmed} onClick={() => void addWorkflow()}><Plus /> {media.kind === "movie" ? "Search upgrade" : "Add season"}</Button><Button size="sm" variant="outline" className="h-8" disabled={busy || !media.identities.some((identity) => identity.namespace === "tmdb" && identity.state === "verified")} onClick={() => void refreshMetadata()}><RefreshCw /> Refresh metadata</Button><AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="ghost" className="h-8" disabled={busy || hasAdoptedProtected}><Trash2 /> Recycle</Button></AlertDialogTrigger><AlertDialogContent className="border-line-strong bg-surface-2 text-fg"><AlertDialogHeader><AlertDialogTitle>Recycle {media.title}?</AlertDialogTitle><AlertDialogDescription>Managed links move into 30-day retention. AltMount source files stay untouched. Active workflows and adopted real-file retention must be resolved first.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Keep media</AlertDialogCancel><AlertDialogAction onClick={() => void remove()}>Recycle links</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div>
+          <div className="flex flex-wrap items-center gap-2">{media.kind === "series" ? <Input className="mm-input h-8 w-28" value={seasonSpec} placeholder="5:8" onChange={(event) => { setSeasonSpec(event.target.value); setSeasonAddConfirmed(false); setReplacementConfirmation("") }} aria-label="Season and episode count" aria-describedby={seasonSpecError || seasonCheck?.status === "blocked" || seasonCheck?.status === "confirm" ? "season-add-note" : undefined} /> : null}<Button size="sm" className="h-8" disabled={busy || !replacementConfirmed || !seasonAddAllowed} onClick={() => void addWorkflow()}><Plus /> {media.kind === "movie" ? "Search upgrade" : "Add season"}</Button><Button size="sm" variant="outline" className="h-8" disabled={busy || !media.identities.some((identity) => identity.namespace === "tmdb" && identity.state === "verified")} onClick={() => void refreshMetadata()}><RefreshCw /> Refresh metadata</Button><AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="ghost" className="h-8" disabled={busy || hasAdoptedProtected}><Trash2 /> Recycle</Button></AlertDialogTrigger><AlertDialogContent className="border-line-strong bg-surface-2 text-fg"><AlertDialogHeader><AlertDialogTitle>Recycle {media.title}?</AlertDialogTitle><AlertDialogDescription>Managed links move into 30-day retention. AltMount source files stay untouched. Active workflows and adopted real-file retention must be resolved first.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Keep media</AlertDialogCancel><AlertDialogAction onClick={() => void remove()}>Recycle links</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div>
+          {media.kind === "series" && (seasonSpecError || seasonCheck?.status === "blocked" || seasonCheck?.status === "confirm") ? <div id="season-add-note" role="status" className="mt-2 max-w-xl rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-[12px] leading-[18px] text-warn">
+            {seasonSpecError || (seasonCheck && seasonCheck.status !== "ready" ? seasonCheck.message : "")}
+            {seasonCheck?.status === "confirm" ? <label className="mt-1.5 flex items-center gap-2 font-semibold text-fg"><input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={seasonAddConfirmed} onChange={(event) => setSeasonAddConfirmed(event.target.checked)} /> Search again anyway</label> : null}
+          </div> : null}
         </div>
       </div>
     </section>

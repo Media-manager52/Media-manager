@@ -175,3 +175,26 @@ export function episodeStatus(episode: { number: number; air_date?: string }, ro
   if (new Date(`${episode.air_date.slice(0, 10)}T00:00:00`).getTime() >= startOfToday) return { status: "unaired", workflow }
   return { status: "missing", workflow }
 }
+
+export type SeasonAddCheck = { status: "ready" } | { status: "confirm"; message: string } | { status: "blocked"; message: string }
+
+/**
+ * Whether the title page may add a season workflow. A season that already has
+ * an active season workflow is refused: the server keeps one active workflow
+ * per scope, and the existing one is where the owner acts. A season already in
+ * Plex, partly in Plex, or with episode work in progress is allowed only after
+ * an explicit confirmation, because adding it starts a new season search.
+ */
+export function seasonAddCheck(season: number, workflows: APIWorkflow[], rollup: SeriesSeasonRollup | undefined, expectedEpisodes = 0): SeasonAddCheck {
+  const finished = (workflow: APIWorkflow) => Boolean(workflow.terminal_at) || workflow.state === "plex_confirmed" || workflow.state === "cancelled"
+  const active = workflows.find((workflow) => workflow.variant === formatSeasonVariant(season) && !finished(workflow))
+  if (active) return { status: "blocked", message: `Season ${season} already has an active workflow (${active.state.replaceAll("_", " ")}). Open it in Workflows instead of adding another.` }
+  const packInPlex = rollup?.packWorkflow?.state === "plex_confirmed" || (rollup?.packFiles ?? []).some((file) => file.state === "current" && file.plex_confirmed)
+  const acquired = rollup?.acquiredEpisodes.length ?? 0
+  const of = expectedEpisodes > 0 ? ` of ${expectedEpisodes}` : ""
+  if (packInPlex || (expectedEpisodes > 0 && acquired >= expectedEpisodes)) return { status: "confirm", message: `Season ${season} is already in Plex${expectedEpisodes > 0 ? ` (${expectedEpisodes}${of} episodes)` : ""}. Adding it again starts a new search for a replacement season pack.` }
+  if (acquired > 0) return { status: "confirm", message: `Season ${season} is partly in Plex (${acquired}${of} episodes). Adding it starts a season-pack search alongside what is already there.` }
+  const activeEpisodes = (rollup?.episodeWorkflows ?? []).filter((workflow) => !finished(workflow)).length
+  if (activeEpisodes > 0) return { status: "confirm", message: `Season ${season} already has ${activeEpisodes} episode workflow${activeEpisodes === 1 ? "" : "s"} in progress. Adding the season also searches for a season pack.` }
+  return { status: "ready" }
+}
