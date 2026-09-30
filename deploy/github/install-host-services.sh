@@ -9,8 +9,8 @@ install -d -m 711 /var/lib/media-manager-deploy
 install -d -m 730 -o root -g mm-ci /var/lib/media-manager-deploy/inbox
 install -d -m 750 -o root -g mm-ci /var/lib/media-manager-deploy/results
 install -d -m 755 /usr/local/libexec
-install -m 755 "${source_dir}/runner-hook.sh" /usr/local/libexec/mm-ci-job-started
-install -m 755 "${source_dir}/runner-hook.sh" /usr/local/libexec/mm-ci-job-completed
+install -m 755 "${source_dir}/runner-hook.sh" /usr/local/libexec/mm-ci-job-started.sh
+install -m 755 "${source_dir}/runner-hook.sh" /usr/local/libexec/mm-ci-job-completed.sh
 install -m 755 "${source_dir}/deploy-broker.py" /usr/local/libexec/media-manager-deploy.py
 install -m 644 "${source_dir}/deploy.service" /etc/systemd/system/media-manager-github-deploy.service
 install -m 644 "${source_dir}/deploy.path" /etc/systemd/system/media-manager-github-deploy.path

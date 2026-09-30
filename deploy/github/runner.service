@@ -13,8 +13,8 @@ TimeoutStopSec=120
 Environment=DOCKER_HOST=unix:///run/user/%U/docker.sock
 Environment=GOMAXPROCS=4
 Environment=RUNNER_TOOL_CACHE=/var/lib/media-manager-ci/tool-cache
-Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/mm-ci-job-started
-Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/mm-ci-job-completed
+Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/mm-ci-job-started.sh
+Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/mm-ci-job-completed.sh
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
