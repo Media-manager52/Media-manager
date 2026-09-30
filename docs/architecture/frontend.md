@@ -163,7 +163,15 @@ coverage bars (series) or the acquisition pipeline (movies), workflows, and
 files on the left; coverage or availability, profile, files, and details on
 the right. Wanted splits into Needs attention, Missing, Upgrades, and In
 progress; Workflows groups rows into Needs attention, Active, Scheduled &
-waiting, and Completed without removing any recovery control.
+waiting, and Completed without removing any recovery control. TV title pages
+list each expected episode (`episodeStatus` in `lib/series-variants.ts`), and
+in-flight workflows show `DownloadProgress`, AltMount's own reported
+percentage, instead of the stepper when one exists. Pending Seerr requests
+carry `RequestDecisionButtons` (Approve, or Decline after confirmation) in the
+Requests table, request panel, and Overview. The Overview Plex card offers
+"Re-check Plex" only while titles are in `plex_timeout`. Calendar opens on a
+Monday-first week grid with previous/next navigation, and Health shows one
+status tile per component plus an Advanced tools list.
 
 ## 4. Pure helper modules (`lib/`)
 
