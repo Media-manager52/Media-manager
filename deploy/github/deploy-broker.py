@@ -51,6 +51,9 @@ def validate_evidence(request, main_sha, verification, jobs, deployment):
     if (deployment.get("id") != request["deployment_run"]
             or deployment.get("event") != "workflow_dispatch" or deployment.get("status") != "in_progress"):
         raise ValueError("An active owner-triggered deployment is required")
+    actor = deployment.get("triggering_actor", deployment.get("actor", {}))
+    if actor.get("login") != REPOSITORY.split("/")[0]:
+        raise ValueError("Only the repository owner can request production deployment")
 
 
 def operator(*args, **options):

@@ -19,7 +19,8 @@ class DeploymentBoundaryTests(unittest.TestCase):
         self.verify = dict(copy.deepcopy(common), id=123, event="push", status="completed",
                            conclusion="success", path=".github/workflows/verify.yml")
         self.deploy = dict(copy.deepcopy(common), id=456, event="workflow_dispatch",
-                           status="in_progress", path=".github/workflows/deploy.yml")
+                           status="in_progress", path=".github/workflows/deploy.yml",
+                           triggering_actor={"login": "Media-manager52"})
         self.jobs = [{"name": name, "conclusion": "success", "runner_name": "media-manager-vps"}
                      for name in broker.REQUIRED_JOBS]
 
@@ -87,6 +88,11 @@ class DeploymentBoundaryTests(unittest.TestCase):
             with self.subTest(request=request):
                 with self.assertRaises(ValueError):
                     broker.validate_request(request)
+
+    def test_another_collaborator_cannot_request_production_deployment(self):
+        self.deploy["triggering_actor"] = {"login": "another-collaborator"}
+        with self.assertRaises(ValueError):
+            self.check()
 
 
 if __name__ == "__main__":
