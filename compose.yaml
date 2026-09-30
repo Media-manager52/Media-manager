@@ -31,6 +31,11 @@ services:
     group_add: ["${MEDIA_LIBRARY_GID:-1000}"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    # Keep provider-key traffic on this host's IPv4 egress identity, even if
+    # the external integrations network later gains IPv6 connectivity.
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
+      net.ipv6.conf.default.disable_ipv6: "1"
     depends_on:
       postgres:
         condition: service_healthy

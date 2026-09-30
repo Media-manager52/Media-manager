@@ -6,6 +6,10 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ## Unreleased
 
+### Changed
+
+- The Compose API container explicitly disables IPv6 so indexer requests use the host's IPv4 egress identity even if its external Docker network later enables IPv6. Per-provider pacing, budgets, redirect pinning, and credential boundaries remain unchanged. Other containers and host IPv6 are unaffected.
+
 ### Added
 
 - Workflows offers “Retry access-rejected release” after provider access is repaired. The owner confirms the exact selected release and workflow revision; only pre-submission HTTP 401/403 exclusions in the existing open round can be lifted, including the exact historical failure messages from before schema 41. The action preserves the original rejection in audit history and queues normal paced retrieval without searching or opening a round. Payload, output, owner-block, policy, retained-output and submission guards remain in force.
