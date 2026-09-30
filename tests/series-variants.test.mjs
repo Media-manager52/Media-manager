@@ -217,3 +217,42 @@ test("episode status comes only from persisted workflows, files, and air dates",
   const [pack] = rollupSeriesSeasons([workflow("p", "season:02", "plex_confirmed")], []);
   assert.equal(episodeStatus({ number: 9, air_date: "2020-01-01" }, pack, today).status, "acquired");
 });
+
+test("adding a season from the title page is refused or needs confirmation when the season is already handled", async () => {
+  const { seasonAddCheck, rollupSeriesSeasons } = await vite.ssrLoadModule("/lib/series-variants.ts");
+  const workflow = (id, variant, state, extra = {}) => ({ id, variant, state, media_id: "m", media_kind: "series", title: "S", revision: 1, adopted_replacement_confirmation_required: false, created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z", ...extra });
+  const done = "2026-09-02T00:00:00Z";
+  const workflows = [
+    workflow("s1", "season:01", "plex_confirmed", { terminal_at: done }),
+    workflow("s2", "season:02", "held"),
+    workflow("e1", "season:03:episode:01", "plex_confirmed", { terminal_at: done }),
+    workflow("e2", "season:03:episode:02", "plex_confirmed", { terminal_at: done }),
+    workflow("e3", "season:04:episode:01", "searching"),
+    workflow("c5", "season:05", "cancelled", { terminal_at: done }),
+    // A confirmed season without terminal_at is still finished, not active.
+    workflow("s7", "season:07", "plex_confirmed"),
+  ];
+  const rollups = new Map(rollupSeriesSeasons(workflows, []).map((season) => [season.number, season]));
+  const check = (season, expected) => seasonAddCheck(season, workflows, rollups.get(season), expected);
+
+  // An active workflow for the same season is refused outright.
+  const blocked = check(2, 8);
+  assert.equal(blocked.status, "blocked");
+  assert.match(blocked.message, /Season 2 already has an active workflow \(held\)/);
+  // A season already in Plex needs an explicit confirmation.
+  const inPlex = check(1, 8);
+  assert.equal(inPlex.status, "confirm");
+  assert.match(inPlex.message, /Season 1 is already in Plex/);
+  // Every expected episode confirmed individually also counts as in Plex.
+  assert.match(check(3, 2).message, /Season 3 is already in Plex \(2 of 2 episodes\)/);
+  // Some episodes in Plex: partial, still needs confirmation.
+  const partial = check(3, 8);
+  assert.equal(partial.status, "confirm");
+  assert.match(partial.message, /partly in Plex \(2 of 8 episodes\)/);
+  // Episode work in progress needs confirmation too.
+  assert.match(check(4, 6).message, /1 episode workflow in progress/);
+  // A cancelled workflow does not hold the season; an untouched season is ready.
+  assert.deepEqual(check(5, 6), { status: "ready" });
+  assert.deepEqual(check(6, 10), { status: "ready" });
+  assert.equal(check(7, 8).status, "confirm");
+});
