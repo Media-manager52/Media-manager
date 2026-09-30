@@ -1,0 +1,107 @@
+From 321b3badc04760a387828bbde73e4bf15088508d Mon Sep 17 00:00:00 2001
+From: Media Manager Steward <media-manager@localhost>
+Date: Wed, 30 Sep 2026 22:13:36 +0200
+Subject: [PATCH 3/3] fix(parser): retain single-file metadata names without
+ extension override
+
+---
+ internal/importer/parser/parser.go            | 22 ++++-------
+ .../parser/parser_metadata_name_test.go       | 37 +++++++++++++++++++
+ 2 files changed, 45 insertions(+), 14 deletions(-)
+ create mode 100644 internal/importer/parser/parser_metadata_name_test.go
+
+diff --git a/internal/importer/parser/parser.go b/internal/importer/parser/parser.go
+index d07e46bdedb854c701feef4263c544b3a8f89705..dbb4d5dcad5329f10b7d4619ec7985d93e843e44 100644
+--- a/internal/importer/parser/parser.go
++++ b/internal/importer/parser/parser.go
+@@ -19,6 +19,8 @@ import (
+ 
+ 	"golang.org/x/sync/errgroup"
+ 
++	"github.com/javi11/nntppool/v5"
++	"github.com/javi11/nzbparser"
+ 	"github.com/kipsilabs/altmount/internal/config"
+ 	"github.com/kipsilabs/altmount/internal/encryption"
+ 	"github.com/kipsilabs/altmount/internal/encryption/rclone"
+@@ -31,11 +33,9 @@ import (
+ 	"github.com/kipsilabs/altmount/internal/metadata"
+ 	metapb "github.com/kipsilabs/altmount/internal/metadata/proto"
+ 	"github.com/kipsilabs/altmount/internal/pool"
+-	"github.com/kipsilabs/altmount/internal/usenet"
+ 	"github.com/kipsilabs/altmount/internal/progress"
+ 	"github.com/kipsilabs/altmount/internal/slogutil"
+-	"github.com/javi11/nntppool/v5"
+-	"github.com/javi11/nzbparser"
++	"github.com/kipsilabs/altmount/internal/usenet"
+ 	concpool "github.com/sourcegraph/conc/pool"
+ )
+ 
+@@ -606,17 +606,11 @@ func (p *Parser) parseFile(ctx context.Context, meta map[string]string, nzbFilen
+ 		if metaFilename, ok := meta["file_name"]; ok && metaFilename != "" {
+ 			if fSize, ok := meta["file_size"]; ok {
+ 				// This is a usenet-drive nzb with one file
+-				metaFilename = nzbtrim.TrimNzbExtension(nzbFilename)
+-
+-				if fe, ok := meta["file_extension"]; ok {
+-					metaFilename = metaFilename + fe
+-				} else {
+-					fileExt := filepath.Ext(metaFilename)
+-					if fileExt == "" {
+-						if fe, ok := meta["file_extension"]; ok {
+-							metaFilename = metaFilename + fe
+-						}
+-					}
++				// Rename from the upload only when metadata supplies the extension.
++				// Otherwise retain file_name, including its media/encryption suffix;
++				// an owner-generated upload basename may have no extension at all.
++				if fe := meta["file_extension"]; fe != "" {
++					metaFilename = nzbtrim.TrimNzbExtension(nzbFilename) + fe
+ 				}
+ 
+ 				fSizeInt, err := strconv.ParseInt(fSize, 10, 64)
+diff --git a/internal/importer/parser/parser_metadata_name_test.go b/internal/importer/parser/parser_metadata_name_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..3772ecb1c09b9a348c071c4bfe81661782f004bb
+--- /dev/null
++++ b/internal/importer/parser/parser_metadata_name_test.go
+@@ -0,0 +1,37 @@
++package parser
++
++import (
++	"context"
++	"testing"
++
++	"github.com/javi11/nzbparser"
++	"github.com/kipsilabs/altmount/internal/importer/parser/fileinfo"
++)
++
++func TestSingleFileMetadataPreservesOriginalNameWithoutExtensionOverride(t *testing.T) {
++	for _, test := range []struct {
++		name, extension, want string
++	}{
++		{"Original.Movie.mkv", "", "Original.Movie.mkv"},
++		{"Original.Movie.mkv", ".mp4", "owner-upload.mp4"},
++		{"Original.Movie.mkv", ".mkv", "owner-upload.mkv"},
++	} {
++		t.Run(test.name+test.extension, func(t *testing.T) {
++			meta := map[string]string{"file_name": test.name, "file_size": "128"}
++			if test.extension != "" {
++				meta["file_extension"] = test.extension
++			}
++			info := &fileinfo.FileInfo{Filename: test.name, NzbFile: nzbparser.NzbFile{
++				Segments: nzbparser.NzbSegments{{ID: "fixture", Number: 1, Bytes: 128}},
++			}}
++			p := NewParser(nil, testConfigGetter())
++			file, err := p.parseFile(context.Background(), meta, "owner-upload.nzb", info, nil, nil, 0, nil, nil)
++			if err != nil || file == nil {
++				t.Fatalf("parseFile=%v error=%v", file, err)
++			}
++			if file.Filename != test.want || file.Size != 128 {
++				t.Fatalf("filename=%q size=%d, want %q size=128", file.Filename, file.Size, test.want)
++			}
++		})
++	}
++}
+-- 
+2.47.3
+

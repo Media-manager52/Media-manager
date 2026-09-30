@@ -2,9 +2,11 @@
 
 Audited on 2026-08-30, updated on 2026-09-02 against the live Docker build at
 API commit `1a4d53f` and schema 32, and refreshed on 2026-09-28 against `main`
-at `c6bf1b8` and schema 40. The audit covers the Go route registry, PostgreSQL
-migrations/store methods, and the React route switch. This document describes
-implemented behavior, not the development fixture's claims.
+at `c6bf1b8` and schema 40. Deployment and acquisition recovery were refreshed
+on 2026-09-30 at `34f0024`, schema 43; older assessments remain dated evidence.
+The audit covers the Go route registry, PostgreSQL migrations/store methods
+and the React route switch. This document describes implemented behavior,
+not the development fixture's claims.
 
 ## Configurable acquisition budgets (2026-09-30)
 
@@ -37,12 +39,15 @@ appears as waiting in Requests because its bounded retry is already scheduled;
 intake configuration failures and attention on other linked workflows retain
 precedence.
 
-The companion AltMount fixes are maintained in the local AltMount source branch
-`fix/bounded-probe-failover`: commit `0c3325b` gives provider fallback its bounded
+The companion AltMount fixes are deployed at `321b3ba` and preserved in the
+[source patch bundle](../operations/altmount-patches/README.md).
+Commit `0c3325b` gives provider fallback its bounded
 15-second budget instead of cutting it off at two seconds; `c724ec8` recognizes
-gzip NZB content after a legacy retry renames `.nzb.gz` to `.nzb`. Both passed
-the full AltMount backend race suite and vet. Production evidence is recorded
-in the owner's private recovery report; these fixes do not relax subtitle,
+gzip NZB content after a legacy retry renames `.nzb.gz` to `.nzb`; `321b3ba`
+preserves the original single-file metadata name when no extension override
+is supplied. Each passed the full AltMount backend race suite and vet.
+Production evidence is recorded in the owner's private recovery report;
+these fixes do not relax subtitle,
 publication, retention, provider pacing or indexer credential requirements.
 
 ## Access rejection recovery follow-up (2026-09-30, deployed)
@@ -217,7 +222,7 @@ for smoke testing without explicit approval.
 
 ## Infrastructure and verification status
 
-- The three Compose services are healthy: PostgreSQL, API, and UI. Schema 40 preserves the schema-27/28 credential sanitization, schema-29 metadata protections, schema-30 durable rolling Newznab query/grab reservation ledger, and schema-32 acquisition-round model while adding Seerr root-folder routing (39) and release-payload screening/recovery kinds (40).
+- The three Compose services are healthy: PostgreSQL, API, and UI. Schema 43 preserves credential sanitization, metadata protections, durable Newznab reservation budgets and immutable acquisition rounds. It includes Seerr root-folder routing (39), release-payload recovery (40), bounded NZB retrieval recovery (41), reported AltMount progress (42) and configurable acquisition slot bounds (43).
 - Cosmos 0.23.4 is the public edge and the owner authentication layer. It
   authenticates the owner with OpenID and routes `/api/*` and `/health/*` to the
   API container and every other path to the UI container on one origin. The

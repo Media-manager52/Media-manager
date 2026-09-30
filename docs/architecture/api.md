@@ -86,7 +86,7 @@ Notes:
 | GET | `/api/v1/workflows` | Bounded list (`limit`, `active`). In-flight attempts carry `download_percent`/`download_stage`/`download_observed_at` exactly as AltMount reported them. |
 | GET | `/api/v1/workflows/{id}` | One workflow + transitions. |
 | POST | `/api/v1/workflows/{id}/search` | Queue a targeted search; may require `adopted_replacement_confirmation`. |
-| POST | `/api/v1/workflows/{id}/acquisition-rounds` | Owner opens the next fixed two-slot round. |
+| POST | `/api/v1/workflows/{id}/acquisition-rounds` | Owner opens the next round with the configured attempt limit (default two). |
 | POST | `/api/v1/workflows/{id}/recover-altmount-submission` | Reconcile an unknown submission outcome. |
 | POST | `/api/v1/workflows/{id}/reconcile-altmount` | Force a safe queue reconciliation. |
 | POST | `/api/v1/workflows/{id}/reverify-retained-output` | Re-inspect one retained output (`job_id`), no AltMount call. |

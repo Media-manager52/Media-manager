@@ -113,10 +113,10 @@ docs.
 
 ## Rounds and recovery
 
-- **Acquisition round** — a durable period with exactly two submission slots,
-  an immutable policy snapshot, and an upgrade baseline. Only the owner opens
-  the next one.
-- **Slot** — one of the round's two attempts. Only a release-attributable
+- **Acquisition round** — a durable period with an immutable configured
+  submission limit (default two, range one–six), policy snapshot and upgrade
+  baseline. Only the owner opens the next one.
+- **Slot** — one of the round's bounded attempts. Only a release-attributable
   failure consumes a slot.
 - **Release-attributable failure** — a failure that can be blamed on the
   release itself: `season_pack_incomplete`, `movie_primary_ambiguous`,

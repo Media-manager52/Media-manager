@@ -7,7 +7,7 @@ belongs. Reading this before touching SQL saves hours.
 
 - Migrations are **embedded** Go/SQL: `internal/postgres/migrations/NNNN_name.sql`,
   embedded via `//go:embed migrations/*.sql` in `migrate.go`.
-- `CurrentSchemaVersion int64 = 42` in `migrate.go` is the single version gate.
+- `CurrentSchemaVersion int64 = 43` in `migrate.go` is the single version gate.
   `Migrate` applies every file whose numeric prefix is `<= CurrentSchemaVersion`
   and not yet in `schema_migrations`.
 - Each migration runs in its own transaction; a global advisory lock
@@ -86,7 +86,7 @@ non-obvious.
 | --- | --- |
 | `workflows` | One row per media+scope workflow: state, root/profile/client, selected release, attention, revision. |
 | `workflow_transitions` | Append-only `from`/`to`/reason/actor log. |
-| `acquisition_rounds` | Durable two-slot rounds, policy/upgrade snapshots, ordinal, state. |
+| `acquisition_rounds` | Durable rounds with immutable bounded attempt limits, policy/upgrade snapshots, ordinal, state. |
 | `workflow_attempted_releases` | Lifetime attempt registry (monotonic). |
 | `workflow_release_exclusions` | Exact release exclusions after attributable failure. |
 | `workflow_package_exclusions` | Canonical NZB package exclusions. |

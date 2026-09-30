@@ -8,6 +8,8 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Changed
 
+- Acquisition budgets are configurable at startup: one–six attempts per new round (default two) and one–twelve retained failed outputs (default four). Schema 43 widens slot constraints without rewriting historical limits; UI and owner recovery use the configured budgets. Failed outputs, exact exclusions and provider pacing stay enforced.
+
 - The Compose API container explicitly disables IPv6 so indexer requests use the host's IPv4 egress identity even if its external Docker network later enables IPv6. Per-provider pacing, budgets, redirect pinning, and credential boundaries remain unchanged. Other containers and host IPv6 are unaffected.
 
 ### Added

@@ -1,0 +1,3 @@
+cff046a6e443bf92f314b32fdf77633141162a2ce05765ff2329a9cb408c5562  0001-fix-allow-bounded-NNTP-failover-during-release-probe.patch
+0ab8c5a08e07c040e4c90f5b6983f9bce3903a1fcddd3bd58d2c58ae1067cac8  0002-fix-detect-gzip-NZBs-when-retry-staging-renames-them.patch
+f794ca882bac2f23d402115cde235e4982136fd446a5a5ef63513717c8594abf  0003-fix-parser-retain-single-file-metadata-names-without.patch

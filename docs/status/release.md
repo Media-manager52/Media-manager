@@ -1,5 +1,34 @@
 # Media Manager core release status
 
+## Deployed source checkpoint (2026-09-30)
+
+Production API and UI run `34f0024` (PR #31), version `2026.09.30`, with
+schema 43. PRs #25–31 are merged on GitHub. This documentation checkpoint
+does not rebuild or redeploy the application; the deployed source identity
+remains `34f0024`.
+
+The owner configured four acquisition attempts per new round and eight
+retained failed outputs per workflow. Existing rounds keep their original
+immutable limits. Seventeen reviewed workflows were resumed through supported
+owner actions: twelve searches in open rounds and five rounds from known
+eligible alternatives. At the recorded recovery snapshot, attention fell
+from 31 to 14 and three additional workflows reached exact Plex confirmation.
+All 60 original reviewed output inventories remained present. Remaining
+inspection/import failures, episode-snapshot conflicts, provider redirects
+and missing verified subtitle alternatives still require recovery or review.
+
+The deployed read-only browser suite passed all 117 checks after deployment.
+Database readiness, schema 43, zero due/retrying outbox work and no degraded
+enabled sources were verified again at 21:57 UTC. The local verification
+below passed; GitHub Actions for PRs #30–31 could not start because of account
+billing/spending limits. Remote CI is not recorded as passing.
+
+All three deployed AltMount source fixes, including regression tests, are
+preserved in the [reproducible patch bundle](../operations/altmount-patches/README.md).
+Protected on-server backups exist; off-server backups remain outstanding.
+Schema 43 requires a compatible binary or a controlled database restore for
+rollback; starting the former schema-42 binary alone is insufficient.
+
 ## Configurable acquisition budget verification (2026-09-30)
 
 The owner requested more acquisition slots after reviewing the remaining Seerr
