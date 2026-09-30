@@ -163,6 +163,12 @@ func seerrRequestLifecycle(item SeerrRequestSummary) string {
 	}
 	switch item.IntakeOutcome {
 	case "needs_attention", "needs_configuration":
+		if item.SeerrState == "5" {
+			// Seerr completed the request (the media is available) and no linked
+			// workflow needs anything; the intake outcome is a leftover of older
+			// builds that read Completed as a revocation.
+			return "available"
+		}
 		return "needs_attention"
 	case "observed_not_approved":
 		// Intake saw the request before it was approved. Seerr's own state

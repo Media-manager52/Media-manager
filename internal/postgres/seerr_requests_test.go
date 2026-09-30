@@ -71,6 +71,24 @@ func TestSeerrRequestLifecycleMapping(t *testing.T) {
 			want:    "available",
 		},
 		{
+			// Intake outcomes recorded by builds that read Completed as a
+			// revocation must not keep a completed request under attention
+			// once no linked workflow needs anything.
+			name:    "completed in Seerr with a stale intake attention outcome is available",
+			summary: SeerrRequestSummary{IntakeOutcome: "needs_attention", SeerrState: "5", WorkflowCount: 1, CurrentState: "cancelled"},
+			want:    "available",
+		},
+		{
+			name:    "approved request whose intake needs attention still needs attention",
+			summary: SeerrRequestSummary{IntakeOutcome: "needs_attention", SeerrState: "2"},
+			want:    "needs_attention",
+		},
+		{
+			name:    "completed request with a workflow that needs attention still needs attention",
+			summary: SeerrRequestSummary{IntakeOutcome: "needs_attention", SeerrState: "5", WorkflowCount: 1, AttentionCount: 1, CurrentState: "needs_attention"},
+			want:    "needs_attention",
+		},
+		{
 			name:    "failed in Seerr is not awaiting approval",
 			summary: SeerrRequestSummary{IntakeOutcome: "observed_not_approved", SeerrState: "4"},
 			want:    "failed",
