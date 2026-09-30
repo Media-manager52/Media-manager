@@ -92,7 +92,7 @@ Notes:
 | POST | `/api/v1/workflows/{id}/reverify-retained-output` | Re-inspect one retained output (`job_id`), no AltMount call. |
 | POST | `/api/v1/plex/reconfirm-timed-out` | Owner "re-check Plex": runs `reconfirm-plex` for every workflow in `needs_attention`/`plex_timeout` (at most 50 per call) and reports `queued` and `skipped` with reasons. Only exact-path scans; never a library-wide scan. |
 | POST | `/api/v1/workflows/{id}/reconfirm-plex` | Retry exact Plex confirmation after `plex_timeout` from the attempt's existing verified links (idempotent, audited, ≤3 retries per publication; `409` if not timed out, links not verified, or limit reached). |
-| POST | `/api/v1/workflows/{id}/cancel` | Cancel workflow (no fake success). |
+| POST | `/api/v1/workflows/{id}/cancel` | Cancel workflow (no fake success): pre-retrieval work, or `needs_attention` work with no active AltMount job (jobs and retained output stay untouched); otherwise `409 cancel_failed`. |
 
 ### Release intelligence and verification
 
