@@ -8,10 +8,21 @@ test("workflow queue shows durable rounds and requires owner approval for a new 
   const exhaustedID = "22222222-2222-4222-8222-222222222222"
   const readyID = "55555555-5555-4555-8555-555555555555"
   const infrastructureID = "77777777-7777-4777-8777-777777777777"
+  const accessID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  const accessCandidateID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+  let accessRetried = 0
   let retried = false
   let nextRoundStarted = false
   let infrastructureReconciled = false
   const workflows = [
+    {
+      id: accessID, media_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", media_kind: "series",
+      title: "Access Denied Episode", variant: "season:03:episode:04", state: "needs_attention", revision: 9,
+      attention_code: "release_retrieval_failed", attention_detail: "Provider rejected NZB access (newznab_http_403).",
+      round_state: "open", round_ordinal: 1, round_slots_used: 0, round_attempt_limit: 2,
+      access_rejected_candidate_id: accessCandidateID, access_rejected_release_title: "Episode.1080p.NORDiC", access_rejected_indexer_name: "treasure-maps",
+      created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-02T04:00:00Z",
+    },
     {
       id: retryID,
       media_id: "33333333-3333-4333-8333-333333333333",
@@ -142,6 +153,12 @@ test("workflow queue shows durable rounds and requires owner approval for a new 
       await route.fulfill({ status: 200, json: { data: workflows } })
       return
     }
+    if (request.method() === "POST" && url.pathname === `/api/v1/workflows/${accessID}/retry-access-rejected-release`) {
+      expect(request.postDataJSON()).toEqual({ candidate_id: accessCandidateID, revision: 9 })
+      accessRetried++
+      await route.fulfill({ status: 202, json: { data: { status: "retrieval_queued", id: accessID } } })
+      return
+    }
     if (request.method() === "POST" && url.pathname === `/api/v1/workflows/${retryID}/search`) {
       retried = true
       await route.fulfill({ status: 202, json: { data: { status: "search_queued", id: retryID } } })
@@ -202,5 +219,14 @@ test("workflow queue shows durable rounds and requires owner approval for a new 
   await expect(infrastructureRow).toContainText("Recover the current AltMount job")
   await infrastructureRow.getByRole("button", { name: "Reconcile same job" }).click()
   await expect.poll(() => infrastructureReconciled).toBe(true)
+  const accessRow = page.getByRole("row").filter({ hasText: "Access Denied Episode" })
+  await expect(accessRow).toContainText("Episode.1080p.NORDiC · treasure-maps")
+  page.once("dialog", async (dialog) => { expect(dialog.message()).toContain("provider access problem has been fixed"); await dialog.dismiss() })
+  await accessRow.getByRole("button", { name: "Retry access-rejected release" }).click()
+  expect(accessRetried).toBe(0)
+  page.once("dialog", async (dialog) => { await dialog.accept() })
+  await accessRow.getByRole("button", { name: "Retry access-rejected release" }).click()
+  await expect.poll(() => accessRetried).toBe(1)
+  await expect(retryRow.getByRole("button", { name: "Retry access-rejected release" })).toHaveCount(0)
   expect(unexpected).toEqual([])
 })
