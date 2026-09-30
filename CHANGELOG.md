@@ -53,6 +53,8 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Fixed
 
+- The API process no longer crashes when a Seerr request arrives and any of the optional direct metadata providers (TMDB, TVDB, Simkl) has no credential. The default Compose secrets are empty files, so an unconfigured provider was wired as a nil client and the first metadata enrichment dereferenced it; unconfigured providers now stay unwired and intake falls back to Seerr's TMDB data as intended.
+- An owner decision on a Seerr request now stores the status Seerr confirmed straight away, so the request's Approve and Decline buttons disappear as soon as Seerr accepts the decision instead of staying visible until intake re-reads the request. Intake still re-reads it from Seerr.
 - The local Playwright web server could not start after the `cloudflare:` loader was added only to the container; it now registers the same loader.
 - Seerr routing selects and season progress bars had no accessible names, the overview scrolled horizontally by a few pixels on phones, and native selects with long release titles overflowed their forms.
 - Revoking a Seerr request (deleted or no longer approved) now also stops the single-episode workflows dispatched from its season: pre-retrieval episodes are cancelled and retrieving ones need owner attention. Previously only the season workflow was cancelled, and its episodes kept searching and downloading. Episodes of a season another approved request still tracks are kept.
