@@ -137,6 +137,20 @@ test("renders a needs-attention request truthfully", async () => {
   assert.doesNotMatch(html, /Plex confirmed/);
 });
 
+test("request status messages do not turn completed or automatically waiting requests into attention", async () => {
+  const { RequestInspector } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+  for (const item of [
+    request({ request_id: "20", lifecycle: "plex_confirmed", intake_error: "Seerr reports the request completed" }),
+    request({ request_id: "21", lifecycle: "waiting", attention_detail: "Releases were observed but none satisfied the required release evidence; a paced retry is scheduled." }),
+    request({ request_id: "22", lifecycle: "deleted", intake_error: "the Seerr request no longer exists" }),
+  ]) {
+    const html = renderToStaticMarkup(React.createElement(RequestInspector, { request: item, detail: null, loading: false, error: "" }));
+    assert.match(html, /Seerr request ID/);
+    assert.ok(html.includes(item.attention_detail || item.intake_error));
+    assert.doesNotMatch(html, /Needs attention/i);
+  }
+});
+
 test("live API client uses the supported requests endpoints", async () => {
   const source = await readFile(path.join(root, "lib/media-manager-api.ts"), "utf8");
   assert.match(source, /\/api\/v1\/requests\?limit=/);

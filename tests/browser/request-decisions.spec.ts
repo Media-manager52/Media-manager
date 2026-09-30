@@ -13,6 +13,41 @@ const pending = {
   workflow_count: 0, confirmed_count: 0, attention_count: 0, season_count: 0, available_seasons: 0,
 }
 
+test("request messages follow the actual lifecycle instead of always warning", async ({ page }) => {
+  const recorder = await installOwnerAPI(page, baseURL)
+  const items = [
+    { ...pending, id: `${seerrInstance}:778`, request_id: "778", title: "Completed status message", seerr_state: "5", lifecycle: "available", intake_error: "Seerr reports the request completed" },
+    { ...pending, id: `${seerrInstance}:779`, request_id: "779", title: "Scheduled retry message", seerr_state: "2", lifecycle: "waiting", attention_detail: "A paced retry is scheduled." },
+    { ...pending, id: `${seerrInstance}:780`, request_id: "780", title: "Real attention message", seerr_state: "2", lifecycle: "needs_attention", attention_detail: "Required Danish subtitles were not verified." },
+  ]
+  await page.route("**/api/v1/requests**", async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (route.request().method() === "GET" && path === "/api/v1/requests") {
+      await route.fulfill({ status: 200, json: { data: items } })
+      return
+    }
+    const item = items.find((entry) => path === `/api/v1/requests/${encodeURIComponent(entry.id)}`)
+    if (route.request().method() === "GET" && item) {
+      await route.fulfill({ status: 200, json: { data: { request: item, workflows: [], seasons: [], files: [] } } })
+      return
+    }
+    await route.fallback()
+  })
+  await page.goto("/requests")
+  const inspector = page.locator("section").filter({ has: page.getByRole("heading", { name: "Request detail", exact: true }) })
+  await page.getByRole("button", { name: "Completed status message", exact: true }).click()
+  await expect(inspector.getByText("Seerr reports the request completed", { exact: true })).toBeVisible()
+  await expect(inspector.getByText(/Needs attention/i)).toHaveCount(0)
+  await expect(page.getByRole("row").filter({ hasText: "Completed status message" }).getByText("Seerr reports the request completed", { exact: true })).toHaveClass(/text-fg-subtle/)
+  await page.getByRole("button", { name: "Scheduled retry message", exact: true }).click()
+  await expect(inspector.getByText("A paced retry is scheduled.", { exact: true })).toBeVisible()
+  await expect(inspector.getByText(/Needs attention/i)).toHaveCount(0)
+  await page.getByRole("button", { name: "Real attention message", exact: true }).click()
+  await expect(inspector.getByText("Required Danish subtitles were not verified.", { exact: true })).toBeVisible()
+  await expect(inspector.getByText("Needs Attention", { exact: true })).toBeVisible()
+  expect(recorder.unexpected).toEqual([])
+})
+
 test("owner approves a pending Seerr request and declining asks first", async ({ page }) => {
   const recorder = await installOwnerAPI(page, baseURL)
   const decisions: string[] = []
