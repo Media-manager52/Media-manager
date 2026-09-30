@@ -1,5 +1,10 @@
 # Owner console rollout — handoff for the production server
 
+This handoff records the earlier schema-42 console rollout. Current production
+is `34f0024`, schema 43; use [release status](../status/release.md) for the latest
+checkpoint and [the runbook](runbook.md) for current deployment configuration.
+Historical rehearsal results below are preserved as recorded.
+
 Purpose: bring the production server from an older Media Manager build to the
 current `main` (the owner-console redesign, Seerr Approve/Decline, real
 AltMount progress, the safe Plex re-check, and the fixes found by end-to-end
@@ -448,7 +453,7 @@ route below reads only Media Manager's database.
 | --- | --- | --- | --- | --- |
 | 1 | Containers | `docker compose ps`; `docker stats --no-stream` | `api`, `ui` and `postgres` up and healthy; modest CPU and memory | restarting, unhealthy, a memory climb |
 | 2 | Crashes and errors | `docker compose logs --since 24h api \| grep -iE 'panic\|fatal\|outbox batch failed\|error' \| sort \| uniq -c \| sort -rn \| head -30` | nothing, or a few explained lines | any `panic`; repeating `outbox batch failed` |
-| 3 | Version and schema | `docker compose exec -T api media-manager version`; `mm /health/ready`; `mm /api/v1/system/health \| pp` | the expected commit; `schema_version` = `expected_schema` = 42 | a mismatch or `not_ready` |
+| 3 | Version and schema | `docker compose exec -T api media-manager version`; `mm /health/ready`; `mm /api/v1/system/health \| pp` | the expected commit; `schema_version` = `expected_schema` for that build (currently 43) | a mismatch or `not_ready` |
 | 4 | Worker queue | `mm /api/v1/system/health \| pp` (outbox); `mm /api/v1/system/tasks \| pp` | `due` near 0, `retrying` small and not growing | `retrying` growing between two reads 10 minutes apart; one event type with high `attempts` |
 | 5 | Integrations | `mm /api/v1/system/health \| pp` (components); `mm /api/v1/settings/integrations \| pp` (secret **references** only) | every enabled component configured, `consecutive_failure` 0 | failures on Seerr, AltMount, Plex or an indexer; an enabled integration that is not configured |
 | 6 | Indexers | `mm /api/v1/sources \| pp` | a recent successful `last_outcome`, no long cooldown | `auth_failed`, `system_failure`, long cooldowns. Pacing deferrals are normal (runbook §9) |

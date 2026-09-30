@@ -1,0 +1,127 @@
+From 0c3325b63b1f4b1c0e01a807f97a7e68c961cf45 Mon Sep 17 00:00:00 2001
+From: Media Manager Steward <media-manager@localhost>
+Date: Wed, 30 Sep 2026 20:21:29 +0200
+Subject: [PATCH 1/3] fix: allow bounded NNTP failover during release probes
+
+---
+ internal/importer/validation/fast_fail.go     |  9 +++--
+ .../validation/fast_fail_deadline_test.go     | 35 +++++++++++++++++++
+ .../validation/fast_fail_hedge_test.go        |  4 +--
+ .../importer/validation/fast_fail_verdict.go  |  8 +++--
+ 4 files changed, 49 insertions(+), 7 deletions(-)
+ create mode 100644 internal/importer/validation/fast_fail_deadline_test.go
+
+diff --git a/internal/importer/validation/fast_fail.go b/internal/importer/validation/fast_fail.go
+index b0606ebbcb2786e8905070944dd38d81d47128a1..ed49dbcbdbf2d6ea8cffe13d2aae61184c004c40 100644
+--- a/internal/importer/validation/fast_fail.go
++++ b/internal/importer/validation/fast_fail.go
+@@ -8,11 +8,11 @@ import (
+ 	"math/rand"
+ 	"time"
+ 
++	"github.com/javi11/nntppool/v5"
+ 	"github.com/kipsilabs/altmount/internal/holes"
+ 	metapb "github.com/kipsilabs/altmount/internal/metadata/proto"
+ 	"github.com/kipsilabs/altmount/internal/pool"
+ 	"github.com/kipsilabs/altmount/internal/progress"
+-	"github.com/javi11/nntppool/v5"
+ )
+ 
+ const (
+@@ -71,7 +71,12 @@ func statIDsWithBoundedRetries(
+ 
+ 	sweepStart := time.Now()
+ 	for attempt := 1; len(remaining) > 0; attempt++ {
+-		statCtx, cancel := context.WithTimeout(ctx, pool.StatManyTimeout(len(remaining), maxConnections, timeout))
++		// Bound the actual requests as well as retry backoff. Otherwise a
++		// single slow attempt can exceed the entire sweep budget. Give the
++		// pool time to fail over instead of restarting a two-second window
++		// against the same slow provider on every retry.
++		attemptTimeout := min(pool.StatManyTimeout(len(remaining), maxConnections, timeout), fastFailStatBudget-time.Since(sweepStart))
++		statCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+ 		reported := make(map[string]bool, len(remaining))
+ 		transient := make(map[string]error, len(remaining))
+ 		definitive := 0
+diff --git a/internal/importer/validation/fast_fail_deadline_test.go b/internal/importer/validation/fast_fail_deadline_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2f27009da301a253e871677e7b74d076e490461
+--- /dev/null
++++ b/internal/importer/validation/fast_fail_deadline_test.go
+@@ -0,0 +1,35 @@
++package validation
++
++import (
++	"context"
++	"errors"
++	"testing"
++	"time"
++
++	"github.com/kipsilabs/altmount/internal/testsupport/fakepool"
++)
++
++func TestReleaseProbeAllowsProviderFallbackBeyondTwoSeconds(t *testing.T) {
++	client := fakepool.New()
++	client.SetDefaultBehavior(fakepool.SegmentBehavior{Latency: 2250 * time.Millisecond})
++	verdict, err := FastFailReleaseProbeVerdict(t.Context(), probeFile(8), fastFailPoolManager{client: client}, 100, 8, 30*time.Second, nil, time.Time{})
++	if err != nil || verdict.Missing || verdict.Dead {
++		t.Fatalf("reachable articles after slow provider fallback: verdict=%+v error=%v", verdict, err)
++	}
++}
++
++func TestFastFailSweepDeadlineHonorsTotalBudget(t *testing.T) {
++	previous := fastFailStatBudget
++	fastFailStatBudget = 100 * time.Millisecond
++	t.Cleanup(func() { fastFailStatBudget = previous })
++	client := fakepool.New()
++	client.SetDefaultBehavior(fakepool.SegmentBehavior{Latency: 2 * time.Second})
++	start := time.Now()
++	missing, unverified, err := statIDsWithBoundedRetries(t.Context(), client, []string{"slow"}, 1, 30*time.Second, false, nil, time.Time{})
++	if !errors.Is(err, ErrFastFailInconclusive) || !errors.Is(err, context.DeadlineExceeded) || len(missing) != 0 || len(unverified) != 1 {
++		t.Fatalf("missing=%v unverified=%v error=%v", missing, unverified, err)
++	}
++	if elapsed := time.Since(start); elapsed > time.Second {
++		t.Fatalf("sweep took %v with a 100ms budget", elapsed)
++	}
++}
+diff --git a/internal/importer/validation/fast_fail_hedge_test.go b/internal/importer/validation/fast_fail_hedge_test.go
+index 4ff3a42de64d51faad58a2926e7e8d775241bfb4..a20034bab9f9b4bd114eb3ad554f2205f18e3672 100644
+--- a/internal/importer/validation/fast_fail_hedge_test.go
++++ b/internal/importer/validation/fast_fail_hedge_test.go
+@@ -247,13 +247,13 @@ func TestFastFailReleaseProbeToleratesAFewUnverifiedStragglers(t *testing.T) {
+ 	client.alwaysDelay = map[string]time.Duration{"seg-40": 10 * time.Second}
+ 
+ 	start := time.Now()
+-	missing, err := FastFailReleaseProbe(context.Background(), probeFile(64), fastFailPoolManager{client: client}, 100, 64, 30*time.Second, nil, time.Time{})
++	missing, err := FastFailReleaseProbe(context.Background(), probeFile(64), fastFailPoolManager{client: client}, 100, 64, 2*time.Second, nil, time.Time{})
+ 	elapsed := time.Since(start)
+ 	if err != nil || missing {
+ 		t.Fatalf("FastFailReleaseProbe = (%v, %v), want (false, nil): 63 of 64 answered healthy", missing, err)
+ 	}
+ 	if elapsed > 2500*time.Millisecond {
+-		t.Fatalf("probe took %s, want one attempt (the 2 s ceiling), not retries on the one slow article", elapsed)
++		t.Fatalf("probe took %s, want one attempt within the explicitly requested 2 s deadline", elapsed)
+ 	}
+ 	if got := client.callCount("seg-40"); got > 2 {
+ 		t.Fatalf("slow article STATs = %d, want at most 2 (original + hedge)", got)
+diff --git a/internal/importer/validation/fast_fail_verdict.go b/internal/importer/validation/fast_fail_verdict.go
+index 9cdb359db75ca6954051dd39bc7693b2932fea44..8a92d1a020decb19b6624e0fdc2f63eb354df5a8 100644
+--- a/internal/importer/validation/fast_fail_verdict.go
++++ b/internal/importer/validation/fast_fail_verdict.go
+@@ -77,9 +77,11 @@ func FastFailReleaseProbeVerdict(
+ 		maxConnections = 1
+ 	}
+ 
+-	// Cap each attempt's probe timeout to 2 seconds per item so dead releases
+-	// stay bounded.
+-	probeTimeout := min(timeout, 2*time.Second)
++	// The pool's own first-provider attempt already takes about two seconds
++	// on a cold lookup. A two-second probe deadline prevents provider fallback
++	// from answering and repeatedly restarts that lookup. Allow the configured
++	// validation timeout, bounded by the sweep's total wall-clock budget.
++	probeTimeout := min(timeout, fastFailStatBudget)
+ 
+ 	ids := make([]string, len(selected))
+ 	for i, seg := range selected {
+-- 
+2.47.3
+

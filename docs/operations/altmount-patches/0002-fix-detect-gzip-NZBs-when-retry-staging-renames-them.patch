@@ -1,0 +1,111 @@
+From c724ec8f0a3183129430c0788809d7237499de28 Mon Sep 17 00:00:00 2001
+From: Media Manager Steward <media-manager@localhost>
+Date: Wed, 30 Sep 2026 21:25:28 +0200
+Subject: [PATCH 2/3] fix: detect gzip NZBs when retry staging renames them
+
+---
+ internal/nzbfile/legacy_gzip_test.go | 33 ++++++++++++++++++++++++++++
+ internal/nzbfile/nzbfile.go          | 25 ++++++++++++++++-----
+ 2 files changed, 53 insertions(+), 5 deletions(-)
+ create mode 100644 internal/nzbfile/legacy_gzip_test.go
+
+diff --git a/internal/nzbfile/legacy_gzip_test.go b/internal/nzbfile/legacy_gzip_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..b413f9112ce8a021f67a1b60b0b06684702f59b9
+--- /dev/null
++++ b/internal/nzbfile/legacy_gzip_test.go
+@@ -0,0 +1,33 @@
++package nzbfile
++
++import (
++	"io"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestOpenLegacyGzipRenamedToPlainNZB(t *testing.T) {
++	dir := t.TempDir()
++	plain := filepath.Join(dir, "original.nzb")
++	stored := filepath.Join(dir, "failed.nzb")
++	content := []byte(`<?xml version="1.0"?><nzb><file subject="movie.mkv"/></nzb>`)
++	if err := os.WriteFile(plain, content, 0600); err != nil {
++		t.Fatal(err)
++	}
++	if err := Compress(plain, stored); err != nil {
++		t.Fatal(err)
++	}
++	reader, err := Open(stored)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer reader.Close()
++	actual, err := io.ReadAll(reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(actual) != string(content) {
++		t.Fatalf("legacy failed NZB returned compressed data instead of XML")
++	}
++}
+diff --git a/internal/nzbfile/nzbfile.go b/internal/nzbfile/nzbfile.go
+index c6b74fe282950840c60400382b76e3aa3cb7235b..bf46dec3ce4660319bd5503cad8508864c0d2272 100644
+--- a/internal/nzbfile/nzbfile.go
++++ b/internal/nzbfile/nzbfile.go
+@@ -3,6 +3,8 @@
+ package nzbfile
+ 
+ import (
++	"bufio"
++	"bytes"
+ 	"compress/gzip"
+ 	"io"
+ 	"os"
+@@ -32,19 +34,27 @@ func PlainFilename(path string) string {
+ 	return name
+ }
+ 
+-// Open opens an NZB file for reading, transparently decompressing .nzb.gz
+-// files so callers always receive plain XML. The caller must Close the result.
++// Open opens an NZB file for reading, transparently decompressing gzip files
++// so callers always receive plain XML. Legacy failed imports can carry gzip
++// bytes after their staging filename has been changed to .nzb.
++// The caller must Close the result.
+ func Open(path string) (io.ReadCloser, error) {
+ 	f, err := os.Open(path)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 
+-	if !IsGzipped(path) {
+-		return f, nil
++	reader := bufio.NewReader(f)
++	header, err := reader.Peek(2)
++	if err != nil && err != io.EOF {
++		f.Close()
++		return nil, err
++	}
++	if !IsGzipped(path) && !bytes.Equal(header, []byte{0x1f, 0x8b}) {
++		return &plainReadCloser{Reader: reader, Closer: f}, nil
+ 	}
+ 
+-	gr, err := gzip.NewReader(f)
++	gr, err := gzip.NewReader(reader)
+ 	if err != nil {
+ 		f.Close()
+ 		return nil, err
+@@ -52,6 +62,11 @@ func Open(path string) (io.ReadCloser, error) {
+ 	return &gzipReadCloser{file: f, reader: gr}, nil
+ }
+ 
++type plainReadCloser struct {
++	io.Reader
++	io.Closer
++}
++
+ // Compress reads the NZB at srcPath and writes a gzip-compressed copy to dstPath.
+ func Compress(srcPath, dstPath string) error {
+ 	src, err := os.Open(srcPath)
+-- 
+2.47.3
+
