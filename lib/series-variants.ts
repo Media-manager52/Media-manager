@@ -156,12 +156,13 @@ function isNewerEpisodeWorkflow(candidate: APIWorkflow, current: APIWorkflow): b
   return candidate.updated_at > current.updated_at
 }
 
-export type EpisodeStatus = "acquired" | "acquiring" | "attention" | "unaired" | "missing"
+export type EpisodeStatus = "acquired" | "acquiring" | "attention" | "unaired" | "undated" | "missing"
 
 /**
  * One status per expected episode, derived only from persisted workflows,
  * files, and the provider air date. A season pack confirmed in Plex covers
- * every episode; an episode without an air date is treated as not yet aired.
+ * every episode. An episode without an air date is "undated": it is neither
+ * aired nor unaired, so it never makes a season look like it is airing.
  */
 export function episodeStatus(episode: { number: number; air_date?: string }, rollup: SeriesSeasonRollup | undefined, today = new Date()): { status: EpisodeStatus; workflow?: APIWorkflow } {
   const workflow = rollup?.episodeWorkflows.find((entry) => { const parsed = parseSeriesVariant(entry.variant); return parsed.kind === "episode" && parsed.episode === episode.number })
@@ -170,6 +171,7 @@ export function episodeStatus(episode: { number: number; air_date?: string }, ro
   if (rollup?.attentionEpisodes.includes(episode.number)) return { status: "attention", workflow }
   if (rollup?.acquiringEpisodes.includes(episode.number)) return { status: "acquiring", workflow }
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
-  if (!episode.air_date || new Date(`${episode.air_date.slice(0, 10)}T00:00:00`).getTime() >= startOfToday) return { status: "unaired", workflow }
+  if (!episode.air_date) return { status: "undated", workflow }
+  if (new Date(`${episode.air_date.slice(0, 10)}T00:00:00`).getTime() >= startOfToday) return { status: "unaired", workflow }
   return { status: "missing", workflow }
 }

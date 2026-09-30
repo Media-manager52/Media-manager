@@ -212,7 +212,8 @@ test("episode status comes only from persisted workflows, files, and air dates",
   assert.equal(attention.workflow.attention_detail, "Danish subtitles were not verified");
   assert.equal(episodeStatus({ number: 4, air_date: "2026-09-22" }, rollup, today).status, "missing");
   assert.equal(episodeStatus({ number: 5, air_date: "2026-10-06" }, rollup, today).status, "unaired");
-  assert.equal(episodeStatus({ number: 6 }, rollup, today).status, "unaired");
+  // Without an air date an episode is undated, never unaired or missing.
+  assert.equal(episodeStatus({ number: 6 }, rollup, today).status, "undated");
   const [pack] = rollupSeriesSeasons([workflow("p", "season:02", "plex_confirmed")], []);
   assert.equal(episodeStatus({ number: 9, air_date: "2020-01-01" }, pack, today).status, "acquired");
 });

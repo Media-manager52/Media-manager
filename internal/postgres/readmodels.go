@@ -264,20 +264,23 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 }
 
 type MediaSeason struct {
-	Number            uint16     `json:"number"`
-	Monitored         bool       `json:"monitored"`
-	PreferSeasonPack  bool       `json:"prefer_season_pack"`
-	SearchImmediately bool       `json:"search_immediately"`
-	State             string     `json:"state"`
-	ExpectedEpisodes  int        `json:"expected_episodes"`
-	ReleasedEpisodes  int        `json:"released_episodes"`
-	FutureEpisodes    int        `json:"future_episodes"`
-	WorkflowID        *uuid.UUID `json:"workflow_id,omitempty"`
-	WorkflowState     string     `json:"workflow_state,omitempty"`
-	WaitingReason     string     `json:"waiting_reason,omitempty"`
-	LastSearchAt      *time.Time `json:"last_search_at,omitempty"`
-	NextSearchAt      *time.Time `json:"next_search_at,omitempty"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	Number            uint16 `json:"number"`
+	Monitored         bool   `json:"monitored"`
+	PreferSeasonPack  bool   `json:"prefer_season_pack"`
+	SearchImmediately bool   `json:"search_immediately"`
+	State             string `json:"state"`
+	ExpectedEpisodes  int    `json:"expected_episodes"`
+	ReleasedEpisodes  int    `json:"released_episodes"`
+	FutureEpisodes    int    `json:"future_episodes"`
+	// UndatedEpisodes have no provider air date yet. They are neither released
+	// nor future, so they never make a season look like it is airing.
+	UndatedEpisodes int        `json:"undated_episodes"`
+	WorkflowID      *uuid.UUID `json:"workflow_id,omitempty"`
+	WorkflowState   string     `json:"workflow_state,omitempty"`
+	WaitingReason   string     `json:"waiting_reason,omitempty"`
+	LastSearchAt    *time.Time `json:"last_search_at,omitempty"`
+	NextSearchAt    *time.Time `json:"next_search_at,omitempty"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 	// Episodes is the frozen provider expectation for the season workflow:
 	// numbers, titles, and air dates only. Per-episode acquisition state is
 	// derived from workflows and files, never stored here.
@@ -313,20 +316,25 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 		return MediaDetail{}, err
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT monitoring.season_number,monitoring.monitored,monitoring.prefer_season_pack,monitoring.search_immediately,monitoring.state,
-		COALESCE(expectation.expected_episodes,0),COALESCE(expectation.released_episodes,0),COALESCE(expectation.future_episodes,0),workflow.id::text,COALESCE(workflow.state,''),COALESCE(workflow.attention_detail,''),search_state.last_search_at,search_state.next_search_at,monitoring.updated_at
+		COALESCE(expectation.expected_episodes,0),COALESCE(expectation.released_episodes,0),COALESCE(expectation.future_episodes,0),COALESCE(expectation.undated_episodes,0),workflow.id::text,COALESCE(workflow.state,''),COALESCE(workflow.attention_detail,''),search_state.last_search_at,search_state.next_search_at,monitoring.updated_at
 		FROM season_monitoring monitoring
 		LEFT JOIN LATERAL (
 			SELECT item.id,item.state,item.attention_detail FROM workflows item
 			WHERE item.media_id=monitoring.media_id AND item.variant='season:' || lpad(monitoring.season_number::text,2,'0')
-			ORDER BY item.updated_at DESC,item.id DESC LIMIT 1
+			-- A cancelled duplicate never hides the workflow that still owns the season.
+			ORDER BY item.state='cancelled',item.updated_at DESC,item.id DESC LIMIT 1
 		) workflow ON true
 		LEFT JOIN LATERAL (
+			-- Counted from the same newest frozen expectation the episode list shows.
 			SELECT count(*)::int AS expected_episodes,
 				count(*) FILTER (WHERE episode.air_date < CURRENT_DATE)::int AS released_episodes,
-				count(*) FILTER (WHERE episode.air_date IS NULL OR episode.air_date >= CURRENT_DATE)::int AS future_episodes
+				count(*) FILTER (WHERE episode.air_date >= CURRENT_DATE)::int AS future_episodes,
+				count(*) FILTER (WHERE episode.air_date IS NULL)::int AS undated_episodes
 			FROM pack_expected_episodes episode
-			JOIN pack_expectation_sets set_row ON set_row.id=episode.expectation_id
-			WHERE set_row.workflow_id=workflow.id
+			WHERE episode.expectation_id=(
+				SELECT set_row.id FROM pack_expectation_sets set_row
+				WHERE set_row.workflow_id=workflow.id
+				ORDER BY set_row.frozen_at DESC,set_row.id DESC LIMIT 1)
 		) expectation ON true
 		LEFT JOIN LATERAL (
 			SELECT max(run.started_at) AS last_search_at,
@@ -354,7 +362,7 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 		var season MediaSeason
 		var number int16
 		var workflowText *string
-		if err := rows.Scan(&number, &season.Monitored, &season.PreferSeasonPack, &season.SearchImmediately, &season.State, &season.ExpectedEpisodes, &season.ReleasedEpisodes, &season.FutureEpisodes, &workflowText, &season.WorkflowState, &season.WaitingReason, &season.LastSearchAt, &season.NextSearchAt, &season.UpdatedAt); err != nil {
+		if err := rows.Scan(&number, &season.Monitored, &season.PreferSeasonPack, &season.SearchImmediately, &season.State, &season.ExpectedEpisodes, &season.ReleasedEpisodes, &season.FutureEpisodes, &season.UndatedEpisodes, &workflowText, &season.WorkflowState, &season.WaitingReason, &season.LastSearchAt, &season.NextSearchAt, &season.UpdatedAt); err != nil {
 			return MediaDetail{}, err
 		}
 		season.Number = uint16(number)
