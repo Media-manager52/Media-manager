@@ -278,6 +278,17 @@ type MediaSeason struct {
 	LastSearchAt      *time.Time `json:"last_search_at,omitempty"`
 	NextSearchAt      *time.Time `json:"next_search_at,omitempty"`
 	UpdatedAt         time.Time  `json:"updated_at"`
+	// Episodes is the frozen provider expectation for the season workflow:
+	// numbers, titles, and air dates only. Per-episode acquisition state is
+	// derived from workflows and files, never stored here.
+	Episodes []MediaEpisode `json:"episodes"`
+}
+
+// MediaEpisode is one expected episode of a monitored season.
+type MediaEpisode struct {
+	Number  uint16     `json:"number"`
+	Title   string     `json:"title,omitempty"`
+	AirDate *time.Time `json:"air_date,omitempty"`
 }
 
 type MediaDetail struct {
@@ -347,6 +358,7 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 			return MediaDetail{}, err
 		}
 		season.Number = uint16(number)
+		season.Episodes = []MediaEpisode{}
 		if workflowText != nil {
 			parsed, parseErr := uuid.Parse(*workflowText)
 			if parseErr != nil {
@@ -359,7 +371,43 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 	if err := rows.Err(); err != nil {
 		return MediaDetail{}, err
 	}
+	rows.Close()
+	for index := range result.Seasons {
+		if result.Seasons[index].WorkflowID == nil {
+			continue
+		}
+		episodes, err := store.seasonEpisodes(ctx, *result.Seasons[index].WorkflowID)
+		if err != nil {
+			return MediaDetail{}, err
+		}
+		result.Seasons[index].Episodes = episodes
+	}
 	return result, nil
+}
+
+// seasonEpisodes returns each expected episode once, from the most recently
+// frozen expectation of the season workflow.
+func (store *Store) seasonEpisodes(ctx context.Context, workflowID uuid.UUID) ([]MediaEpisode, error) {
+	rows, err := store.Pool.Query(ctx, `SELECT DISTINCT ON (episode.episode) episode.episode,episode.title,episode.air_date
+		FROM pack_expected_episodes episode
+		JOIN pack_expectation_sets set_row ON set_row.id=episode.expectation_id
+		WHERE set_row.workflow_id=$1
+		ORDER BY episode.episode,set_row.frozen_at DESC,set_row.id DESC`, workflowID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	episodes := []MediaEpisode{}
+	for rows.Next() {
+		var number int16
+		var episode MediaEpisode
+		if err := rows.Scan(&number, &episode.Title, &episode.AirDate); err != nil {
+			return nil, err
+		}
+		episode.Number = uint16(number)
+		episodes = append(episodes, episode)
+	}
+	return episodes, rows.Err()
 }
 
 type WantedItem struct {

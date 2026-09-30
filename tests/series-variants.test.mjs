@@ -195,3 +195,24 @@ test("overview queue separates actively acquiring from waiting and includes want
   assert.ok(!waiting.includes("Wanted Attention"), "owner attention must never appear as normal waiting");
   assert.equal(queue.length, workflows.length + wanted.length, "no duplicate workflow is listed twice");
 });
+
+test("episode status comes only from persisted workflows, files, and air dates", async () => {
+  const { episodeStatus, rollupSeriesSeasons } = await vite.ssrLoadModule("/lib/series-variants.ts");
+  const workflow = (id, variant, state, extra = {}) => ({ id, variant, state, media_id: "m", media_kind: "series", title: "S", revision: 1, adopted_replacement_confirmation_required: false, created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z", ...extra });
+  const [rollup] = rollupSeriesSeasons([
+    workflow("a", "season:01:episode:01", "plex_confirmed"),
+    workflow("b", "season:01:episode:02", "downloading"),
+    workflow("c", "season:01:episode:03", "needs_attention", { owner_action_required: true, attention_detail: "Danish subtitles were not verified" }),
+  ], []);
+  const today = new Date("2026-09-30T12:00:00");
+  assert.equal(episodeStatus({ number: 1, air_date: "2026-09-01" }, rollup, today).status, "acquired");
+  assert.equal(episodeStatus({ number: 2, air_date: "2026-09-08" }, rollup, today).status, "acquiring");
+  const attention = episodeStatus({ number: 3, air_date: "2026-09-15" }, rollup, today);
+  assert.equal(attention.status, "attention");
+  assert.equal(attention.workflow.attention_detail, "Danish subtitles were not verified");
+  assert.equal(episodeStatus({ number: 4, air_date: "2026-09-22" }, rollup, today).status, "missing");
+  assert.equal(episodeStatus({ number: 5, air_date: "2026-10-06" }, rollup, today).status, "unaired");
+  assert.equal(episodeStatus({ number: 6 }, rollup, today).status, "unaired");
+  const [pack] = rollupSeriesSeasons([workflow("p", "season:02", "plex_confirmed")], []);
+  assert.equal(episodeStatus({ number: 9, air_date: "2020-01-01" }, pack, today).status, "acquired");
+});

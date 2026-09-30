@@ -55,7 +55,7 @@ func TestSystemInfoReportsBuildIdentity(t *testing.T) {
 		t.Fatalf("schema_version=%v, want %d", got, postgres.CurrentSchemaVersion)
 	}
 	// The additive change must preserve every existing system-info field.
-	for _, field := range []string{"owner_only", "browser_auth", "api_auth", "seerr_webhook_enabled", "metadata_providers", "altmount_source_policy", "publication_type", "upgrade_replacement_gate", "recycle_retention_days", "public_edge_owner", "machine_api_keys", "api_prefix", "checked_at"} {
+	for _, field := range []string{"owner_only", "browser_auth", "api_auth", "seerr_webhook_enabled", "metadata_providers", "altmount_source_policy", "publication_type", "upgrade_replacement_gate", "recycle_retention_days", "public_edge_owner", "machine_api_keys", "api_prefix", "started_at", "checked_at"} {
 		if _, ok := envelope.Data[field]; !ok {
 			t.Fatalf("system info dropped existing field %q", field)
 		}

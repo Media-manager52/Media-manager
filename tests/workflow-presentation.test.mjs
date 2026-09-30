@@ -50,3 +50,25 @@ test("retry plan uses only persisted schedule facts", () => {
   assert.equal(retryPlan({}, now), "Will not retry automatically");
   assert.equal(retryPlan(undefined, now), "Will not retry automatically");
 });
+
+test("download progress shows only what AltMount reported", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { DownloadProgress } = await vite.ssrLoadModule("/components/media-manager/console.tsx");
+  assert.equal(renderToStaticMarkup(React.createElement(DownloadProgress, { workflow: {} })), "");
+  const html = renderToStaticMarkup(React.createElement(DownloadProgress, { workflow: { download_percent: 74, download_stage: "Downloading", download_observed_at: "2026-09-30T06:00:00Z" } }));
+  assert.match(html, /74%/);
+  assert.match(html, /Downloading/);
+  assert.match(html, /aria-valuenow="74"/);
+  assert.match(html, /Reported by AltMount/);
+});
+
+test("uptime is derived from the persisted start time", async () => {
+  const { uptimeLabel } = await vite.ssrLoadModule("/components/media-manager/overview-screen.tsx");
+  const now = Date.parse("2026-09-30T06:00:00Z");
+  assert.equal(uptimeLabel(undefined, now), "");
+  assert.equal(uptimeLabel("2026-09-30T05:52:00Z", now), "8m");
+  assert.equal(uptimeLabel("2026-09-30T02:48:00Z", now), "3h 12m");
+  assert.equal(uptimeLabel("2026-09-16T00:00:00Z", now), "14d 6h");
+  assert.equal(uptimeLabel("2026-10-01T00:00:00Z", now), "");
+});

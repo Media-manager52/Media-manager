@@ -264,7 +264,8 @@ func (store *Store) ObserveAltMountAndReschedule(ctx context.Context, job AltMou
 		jobState = "queued"
 	}
 	var nextJobRevision int64
-	if err := transaction.QueryRow(ctx, `UPDATE altmount_jobs SET state=$2,last_reconciled_at=now(),revision=revision+1 WHERE id=$1 AND revision=$3 RETURNING revision`, job.JobID.String(), jobState, persistedJobRevision).Scan(&nextJobRevision); err != nil {
+	percent, stage := altMountProgress(item)
+	if err := transaction.QueryRow(ctx, `UPDATE altmount_jobs SET state=$2,last_reconciled_at=now(),revision=revision+1,progress_percent=$4,progress_stage=$5,progress_observed_at=now() WHERE id=$1 AND revision=$3 RETURNING revision`, job.JobID.String(), jobState, persistedJobRevision, percent, stage).Scan(&nextJobRevision); err != nil {
 		return err
 	}
 	workflowState := current
@@ -544,4 +545,23 @@ func playableAsset(path string) bool {
 		return true
 	}
 	return false
+}
+
+// altMountProgress returns the progress AltMount itself reported, bounded to
+// what the schema accepts. A missing or out-of-range percentage is stored as
+// NULL rather than guessed, and the stage is only a short display label.
+func altMountProgress(item altmount.QueueItem) (*int16, *string) {
+	var percent *int16
+	if item.Percentage != nil && *item.Percentage >= 0 && *item.Percentage <= 100 {
+		value := int16(*item.Percentage)
+		percent = &value
+	}
+	var stage *string
+	if trimmed := strings.TrimSpace(item.Stage); trimmed != "" {
+		if len(trimmed) > 64 {
+			trimmed = trimmed[:64]
+		}
+		stage = &trimmed
+	}
+	return percent, stage
 }
