@@ -111,6 +111,27 @@ referenced by `secret_ref` names: `ALTMOUNT_SECRET`, `PLEX_TOKEN`,
 `docker compose up -d --force-recreate api` (`restart` does **not** reload env
 files).
 
+### Single-address indexer egress
+
+Compose disables IPv6 inside the API container through
+`net.ipv6.conf.all.disable_ipv6` and `net.ipv6.conf.default.disable_ipv6`.
+Provider requests therefore use the host's outbound IPv4 address. Verify the
+actual address from the API container after a network or host change; Docker
+NAT, upstream routing, or a VPN determines the public address. This setting
+does not pin a particular public IPv4 address or change the provider's own
+DNS/redirect address validation.
+
+Keep indexer credentials in Media Manager only among active clients. Retire
+other Prowlarr, DKSubs, legacy collector, and diagnostic schedules that use the
+same keys, including clients on other machines. One server cannot enforce
+scheduling or egress for another machine. A single IP does not replace the
+provider's request pacing, rolling budgets, or account limits.
+
+Only the API namespace is changed: host IPv6, the public UI, and other
+containers keep their existing network settings. After changing the setting,
+recreate the API container; a restart does not apply Compose sysctls. Check
+readiness and the direct/public-edge smoke scripts after recreation.
+
 ## 3a. Configure Seerr without Radarr/Sonarr
 
 When `SERVARR_API_KEY` is set, Media Manager serves the Radarr/Sonarr API that
