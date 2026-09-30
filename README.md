@@ -9,6 +9,8 @@ The first production path is deliberately narrow: **Seerr + Media Manager + Newz
 ## Documentation
 
 All project documentation is indexed in [`docs/README.md`](docs/README.md).
+GitHub checks, private image uploads and owner-triggered updates run on the VPS;
+see [GitHub VPS operations](docs/operations/github-vps.md).
 Start with:
 
 - [`docs/onboarding/README.md`](docs/onboarding/README.md) — complete codebase

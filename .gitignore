@@ -50,3 +50,6 @@ next-env.d.ts
 
 # Server-local Claude Code notes (paths, launch commands); never committed
 CLAUDE.local.md
+
+# Python deployment/CI helper bytecode
+__pycache__/

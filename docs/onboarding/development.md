@@ -65,11 +65,16 @@ Two equivalent pipelines:
   `npm test`, `npm audit --omit=dev`), `browser` (Playwright image), `backend` (PostgreSQL
   18.6 service; `gofmt -l`, `go vet`, `go test -race`, `migrate`, then
   `git diff --exit-code -- go.mod go.sum`).
-- **GitHub Actions** (`.github/workflows/verify.yml`): the same `frontend`,
+- **GitHub Actions** (`.github/workflows/verify.yml`): a dedicated private VPS
+  runner performs the same `frontend`,
   `browser` (pinned Playwright image), and `backend` jobs, plus a
   `containers` job that builds the stack, checks the API auth boundary
   (`401` unauthenticated, `200` with owner token), asserts the unconfigured
-  Seerr webhook returns `503`, and verifies `pg_dump` works.
+  Seerr webhook returns `503`, and verifies `pg_dump` works. Its separate
+  rootless Docker engine, disposable databases/mounts and resource limits keep
+  CI isolated from production. Passing main commits upload API/UI images;
+  the owner starts production updates through the separate Deploy workflow.
+  See [GitHub VPS operations](../operations/github-vps.md).
 
 The GitLab `frontend` job additionally runs `npm audit --omit=dev`; a known
 moderate transitive advisory has failed that step historically without blocking

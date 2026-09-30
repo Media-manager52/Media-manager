@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch owner-requested Media Manager deployment identities
+
+[Path]
+PathExistsGlob=/var/lib/media-manager-deploy/inbox/*.json
+Unit=media-manager-github-deploy.service
+
+[Install]
+WantedBy=multi-user.target

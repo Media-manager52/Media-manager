@@ -168,6 +168,11 @@ containers after the services above pass in Seerr.
 
 ## 4. Upgrade / redeploy procedure
 
+For VPS-built, GitHub-verified image updates, use the owner-triggered
+[Deploy workflow](github-vps.md#normal-use). The broker creates a backup and
+checks the exact running commit. The procedure below remains available for
+reviewed manual source builds.
+
 1. Fetch/tag the commit; set `MEDIA_MANAGER_VERSION`/`_COMMIT`.
 2. Back up PostgreSQL and both env files together (§5).
 3. `docker compose build` then `docker compose up -d`.
