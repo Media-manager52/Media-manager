@@ -108,6 +108,26 @@ func TestSeerrRequestLifecycleMapping(t *testing.T) {
 			summary: SeerrRequestSummary{SeerrState: "99"},
 			want:    "unknown",
 		},
+		{
+			name:    "deleted request is not awaiting approval",
+			summary: SeerrRequestSummary{SeerrState: "deleted", IntakeOutcome: "observed_not_approved"},
+			want:    "deleted",
+		},
+		{
+			name:    "deleted request ignores stale intake attention",
+			summary: SeerrRequestSummary{SeerrState: "deleted", IntakeOutcome: "needs_attention"},
+			want:    "deleted",
+		},
+		{
+			name:    "deleted request still exposes workflow attention",
+			summary: SeerrRequestSummary{SeerrState: "deleted", IntakeOutcome: "observed_not_approved", WorkflowCount: 1, AttentionCount: 1, CurrentState: "needs_attention"},
+			want:    "needs_attention",
+		},
+		{
+			name:    "deleted request preserves completed workflow evidence",
+			summary: SeerrRequestSummary{SeerrState: "deleted", WorkflowCount: 1, ConfirmedCount: 1},
+			want:    "plex_confirmed",
+		},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

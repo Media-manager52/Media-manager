@@ -6,18 +6,39 @@ at `c6bf1b8` and schema 40. The audit covers the Go route registry, PostgreSQL
 migrations/store methods, and the React route switch. This document describes
 implemented behavior, not the development fixture's claims.
 
-## Access rejection recovery follow-up (2026-09-30, not deployed)
+## Seerr acquisition attention follow-up (2026-09-30)
+
+Definitive AltMount errors for missing archive parts, a release reduced to PAR2
+files after missing-article checks, an empty NZB manifest, or a definitive
+fast-fail rejection now use the existing exact-release/package exclusion and
+in-round recovery. Generic validation errors, inconclusive STAT checks,
+deadlines, permissions and connection failures remain infrastructure attention;
+they are not evidence that a release is defective. Deleted Seerr requests are
+shown as deleted rather than awaiting approval, while linked workflow attention
+and Plex confirmation still take precedence.
+
+The companion AltMount fixes are maintained in the local AltMount source branch
+`fix/bounded-probe-failover`: commit `0c3325b` gives provider fallback its bounded
+15-second budget instead of cutting it off at two seconds; `c724ec8` recognizes
+gzip NZB content after a legacy retry renames `.nzb.gz` to `.nzb`. Both passed
+the full AltMount backend race suite and vet. Production evidence is recorded
+in the owner's private recovery report; these fixes do not relax subtitle,
+publication, retention, provider pacing or indexer credential requirements.
+
+## Access rejection recovery follow-up (2026-09-30, deployed)
 
 The owner-only `retry-access-rejected-release` action and Workflows control
-are implemented in the recovery branch. They retry the exact selected
+are deployed at `17981e5` (PR #26). They retry the exact selected
 pre-submission HTTP 401/403 release inside its open round, with candidate and
 revision guards, an audit of the original exclusion, and the existing policy,
 submission, retrieval, output-retention, block and publication protections.
 Exact historical access rejection messages from before schema 41 are also
 recognized. A read-only production eligibility check matched all 38 selected
-treasure-maps failures (26 structured and 12 historical). No production
-workflow was resumed; deployment and a first owner-approved trial remain
-pending. See [the API contract](../architecture/api.md#access-rejection-recovery)
+treasure-maps failures (26 structured and 12 historical). The first live trial
+retrieved a valid NZB but exposed a password-protected archive; the exact
+package was excluded through normal recovery. Subsequent eligible recoveries
+used the supported action and shared production provider budgets. See
+[the API contract](../architecture/api.md#access-rejection-recovery)
 and [the workflow rules](../architecture/workflows.md#owner-recovery-after-nzb-access-rejection).
 
 ## Status definitions
