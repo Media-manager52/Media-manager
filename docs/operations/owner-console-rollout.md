@@ -327,14 +327,21 @@ schema is older than 42, so readiness will fail until the dump is restored.
 - **Your data at scale.** The pages were exercised with fixtures and a small
   test database.
 
-**Existing behavior left unchanged (possible follow-ups, owner's call)**
+**Request labels and live refresh (added after the end-to-end test)**
 
-- A request that is declined in Seerr is labelled "Not approved". An existing
-  test in `internal/postgres/seerr_requests_test.go` asserts this on purpose.
-- Requests waiting for a decision, and declined ones, count under the Requests
-  page's "Needs attention" filter.
-- Just after Approve, the row may read "Not approved" for a few seconds until
-  intake re-reads the request from Seerr.
+- Requests follow Seerr's own state:
+  - "Awaiting approval" while pending, counted under Needs attention because
+    the owner has to decide;
+  - "Approved in Seerr" once approved, shown as active and not as success
+    until intake admits it;
+  - "Declined" once declined, and no longer counted as needing attention.
+- Read-only screens re-read Media Manager's state every 15 seconds (Workflows
+  every 8) while the tab is visible, so progress and decisions appear without
+  pressing Refresh. Form and settings screens stay manual.
+- Real posters appear wherever Media Manager has TMDB metadata for a title,
+  with a letter tile only when there is none. The test sandbox could not load
+  TMDB images, so the §6.2 browser check is the first time real posters are
+  seen.
 
 ## 10. Reference: the Seerr webhook fields Media Manager reads
 
