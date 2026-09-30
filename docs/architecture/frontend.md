@@ -59,6 +59,14 @@ All data comes from the Go API through `lib/media-manager-api.ts`:
   update the matching type; screens are typed against it.
 - The catalog loader pages at 200 records up to 50 pages (10 000) and throws a
   bounded error beyond that.
+- Read-only screens refresh themselves through `useAutoRefresh`
+  (`hooks/use-auto-refresh.ts`). These are Overview, Library, Requests (list
+  and inspector), Wanted, Calendar, component health, tasks, and title pages
+  every 15 s (`LIVE_REFRESH_MS`), and Workflows every 8 s. Refreshing pauses in
+  a background tab and catches up once when the tab is visible again. It only
+  re-reads persisted state; it never starts work or contacts an integration.
+  Screens opt in with `useLiveData(loader, { autoRefresh: true })`. Settings
+  and other form screens stay manual, so a refresh can never overwrite an edit.
 
 The UI is same-origin by construction: `/api/*` is routed by the public edge
 (Cosmos) or the loopback acceptance proxy. There is no API base URL config and
