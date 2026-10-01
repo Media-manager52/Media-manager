@@ -74,6 +74,26 @@ no token handling in browser code.
 
 ## 3. Routing and screens
 
+### V2 test UI
+
+`/v2` is an opt-in design preview with its own scoped palette and shell in
+`components/media-manager/v2-app.tsx` and `app/v2/v2.css`. It includes Overview,
+Library, Requests and Needs attention (`/v2/library`, `/v2/requests`,
+`/v2/attention`). The existing sidebar offers **Try V2**; the preview links back
+to the current console. Existing routes keep their current presentation.
+
+The preview reads the existing bounded catalog, files, wanted, workflow,
+request and health models, refreshing only while visible. Search, filters,
+pagination and the saved theme operate locally. Library availability requires
+a current Plex-confirmed file. Seerr approval, workflow admission and request
+completion remain distinct; search times appear only when recorded. Failure,
+loading, empty and stale-refresh states are explicit. Recovery and detailed
+owner actions link to existing routes; the preview itself issues no mutations.
+
+Browser coverage includes all four routes in both themes/mobile, blocked
+external/mutating requests, admission/schedule truthfulness, filters, artwork
+fallbacks, failures, recovery links and theme persistence.
+
 Route metadata lives in `lib/media-manager-routes.ts`:
 
 - `routeTitles` maps every static route to `{ area, title, subtitle }`.
