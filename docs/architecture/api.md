@@ -114,6 +114,13 @@ Notes:
 | POST | `/api/v1/requests/{id}/approve` | Owner approves a request that is still pending in Seerr (`409 not_pending` otherwise). Seerr must echo the same request with status approved (`502` if not); the decision is audited (`seerr.request_approved_by_owner`) and a `seerr.reconcile` delivery is queued so normal intake re-reads Seerr. Nothing is admitted locally. |
 | POST | `/api/v1/requests/{id}/decline` | Same as approve for a decline (`seerr.request_declined_by_owner`); Seerr may notify the requester. |
 
+Request summaries expose optional `waiting_reason`, `last_search_at` and
+`next_search_at`. Search times come from linked persisted search runs and
+incomplete outbox events for the current workflow revision or retry-discovery
+generation. Stale and completed events do not promise another search. A waiting
+workflow with a discovery candidate ready for owner approval gives the request
+the `needs_attention` lifecycle; opening another round remains an owner action.
+
 ### Sources
 
 | Method | Path | Purpose |

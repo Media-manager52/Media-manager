@@ -90,7 +90,7 @@ import {
   type MediaLibraryRecord,
   type MediaLibrarySummary,
 } from "@/lib/media-library"
-import { filterRequests, requestAttentionStates, requestFilterCounts, requestLifecycleLabel, requestLifecycleTone, seerrStateLabel, type RequestFilter } from "@/lib/media-manager-requests"
+import { filterRequests, requestAttentionStates, requestFilterCounts, requestLifecycleLabel, requestLifecycleTone, requestProgressMessage, seerrStateLabel, type RequestFilter } from "@/lib/media-manager-requests"
 import { parseSeriesVariant, rollupSeriesSeasons, type SeriesSeasonRollup } from "@/lib/series-variants"
 import { AttentionCard, attentionEntries, ConsoleRow, DownloadProgress, mediaHref, MiniPoster, RequestDecisionButtons, requestAwaitingApproval, StageStepper, titleHue } from "./console"
 import { retryPlan } from "@/lib/workflow-presentation"
@@ -603,6 +603,7 @@ function InspectorEmpty({ children }: { children: React.ReactNode }) {
 export function RequestInspector({ request, detail, loading, error, onDecided }: { request: APIRequest; detail: APIRequestDetail | null; loading: boolean; error: string; onDecided?: () => void }) {
   const mediaHref = request.media_id ? (request.media_kind === "series" ? `/media/series/${request.media_id}` : `/media/movies/${request.media_id}`) : null
   const noticeTone = requestLifecycleTone(request.lifecycle)
+  const progressMessage = requestProgressMessage(request)
   return <Panel title="Request detail" subtitle="Durable Seerr intake and Media Manager lifecycle state." action={mediaHref ? <Button asChild size="sm" variant="outline"><Link href={mediaHref}><ExternalLink /> Open media</Link></Button> : undefined}>
     <div className="flex items-start gap-3">
       <MetadataArtwork src={request.poster_url} fallback={request.media_kind === "series" ? "/media/series-placeholder.svg" : "/media/movie-placeholder.svg"} alt="" width={108} height={162} className="aspect-[2/3] w-[72px] shrink-0 rounded border border-line-strong object-cover" />
@@ -613,7 +614,7 @@ export function RequestInspector({ request, detail, loading, error, onDecided }:
       </div>
     </div>
     {requestAwaitingApproval(request) ? <div className="mt-3 rounded-lg border border-brand-line bg-brand-soft px-3 py-2.5"><div className="text-[12.5px] font-semibold text-fg">Waiting for your approval in Seerr</div><div className="mt-0.5 text-[12px] text-fg-muted">Approving sends the decision to Seerr; Media Manager then takes the request through normal intake.</div><div className="mt-2"><RequestDecisionButtons request={request} onDone={onDecided} /></div></div> : null}
-    {request.attention_detail || request.intake_error ? <div className="mt-3"><InlineNotice tone={noticeTone === "neutral" ? "info" : noticeTone} title={requestLifecycleLabel(request.lifecycle)}>{request.attention_detail || request.intake_error}</InlineNotice></div> : null}
+    {progressMessage ? <div className="mt-3"><InlineNotice tone={noticeTone === "neutral" ? "info" : noticeTone} title={requestLifecycleLabel(request.lifecycle)}>{progressMessage}</InlineNotice></div> : null}
     <div className="mt-3">
       <KeyValue label="Seerr request ID" value={request.request_id} />
       <KeyValue label="Seerr source" value={request.seerr_instance_name || request.seerr_instance_id} />
@@ -621,6 +622,9 @@ export function RequestInspector({ request, detail, loading, error, onDecided }:
       <KeyValue label="Requested" value={request.requested_at ? new Date(request.requested_at).toLocaleString() : "Unknown"} />
       <KeyValue label="Last updated" value={new Date(request.updated_at).toLocaleString()} />
       <KeyValue label="Intake outcome" value={request.intake_outcome ? pretty(request.intake_outcome) : "—"} />
+      {request.workflow_count > 0 ? <KeyValue label="Media Manager workflows" value={`${request.workflow_count} added · ${request.confirmed_count} Plex confirmed`} /> : null}
+      {request.last_search_at ? <KeyValue label="Last search" value={new Date(request.last_search_at).toLocaleString()} /> : null}
+      {request.next_search_at ? <KeyValue label="Next search" value={retryPlan({ next_rescan_at: request.next_search_at })} /> : null}
       <KeyValue label="Quality profile" value={request.quality_profile || "Not assigned"} />
       {request.media_kind === "series" ? <KeyValue label="Seasons" value={`${request.available_seasons} available of ${request.season_count} requested`} /> : null}
     </div>
@@ -674,7 +678,7 @@ export function LiveRequestsScreen() {
           : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Status</TableHead><TableHead>Profile</TableHead><TableHead>Requester</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>
             {filtered.map((item) => <TableRow key={item.id} onClick={() => setSelectedID(item.id)} className={cn("cursor-pointer", selectedID === item.id && "bg-brand-soft")}>
               <TableCell><div className="flex min-w-[220px] items-center gap-3"><MiniPoster src={item.poster_url} title={item.title || "Request"} /><div className="min-w-0"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedID(item.id) }} aria-pressed={selectedID === item.id} className="block max-w-[260px] truncate text-left text-[13px] font-semibold text-fg outline-none hover:underline hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring">{item.title || `Request ${item.request_id}`}</button><div className="text-[12px] text-fg-muted">{item.media_kind === "series" ? "TV" : "Movie"} · {item.year ?? "Year unknown"} · Seerr #{item.request_id}{item.seerr_instance_name ? ` · ${item.seerr_instance_name}` : ""}</div>{item.media_kind === "series" && item.season_count ? <div className="text-[12px] text-fg-subtle">{item.available_seasons}/{item.season_count} seasons available</div> : null}</div></div></TableCell>
-                            <TableCell>{requestAwaitingApproval(item) ? <div onClick={(event) => event.stopPropagation()}><RequestDecisionButtons request={item} onDone={refresh} /></div> : <StateBadge state={item.lifecycle} />}{item.attention_detail || item.intake_error ? <div className={cn("mt-1 max-w-xs text-[12px]", requestAttentionStates.has(item.lifecycle) ? "text-warn" : "text-fg-subtle")}>{item.attention_detail || item.intake_error}</div> : null}</TableCell>
+              <TableCell>{requestAwaitingApproval(item) ? <div onClick={(event) => event.stopPropagation()}><RequestDecisionButtons request={item} onDone={refresh} /></div> : <StateBadge state={item.lifecycle} />}{requestProgressMessage(item) ? <div className={cn("mt-1 max-w-xs text-[12px]", requestAttentionStates.has(item.lifecycle) ? "text-warn" : "text-fg-subtle")}>{requestProgressMessage(item)}</div> : null}{item.next_search_at ? <div className="mt-1 text-[12px] text-fg-subtle">{retryPlan({ next_rescan_at: item.next_search_at })}</div> : null}</TableCell>
               <TableCell className="text-[12px]">{item.quality_profile || "—"}</TableCell>
               <TableCell className="text-[12px]">{item.requester || "—"}</TableCell>
               <TableCell className="whitespace-nowrap text-[12px] text-fg-subtle">{timeAgo(item.updated_at)}</TableCell>

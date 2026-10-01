@@ -29,6 +29,16 @@ func TestSeerrRequestLifecycleMapping(t *testing.T) {
 			want:    "needs_attention",
 		},
 		{
+			name:    "waiting search without an owner decision remains automatic",
+			summary: SeerrRequestSummary{WorkflowCount: 1, CurrentState: "waiting", IntakeOutcome: "media_manager_added", SeerrState: "2"},
+			want:    "waiting",
+		},
+		{
+			name:    "waiting discovery with a new release requires the owner",
+			summary: SeerrRequestSummary{WorkflowCount: 1, AttentionCount: 1, CurrentState: "waiting", IntakeOutcome: "media_manager_added", SeerrState: "2"},
+			want:    "needs_attention",
+		},
+		{
 			name:    "held workflow is surfaced as held",
 			summary: SeerrRequestSummary{WorkflowCount: 1, AttentionCount: 1, CurrentState: "held"},
 			want:    "held",

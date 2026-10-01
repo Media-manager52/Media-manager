@@ -59,6 +59,7 @@ export type APIRequest = {
   workflow_count: number; confirmed_count: number; attention_count: number
   current_state?: string; quality_profile?: string; variant?: string
   attention_code?: string; attention_detail?: string
+  waiting_reason?: string; last_search_at?: string; next_search_at?: string
   lifecycle: string
   season_count: number; available_seasons: number
 }

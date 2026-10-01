@@ -204,7 +204,13 @@ Keep classification/filtering/formatting logic here so screens stay testable.
    `codex-preview=development` metadata, and the artifact tests scan for fixture
    records.
 2. **Never label waiting as success.** Use `workflow-states.ts` groups;
-   `needs_attention` requires an owner action, `waiting` does not.
+   `needs_attention` requires an owner action, `waiting` does not. A Seerr
+   request whose linked retry discovery found a release requiring owner approval
+   is `needs_attention`, even while its acquisition workflow remains `waiting`.
+   Requests show whether intake created workflows, the recorded waiting reason,
+   and last/next searches. Next search comes only from pending work for the
+   exact workflow revision or retry-discovery generation; missing schedule
+   evidence never becomes a promised automatic retry.
 3. **Empty/error states are explicit.** Show the real API error; do not
    substitute sample rows.
 4. **Mutations are owner actions.** All state-changing calls happen only from
