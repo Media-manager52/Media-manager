@@ -13,6 +13,39 @@ const pending = {
   workflow_count: 0, confirmed_count: 0, attention_count: 0, season_count: 0, available_seasons: 0,
 }
 
+test("waiting requests show admission and only their recorded next search", async ({ page }) => {
+  const recorder = await installOwnerAPI(page, baseURL)
+  const items = [
+    { ...pending, id: `${seerrInstance}:781`, request_id: "781", title: "Added waiting movie", seerr_state: "2", lifecycle: "waiting", workflow_count: 1, intake_outcome: "media_manager_added", waiting_reason: "no eligible release yet", next_search_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() },
+    { ...pending, id: `${seerrInstance}:782`, request_id: "782", title: "Release needs owner approval", seerr_state: "2", lifecycle: "needs_attention", current_state: "waiting", workflow_count: 1, attention_count: 1, attention_detail: "A new eligible release needs approval for another round." },
+  ]
+  await page.route("**/api/v1/requests**", async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (route.request().method() === "GET" && path === "/api/v1/requests") {
+      await route.fulfill({ status: 200, json: { data: items } })
+      return
+    }
+    const item = items.find((entry) => path === `/api/v1/requests/${encodeURIComponent(entry.id)}`)
+    if (route.request().method() === "GET" && item) {
+      await route.fulfill({ status: 200, json: { data: { request: item, workflows: [], seasons: [], files: [] } } })
+      return
+    }
+    await route.fallback()
+  })
+  await page.goto("/requests")
+  const row = page.getByRole("row").filter({ hasText: "Added waiting movie" })
+  await expect(row.getByText("Added to Media Manager. No eligible release was found.", { exact: true })).toBeVisible()
+  await expect(row.getByText(/Auto-retry in 2h/)).toBeVisible()
+  await row.getByRole("button", { name: "Added waiting movie", exact: true }).click()
+  const inspector = page.locator("section").filter({ has: page.getByRole("heading", { name: "Request detail", exact: true }) })
+  await expect(inspector.getByText("1 added · 0 Plex confirmed", { exact: true })).toBeVisible()
+  await expect(inspector.getByText("Next search", { exact: true })).toBeVisible()
+  await page.getByRole("button", { name: /Needs attention/ }).click()
+  await expect(page.getByRole("row").filter({ hasText: "Added waiting movie" })).toHaveCount(0)
+  await expect(page.getByRole("row").filter({ hasText: "Release needs owner approval" })).toBeVisible()
+  expect(recorder.unexpected).toEqual([])
+})
+
 test("request messages follow the actual lifecycle instead of always warning", async ({ page }) => {
   const recorder = await installOwnerAPI(page, baseURL)
   const items = [

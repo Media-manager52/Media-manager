@@ -47,6 +47,9 @@ type SeerrRequestSummary struct {
 	Variant           string     `json:"variant,omitempty"`
 	AttentionCode     string     `json:"attention_code,omitempty"`
 	AttentionDetail   string     `json:"attention_detail,omitempty"`
+	WaitingReason     string     `json:"waiting_reason,omitempty"`
+	LastSearchAt      *time.Time `json:"last_search_at,omitempty"`
+	NextSearchAt      *time.Time `json:"next_search_at,omitempty"`
 	Lifecycle         string     `json:"lifecycle"`
 	SeasonCount       int        `json:"season_count"`
 	AvailableSeasons  int        `json:"available_seasons"`
@@ -80,7 +83,8 @@ const seerrRequestSummaryColumns = `s.seerr_instance_id::text,COALESCE(instance.
 	COALESCE(primary_workflow.attention_detail,''),
 	COALESCE(primary_workflow.updated_at,s.reconciled_at),
 	COALESCE(seasons.season_count,0),
-	COALESCE(seasons.available_count,0)`
+	COALESCE(seasons.available_count,0),
+	COALESCE(next_search.reason,''),last_search.started_at,next_search.available_at`
 
 const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 	JOIN integration_instances instance ON instance.id=s.seerr_instance_id
@@ -109,7 +113,25 @@ const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 		SELECT count(*)::int AS season_count,count(*) FILTER (WHERE season.availability_status=5)::int AS available_count
 		FROM seerr_request_seasons season
 		WHERE season.seerr_instance_id=s.seerr_instance_id AND season.request_id=s.request_id
-	) seasons ON true`
+	) seasons ON true
+	LEFT JOIN (
+		SELECT link.seerr_instance_id,link.request_id,max(run.started_at) AS started_at
+		FROM seerr_request_workflows link JOIN search_runs run ON run.workflow_id=link.workflow_id
+		GROUP BY link.seerr_instance_id,link.request_id
+	) last_search ON last_search.seerr_instance_id=s.seerr_instance_id AND last_search.request_id=s.request_id
+	LEFT JOIN (
+		SELECT DISTINCT ON (link.seerr_instance_id,link.request_id)
+			link.seerr_instance_id,link.request_id,event.available_at,event.payload->>'reason' AS reason
+		FROM seerr_request_workflows link
+		JOIN workflows workflow ON workflow.id=link.workflow_id AND workflow.terminal_at IS NULL
+		JOIN outbox_events event ON event.aggregate_id=workflow.id AND event.completed_at IS NULL
+		LEFT JOIN workflow_retry_discovery discovery ON discovery.workflow_id=workflow.id
+		WHERE ((event.event_type='workflow.search_requested' AND event.aggregate_type='workflow'
+			AND event.aggregate_revision=workflow.revision)
+			OR (event.event_type='workflow.discovery_rescan_requested' AND event.aggregate_type='workflow_retry_discovery'
+				AND discovery.state='waiting' AND event.aggregate_revision=discovery.rescan_generation))
+		ORDER BY link.seerr_instance_id,link.request_id,event.available_at,event.id
+	) next_search ON next_search.seerr_instance_id=s.seerr_instance_id AND next_search.request_id=s.request_id`
 
 type seerrRequestScanner interface {
 	Scan(dest ...any) error
@@ -126,6 +148,7 @@ func scanSeerrRequestSummary(row seerrRequestScanner) (SeerrRequestSummary, erro
 		&mediaText, &item.WorkflowCount, &item.AttentionCount, &item.ConfirmedCount,
 		&item.CurrentState, &item.QualityProfile, &item.Variant, &item.AttentionCode, &item.AttentionDetail, &item.UpdatedAt,
 		&item.SeasonCount, &item.AvailableSeasons,
+		&item.WaitingReason, &item.LastSearchAt, &item.NextSearchAt,
 	); err != nil {
 		return SeerrRequestSummary{}, err
 	}
@@ -153,6 +176,12 @@ func scanSeerrRequestSummary(row seerrRequestScanner) (SeerrRequestSummary, erro
 // looks successful while a linked workflow is waiting or failed.
 func seerrRequestLifecycle(item SeerrRequestSummary) string {
 	if item.AttentionCount > 0 {
+		if item.CurrentState == "waiting" {
+			// Retry discovery can find a new eligible release while leaving the
+			// acquisition workflow waiting. Opening its next round still needs
+			// the owner; the request must not look like automatic progress.
+			return "needs_attention"
+		}
 		if item.CurrentState != "" {
 			return item.CurrentState
 		}

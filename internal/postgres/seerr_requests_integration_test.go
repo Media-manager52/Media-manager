@@ -133,7 +133,7 @@ func TestSeerrRequestsReadModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	year := uint16(2024)
 
 	insertDelivery := func(t *testing.T, deliveryID uuid.UUID, requestID string, payloadHash []byte, at time.Time) {
@@ -265,6 +265,66 @@ func TestSeerrRequestsReadModel(t *testing.T) {
 	if empty, err := store.ListSeerrRequests(ctx, uuid.New().String(), 100, 0); err != nil || len(empty) != 0 {
 		t.Fatalf("unknown instance requests=%+v err=%v", empty, err)
 	}
+
+	t.Run("waiting schedule follows exact workflow revision and discovery generation", func(t *testing.T) {
+		workflowID := movieResult.WorkflowIDs[0]
+		if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='waiting',revision=revision+1 WHERE id=$1`, workflowID.String()); err != nil {
+			t.Fatal(err)
+		}
+		candidateID := seedEligibleCandidate(t, ctx, store, workflowID, indexer.ID, "request-new-release", 100, now)
+		next := now.Add(6 * time.Hour)
+		eventID := uuid.NewV7()
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at,completed_at)
+			SELECT $1,'workflow',id,revision,'workflow.search_requested','{"reason":"no eligible release yet"}',$2,$2,$2 FROM workflows WHERE id=$3`, eventID.String(), now, workflowID.String()); err != nil {
+			t.Fatal(err)
+		}
+		current, err := store.SeerrRequest(ctx, seerr.ID.String(), "1001")
+		if err != nil || current.Request.NextSearchAt != nil {
+			t.Fatalf("completed or old-revision event became a promised retry: %+v err=%v", current.Request, err)
+		}
+		if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET completed_at=NULL,available_at=$2 WHERE id=$1`, eventID.String(), next); err != nil {
+			t.Fatal(err)
+		}
+		current, err = store.SeerrRequest(ctx, seerr.ID.String(), "1001")
+		if err != nil || current.Request.NextSearchAt == nil || !current.Request.NextSearchAt.Equal(next) ||
+			current.Request.LastSearchAt == nil || !current.Request.LastSearchAt.Equal(now) ||
+			current.Request.WaitingReason != "no eligible release yet" || current.Request.Lifecycle != "waiting" {
+			t.Fatalf("waiting request=%+v err=%v", current.Request, err)
+		}
+		if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET completed_at=$2 WHERE aggregate_id=$1 AND event_type='workflow.search_requested'`, workflowID.String(), now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Pool.Exec(ctx, `UPDATE acquisition_rounds SET state='exhausted',exhausted_at=$2,closed_at=$2 WHERE workflow_id=$1`, workflowID.String(), now); err != nil {
+			t.Fatal(err)
+		}
+		next = now.Add(24 * time.Hour)
+		if _, err := store.Pool.Exec(ctx, `INSERT INTO workflow_retry_discovery(workflow_id,exhausted_round_id,state,rescan_generation,next_rescan_at,created_at,updated_at)
+			SELECT workflow_id,id,'waiting',7,$2,$3,$3 FROM acquisition_rounds WHERE workflow_id=$1`, workflowID.String(), next, now); err != nil {
+			t.Fatal(err)
+		}
+		for _, generation := range []int{6, 7} {
+			at := now
+			if generation == 7 {
+				at = next
+			}
+			if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
+				VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested','{}',$4,$5)`, uuid.NewV7().String(), workflowID.String(), generation, now, at); err != nil {
+				t.Fatal(err)
+			}
+		}
+		current, err = store.SeerrRequest(ctx, seerr.ID.String(), "1001")
+		if err != nil || current.Request.NextSearchAt == nil || !current.Request.NextSearchAt.Equal(next) {
+			t.Fatalf("discovery request=%+v err=%v", current.Request, err)
+		}
+		if _, err := store.Pool.Exec(ctx, `UPDATE workflow_retry_discovery SET state='ready',next_rescan_at=NULL,ready_candidate_id=$2,
+			ready_first_seen_sequence=(SELECT first_seen_sequence FROM release_candidates WHERE id=$2) WHERE workflow_id=$1`, workflowID.String(), candidateID.String()); err != nil {
+			t.Fatal(err)
+		}
+		current, err = store.SeerrRequest(ctx, seerr.ID.String(), "1001")
+		if err != nil || current.Request.Lifecycle != "needs_attention" || current.Request.AttentionCount != 1 || current.Request.NextSearchAt != nil {
+			t.Fatalf("ready-for-owner request=%+v err=%v", current.Request, err)
+		}
+	})
 }
 
 // TestSeerrSnapshotEqualCursorChangeIsAccepted pins the intake behavior for

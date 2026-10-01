@@ -1,5 +1,34 @@
 # Media Manager core release status
 
+## Seerr waiting progress and VPS deployment checkpoint (2026-10-01)
+
+[PR #34](https://github.com/Media-manager52/Media-manager/pull/34) explains
+successful Seerr admission separately from acquisition waiting. Request summaries
+expose recorded waiting reasons and last/next search times; completed events and
+stale workflow revisions/discovery generations cannot promise another search.
+Discovery candidates requiring a new owner-approved round correctly appear under
+Needs attention. No schema or acquisition-policy change is required.
+
+Local verification passed full Go vet/race gates with disposable PostgreSQL
+(final query package: 381.808 seconds), frontend lint/typecheck/unit/build/docs
+and 134 browser cases. A read-only production query plan measured 29 ms after
+aggregating search summaries once. The operational recovery used the existing
+production owner action: nine reviewed rounds yielded six Plex confirmations
+(Bedeviled, Under the Skin, Dexter S07, Lucifer S02 and NCIS S12/S15). CSI
+S01/S04/S13 exhausted four attempts on incomplete or subtitle-unverified outputs;
+failed output inventories and exact exclusions remain retained.
+
+[PR #33](https://github.com/Media-manager52/Media-manager/pull/33) moves GitHub
+verification and private image publication onto the isolated VPS runner and adds
+owner-triggered deployment with independently checked commit/run identities,
+protected backups and health checks. Twelve deployment-boundary regressions and
+an isolated rootless stack test passed, including restrictive checkout
+permissions, UI assets, authentication, four/eight limits and a readable database
+dump. The [operations guide](../operations/github-vps.md) describes the boundaries.
+GitHub Verify and Deploy runs record results for exact commits; the running API
+identity is the deployment truth. Earlier deployed snapshots below are dated
+history. Off-server backups remain outstanding.
+
 ## Deployed source checkpoint (2026-09-30)
 
 Production API and UI run `34f0024` (PR #31), version `2026.09.30`, with
