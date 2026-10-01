@@ -4,12 +4,15 @@ This is the entry point to the documentation set for the Media Manager
 codebase. It is written for an engineer or AI agent with **zero prior
 context** who must safely read, change, test, and operate the repository.
 
-Deployed snapshot: `34f0024` (2026-09-30), database schema 43,
-Go 1.27, Node 24 / Next 16 (Vinext), PostgreSQL 18. This includes bounded NZB
-retrieval recovery, access-rejection recovery, IPv4-only API egress, truthful
-Seerr request notices and configurable acquisition budgets. New rounds use
-the configured attempt limit; existing snapshots remain immutable. See
-[release status](../status/release.md) for deployment and CI evidence.
+Source checkpoint: Seerr waiting progress and VPS GitHub workflows
+(2026-10-01), database schema 43, Go 1.27, Node 24 / Next 16 (Vinext),
+PostgreSQL 18. This includes the earlier bounded NZB retrieval and access-rejection
+recovery, IPv4-only API egress, configurable acquisition budgets, and recorded
+request search schedules. Existing round snapshots remain immutable.
+Deployed source can lag this checkout: the authenticated
+`/api/v1/system/info` reports the running commit and schema. See
+[release status](../status/release.md) and the exact-commit GitHub Deploy result
+for dated evidence.
 The agent briefs under
 `agent-briefs/` are dated session prompts and may describe an older snapshot.
 
