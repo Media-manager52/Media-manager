@@ -1,0 +1,10 @@
+[Unit]
+Description=Deploy verified Media Manager main commits
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/media-manager-deploy.py
+TimeoutStartSec=25min
+UMask=0077

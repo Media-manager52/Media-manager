@@ -3,42 +3,58 @@ name: Verify
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   frontend:
-    runs-on: ubuntu-latest
+    if: github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, x64, media-manager-vps]
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
-          cache: npm
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run docs:check
+      - run: python3 -m unittest discover -s tests/ci -v
       - run: npm test
 
   browser:
-    runs-on: ubuntu-latest
+    if: github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, x64, media-manager-vps]
+    timeout-minutes: 30
     # Same pinned image as the GitLab browser job, so browsers match @playwright/test.
     container: mcr.microsoft.com/playwright:v1.62.1-noble
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - run: npm ci
       - run: npm run test:browser
       - if: failure()
-        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-results
           path: .sites-runtime/playwright-results
           retention-days: 7
 
   backend:
-    runs-on: ubuntu-latest
+    if: github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, x64, media-manager-vps]
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18.6-alpine3.24
@@ -46,23 +62,25 @@ jobs:
           POSTGRES_DB: media_manager_test
           POSTGRES_USER: media_manager
           POSTGRES_PASSWORD: media_manager_test
-        ports: ["5432:5432"]
+        ports: ["127.0.0.1:35432:5432"]
         options: >-
           --health-cmd "pg_isready -U media_manager -d media_manager_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
     env:
-      DATABASE_URL: postgres://media_manager:media_manager_test@127.0.0.1:5432/media_manager_test?sslmode=disable
-      MEDIA_MANAGER_TEST_DATABASE_URL: postgres://media_manager:media_manager_test@127.0.0.1:5432/media_manager_test?sslmode=disable
+      DATABASE_URL: postgres://media_manager:media_manager_test@127.0.0.1:35432/media_manager_test?sslmode=disable
+      MEDIA_MANAGER_TEST_DATABASE_URL: postgres://media_manager:media_manager_test@127.0.0.1:35432/media_manager_test?sslmode=disable
       OWNER_TOKEN: 0123456789abcdef0123456789abcdef
       GOFLAGS: -mod=readonly
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: 1.27.0
-          cache: true
+          cache: false
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./cmd/... ./internal/...
       - run: go test -count=1 -race ./cmd/... ./internal/...
@@ -70,31 +88,29 @@ jobs:
       - run: git diff --exit-code -- go.mod go.sum
 
   containers:
-    runs-on: ubuntu-latest
+    if: github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, x64, media-manager-vps]
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - name: Validate and smoke the supported stack
-        run: |
-          cp .env.integrations.example .env.integrations
-          mkdir -p /tmp/media-manager-ci/altmount /tmp/media-manager-ci/movies /tmp/media-manager-ci/tv
-          export POSTGRES_PASSWORD=media-manager-ci-database-password
-          export OWNER_TOKEN=0123456789abcdef0123456789abcdef
-          export COMMISSIONING_V2_OWNER_ORIGIN=http://127.0.0.1:28081
-          export ALTMOUNT_HOST_PATH=/tmp/media-manager-ci/altmount
-          export MOVIES_HOST_PATH=/tmp/media-manager-ci/movies
-          export TV_HOST_PATH=/tmp/media-manager-ci/tv
-          export MEDIA_NETWORK=media-manager-ci-${GITHUB_RUN_ID}
-          export MEDIA_MANAGER_API_PORT=28081
-          export MEDIA_MANAGER_VERSION=ci-${GITHUB_RUN_ID}
-          export MEDIA_MANAGER_COMMIT=${GITHUB_SHA}
-          docker network create "${MEDIA_NETWORK}"
-          trap 'docker compose down -v; docker network rm "${MEDIA_NETWORK}"' EXIT
-          docker compose config --quiet
-          docker compose build
-          docker compose up -d --wait
-          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:28081/api/v1/dashboard)" = 401
-          test "$(curl -sS -H "Authorization: Bearer ${OWNER_TOKEN}" -o /dev/null -w '%{http_code}' http://127.0.0.1:28081/health/ready)" = 200
-          test "$(curl -sS -H "Authorization: Bearer ${OWNER_TOKEN}" -o /dev/null -w '%{http_code}' http://127.0.0.1:28081/api/v1/dashboard)" = 200
-          test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:28081/api/v1/integrations/seerr/webhook)" = 503
-          docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >/tmp/media-manager-ci.dump
-          test -s /tmp/media-manager-ci.dump
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Validate and smoke the isolated stack
+        run: python3 scripts/ci/container-smoke.py
+
+  publish:
+    needs: [frontend, browser, backend, containers]
+    if: github.event.repository.private && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: [self-hosted, linux, x64, media-manager-vps]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Upload tested images to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/publish-images.sh

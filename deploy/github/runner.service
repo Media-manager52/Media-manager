@@ -1,0 +1,26 @@
+[Unit]
+Description=Media Manager private GitHub Actions runner
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/var/lib/media-manager-ci/runner
+ExecStart=/var/lib/media-manager-ci/runner/runsvc.sh
+Restart=on-failure
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=120
+Environment=DOCKER_HOST=unix:///run/user/%U/docker.sock
+Environment=GOMAXPROCS=4
+Environment=RUNNER_TOOL_CACHE=/var/lib/media-manager-ci/tool-cache
+Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/mm-ci-job-started.sh
+Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/mm-ci-job-completed.sh
+NoNewPrivileges=true
+ProtectSystem=strict
+InaccessiblePaths=/home /root
+ReadWritePaths=/var/lib/media-manager-ci /run/user/%U /var/lib/media-manager-deploy/inbox
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target
