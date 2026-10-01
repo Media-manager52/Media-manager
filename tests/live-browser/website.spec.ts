@@ -14,7 +14,7 @@ type BrowserAudit = {
 
 const baseOrigin = new URL(`http://127.0.0.1:${process.env.MEDIA_MANAGER_LIVE_PORT}`).origin
 const audits = new WeakMap<Page, BrowserAudit>()
-const screenshotRoutes = new Set(["/", "/media", "/media/series", "/activity/queue", "/system/health"])
+const screenshotRoutes = new Set(["/", "/v2", "/v2/library", "/v2/requests", "/v2/attention", "/media", "/media/series", "/activity/queue", "/system/health"])
 
 function safeRequestLabel(method: string, rawURL: string) {
   const url = new URL(rawURL)

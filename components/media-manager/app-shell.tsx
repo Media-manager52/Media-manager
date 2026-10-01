@@ -138,6 +138,7 @@ type NavGroup = { label: string; items: NavItem[]; advanced?: boolean; collapsed
 const liveNavigation: NavGroup[] = [
   { label: "Home", items: [
     { label: "Overview", href: "/", icon: LayoutGrid },
+    { label: "Try V2", href: "/v2", icon: Sparkles },
   ] },
   { label: "Library", description: "Everyday library work", items: [
     { label: "Movies", href: "/media", icon: Library },

@@ -1,4 +1,8 @@
 export const routeTitles: Record<string, { area: string; title: string; subtitle: string }> = {
+  "/v2": { area: "V2 preview", title: "Overview", subtitle: "A new view of your live library." },
+  "/v2/library": { area: "V2 preview", title: "Library", subtitle: "Browse your movies and series." },
+  "/v2/requests": { area: "V2 preview", title: "Requests", subtitle: "Seerr requests and their recorded next steps." },
+  "/v2/attention": { area: "V2 preview", title: "Needs attention", subtitle: "Review actual workflow blockers." },
   "/": { area: "Home", title: "Overview", subtitle: "The operational state of your library, automation, and release intelligence." },
   "/media": { area: "Library", title: "Movies", subtitle: "Browse, filter, and inspect the complete bounded movie catalog." },
   "/media/series": { area: "Library", title: "TV Shows", subtitle: "Browse series, inspect season-pack state, and open exact series details." },

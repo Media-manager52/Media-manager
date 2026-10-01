@@ -1,5 +1,20 @@
 # Media Manager core release status
 
+## V2 test UI (2026-10-01)
+
+An opt-in preview at `/v2` provides a new scoped shell, poster library, request
+progress and attention inbox. The current interface offers **Try V2** and stays
+available. Preview controls perform local search/filter/pagination/theme changes
+and read existing owner models; detailed recovery links open the current UI.
+Approval, workflow admission, recorded searches and Plex confirmation remain
+distinct. No schema, provider, acquisition or publication policy changes apply.
+
+Local lint, typecheck, docs, build, all 46 unit cases and 153 browser cases
+passed. Coverage includes four new routes in dark/light/mobile, seven preview
+interaction regressions, keyboard/a11y checks, real fallback assets and blocked
+external/mutating requests. Deployed acceptance also captures the V2 routes;
+the exact GitHub Verify/Deploy runs and running commit remain deployment truth.
+
 ## Dependency security follow-up (2026-10-01)
 
 Next.js and its ESLint configuration are pinned to 16.3.6, addressing
