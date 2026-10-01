@@ -6,8 +6,31 @@ from pathlib import Path
 import secrets
 import subprocess
 import tempfile
-import urllib.error
-import urllib.request
+
+
+# Probe from the UI's isolated frontend network, without depending on host
+# port forwarding from an entirely internal stack.
+HTTP_PROBE = r"""
+const token = require('node:fs').readFileSync(0, 'utf8').trim();
+async function expect(path, status, options = {}, base = 'http://api:8080') {
+  const response = await fetch(base + path, {
+    ...options, signal: AbortSignal.timeout(30000), redirect: 'error',
+  });
+  if (response.status !== status) throw new Error(`${path}: expected ${status}, got ${response.status}`);
+  return response;
+}
+(async () => {
+  const artwork = await expect('/media/movie-placeholder.svg', 200, {}, 'http://127.0.0.1:3000');
+  if (!(await artwork.text()).trimStart().startsWith('<svg ')) throw new Error('UI static artwork is unavailable');
+  const owner = {headers: {Authorization: 'Bearer ' + token}};
+  await expect('/health/ready', 200, owner);
+  await expect('/api/v1/dashboard', 200, owner);
+  await expect('/api/v1/dashboard', 401);
+  await expect('/api/v1/integrations/seerr/webhook', 503, {method: 'POST'});
+  const response = await expect('/api/v1/system/info', 200, owner);
+  process.stdout.write(JSON.stringify((await response.json()).data));
+})().catch(error => { console.error(error.message); process.exit(1); });
+"""
 
 
 def main():
@@ -20,7 +43,6 @@ def main():
     if integration_file.exists():
         raise RuntimeError("Refusing to reuse an existing integration environment")
     project = "mm-ci-" + secrets.token_hex(6)
-    client = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with tempfile.TemporaryDirectory(prefix=project, dir=os.environ.get("RUNNER_TEMP")) as temp:
         root = Path(temp)
         root.chmod(0o755)  # Container UIDs must traverse the disposable mount roots.
@@ -70,22 +92,9 @@ def main():
                 # integration configuration. Capture startup errors before cleanup.
                 subprocess.run(command + ["logs", "--no-color", "--tail", "80"], cwd=repo)
                 raise
-            base = "http://127.0.0.1:38081"
-            for path in ["/health/ready", "/api/v1/dashboard"]:
-                request = urllib.request.Request(base + path, headers={"Authorization": "Bearer " + token})
-                with client.open(request, timeout=30) as response:
-                    assert response.status == 200
-            for path, expected, method in [("/api/v1/dashboard", 401, "GET"),
-                    ("/api/v1/integrations/seerr/webhook", 503, "POST")]:
-                try:
-                    client.open(urllib.request.Request(base + path, method=method), timeout=30)
-                    raise AssertionError("Unexpected successful anonymous request")
-                except urllib.error.HTTPError as error:
-                    assert error.code == expected, (path, error.code)
-            request = urllib.request.Request(base + "/api/v1/system/info",
-                                             headers={"Authorization": "Bearer " + token})
-            with client.open(request, timeout=30) as response:
-                info = json.load(response)["data"]
+            info = json.loads(subprocess.check_output(
+                command + ["exec", "-T", "ui", "node", "-e", HTTP_PROBE],
+                input=token, text=True, cwd=repo))
             assert info["commit"] == commit
             assert info["acquisition_limits"] == {"attempts_per_round": 4, "retained_failed_outputs": 8}
             with (root / "test.dump").open("wb") as dump:

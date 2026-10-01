@@ -40,7 +40,9 @@ ARG NEXT_PUBLIC_MEDIA_MANAGER_MODE=live
 ENV NEXT_PUBLIC_MEDIA_MANAGER_MODE=${NEXT_PUBLIC_MEDIA_MANAGER_MODE}
 # CI checks out source with a private umask; runtime assets must also be
 # readable by the non-root user in the final image.
-RUN npm run build && chmod -R a+rX /app
+RUN npm run build \
+    && chmod -R a+rX /app/scripts /app/.openai /app/build /app/dist \
+    && chmod a+r /app/package.json /app/package-lock.json /app/vite.config.ts /app/next.config.ts /app/tsconfig.json
 
 FROM ui-build AS ui-test
 COPY tests ./tests

@@ -38,6 +38,8 @@ CI runs on its own rootless Docker daemon under `mm-ci`; it cannot use the
 production Docker socket. Disposable PostgreSQL uses loopback port 35432;
 container smoke uses 38081, unique project/network names, empty integration
 credentials, temporary mount roots and an internal integration network.
+HTTP smoke probes run from the disposable UI on its internal frontend network;
+the entirely internal stack does not need host port forwarding for these probes.
 Neither check uses production port 28081 or production containers/mounts.
 Stopped CI containers and unused networks/volumes are cleaned after jobs;
 local compiler/tool/image caches remain for subsequent builds.
@@ -64,7 +66,7 @@ The deployment image override is ignored local state at
 after a GitHub deployment, include it:
 
 ```sh
-docker compose -f compose.yaml -f .sites-runtime/github-deploy-images.json up -d --no-build
+sudo docker compose -f compose.yaml -f .sites-runtime/github-deploy-images.json up -d --no-build
 ```
 
 Backups remain on the server; off-server copies and retention review are still
