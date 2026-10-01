@@ -1,5 +1,22 @@
 # Media Manager core release status
 
+## Dependency security follow-up (2026-10-01)
+
+Next.js and its ESLint configuration are pinned to 16.3.6, addressing
+[the critical `next/og` advisory](https://github.com/advisories/GHSA-vcvr-r3jv-pc5j).
+No application `ImageResponse` route was identified. The lockfile also resolves
+Undici 7.29.1, fflate 0.7.5 and the legacy Drizzle loader's esbuild 0.25.12.
+Scoped overrides preserve the existing parent packages instead of accepting
+npm audit's suggested major downgrades. Remove these overrides when upstream
+parents incorporate the fixes.
+
+The resolved dependency audit reports zero known vulnerabilities. A disposable
+SQLite schema generation exercised the overridden Drizzle loader and emitted
+the expected table SQL without a database connection; a local ZIP roundtrip
+checked fflate. The normal frontend, browser and isolated container gates still
+apply. GitHub Verify/Deploy runs and the running commit identify deployment;
+this source note alone does not assert that the update is deployed.
+
 ## Seerr waiting progress and VPS deployment checkpoint (2026-10-01)
 
 [PR #34](https://github.com/Media-manager52/Media-manager/pull/34) explains
