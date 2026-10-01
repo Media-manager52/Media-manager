@@ -56,6 +56,8 @@ backup, advances the clean production checkout with a fast-forward, then starts
 only API/UI with the tested images. Compose health checks and an authenticated
 running-commit check must pass. PostgreSQL, AltMount media and existing failed
 outputs stay under their normal lifecycle protections.
+The broker publishes the job result atomically after completing its JSON and
+read permissions, so the waiting runner cannot observe an incomplete result.
 
 The deployment image override is ignored local state at
 `.sites-runtime/github-deploy-images.json`. When starting the stack manually

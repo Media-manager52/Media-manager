@@ -10,6 +10,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
 import urllib.request
 
 REPOSITORY = "Media-manager52/Media-manager"
@@ -78,6 +79,21 @@ def image_names(sha):
 def write_private(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
     path.chmod(0o600)
+
+
+def publish_result(path, result):
+    # The runner polls this path: publish only complete, already-readable JSON.
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=".result-", delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            json.dump(result, output)
+            output.write("\n")
+            output.flush()
+            os.chown(temporary, 0, pwd.getpwnam("mm-ci").pw_gid)
+            temporary.chmod(0o640)
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def deploy(request, log):
@@ -188,9 +204,7 @@ def main():
                 except Exception as error:
                     log.write(type(error).__name__ + ": " + str(error) + "\n")
             if not result_file.exists():
-                write_private(result_file, result)
-                os.chown(result_file, 0, pwd.getpwnam("mm-ci").pw_gid)
-                result_file.chmod(0o640)
+                publish_result(result_file, result)
             path.unlink(missing_ok=True)
             print("Deployment run " + path.stem + ": " + ("success" if result["success"] else "failed"), flush=True)
 

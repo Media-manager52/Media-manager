@@ -1,7 +1,11 @@
 import copy
 import importlib.util
+import json
+import os
 from pathlib import Path
+import tempfile
 import unittest
+from unittest import mock
 
 source = Path(__file__).resolve().parents[2] / "deploy/github/deploy-broker.py"
 spec = importlib.util.spec_from_file_location("deploy_broker", source)
@@ -93,6 +97,38 @@ class DeploymentBoundaryTests(unittest.TestCase):
         self.deploy["triggering_actor"] = {"login": "another-collaborator"}
         with self.assertRaises(ValueError):
             self.check()
+
+
+class DeploymentResultTests(unittest.TestCase):
+    def test_polling_runner_sees_only_complete_readable_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "456.json"
+            result = {"success": True, "commit": "a" * 40}
+            replace = os.replace
+
+            def publish(source, destination):
+                self.assertFalse(path.exists())
+                self.assertEqual(json.loads(source.read_text()), result)
+                self.assertEqual(source.stat().st_mode & 0o777, 0o640)
+                replace(source, destination)
+
+            with mock.patch.object(broker.os, "chown") as chown, mock.patch.object(
+                    broker.pwd, "getpwnam", return_value=mock.Mock(pw_gid=985)), mock.patch.object(
+                    broker.os, "replace", side_effect=publish):
+                broker.publish_result(path, result)
+            chown.assert_called_once()
+            self.assertEqual(chown.call_args.args[1:], (0, 985))
+            self.assertEqual(json.loads(path.read_text()), result)
+            self.assertEqual(list(Path(directory).iterdir()), [path])
+
+    def test_permissions_failure_never_exposes_a_partial_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "456.json"
+            with mock.patch.object(broker.os, "chown", side_effect=PermissionError), mock.patch.object(
+                    broker.pwd, "getpwnam", return_value=mock.Mock(pw_gid=985)):
+                with self.assertRaises(PermissionError):
+                    broker.publish_result(path, {"success": False})
+            self.assertEqual(list(Path(directory).iterdir()), [])
 
 
 if __name__ == "__main__":
