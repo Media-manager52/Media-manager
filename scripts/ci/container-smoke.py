@@ -62,8 +62,14 @@ def main():
             network_created = True
             subprocess.run(command + ["config", "--quiet"], cwd=repo, check=True)
             subprocess.run(command + ["build", "api", "ui"], cwd=repo, check=True)
-            subprocess.run(command + ["up", "-d", "--wait", "--wait-timeout", "180"],
-                           cwd=repo, check=True)
+            try:
+                subprocess.run(command + ["up", "-d", "--wait", "--wait-timeout", "180"],
+                               cwd=repo, check=True)
+            except subprocess.CalledProcessError:
+                # This stack contains only disposable CI credentials and no
+                # integration configuration. Capture startup errors before cleanup.
+                subprocess.run(command + ["logs", "--no-color", "--tail", "80"], cwd=repo)
+                raise
             base = "http://127.0.0.1:38081"
             for path in ["/health/ready", "/api/v1/dashboard"]:
                 request = urllib.request.Request(base + path, headers={"Authorization": "Bearer " + token})
