@@ -16,6 +16,15 @@ const baseOrigin = new URL(`http://127.0.0.1:${process.env.MEDIA_MANAGER_LIVE_PO
 const audits = new WeakMap<Page, BrowserAudit>()
 const screenshotRoutes = new Set(["/", "/v2", "/v2/library", "/v2/requests", "/v2/attention", "/media", "/media/series", "/activity/queue", "/system/health"])
 
+// V2 keeps short navigation labels but uses editorial page headings. Assert
+// those exact headings without weakening the existing console's title checks.
+const previewHeadings: Record<string, string> = {
+  "/v2": "Your library, in motion.",
+  "/v2/library": "A home for every story.",
+  "/v2/requests": "Every request. A clear next step.",
+  "/v2/attention": "Let’s get these moving.",
+}
+
 function safeRequestLabel(method: string, rawURL: string) {
   const url = new URL(rawURL)
   return `${method} ${url.origin}${url.pathname}`
@@ -139,7 +148,7 @@ test.afterEach(async ({ page }, testInfo) => {
 for (const [path, metadata] of Object.entries(routeTitles)) {
   test(`renders the live read-only route ${path}`, async ({ page }, testInfo) => {
     await visit(page, path)
-    await expect(page.getByRole("heading", { level: 1, name: metadata.title, exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { level: 1, name: previewHeadings[path] ?? metadata.title, exact: true })).toBeVisible()
     await verifyViewport(page)
 
     if (testInfo.project.name === "desktop" || screenshotRoutes.has(path)) {
