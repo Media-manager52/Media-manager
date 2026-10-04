@@ -315,3 +315,23 @@ reason and timestamp are retained in audit event
 `workflow.access_rejected_release_retried`. An old worker event or duplicate
 owner request cannot act on the new revision. No provider request happens in
 the handler; retrieval follows the existing durable pacing and grab budgets.
+
+## Retained movie inspection
+
+`POST /api/v1/workflows/{id}/reinspect-retained-movie` is owner-only and takes
+`{ "job_id": "<uuid>" }`. It returns `202` with
+`status: movie_reinspection_queued`, `400` for malformed input, `404` for an
+unknown or unrelated job, and `409` when recovery is unsafe or already used.
+This operational API action is not yet exposed as a UI control.
+
+Only the latest failed movie job in the latest exhausted round is eligible:
+its failure must be `movie_primary_ambiguous`, its slot must be the round's
+last slot, its frozen inventory must exist, and no subtitle inspection may
+already exist. The profile must remain enabled at the round's policy version;
+active jobs and existing publications block the action. One audit authorization
+per job binds the worker event to the new workflow revision.
+
+The worker uses the original read-only inventory, requires a single main file
+matching a saved movie title, and runs the normal bounded subtitle inspection,
+publication and exact Plex verification. It creates no NZB request, job or
+round. Historical failure evidence, exclusions and retained output remain.

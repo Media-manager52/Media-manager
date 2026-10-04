@@ -180,7 +180,14 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 		return PublicationContext{}, errors.New("AltMount output subtitle requirements are not verified")
 	}
 	if result.Media.Kind == catalog.KindMovie {
-		rows, queryErr := store.Pool.Query(ctx, `SELECT id::text,relative_path,size_bytes FROM altmount_output_assets WHERE inventory_id=$1 ORDER BY size_bytes DESC,relative_path`, inventoryID)
+		// Publish the file actually inspected, not a new largest-file guess over
+		// the inventory (which may also contain sizeable, unverified extras).
+		rows, queryErr := store.Pool.Query(ctx, `SELECT asset.id::text,asset.relative_path,asset.size_bytes FROM altmount_output_assets asset
+			WHERE asset.inventory_id=$1 AND EXISTS(
+			 SELECT 1 FROM subtitle_verifications verification,jsonb_array_elements(verification.evidence->'videos') video
+			 WHERE verification.id=$2 AND verification.status='verified' AND verification.inventory_id=asset.inventory_id
+			 AND video->>'asset_id'=asset.id::text AND video->>'relative_path'=asset.relative_path)
+			ORDER BY asset.size_bytes DESC,asset.relative_path`, inventoryID, verificationID)
 		if queryErr != nil {
 			return PublicationContext{}, queryErr
 		}
@@ -199,11 +206,8 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 		if err := rows.Err(); err != nil {
 			return PublicationContext{}, err
 		}
-		if len(result.Assets) > 1 && result.Assets[1].Size*5 >= result.Assets[0].Size {
-			return PublicationContext{}, errors.New("movie inventory has no dominant media asset")
-		}
-		if len(result.Assets) == 0 {
-			return PublicationContext{}, errors.New("movie inventory has no playable media asset")
+		if len(result.Assets) != 1 {
+			return PublicationContext{}, errors.New("movie verification does not identify exactly one playable media asset")
 		}
 		result.Assets = result.Assets[:1]
 		if err := store.loadPublicationCompanions(ctx, verificationID, &result); err != nil {

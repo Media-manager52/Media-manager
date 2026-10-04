@@ -8,6 +8,20 @@ The audit covers the Go route registry, PostgreSQL migrations/store methods
 and the React route switch. This document describes implemented behavior,
 not the development fixture's claims.
 
+## Retained movie and cross-post recovery (2026-10-04)
+
+The backend supports one owner-authorized inspection of an eligible latest
+ambiguous movie inventory without opening a round or acquiring another NZB.
+Explicit bonus directories do not count as competing primary files, and movie
+publication uses exactly the file identified by verified inspection evidence.
+The action is operational API-only; a guided web control remains future work.
+Completed negative subtitle evidence excludes exact-title cross-posts across
+all selection/retrieval paths. Explicit conflicting remake years cannot be
+overridden by provider IDs, including old persisted eligible selections.
+Movie event names also accept the exact canonical year moved to the end,
+with other words and their order preserved.
+See [the API contract](../architecture/api.md#retained-movie-inspection).
+
 ## Configurable acquisition budgets (2026-09-30)
 
 Acquisition attempts and retained failed-output limits are owner-configurable

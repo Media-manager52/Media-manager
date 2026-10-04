@@ -13,17 +13,11 @@ const maxSearchTitles = 8
 // Use only names already attached to this catalog item. An alias changes the
 // title evidence, never the verified IDs, year, episode scope or output policy.
 func mediaTitleMatches(releaseTitle string, media catalog.MediaItem) bool {
-	if releases.TitleMatches(releaseTitle, media.Title) {
-		return true
-	}
-	if media.Metadata == nil {
-		return false
-	}
-	if releases.TitleMatches(releaseTitle, media.Metadata.OriginalTitle) {
-		return true
-	}
-	for _, alias := range media.Metadata.Aliases {
-		if strings.TrimSpace(alias.Source) != "" && releases.TitleMatches(releaseTitle, alias.Name) {
+	for _, title := range media.SavedTitles() {
+		if media.Kind == catalog.KindMovie && media.Year != nil && releases.MovieTitleMatches(releaseTitle, title, *media.Year) {
+			return true
+		}
+		if releases.TitleMatches(releaseTitle, title) {
 			return true
 		}
 	}

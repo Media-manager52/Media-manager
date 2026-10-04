@@ -329,7 +329,7 @@ func hasOneDominantMovie(files []altmount.OutputFile) bool {
 func selectedMovieAssets(assets []packs.ObservedAsset) []subtitles.Asset {
 	media := make([]packs.ObservedAsset, 0, len(assets))
 	for _, asset := range assets {
-		if playableOutputAsset(asset.RelativePath) && !strings.Contains(strings.ToLower(asset.RelativePath), "sample") {
+		if playableOutputAsset(asset.RelativePath) && !strings.Contains(strings.ToLower(asset.RelativePath), "sample") && !movieBonusDirectory(asset.RelativePath) {
 			media = append(media, asset)
 		}
 	}
@@ -338,6 +338,18 @@ func selectedMovieAssets(assets []packs.ObservedAsset) []subtitles.Asset {
 		return nil
 	}
 	return []subtitles.Asset{{ID: media[0].ID, RelativePath: media[0].RelativePath, Size: media[0].Size}}
+}
+
+// Only explicit directory components identify extras. A second feature in the
+// main directory remains ambiguous; a film merely named "Bonus" is not hidden.
+func movieBonusDirectory(path string) bool {
+	for _, component := range strings.Split(filepath.ToSlash(filepath.Dir(path)), "/") {
+		switch strings.ToLower(component) {
+		case "extra", "extras", "bonus", "featurettes", "trailers", "samples":
+			return true
+		}
+	}
+	return false
 }
 
 func playableOutputAsset(path string) bool {

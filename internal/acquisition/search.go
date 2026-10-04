@@ -347,7 +347,7 @@ func appendSubtitleRules(rules []releases.Rule, policy subtitles.Policy) []relea
 
 func applyWorkflowExclusions(observation releases.Observation, evaluation releases.Evaluation, search postgres.SearchContext) releases.Evaluation {
 	for _, exclusion := range search.Exclusions {
-		if !exclusion.Matches(observation.IndexerID, observation.NativeGUID) {
+		if !exclusion.Matches(observation.IndexerID, observation.NativeGUID) && !exclusion.MatchesTitle(observation.Title) {
 			continue
 		}
 		evaluation.Verdict = releases.VerdictRejected
@@ -412,9 +412,14 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 			positiveIdentity = true
 		}
 	}
-	// A provider identity that exactly matches a verified identity proves the
-	// media, so the title year is only needed without one. Release years are
-	// often a year off the metadata year (festival versus theatrical release).
+	// Provider IDs can be mislabelled. Explicit remake years remain conflicting
+	// even with a matching ID; festival/theatrical differences of one year pass.
+	if media.Kind == catalog.KindMovie && media.Year != nil && releases.ConflictingMovieYear(observation.Title, *media.Year, media.SavedTitles()) {
+		if evaluation.Verdict != releases.VerdictRejected {
+			evaluation.Verdict = releases.VerdictHeld
+		}
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested movie year", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Reason: "explicit release year conflicts with the requested movie; matching provider IDs do not resolve the contradiction"})
+	}
 	if media.Kind == catalog.KindMovie && !positiveIdentity && media.Year != nil && !releases.TitleContainsYear(observation.Title, *media.Year) {
 		if evaluation.Verdict != releases.VerdictRejected {
 			evaluation.Verdict = releases.VerdictHeld

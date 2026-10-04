@@ -245,13 +245,23 @@ Each observation is normalized (`InferTitleFacts`) then evaluated by pure rules
    folding, `&` as `and`, apostrophes dropped); the release must still begin
    with the whole canonical title, saved original title or a saved alias with
    metadata provenance. A
-   provider identity that exactly matches a verified identity satisfies the
-   movie year check (release years are often a year off); without one, a
-   movie release must name the year. A mismatched identity always rejects.
+   movie event may move its exact canonical year from inside the saved name
+   to after the name; all other words and their order must match. A
+   provider identity that exactly matches a verified identity satisfies a
+   missing movie year or a one-year festival/theatrical discrepancy. An
+   explicit release year immediately after the longest matching saved title
+   differing by more than one year remains held even with a matching provider
+   ID. Final retrieval admission also checks persisted selections for this
+   contradiction. Without a matching ID, the requested movie year must be
+   explicit. A mismatched identity always rejects.
 5. **Blocklist** (`applyReleaseBlocks`) — native or pack blocks reject before
    ranking.
 6. **Workflow exclusions** (`applyWorkflowExclusions`) — exact failed
-   release/package exclusions.
+   release/package exclusions. A completed, still-unverified subtitle result
+   also excludes exact trimmed, case-insensitive release-title cross-posts in
+   that workflow. Different titles/encodes remain eligible. Retrieval and
+   infrastructure failures retain their original native/package scope. All
+   persisted selection paths and final retrieval admission apply the same guard.
 7. **Upgrade baseline** (`applyUpgradeBaseline`) — a candidate replacing a
    current release must score **strictly higher** under the target policy,
    unless the current release now fails a required property. The current
@@ -470,7 +480,13 @@ Handler: `acquisition.AltMountReconcileService` (`reconcile_altmount.go`).
   2. Empty inventory → release-attributable `output_empty`.
   3. **Movie**: exactly one dominant playable file
      (`selectedMovieAssets`/`hasOneDominantMovie`); anything else →
-     `movie_primary_ambiguous`.
+     `movie_primary_ambiguous`. Explicit `extra`, `extras`, `bonus`,
+     `featurettes`, `trailers` and `samples` directory components are excluded
+     from primary-file selection; multiple features elsewhere remain ambiguous.
+     Publication uses the exact asset ID and path in verified inspection
+     evidence rather than guessing the largest inventory file again. The
+     [retained movie action](api.md#retained-movie-inspection) can inspect an
+     eligible latest ambiguous output once without another acquisition.
   4. **Series**: `packs.Evaluate` against the immutable expectation. Not
      publishable → `season_pack_incomplete`. Every expected episode maps exactly
      once; multi-episode files are grouped.

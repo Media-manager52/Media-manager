@@ -53,15 +53,24 @@ type SearchPersistenceOptions struct {
 }
 
 type WorkflowReleaseExclusion struct {
-	CandidateID       uuid.UUID
-	IndexerInstanceID uuid.UUID
-	NativeKey         string
-	FailureKind       string
-	Reason            string
+	CandidateID        uuid.UUID
+	IndexerInstanceID  uuid.UUID
+	NativeKey          string
+	FailureKind        string
+	Reason             string
+	ReleaseTitle       string
+	SubtitleUnverified bool
 }
 
 func (item WorkflowReleaseExclusion) Matches(indexerID uuid.UUID, nativeKey string) bool {
 	return item.IndexerInstanceID == indexerID && item.NativeKey == nativeKey
+}
+
+// A completed subtitle inspection also applies to exact-title cross-posts.
+// Retrieval and infrastructure failures retain their provider/native scope.
+func (item WorkflowReleaseExclusion) MatchesTitle(title string) bool {
+	return (item.FailureKind == "subtitle_verification" || item.FailureKind == "movie_primary_ambiguous") && item.SubtitleUnverified &&
+		strings.TrimSpace(item.ReleaseTitle) != "" && strings.EqualFold(strings.TrimSpace(item.ReleaseTitle), strings.TrimSpace(title))
 }
 
 type EvaluatedObservation struct {
@@ -183,7 +192,12 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	if err != nil {
 		return SearchContext{}, err
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT exclusion.candidate_id::text,exclusion.indexer_instance_id::text,exclusion.native_key,exclusion.failure_kind,exclusion.reason FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=$1 ORDER BY exclusion.created_at`, result.Workflow.ID.String())
+	rows, err := store.Pool.Query(ctx, `SELECT exclusion.candidate_id::text,exclusion.indexer_instance_id::text,exclusion.native_key,exclusion.failure_kind,exclusion.reason,candidate.title,COALESCE(verification.status='unverified',false)
+		FROM workflow_release_exclusions exclusion JOIN release_candidates candidate ON candidate.id=exclusion.candidate_id AND candidate.workflow_id=exclusion.workflow_id
+		LEFT JOIN subtitle_verifications verification ON
+		 (verification.id=exclusion.verification_id OR (exclusion.failure_kind='movie_primary_ambiguous' AND verification.candidate_id=candidate.id))
+		 AND verification.workflow_id=exclusion.workflow_id
+		WHERE exclusion.workflow_id=$1 ORDER BY exclusion.created_at`, result.Workflow.ID.String())
 	if err != nil {
 		return SearchContext{}, err
 	}
@@ -191,7 +205,7 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	for rows.Next() {
 		var item WorkflowReleaseExclusion
 		var candidateText, indexerText string
-		if err := rows.Scan(&candidateText, &indexerText, &item.NativeKey, &item.FailureKind, &item.Reason); err != nil {
+		if err := rows.Scan(&candidateText, &indexerText, &item.NativeKey, &item.FailureKind, &item.Reason, &item.ReleaseTitle, &item.SubtitleUnverified); err != nil {
 			return SearchContext{}, err
 		}
 		item.CandidateID, _ = uuid.Parse(candidateText)
@@ -396,7 +410,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_attempted_releases WHERE workflow_id=$1 AND candidate_id=$2)
 				OR EXISTS(SELECT 1 FROM workflow_release_exclusions e JOIN acquisition_rounds r ON r.id=e.retrieval_round_id AND r.state='open'
 				 JOIN release_candidates c ON c.id=$2 AND c.workflow_id=$1
-				 WHERE e.workflow_id=$1 AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))`, search.Workflow.ID.String(), candidate.String()).Scan(&alreadyAttempted); err != nil {
+				 WHERE e.workflow_id=$1 AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403')) OR EXISTS(SELECT 1 FROM release_candidates c WHERE c.workflow_id=$1 AND c.id=$2 AND `+knownSubtitleFailureSQL("c")+`)`, search.Workflow.ID.String(), candidate.String()).Scan(&alreadyAttempted); err != nil {
 				return false, err
 			}
 			return alreadyAttempted, nil

@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -32,15 +33,20 @@ func (store *Store) inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, re
 	var result retrievalAdmission
 	var state, selected string
 	var revision, policyVersion int64
-	var blocked, accessDenied bool
+	var blocked, accessDenied, subtitleFailed bool
+	var media catalog.MediaItem
+	var year *int16
+	var title string
+	var metadata []byte
 	if err := tx.QueryRow(ctx, `SELECT w.state,w.revision,COALESCE(w.selected_release_id::text,''),p.policy_version,
 		EXISTS(SELECT 1 FROM release_blocks b WHERE (b.expires_at IS NULL OR b.expires_at>now()) AND
 		 ((b.scope='native_release' AND b.indexer_instance_id=c.indexer_instance_id AND b.native_key=c.native_key)
 		 OR (b.scope='pack_release' AND b.media_id=w.media_id AND b.variant=w.variant AND lower(b.release_title)=lower(c.title)))),
 		EXISTS(SELECT 1 FROM workflow_release_exclusions e JOIN acquisition_rounds r ON r.id=e.retrieval_round_id AND r.state='open'
-		 WHERE e.workflow_id=w.id AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))
+		 WHERE e.workflow_id=w.id AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403')), `+knownSubtitleFailureSQL("c")+`,m.kind,m.title,m.year,c.title,COALESCE(metadata.data,'null'::jsonb)
 		FROM workflows w JOIN quality_profiles p ON p.id=w.quality_profile_id JOIN release_candidates c ON c.id=w.selected_release_id
-		WHERE w.id=$1 FOR UPDATE OF w`, retrieval.Workflow.ID.String()).Scan(&state, &revision, &selected, &policyVersion, &blocked, &accessDenied); err != nil {
+		JOIN media_items m ON m.id=w.media_id LEFT JOIN media_metadata metadata ON metadata.media_id=m.id
+		WHERE w.id=$1 FOR UPDATE OF w`, retrieval.Workflow.ID.String()).Scan(&state, &revision, &selected, &policyVersion, &blocked, &accessDenied, &subtitleFailed, &media.Kind, &media.Title, &year, &title, &metadata); err != nil {
 		return result, err
 	}
 	if state != string(workflows.StateCandidateSelected) || uint64(revision) != retrieval.Workflow.Revision || selected != retrieval.CandidateID.String() {
@@ -49,6 +55,19 @@ func (store *Store) inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, re
 	if blocked || accessDenied {
 		result.code, result.detail = "release_retrieval_source_blocked", "The selected release is blocked or its provider rejected access in this round; no further NZB was requested."
 		return result, nil
+	}
+	if subtitleFailed {
+		result.code, result.detail = "release_subtitle_already_failed", "An exact-title release already failed bounded subtitle inspection in this workflow; no duplicate NZB was requested."
+		return result, nil
+	}
+	if media.Kind == catalog.KindMovie && year != nil {
+		if err := json.Unmarshal(metadata, &media.Metadata); err != nil {
+			return result, err
+		}
+		if releases.ConflictingMovieYear(title, uint16(*year), media.SavedTitles()) {
+			result.code, result.detail = "release_movie_year_conflict", "The selected release has an explicit movie year conflicting with the requested title; no NZB was requested."
+			return result, nil
+		}
 	}
 	var roundPolicy int64
 	var limit, used, retained int
@@ -175,7 +194,7 @@ func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval
 			 OR (b.scope='pack_release' AND b.media_id=w.media_id AND b.variant=w.variant AND lower(b.release_title)=lower(c.title))))
 			AND NOT EXISTS(SELECT 1 FROM workflow_attempted_releases a WHERE a.workflow_id=c.workflow_id AND a.candidate_id=c.id)
 			AND NOT EXISTS(SELECT 1 FROM workflow_release_exclusions e WHERE e.workflow_id=c.workflow_id AND e.indexer_instance_id=c.indexer_instance_id AND e.native_key=c.native_key)
-			AND NOT EXISTS(SELECT 1 FROM workflow_release_exclusions e WHERE e.retrieval_round_id=r.id AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))
+			AND NOT EXISTS(SELECT 1 FROM workflow_release_exclusions e WHERE e.retrieval_round_id=r.id AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))`+" AND NOT "+knownSubtitleFailureSQL("c")+`
 			ORDER BY
 			($3 AND EXISTS(SELECT 1 FROM jsonb_array_elements(o.normalized_facts) f WHERE f->>'name'='subtitle_languages' AND f->>'state' IN ('observed','inferred') AND f->'values' @> '["da"]'::jsonb)) DESC,
 			($3 AND o.title ~ $4) DESC,
