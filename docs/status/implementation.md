@@ -8,6 +8,27 @@ The audit covers the Go route registry, PostgreSQL migrations/store methods
 and the React route switch. This document describes implemented behavior,
 not the development fixture's claims.
 
+## Annual TV episode acquisition (2026-10-05)
+
+TV searches can alternate the existing ordinal-season request with one bounded
+ID-only request when all regular catalogue seasons have exact frozen snapshots,
+dated episodes identify distinct calendar years, and the mapped season is
+fully dated with a contiguous episode sequence. This removes unreliable provider season filters without
+adding requests to a scan. Year/date episode names and bare annual pack labels require positive verified
+series identity before they are mapped to the canonical frozen season/episode;
+raw and previous provider scope facts remain recorded. Ambiguous or incomplete
+metadata remains on the canonical path. Output inspection applies the same
+mapping while retaining the actual source paths and exact coverage checks.
+
+The existing completed-season episode fallback now runs immediately after
+relevant episode observations arrive and no eligible, unattempted pack remains. Unrelated scopes or rejected/unknown
+series identity cannot activate or suppress that fallback; active pack jobs and
+revision changes remain protected. Request summaries include only children in
+the requested season's frozen expectation, expose their attention/progress, and
+recognise a season fully covered by Plex-confirmed children.
+
+No schema change applies. This source note describes code, not deployment.
+
 ## Retained movie and cross-post recovery (2026-10-04)
 
 The backend supports one owner-authorized inspection of an eligible latest

@@ -125,7 +125,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	}
 	if !recovery && search.Media.Kind == catalog.KindSeries && search.Workflow.Revision == event.AggregateRevision {
 		if scope, ok := workflows.ParseVariant(search.Variant); ok && scope.Kind == workflows.VariantSeason {
-			dispatched, dispatchErr := service.Store.DispatchAiringSeason(ctx, search.Workflow.ID, time.Now().UTC())
+			dispatched, dispatchErr := service.Store.DispatchAiringSeason(ctx, search.Workflow.ID, time.Now().UTC(), search.Workflow.Revision)
 			if dispatchErr != nil {
 				return dispatchErr
 			}
@@ -235,6 +235,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			continue
 		}
 		var observations []releases.Observation
+		request = numberedSearchRequest(search, request)
 		observations, err = executeSearch(request)
 		if err != nil {
 			if recovery && errors.Is(err, postgres.ErrConcurrentModification) {
@@ -259,6 +260,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		outcomes = append(outcomes, outcome)
 		for _, observation := range observations {
 			observation = releases.InferTitleFacts(observation, time.Now().UTC())
+			observation = applyEpisodeNumbering(observation, search, time.Now().UTC())
 			evaluation, evaluateErr := releases.Evaluate(observation, rules)
 			if evaluateErr != nil {
 				return evaluateErr
@@ -289,9 +291,18 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		fingerprintInput += "\x00recovery\x00" + strconv.FormatUint(event.AggregateRevision, 10)
 	}
 	fingerprint := sha256.Sum256([]byte(fingerprintInput))
-	_, err = service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, postgres.SearchPersistenceOptions{RecoveryRescan: recovery, RescanGeneration: int64(event.AggregateRevision), IndexerOutcomes: outcomes}, time.Now().UTC())
+	persisted, persistErr := service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, postgres.SearchPersistenceOptions{RecoveryRescan: recovery, RescanGeneration: int64(event.AggregateRevision), IndexerOutcomes: outcomes}, time.Now().UTC())
+	err = persistErr
 	if recovery && errors.Is(err, postgres.ErrConcurrentModification) {
 		return nil
+	}
+	if err == nil && !recovery && search.Media.Kind == catalog.KindSeries && (persisted.State == workflows.StateWaiting || persisted.State == workflows.StateHeld) {
+		if scope, ok := workflows.ParseVariant(search.Variant); ok && scope.Kind == workflows.VariantSeason {
+			_, dispatchErr := service.Store.DispatchAiringSeason(ctx, persisted.ID, time.Now().UTC(), persisted.Revision)
+			if dispatchErr != nil && !errors.Is(dispatchErr, postgres.ErrConcurrentModification) {
+				return dispatchErr
+			}
+		}
 	}
 	return err
 }

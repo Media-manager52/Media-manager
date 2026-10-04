@@ -407,7 +407,7 @@ func (store *Store) PackExpectation(ctx context.Context, workflowID uuid.UUID) (
 		return uuid.UUID{}, "", 0, nil, err
 	}
 	expectationID, _ := uuid.Parse(expectationText)
-	rows, err := store.Pool.Query(ctx, `SELECT season,episode,COALESCE(provider_episode_id,''),title FROM pack_expected_episodes WHERE expectation_id=$1 ORDER BY season,episode`, expectationID.String())
+	rows, err := store.Pool.Query(ctx, `SELECT season,episode,COALESCE(provider_episode_id,''),title,COALESCE(air_date::text,'') FROM pack_expected_episodes WHERE expectation_id=$1 ORDER BY season,episode`, expectationID.String())
 	if err != nil {
 		return uuid.UUID{}, "", 0, nil, err
 	}
@@ -416,7 +416,7 @@ func (store *Store) PackExpectation(ctx context.Context, workflowID uuid.UUID) (
 	for rows.Next() {
 		var item packs.ExpectedEpisode
 		var itemSeason, itemEpisode int16
-		if err := rows.Scan(&itemSeason, &itemEpisode, &item.ProviderEpisodeID, &item.Title); err != nil {
+		if err := rows.Scan(&itemSeason, &itemEpisode, &item.ProviderEpisodeID, &item.Title, &item.AirDate); err != nil {
 			return uuid.UUID{}, "", 0, nil, err
 		}
 		item.Key = packs.EpisodeKey{SeriesID: seriesID, Season: uint16(itemSeason), Episode: uint16(itemEpisode)}

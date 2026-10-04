@@ -366,3 +366,58 @@ func seasonCapabilityProfileDocument(t *testing.T) json.RawMessage {
 	}
 	return body
 }
+
+// A normal primary scan remains one request. The next existing scan removes
+// unreliable season filters, maps only the exact frozen year/identity, and
+// immediately dispatches the existing per-episode acquisition path.
+func TestAnnualDiscoveryDispatchesEpisodesAfterOneAlternateScan(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	server, captured := newMovieSearchServer(t, func(query url.Values) string {
+		if query.Get("tvdbid") == "378992" && query.Get("season") == "" {
+			return strings.ReplaceAll(seasonPackSearchReleaseXML("Example.Series.S2020E01.1080p.WEB-DL"), `<newznab:attr name="resolution"`, `<newznab:attr name="tvdbid" value="378992"/><newznab:attr name="season" value="20"/><newznab:attr name="episode" value="E00"/><newznab:attr name="resolution"`)
+		}
+		return emptySearchXML()
+	})
+	defer server.Close()
+	configureSeasonSearchIndexer(t, store, server.URL, false)
+	workflow := createSeasonSearchWorkflow(t, store, true)
+	if _, err := store.Pool.Exec(ctx, `UPDATE pack_expected_episodes SET air_date=CASE WHEN episode=1 THEN '2020-04-01'::date ELSE '2020-04-08'::date END WHERE expectation_id IN (SELECT id FROM pack_expectation_sets WHERE workflow_id=$1)`, workflow.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	count := uint16(1)
+	if _, err := store.RefreshMediaMetadata(ctx, workflow.MediaID, &catalog.MediaMetadata{SeasonCount: &count}, nil, "test", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	service := movieSearchService(store, server)
+	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	if len(captured()) != 1 || captured()[0].Get("season") != "1" {
+		t.Fatal("primary shape changed")
+	}
+	// The same client must obey both its durable and in-memory pacing lane.
+	time.Sleep(3100 * time.Millisecond)
+	current, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Handle(ctx, postgres.OutboxEvent{AggregateID: current.ID, AggregateRevision: current.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	requests := captured()
+	if len(requests) != 2 || requests[1].Get("season") != "" || requests[1].Get("q") != "" || requests[1].Get("tvdbid") != "378992" {
+		t.Fatalf("requests=%v", requests)
+	}
+	var children, jobs int
+	if err = store.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM workflows WHERE media_id=$1 AND variant LIKE 'season:01:episode:%'),(SELECT count(*) FROM altmount_jobs WHERE workflow_id=$2)`, workflow.MediaID.String(), workflow.ID.String()).Scan(&children, &jobs); err != nil {
+		t.Fatal(err)
+	}
+	if children != 2 || jobs != 0 {
+		t.Fatalf("children=%d parent jobs=%d", children, jobs)
+	}
+	current, err = store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || current.State != workflows.StateWaiting {
+		t.Fatalf("coordinator=%+v err=%v", current, err)
+	}
+}

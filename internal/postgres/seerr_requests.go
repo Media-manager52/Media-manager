@@ -62,6 +62,34 @@ type SeerrRequestDetail struct {
 	Files     []ManagedFile        `json:"files"`
 }
 
+// Episode dispatch deliberately keeps the request's season provenance. Expand
+// it for read models so child progress/attention is visible without attaching
+// another request or counting unrelated seasons and unexpected episodes.
+const seerrRelatedWorkflowsCTE = `WITH related_workflows AS (
+ SELECT seerr_instance_id,request_id,workflow_id FROM seerr_request_workflows
+ UNION
+ SELECT provenance.seerr_instance_id,provenance.request_id,episode.id
+ FROM seerr_request_workflows provenance JOIN workflows parent ON parent.id=provenance.workflow_id
+ JOIN workflows episode ON episode.media_id=parent.media_id AND episode.variant LIKE parent.variant || ':episode:%'
+ WHERE parent.variant ~ '^season:[0-9]+$'
+ AND (episode.terminal_at IS NULL OR episode.state='plex_confirmed')
+ AND EXISTS (
+  SELECT 1 FROM pack_expected_episodes expected WHERE expected.expectation_id=(
+   SELECT id FROM pack_expectation_sets WHERE workflow_id=parent.id ORDER BY frozen_at DESC,id DESC LIMIT 1)
+  AND episode.variant=('season:' || lpad(expected.season::text,2,'0') || ':episode:' || lpad(expected.episode::text,2,'0')))
+) `
+
+const seerrWorkflowConfirmedSQL = `(workflow.state='plex_confirmed' OR (
+ workflow.variant ~ '^season:[0-9]+$'
+ AND EXISTS (SELECT 1 FROM pack_expected_episodes expected WHERE expected.expectation_id=(
+  SELECT id FROM pack_expectation_sets WHERE workflow_id=workflow.id ORDER BY frozen_at DESC,id DESC LIMIT 1))
+ AND NOT EXISTS (
+  SELECT 1 FROM pack_expected_episodes expected WHERE expected.expectation_id=(
+   SELECT id FROM pack_expectation_sets WHERE workflow_id=workflow.id ORDER BY frozen_at DESC,id DESC LIMIT 1)
+  AND NOT EXISTS (SELECT 1 FROM workflows child WHERE child.media_id=workflow.media_id AND child.state='plex_confirmed'
+   AND child.variant=('season:' || lpad(expected.season::text,2,'0') || ':episode:' || lpad(expected.episode::text,2,'0'))))
+))`
+
 const seerrRequestSummaryColumns = `s.seerr_instance_id::text,COALESCE(instance.name,''),s.request_id,
 	COALESCE(NULLIF(s.title,''),media.title,''),
 	COALESCE(s.year,media.year),
@@ -91,7 +119,7 @@ const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 	LEFT JOIN seerr_deliveries delivery ON delivery.id=s.last_delivery_id
 	LEFT JOIN LATERAL (
 		SELECT workflow.media_id,workflow.state,workflow.quality_profile_id,workflow.variant,workflow.attention_code,workflow.attention_detail,workflow.updated_at
-		FROM seerr_request_workflows link
+		FROM related_workflows link
 		JOIN workflows workflow ON workflow.id=link.workflow_id
 		WHERE link.seerr_instance_id=s.seerr_instance_id AND link.request_id=s.request_id
 		ORDER BY CASE workflow.state WHEN 'needs_attention' THEN 0 WHEN 'quarantined' THEN 1 WHEN 'held' THEN 2 WHEN 'blocked' THEN 3 WHEN 'transport_unknown' THEN 4 WHEN 'plex_confirmed' THEN 9 ELSE 5 END,workflow.updated_at DESC,workflow.id DESC
@@ -104,8 +132,8 @@ const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 		SELECT count(*)::int AS workflow_count,
 			count(*) FILTER (WHERE workflow.state IN ('needs_attention','quarantined','blocked','transport_unknown')
 				OR (workflow.state='waiting' AND EXISTS(SELECT 1 FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=workflow.id AND discovery.state='ready')))::int AS attention_count,
-			count(*) FILTER (WHERE workflow.state='plex_confirmed')::int AS confirmed_count
-		FROM seerr_request_workflows link
+			count(*) FILTER (WHERE ` + seerrWorkflowConfirmedSQL + `)::int AS confirmed_count
+		FROM related_workflows link
 		JOIN workflows workflow ON workflow.id=link.workflow_id
 		WHERE link.seerr_instance_id=s.seerr_instance_id AND link.request_id=s.request_id
 	) agg ON true
@@ -116,7 +144,7 @@ const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 	) seasons ON true
 	LEFT JOIN (
 		SELECT link.seerr_instance_id,link.request_id,max(run.started_at) AS started_at
-		FROM seerr_request_workflows link JOIN search_runs run ON run.workflow_id=link.workflow_id
+		FROM related_workflows link JOIN search_runs run ON run.workflow_id=link.workflow_id
 		GROUP BY link.seerr_instance_id,link.request_id
 	) last_search ON last_search.seerr_instance_id=s.seerr_instance_id AND last_search.request_id=s.request_id
 	LEFT JOIN (
@@ -126,7 +154,7 @@ const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 				AND event.payload->>'reason'='no eligible release yet'
 				THEN 'Search incomplete: some indexers were deferred or failed; retrying.'
 				ELSE event.payload->>'reason' END AS reason
-		FROM seerr_request_workflows link
+		FROM related_workflows link
 		JOIN workflows workflow ON workflow.id=link.workflow_id AND workflow.terminal_at IS NULL
 		JOIN outbox_events event ON event.aggregate_id=workflow.id AND event.completed_at IS NULL
 		LEFT JOIN LATERAL (
@@ -264,7 +292,7 @@ func (store *Store) ListSeerrRequests(ctx context.Context, instanceID string, li
 	// An empty instance selects every Seerr instance. The owner-facing request
 	// history must survive a change of configured intake instance, so the list
 	// is deliberately not scoped to the runtime instance alone.
-	rows, err := store.Pool.Query(ctx, `SELECT `+seerrRequestSummaryColumns+` `+seerrRequestSummaryJoins+
+	rows, err := store.Pool.Query(ctx, seerrRelatedWorkflowsCTE+`SELECT `+seerrRequestSummaryColumns+` `+seerrRequestSummaryJoins+
 		` WHERE ($1::text='' OR s.seerr_instance_id=NULLIF($1::text,'')::uuid)
 		ORDER BY COALESCE(primary_workflow.updated_at,s.reconciled_at) DESC,s.seerr_instance_id DESC,s.request_id DESC LIMIT $2 OFFSET $3`,
 		instanceID, limit, offset)
@@ -284,7 +312,7 @@ func (store *Store) ListSeerrRequests(ctx context.Context, instanceID string, li
 }
 
 func (store *Store) SeerrRequest(ctx context.Context, instanceID, requestID string) (SeerrRequestDetail, error) {
-	row := store.Pool.QueryRow(ctx, `SELECT `+seerrRequestSummaryColumns+` `+seerrRequestSummaryJoins+
+	row := store.Pool.QueryRow(ctx, seerrRelatedWorkflowsCTE+`SELECT `+seerrRequestSummaryColumns+` `+seerrRequestSummaryJoins+
 		` WHERE s.seerr_instance_id=$1 AND s.request_id=$2`, instanceID, requestID)
 	summary, err := scanSeerrRequestSummary(row)
 	if errors.Is(err, pgx.ErrNoRows) {

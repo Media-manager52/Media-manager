@@ -219,7 +219,7 @@ func TestDispatchCompletedSeasonWithOnlyEpisodesObservedAcquiresPerEpisode(t *te
 		t.Fatal(err)
 	}
 	candidate := seedEligibleCandidate(t, ctx, store, workflowID, indexer.ID, "episode-only-scope", 100, now)
-	if _, err := store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, candidate.String(), `[{"name":"release_scope","values":["episode"],"state":"inferred"}]`); err != nil {
+	if _, err := store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, candidate.String(), `[{"name":"release_scope","values":["episode"],"state":"inferred"},{"name":"season_number","values":["1"],"state":"inferred"}]`); err != nil {
 		t.Fatal(err)
 	}
 	dispatched, err := store.DispatchAiringSeason(ctx, workflowID, now)
@@ -250,7 +250,7 @@ func TestDispatchCompletedSeasonWithPackObservedKeepsSinglePackSearch(t *testing
 		t.Fatal(err)
 	}
 	candidate := seedEligibleCandidate(t, ctx, store, workflowID, indexer.ID, "pack-scope", 500, now)
-	if _, err := store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, candidate.String(), `[{"name":"release_scope","values":["season_pack"],"state":"inferred"}]`); err != nil {
+	if _, err := store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, candidate.String(), `[{"name":"release_scope","values":["season_pack"],"state":"inferred"},{"name":"season_number","values":["1"],"state":"inferred"}]`); err != nil {
 		t.Fatal(err)
 	}
 	dispatched, err := store.DispatchAiringSeason(ctx, workflowID, now)
@@ -364,5 +364,73 @@ func TestDispatchSeasonWithoutExpectationKeepsLegacyPackSearch(t *testing.T) {
 	}
 	if got := countEpisodeWorkflows(t, ctx, store, series.ID, 1); got != 0 {
 		t.Fatalf("unexpected episode workflows=%d", got)
+	}
+}
+
+func TestCompletedEpisodeFallbackIgnoresUnrelatedScopeAndIdentity(t *testing.T) {
+	for _, c := range []struct{ name, season, reasons string }{
+		{"wrong season", "2", `[]`},
+		{"wrong identity", "1", `[{"rule":"verified media identity","decision":"fail"}]`},
+		{"unknown identity", "1", `[{"rule":"series identity evidence","decision":"unknown"}]`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			store, root, profile, client := openAiringTestStore(t)
+			ctx := context.Background()
+			now := time.Now().UTC()
+			series, workflow := createAiringSeries(t, ctx, store, root, profile, client, "No unrelated dispatch", []ManualEpisode{{Number: 1, ProviderID: "tmdb:1", AirDate: "2020-01-01"}})
+			indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Test", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "TEST_KEY"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate := seedEligibleCandidate(t, ctx, store, workflow, indexer.ID, "unrelated-episode", 1, now)
+			facts := `[{"name":"release_scope","values":["episode"],"state":"inferred"},{"name":"season_number","values":["` + c.season + `"],"state":"observed"}]`
+			if _, err = store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, candidate.String(), facts); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = store.Pool.Exec(ctx, `UPDATE candidate_decisions SET reasons=$2::jsonb WHERE candidate_id=$1`, candidate.String(), c.reasons); err != nil {
+				t.Fatal(err)
+			}
+			if dispatched, err := store.DispatchAiringSeason(ctx, workflow, now); err != nil || dispatched {
+				t.Fatalf("unrelated dispatch=%v err=%v", dispatched, err)
+			}
+			if got := countEpisodeWorkflows(t, ctx, store, series.ID, 1); got != 0 {
+				t.Fatalf("unrelated release created %d workflows", got)
+			}
+			current, err := store.GetWorkflow(ctx, workflow)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = store.DispatchAiringSeason(ctx, workflow, now, current.Revision+1); err != ErrConcurrentModification {
+				t.Fatalf("stale revision accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestRejectedSeasonPackDoesNotSuppressEpisodeFallback(t *testing.T) {
+	store, root, profile, client := openAiringTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	series, w := createAiringSeries(t, ctx, store, root, profile, client, "Rejected pack", []ManualEpisode{{Number: 1, ProviderID: "tmdb:1", AirDate: "2020-01-01"}})
+	indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Test", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "TEST_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"season_pack", "episode"} {
+		c := seedEligibleCandidate(t, ctx, store, w, indexer.ID, scope, 1, now)
+		if _, err = store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, c.String(), `[{"name":"release_scope","values":["`+scope+`"],"state":"inferred"},{"name":"season_number","values":["1"],"state":"observed"}]`); err != nil {
+			t.Fatal(err)
+		}
+		if scope == "season_pack" {
+			if _, err = store.Pool.Exec(ctx, `UPDATE candidate_decisions SET verdict='rejected' WHERE candidate_id=$1`, c.String()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if dispatched, err := store.DispatchAiringSeason(ctx, w, now); err != nil || !dispatched {
+		t.Fatalf("rejected pack suppressed episode path: %v %v", dispatched, err)
+	}
+	if got := countEpisodeWorkflows(t, ctx, store, series.ID, 1); got != 1 {
+		t.Fatalf("children=%d", got)
 	}
 }

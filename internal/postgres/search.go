@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -34,6 +35,7 @@ type SearchContext struct {
 	// Complete searches rotate query titles; partial coverage retries keep the
 	// same title instead of skipping an alias before every provider saw it.
 	CompleteSearches uint64
+	EpisodeNumbering packs.EpisodeNumbering
 	// ProfilePolicyVersion is the quality profile's current version. It can
 	// differ from PolicyVersion, which follows the open round's snapshot.
 	ProfilePolicyVersion uint64
@@ -133,6 +135,12 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	}
 	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM search_runs WHERE workflow_id=$1 AND state='complete'`, workflowID.String()).Scan(&result.CompleteSearches); err != nil {
 		return SearchContext{}, err
+	}
+	if result.Media.Kind == catalog.KindSeries {
+		result.EpisodeNumbering, err = store.WorkflowEpisodeNumbering(ctx, workflowID)
+		if err != nil {
+			return SearchContext{}, err
+		}
 	}
 	var currentObservation releases.Observation
 	var currentObservationText, currentIndexerText, currentWorkflowText string

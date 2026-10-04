@@ -305,3 +305,30 @@ func TestPlexConfirmedEpisodeQueuesSeerrStatusForTrackedSeason(t *testing.T) {
 		t.Fatalf("untracked episode confirmation queued %d Seerr syncs, want 0", got)
 	}
 }
+
+func TestSeerrRequestsExposeRequestedEpisodeProgressAndAttention(t *testing.T) {
+	f := newEpisodeStatusFixture(t)
+	f.seasonWorkflow(t, 1, 1, 2)
+	now := time.Now().UTC()
+	f.episodeWorkflow(t, 1, 1, "plex_confirmed", now)
+	second := f.episodeWorkflow(t, 1, 2, "needs_attention", now)
+	f.episodeWorkflow(t, 2, 1, "needs_attention", now)  // Another season is not requested.
+	f.episodeWorkflow(t, 1, 99, "needs_attention", now) // Not in the frozen expectation.
+	detail, err := f.store.SeerrRequest(f.ctx, f.seerrID, f.requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Request.WorkflowCount != 3 || detail.Request.ConfirmedCount != 1 || detail.Request.AttentionCount != 1 || detail.Request.CurrentState != "needs_attention" {
+		t.Fatalf("episode progress hidden or unrelated scope counted: %+v", detail.Request)
+	}
+	if _, err = f.store.Pool.Exec(f.ctx, `UPDATE workflows SET state='plex_confirmed',terminal_at=$2 WHERE id=$1`, second.String(), now); err != nil {
+		t.Fatal(err)
+	}
+	detail, err = f.store.SeerrRequest(f.ctx, f.seerrID, f.requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Request.WorkflowCount != 3 || detail.Request.ConfirmedCount != 3 || detail.Request.AttentionCount != 0 || detail.Request.Lifecycle != "plex_confirmed" {
+		t.Fatalf("completed episode season stayed waiting: %+v", detail.Request)
+	}
+}

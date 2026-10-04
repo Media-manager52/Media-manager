@@ -56,5 +56,9 @@ func searchTitle(search postgres.SearchContext) string {
 	if len(titles) == 0 {
 		return ""
 	}
-	return titles[search.CompleteSearches%uint64(len(titles))]
+	phase := search.CompleteSearches
+	if search.EpisodeNumbering.Year != 0 {
+		phase /= 2
+	}
+	return titles[phase%uint64(len(titles))]
 }
