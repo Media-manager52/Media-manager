@@ -123,6 +123,7 @@ const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 		SELECT DISTINCT ON (link.seerr_instance_id,link.request_id)
 			link.seerr_instance_id,link.request_id,event.available_at,
 			CASE WHEN event.event_type='workflow.search_requested' AND latest_run.state='partial'
+				AND event.payload->>'reason'='no eligible release yet'
 				THEN 'Search incomplete: some indexers were deferred or failed; retrying.'
 				ELSE event.payload->>'reason' END AS reason
 		FROM seerr_request_workflows link

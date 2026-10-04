@@ -298,6 +298,13 @@ func TestSeerrRequestsReadModel(t *testing.T) {
 		if err != nil || current.Request.WaitingReason != "Search incomplete: some indexers were deferred or failed; retrying." || current.Request.NextSearchAt == nil || !current.Request.NextSearchAt.Equal(next) {
 			t.Fatalf("historical partial run claimed no eligible release: %+v err=%v", current.Request, err)
 		}
+		if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET payload='{"reason":"airing season next episode"}' WHERE id=$1`, eventID.String()); err != nil {
+			t.Fatal(err)
+		}
+		current, err = store.SeerrRequest(ctx, seerr.ID.String(), "1001")
+		if err != nil || current.Request.WaitingReason != "airing season next episode" {
+			t.Fatalf("historical partial run replaced the newer airing wait: %+v err=%v", current.Request, err)
+		}
 		if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET completed_at=$2 WHERE aggregate_id=$1 AND event_type='workflow.search_requested'`, workflowID.String(), now); err != nil {
 			t.Fatal(err)
 		}
