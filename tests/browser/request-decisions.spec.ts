@@ -34,7 +34,7 @@ test("waiting requests show admission and only their recorded next search", asyn
   })
   await page.goto("/requests")
   const row = page.getByRole("row").filter({ hasText: "Added waiting movie" })
-  await expect(row.getByText("Added to Media Manager. No eligible release was found.", { exact: true })).toBeVisible()
+  await expect(row.getByText("Added to Media Manager. No eligible release matched the latest search.", { exact: true })).toBeVisible()
   await expect(row.getByText(/Auto-retry in 2h/)).toBeVisible()
   await row.getByRole("button", { name: "Added waiting movie", exact: true }).click()
   const inspector = page.locator("section").filter({ has: page.getByRole("heading", { name: "Request detail", exact: true }) })

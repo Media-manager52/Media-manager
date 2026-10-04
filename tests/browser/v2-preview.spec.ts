@@ -48,7 +48,7 @@ test("V2 waiting requests distinguish approval, admission and actual search sche
   await expect(card.getByText("Waiting", { exact: true })).toBeVisible()
   await expect(card.getByText("Seerr: Approved", { exact: true })).toBeVisible()
   await expect(card.getByText("Added to Media Manager", { exact: true })).toBeVisible()
-  await expect(card.getByText("Added to Media Manager. No eligible release was found.")).toBeVisible()
+  await expect(card.getByText("Added to Media Manager. No eligible release matched the latest search.")).toBeVisible()
   await expect(card.locator("time")).toHaveAttribute("datetime", next)
   await expect(card.getByText("Plex confirmed", { exact: true })).toHaveCount(0)
   await page.getByRole("button", { name: "Available", exact: true }).click()
