@@ -28,9 +28,9 @@ func TestInspectSubtitleRequirementsPreservesDefinitiveNoVideoEvidence(t *testin
 		t.Fatal(err)
 	}
 	asset := subtitles.Asset{ID: uuid.NewV7(), RelativePath: "Movie.mkv", Size: 7}
-	for _, probeErr := range []error{mediainfo.ErrNoVideoTrack, errors.New("media-info has no video track"), context.DeadlineExceeded} {
+	for _, probeErr := range []error{mediainfo.ErrNoVideoTrack, mediainfo.ErrEncryptedVideo, errors.New("media-info has no video track"), errors.New("media-info video has an unsupported encrypted codec tag"), context.DeadlineExceeded} {
 		verification, err := inspectSubtitleRequirements(t.Context(), root, []subtitles.Asset{asset}, []subtitles.Asset{asset}, subtitles.Policy{Required: []string{"da"}}, failingSubtitleProbe{err: probeErr}, nil)
-		if err == nil || verification.Status != "" || errors.Is(err, mediainfo.ErrNoVideoTrack) != errors.Is(probeErr, mediainfo.ErrNoVideoTrack) {
+		if err == nil || verification.Status != "" || errors.Is(err, mediainfo.ErrNoVideoTrack) != errors.Is(probeErr, mediainfo.ErrNoVideoTrack) || errors.Is(err, mediainfo.ErrEncryptedVideo) != errors.Is(probeErr, mediainfo.ErrEncryptedVideo) {
 			t.Fatalf("probe error=%v verification=%+v returned error=%v", probeErr, verification, err)
 		}
 	}

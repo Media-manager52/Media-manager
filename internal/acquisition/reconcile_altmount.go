@@ -181,7 +181,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, inventory.LocalRelative)
 		verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe, rootErr)
 		if inspectionErr != nil {
-			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) {
+			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) || errors.Is(inspectionErr, mediainfo.ErrEncryptedVideo) {
 				return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureNoPlayableMedia, inspectionErr.Error(), time.Now().UTC())
 			}
 			return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", inspectionErr.Error(), time.Now().UTC())
