@@ -12,6 +12,11 @@ even when historical discovery still points at an older exhausted round.
 The obsolete schedule is paused transactionally; active jobs and policy
 mismatches still block recovery. No schema or media-property change applies.
 
+AltMount's explicit "compressed media files are not supported" failure now
+uses the existing unsupported-archive recovery, like its older "compressed
+files" wording. Only the exact release/package is excluded; the next candidate
+uses the current bounded round. Infrastructure error precedence is preserved.
+
 ## Waiting search evidence (2026-10-04)
 
 A read-only production review covered all 79 waiting requests. All were linked

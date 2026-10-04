@@ -289,6 +289,7 @@ func releaseAttributableQueueFailure(detail string) (string, bool) {
 	}
 	switch {
 	case strings.Contains(normalized, "compressed files are not supported"),
+		strings.Contains(normalized, "compressed media files are not supported"),
 		strings.Contains(normalized, "failed to iterate rar archive"),
 		strings.Contains(normalized, "password protected"),
 		strings.Contains(normalized, "rar2") && strings.Contains(normalized, "compression"):
