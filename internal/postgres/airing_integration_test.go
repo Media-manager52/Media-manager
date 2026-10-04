@@ -406,3 +406,31 @@ func TestCompletedEpisodeFallbackIgnoresUnrelatedScopeAndIdentity(t *testing.T) 
 		})
 	}
 }
+
+func TestRejectedSeasonPackDoesNotSuppressEpisodeFallback(t *testing.T) {
+	store, root, profile, client := openAiringTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	series, w := createAiringSeries(t, ctx, store, root, profile, client, "Rejected pack", []ManualEpisode{{Number: 1, ProviderID: "tmdb:1", AirDate: "2020-01-01"}})
+	indexer, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Test", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "TEST_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"season_pack", "episode"} {
+		c := seedEligibleCandidate(t, ctx, store, w, indexer.ID, scope, 1, now)
+		if _, err = store.Pool.Exec(ctx, `UPDATE release_observations SET normalized_facts=$2::jsonb WHERE id=(SELECT observation_id FROM release_candidates WHERE id=$1)`, c.String(), `[{"name":"release_scope","values":["`+scope+`"],"state":"inferred"},{"name":"season_number","values":["1"],"state":"observed"}]`); err != nil {
+			t.Fatal(err)
+		}
+		if scope == "season_pack" {
+			if _, err = store.Pool.Exec(ctx, `UPDATE candidate_decisions SET verdict='rejected' WHERE candidate_id=$1`, c.String()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if dispatched, err := store.DispatchAiringSeason(ctx, w, now); err != nil || !dispatched {
+		t.Fatalf("rejected pack suppressed episode path: %v %v", dispatched, err)
+	}
+	if got := countEpisodeWorkflows(t, ctx, store, series.ID, 1); got != 1 {
+		t.Fatalf("children=%d", got)
+	}
+}

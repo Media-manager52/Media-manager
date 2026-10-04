@@ -17,6 +17,7 @@ type EpisodeNumbering struct {
 }
 
 var broadcastEpisodePattern = regexp.MustCompile(`(?i)S(\d{4})E(\d{1,3})`)
+var broadcastSeasonPattern = regexp.MustCompile(`(?i)S(\d{4})(?:$|[._ -])`)
 var broadcastEpisodeSuffix = regexp.MustCompile(`(?i)^(?:[-_ ]E?\d{1,3}|[._ -]E\d{1,3})(?:$|[._ -])`)
 var broadcastDatePattern = regexp.MustCompile(`(\d{4})[._-](\d{2})[._-](\d{2})`)
 
@@ -104,4 +105,22 @@ func (n EpisodeNumbering) BroadcastEpisode(name string) (uint16, bool) {
 		return 0, true
 	}
 	return episode, true
+}
+
+// BroadcastSeasonPack recognises a bare annual season label, not an episode
+// or range. A mapped pack still needs exact inventory episode coverage.
+func (n EpisodeNumbering) BroadcastSeasonPack(name string) (bool, bool) {
+	matches := broadcastSeasonPattern.FindAllStringSubmatchIndex(name, -1)
+	if len(matches) == 0 {
+		return false, false
+	}
+	if n.Year == 0 || len(matches) != 1 || broadcastEpisodePattern.MatchString(name) || broadcastDatePattern.MatchString(name) || episodePattern.MatchString(name) {
+		return false, true
+	}
+	m := matches[0]
+	if broadcastEpisodeSuffix.MatchString(name[m[3]:]) || (m[0] > 0 && isASCIIAlphaNumeric(name[m[0]-1])) {
+		return false, true
+	}
+	year, _ := strconv.Atoi(name[m[2]:m[3]])
+	return year == int(n.Year), true
 }

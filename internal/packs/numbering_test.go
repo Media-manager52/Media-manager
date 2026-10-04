@@ -75,3 +75,27 @@ func TestNumberedInventoryPreservesExactCoverageAndPaths(t *testing.T) {
 		t.Fatal("year inferred without mapping")
 	}
 }
+
+func TestAnnualSeasonPackLabelsKeepExactInventoryGate(t *testing.T) {
+	n := AnnualEpisodeNumbering(23, annualTestEpisodes())
+	for _, c := range []struct {
+		name             string
+		match, broadcast bool
+	}{
+		{"Operation.X.S2026.DANiSH.1080p.WEB-DL", true, true},
+		{"Operation.X.S2025.DANiSH.1080p.WEB-DL", false, true},
+		{"Operation.X.S2026E01.DANiSH", false, false}, {"Operation.X.S2026-E01.DANiSH", false, true},
+		{"Operation.X.S2026.S2025.DANiSH", false, true},
+		{"Operation.X.XS2026.DANiSH", false, true},
+	} {
+		matched, broadcast := n.BroadcastSeasonPack(c.name)
+		if matched != c.match || broadcast != c.broadcast {
+			t.Fatalf("%s: %v/%v", c.name, matched, broadcast)
+		}
+	}
+	expected := annualTestEpisodes()
+	assets := []ObservedAsset{{ID: uuid.NewV7(), RelativePath: "Operation.X.S2026.mkv", Size: 100}}
+	if r := EvaluateNumbered("tvdb:79591", 23, expected, assets, n); r.Publishable() {
+		t.Fatal("bare year pack file passed without episode coverage")
+	}
+}

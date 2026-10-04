@@ -38,7 +38,8 @@ func applyEpisodeNumbering(observation releases.Observation, search postgres.Sea
 		return observation
 	}
 	episode, broadcast := search.EpisodeNumbering.BroadcastEpisode(observation.Title)
-	if !broadcast {
+	pack, broadcastPack := search.EpisodeNumbering.BroadcastSeasonPack(observation.Title)
+	if !broadcast && !broadcastPack {
 		return observation
 	}
 	positive := false
@@ -54,7 +55,7 @@ func applyEpisodeNumbering(observation releases.Observation, search postgres.Sea
 		}
 	}
 	identity := constrainMediaMatch(observation, releases.Evaluation{Verdict: releases.VerdictEligible}, search.Media)
-	resolved := positive && identity.Verdict == releases.VerdictEligible && episode > 0
+	resolved := positive && identity.Verdict == releases.VerdictEligible && (episode > 0 || pack)
 	// Preserve every previous scope fact under an explicit provenance name; raw
 	// provider fields also remain unchanged in the persisted observation.
 	facts := make([]releases.Fact, 0, len(observation.Facts)+4)
@@ -70,9 +71,15 @@ func applyEpisodeNumbering(observation releases.Observation, search postgres.Sea
 	if resolved {
 		state = releases.FactInferred
 		seasonValues = []string{strconv.Itoa(int(search.EpisodeNumbering.Season))}
-		episodeValues = []string{strconv.Itoa(int(episode))}
+		if episode > 0 {
+			episodeValues = []string{strconv.Itoa(int(episode))}
+		}
 	}
-	facts = append(facts, releases.Fact{Name: "season_number", Values: seasonValues, State: state, ObservedAt: now}, releases.Fact{Name: "episode_number", Values: episodeValues, State: state, ObservedAt: now}, releases.Fact{Name: "release_scope", Values: []string{"episode"}, State: state, ObservedAt: now})
+	scope := "episode"
+	if pack {
+		scope = "season_pack"
+	}
+	facts = append(facts, releases.Fact{Name: "season_number", Values: seasonValues, State: state, ObservedAt: now}, releases.Fact{Name: "episode_number", Values: episodeValues, State: state, ObservedAt: now}, releases.Fact{Name: "release_scope", Values: []string{scope}, State: state, ObservedAt: now})
 	provenance := "unresolved broadcast numbering"
 	if resolved {
 		provenance = "frozen annual season snapshot"

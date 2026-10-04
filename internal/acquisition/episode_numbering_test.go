@@ -76,3 +76,19 @@ func TestAnnualReleaseMappingRequiresIdentityAndFrozenScope(t *testing.T) {
 		})
 	}
 }
+
+func TestAnnualPackMapsOnlyToCompleteSeasonWorkflow(t *testing.T) {
+	s := numberingSearch()
+	o := releases.Observation{Title: "Operation.X.S2026.DANiSH.1080p.WEB-DL", Facts: []releases.Fact{{Name: "imdb_id", Values: []string{"0451553"}, State: releases.FactObserved}, {Name: "season_number", Values: []string{"S2026"}, State: releases.FactObserved}}}
+	o = applyEpisodeNumbering(releases.InferTitleFacts(o, time.Now().UTC()), s, time.Now().UTC())
+	rules, _ := workflowScopeRules("season:23")
+	e, err := releases.Evaluate(o, rules)
+	if err != nil || e.Verdict != releases.VerdictEligible {
+		t.Fatalf("annual pack blocked: %+v %v", e, err)
+	}
+	rules, _ = workflowScopeRules(s.Variant)
+	e, err = releases.Evaluate(o, rules)
+	if err != nil || e.Verdict != releases.VerdictRejected {
+		t.Fatalf("episode workflow accepted whole pack: %+v %v", e, err)
+	}
+}

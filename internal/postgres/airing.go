@@ -268,7 +268,10 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 // has not run yet": a completed season with episode releases but no pack
 // candidate must be acquired per episode.
 func observedSeasonReleaseScopes(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID) (bool, bool, error) {
-	rows, err := transaction.Query(ctx, `SELECT COALESCE((SELECT fact->'values'->>0 FROM jsonb_array_elements(observation.normalized_facts) fact WHERE fact->>'name'='release_scope' LIMIT 1),'')
+	rows, err := transaction.Query(ctx, `SELECT COALESCE((SELECT fact->'values'->>0 FROM jsonb_array_elements(observation.normalized_facts) fact WHERE fact->>'name'='release_scope' LIMIT 1),''),
+        EXISTS (SELECT 1 FROM candidate_decisions decision WHERE decision.candidate_id=candidate.id AND decision.verdict='eligible' AND decision.decided_at=(SELECT max(latest.decided_at) FROM candidate_decisions latest WHERE latest.candidate_id=candidate.id))
+        AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=$1 AND attempted.candidate_id=candidate.id)
+        AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=$1 AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)
 		FROM release_candidates candidate
 		JOIN release_observations observation ON observation.id=candidate.observation_id
 		WHERE candidate.workflow_id=$1
@@ -281,12 +284,13 @@ func observedSeasonReleaseScopes(ctx context.Context, transaction pgx.Tx, workfl
 	var packs, episodes bool
 	for rows.Next() {
 		var scope string
-		if err := rows.Scan(&scope); err != nil {
+		var usablePack bool
+		if err := rows.Scan(&scope, &usablePack); err != nil {
 			return false, false, err
 		}
 		switch scope {
 		case "season_pack":
-			packs = true
+			packs = packs || usablePack
 		case "episode":
 			episodes = true
 		}
