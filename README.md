@@ -231,7 +231,7 @@ TVDB is preferred for series naming when verified; TMDB is the fallback. Movies 
 - Every Newznab call reserves a durable per-provider rolling budget before network I/O. Prowlarr-imported query/grab limits are preserved; otherwise the conservative fallback is 1,000 queries and 100 grabs per 24 hours, in addition to the three-second minimum interval and one-in-flight lane.
 - Ambiguous AltMount upload results are reconciled by a unique filename and are never blindly resubmitted.
 - AltMount output is read-only. Media Manager publishes only contained symlinks.
-- A season pack remains one AltMount job and one immutable expectation set.
+- A season pack remains one AltMount job and one immutable expectation set. Completed seasons observed only as relevant episode releases use separate exact-episode workflows. Annual broadcast-year/date names are mapped only with positive series identity and complete, unambiguous frozen season metadata; output coverage still uses canonical episode keys.
 - AltMount completion is not import completion; import completion is not Plex completion.
 - Completed output is inspected only inside the authorized AltMount job root. Required subtitle languages must be verified on every selected video before publication; Danish variants are stored canonically as `da` with raw evidence retained.
 - Seerr provider metadata may route a title to an enabled media-kind profile by canonical original language. Danish variants route as `da`; missing or unreliable metadata remains on the default fallback. This routing is not evidence that the acquired file contains a Danish audio track.

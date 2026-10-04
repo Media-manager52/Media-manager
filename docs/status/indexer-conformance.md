@@ -45,6 +45,28 @@ its 2026-09-01 verification stands. A secret scan of all 190 evidence files
 (exact and three levels of percent-encoding, all ten keys) found nothing, and no
 lab state or secrets store was written. Runtime allowlists are unchanged.
 
+## Bounded annual-season discovery (2026-10-05)
+
+For series with complete, unambiguous annual frozen season metadata, runtime
+scans alternate their existing `tvsearch` shape with a bounded ID-only shape
+using only identity parameters already selected by that provider's configured
+dialect or active recipe. The alternate omits title/year/season/episode filters;
+limit, categories, extended parsing, commissioning, durable pacing and budgets
+remain unchanged. There is still one request per provider per scan. Providers
+whose selected request lacks a supported series ID retain the ordinary shape.
+Results still require exact series identity and frozen canonical episode scope.
+
+The Operation X diagnostic made eight guarded, sequential search calls through
+Media Manager's shared adapter/scheduler from its configured IPv4 egress with
+`MediaManager/1`. Both Nzb.life and msgnews returned Operation X observations
+from an ID-only request; constrained season-one requests returned zero. The
+result sets contained newer ordinal, broadcast-year and date-named episodes,
+not positively identified releases for requested seasons 1–10. No grabs were
+made by that diagnostic. These observations do not commission another provider
+or prove all returned payloads playable. Local mock/integration tests cover the
+alternate and its unchanged request count; rollout needs its own Verify/Deploy
+evidence and normal completed-output/Plex checks.
+
 ## Observed download locators
 
 NZBFinder search results advertise a same-origin `/api/v1/getnzb` locator whose

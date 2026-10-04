@@ -157,7 +157,11 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			if expectationErr != nil {
 				return service.Store.CompleteImportWithCode(ctx, job, false, "season_expectation_missing", "The immutable season-pack expectation is missing; owner recovery is required.", time.Now().UTC())
 			}
-			report := packs.Evaluate(seriesID, season, expected, assets)
+			numbering, numberingErr := service.Store.WorkflowEpisodeNumbering(ctx, job.Workflow.ID)
+			if numberingErr != nil {
+				return numberingErr
+			}
+			report := packs.EvaluateNumbered(seriesID, season, expected, assets, numbering)
 			if err := service.Store.PersistPackEvaluation(ctx, expectationID, inventoryID, report, time.Now().UTC()); err != nil {
 				return err
 			}

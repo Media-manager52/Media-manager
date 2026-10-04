@@ -29,6 +29,7 @@ type ExpectedEpisode struct {
 	Key               EpisodeKey `json:"key"`
 	ProviderEpisodeID string     `json:"provider_episode_id"`
 	Title             string     `json:"title"`
+	AirDate           string     `json:"air_date,omitempty"`
 }
 
 type ObservedAsset struct {
@@ -78,6 +79,12 @@ var chainedEpisodePattern = regexp.MustCompile(`(?i)E(\d{1,3})`)
 var playableExtensions = map[string]struct{}{".mkv": {}, ".mp4": {}, ".m4v": {}, ".avi": {}, ".ts": {}}
 
 func Evaluate(seriesID string, season uint16, expected []ExpectedEpisode, assets []ObservedAsset) Report {
+	return EvaluateNumbered(seriesID, season, expected, assets, EpisodeNumbering{})
+}
+
+// EvaluateNumbered keeps inventory paths unchanged while resolving explicitly
+// numbered annual episodes against a verified frozen metadata mapping.
+func EvaluateNumbered(seriesID string, season uint16, expected []ExpectedEpisode, assets []ObservedAsset, numbering EpisodeNumbering) Report {
 	report := Report{}
 	expectedSet := make(map[EpisodeKey]struct{}, len(expected))
 	if strings.TrimSpace(seriesID) == "" || len(expected) == 0 {
@@ -137,6 +144,13 @@ func Evaluate(seriesID string, season uint16, expected []ExpectedEpisode, assets
 		}
 
 		keys, err := parseEpisodeKeys(seriesID, season, filepath.Base(clean))
+		if episode, broadcast := numbering.BroadcastEpisode(filepath.Base(clean)); broadcast {
+			if episode > 0 && numbering.Season == season {
+				keys, err = []EpisodeKey{{SeriesID: seriesID, Season: season, Episode: episode}}, nil
+			} else {
+				err = errors.New("broadcast numbering does not match the immutable season expectation")
+			}
+		}
 		if err != nil {
 			report.Issues = append(report.Issues, Issue{Code: "ambiguous", Path: clean, Detail: err.Error()})
 			continue

@@ -44,7 +44,7 @@ type airingExpectedEpisode struct {
 // The method is idempotent: an episode workflow that is already confirmed or in
 // progress is never recreated, and the partial unique index on active workflow
 // variants closes the creation race.
-func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UUID, now time.Time) (bool, error) {
+func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UUID, now time.Time, expectedRevision ...uint64) (bool, error) {
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return false, err
@@ -61,6 +61,13 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 		}
 		return false, err
 	}
+	if len(expectedRevision) > 0 && uint64(revision) != expectedRevision[0] {
+		return false, ErrConcurrentModification
+	}
+	if workflowState != string(workflows.StateMonitored) && workflowState != string(workflows.StateWaiting) && workflowState != string(workflows.StateHeld) {
+		return false, nil
+	}
+
 	scope, ok := workflows.ParseVariant(variant)
 	if !ok || scope.Kind != workflows.VariantSeason {
 		return false, nil
@@ -264,7 +271,9 @@ func observedSeasonReleaseScopes(ctx context.Context, transaction pgx.Tx, workfl
 	rows, err := transaction.Query(ctx, `SELECT COALESCE((SELECT fact->'values'->>0 FROM jsonb_array_elements(observation.normalized_facts) fact WHERE fact->>'name'='release_scope' LIMIT 1),'')
 		FROM release_candidates candidate
 		JOIN release_observations observation ON observation.id=candidate.observation_id
-		WHERE candidate.workflow_id=$1`, workflowID.String())
+		WHERE candidate.workflow_id=$1
+        AND EXISTS (SELECT 1 FROM jsonb_array_elements(observation.normalized_facts) fact WHERE fact->>'name'='season_number' AND fact->>'state' IN ('inferred','observed') AND fact->'values'=jsonb_build_array((SELECT expectation.season::text FROM pack_expectation_sets expectation WHERE expectation.workflow_id=$1 ORDER BY frozen_at DESC,id DESC LIMIT 1)))
+        AND NOT EXISTS (SELECT 1 FROM candidate_decisions decision,jsonb_array_elements(decision.reasons) explanation WHERE decision.candidate_id=candidate.id AND decision.decided_at=(SELECT max(latest.decided_at) FROM candidate_decisions latest WHERE latest.candidate_id=candidate.id) AND explanation->>'rule' IN ('requested title','verified media identity','series identity evidence') AND explanation->>'decision' IN ('fail','unknown'))`, workflowID.String())
 	if err != nil {
 		return false, false, err
 	}
