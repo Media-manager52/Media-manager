@@ -73,6 +73,7 @@ func (store *Store) ValidateRecoveryDiscovery(ctx context.Context, workflowID uu
 		JOIN workflows workflow ON workflow.id=discovery.workflow_id
 		WHERE discovery.workflow_id=$1 AND discovery.state='waiting' AND discovery.rescan_generation=$2
 		AND round.state='exhausted' AND workflow.state='waiting'
+		AND NOT EXISTS(SELECT 1 FROM acquisition_rounds open_round WHERE open_round.workflow_id=workflow.id AND open_round.state='open')
 		AND NOT EXISTS(SELECT 1 FROM altmount_jobs job WHERE job.workflow_id=workflow.id AND job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))
 	)`, workflowID.String(), generation).Scan(&valid); err != nil {
 		return err

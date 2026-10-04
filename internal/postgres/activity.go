@@ -209,10 +209,10 @@ func workflowOwnerActionRequired(item WorkflowSummary) bool {
 }
 
 func workflowSearchReadiness(item WorkflowSummary, publicationStarted, currentJobNeedsAttention bool) (bool, string) {
-	if item.RetryDiscoveryState == "waiting" {
+	if item.RetryDiscoveryState == "waiting" && item.RoundState != "open" {
 		return false, "The round is exhausted; scheduled discovery is waiting for a newly observed eligible release."
 	}
-	if item.RetryDiscoveryState == "ready" {
+	if item.RetryDiscoveryState == "ready" && item.RoundState != "open" {
 		return false, "A new eligible release is ready; the owner must start the next acquisition round."
 	}
 	if item.RoundState == "exhausted" {

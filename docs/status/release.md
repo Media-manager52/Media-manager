@@ -1,5 +1,17 @@
 # Media Manager core release status
 
+## Owner recovery of stopped searches (2026-10-04)
+
+An owner-only discovery action advances an exhausted workflow’s existing
+paced search without opening a round or downloading. It preserves partial-scan
+provider scope, counters and all failure evidence, invalidates obsolete
+generations, and is idempotent while a current scan is due or running.
+
+An open round restored under the current policy now permits an owner search
+even when historical discovery still points at an older exhausted round.
+The obsolete schedule is paused transactionally; active jobs and policy
+mismatches still block recovery. No schema or media-property change applies.
+
 ## Waiting search evidence (2026-10-04)
 
 A read-only production review covered all 79 waiting requests. All were linked
