@@ -105,14 +105,14 @@ test("filters requests by lifecycle, type, and free text with real API shape", a
 test("waiting explains successful admission without promising a download", async () => {
   const { requestProgressMessage } = await vite.ssrLoadModule("/lib/media-manager-requests.ts");
   const added = request({ request_id: "23", lifecycle: "waiting", workflow_count: 1, waiting_reason: "no eligible release yet", next_search_at: "2026-10-02T00:00:00Z" });
-  assert.equal(requestProgressMessage(added), "Added to Media Manager. No eligible release was found.");
+  assert.equal(requestProgressMessage(added), "Added to Media Manager. No eligible release matched the latest search.");
   assert.match(requestProgressMessage({ ...added, waiting_reason: undefined }), /Added to Media Manager/);
   assert.match(requestProgressMessage(request({ request_id: "24", lifecycle: "approved_in_seerr" })), /intake has not created a workflow yet/);
   assert.equal(requestProgressMessage({ ...added, attention_detail: "Owner must review retained outputs." }), "Owner must review retained outputs.");
   assert.equal(requestProgressMessage({ ...added, lifecycle: "plex_confirmed" }), "");
   const { RequestInspector } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
   const html = renderToStaticMarkup(React.createElement(RequestInspector, { request: added, detail: null, loading: false, error: "" }));
-  assert.match(html, /No eligible release was found/);
+  assert.match(html, /No eligible release matched the latest search/);
   assert.match(html, /Next search/);
   assert.match(html, /1 added · 0 Plex confirmed/);
   assert.doesNotMatch(html, /Needs attention/i);

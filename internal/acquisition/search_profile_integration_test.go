@@ -328,6 +328,34 @@ func emptySearchXML() string {
 	return `<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel></channel></rss>`
 }
 
+func TestMovieSearchLoadsSavedOriginalTitleAndMatchesOutput(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	server, captured := newMovieSearchServer(t, func(query url.Values) string {
+		if query.Get("q") == "Julemanden" {
+			return movieSearchReleaseXML("Julemanden.2019.1080p.WEB-DL")
+		}
+		return emptySearchXML()
+	})
+	defer server.Close()
+	configureMovieSearchIndexer(t, store, server.URL, true)
+	w := createMovieSearchWorkflow(t, store)
+	if _, err := store.RefreshMediaMetadata(context.Background(), w.MediaID, &catalog.MediaMetadata{OriginalTitle: "Julemanden", OriginalLanguage: "da"}, nil, "test", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	service := movieSearchService(store, server)
+	if err := service.Handle(context.Background(), postgres.OutboxEvent{AggregateID: w.ID, AggregateRevision: w.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	requests := captured()
+	if len(requests) != 1 || requests[0].Get("q") != "Julemanden" {
+		t.Fatalf("requests=%v, want one original-title query", requests)
+	}
+	current, err := store.GetWorkflow(context.Background(), w.ID)
+	if err != nil || current.State != workflows.StateCandidateSelected {
+		t.Fatalf("original-title output rejected: %+v err=%v", current, err)
+	}
+}
+
 func movieSearchReleaseXML(title string) string {
 	return fmt.Sprintf(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>%s</title><guid>native-movie-release</guid><newznab:attr name="resolution" value="1920x1080"/></item></channel></rss>`, title)
 }

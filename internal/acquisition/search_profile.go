@@ -34,6 +34,7 @@ func (service *SearchService) searchProfilePlan(ctx context.Context, indexerID u
 		return SearchPlan{}, errNoActiveSearchProfile
 	}
 	input := SearchPlanInput{Media: search.Media}
+	input.Media.Title = searchTitle(search)
 	if search.Media.Kind == catalog.KindSeries {
 		season := seasonNumber(search.Variant)
 		if season < 0 || season > maximumPlannedSeason {

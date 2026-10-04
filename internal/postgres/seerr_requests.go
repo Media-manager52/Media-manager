@@ -121,10 +121,17 @@ const seerrRequestSummaryJoins = `FROM seerr_request_snapshots s
 	) last_search ON last_search.seerr_instance_id=s.seerr_instance_id AND last_search.request_id=s.request_id
 	LEFT JOIN (
 		SELECT DISTINCT ON (link.seerr_instance_id,link.request_id)
-			link.seerr_instance_id,link.request_id,event.available_at,event.payload->>'reason' AS reason
+			link.seerr_instance_id,link.request_id,event.available_at,
+			CASE WHEN event.event_type='workflow.search_requested' AND latest_run.state='partial'
+				THEN 'Search incomplete: some indexers were deferred or failed; retrying.'
+				ELSE event.payload->>'reason' END AS reason
 		FROM seerr_request_workflows link
 		JOIN workflows workflow ON workflow.id=link.workflow_id AND workflow.terminal_at IS NULL
 		JOIN outbox_events event ON event.aggregate_id=workflow.id AND event.completed_at IS NULL
+		LEFT JOIN LATERAL (
+			SELECT run.state FROM search_runs run WHERE run.workflow_id=workflow.id
+			ORDER BY run.started_at DESC,run.id DESC LIMIT 1
+		) latest_run ON true
 		LEFT JOIN workflow_retry_discovery discovery ON discovery.workflow_id=workflow.id
 		WHERE ((event.event_type='workflow.search_requested' AND event.aggregate_type='workflow'
 			AND event.aggregate_revision=workflow.revision)

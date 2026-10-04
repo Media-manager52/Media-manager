@@ -221,6 +221,13 @@ Pacing rules (must not be weakened):
   consumed);
 - cooldown/backoff per indexer failure scope.
 
+Saved metadata names are used in scheduled targeted and discovery searches.
+Each scan uses one title, rotating after a complete scan through at most eight
+distinct scene-spelled names: original, canonical, Danish aliases, then other
+provenanced aliases. Partial coverage keeps the same title. This adds no extra
+requests per scan, leaves commissioned parameters/categories and immutable
+capability recipes intact, and retains canonical identity/year/scope checks.
+
 ### 4.3 Evaluation
 
 Each observation is normalized (`InferTitleFacts`) then evaluated by pure rules
@@ -236,7 +243,8 @@ Each observation is normalized (`InferTitleFacts`) then evaluated by pure rules
    The title is compared in its release spellings (`releases.TitleSpellings`:
    literal, scene transliteration `Forræder` → `Forraeder`, single-letter
    folding, `&` as `and`, apostrophes dropped); the release must still begin
-   with the whole title. A
+   with the whole canonical title, saved original title or a saved alias with
+   metadata provenance. A
    provider identity that exactly matches a verified identity satisfies the
    movie year check (release years are often a year off); without one, a
    movie release must name the year. A mismatched identity always rejects.
@@ -263,11 +271,16 @@ observations, candidates, decisions, and a selection. Then:
 - **Selected** → workflow `candidate_selected`, queues
   `release.retrieve_requested`.
 - **Nothing eligible** → `waiting`/`held`, with a retry after 30 minutes that
-  doubles for each further targeted run in the current round that selects
+  doubles for each further complete targeted run in the current round that selects
   nothing (1h, 2h, 4h, 8h, capped at 12h) when there are no prior submissions,
   otherwise the deterministic discovery delay (24h ±20%, see §5). Every search
   queries every indexer, so a flat 30-minute retry spent the rolling query
   budgets on repeat empty searches.
+- **Incomplete coverage without a selection** → stays `waiting`/`held` with an
+  explicit incomplete-search reason, including historical partial runs in the
+  request summary. It does not advance the empty-search backoff. Retry the
+  earliest deferred/failed provider, with a 30-minute floor because this path
+  queries all providers again. Missing retry times use that same floor.
 - **All indexers failed** → the search event is deferred/failed with a safe code;
   the workflow is not falsely advanced.
 

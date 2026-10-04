@@ -31,6 +31,9 @@ type SearchContext struct {
 	Blocks              []ReleaseBlock
 	Exclusions          []WorkflowReleaseExclusion
 	OpenRound           *AcquisitionRound
+	// Complete searches rotate query titles; partial coverage retries keep the
+	// same title instead of skipping an alias before every provider saw it.
+	CompleteSearches uint64
 	// ProfilePolicyVersion is the quality profile's current version. It can
 	// differ from PolicyVersion, which follows the open round's snapshot.
 	ProfilePolicyVersion uint64
@@ -113,6 +116,13 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	result.Policy = append(json.RawMessage(nil), policy...)
 	result.Media.Identities, err = store.identities(ctx, result.Media.ID)
 	if err != nil {
+		return SearchContext{}, err
+	}
+	result.Media.Metadata, err = store.metadata(ctx, result.Media.ID)
+	if err != nil {
+		return SearchContext{}, err
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM search_runs WHERE workflow_id=$1 AND state='complete'`, workflowID.String()).Scan(&result.CompleteSearches); err != nil {
 		return SearchContext{}, err
 	}
 	var currentObservation releases.Observation
@@ -448,7 +458,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		payload, _ := json.Marshal(map[string]string{"workflow_id": search.Workflow.ID.String(), "reason": retryReason})
 		var roundRuns int
 		if err := transaction.QueryRow(ctx, `SELECT count(*) FROM search_runs run JOIN acquisition_rounds round ON round.workflow_id=run.workflow_id AND round.state='open'
-			WHERE run.workflow_id=$1 AND run.mode='targeted' AND run.started_at>=round.opened_at`, search.Workflow.ID.String()).Scan(&roundRuns); err != nil {
+			WHERE run.workflow_id=$1 AND run.mode='targeted' AND run.state='complete' AND run.started_at>=round.opened_at`, search.Workflow.ID.String()).Scan(&roundRuns); err != nil {
 			return workflows.Workflow{}, err
 		}
 		nextSearchAt := now.UTC().Add(noSelectionRetryDelay(roundRuns))
@@ -458,6 +468,11 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		}
 		if priorSubmissions > 0 {
 			nextSearchAt = retryDiscoveryAt(search.Workflow.ID, int64(newRevision), 0, now)
+		}
+		if !searchRunComplete(options.IndexerOutcomes) {
+			retryReason = "Search incomplete: some indexers were deferred or failed; retrying."
+			nextSearchAt = incompleteSearchRetryAt(options.IndexerOutcomes, now)
+			payload, _ = json.Marshal(map[string]string{"workflow_id": search.Workflow.ID.String(), "reason": retryReason})
 		}
 		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$6) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), newRevision, string(payload), now.UTC(), nextSearchAt); err != nil {
 			return workflows.Workflow{}, err
@@ -477,6 +492,30 @@ const (
 	noSelectionRetryBase = 30 * time.Minute
 	noSelectionRetryCap  = 12 * time.Hour
 )
+
+// Retry incomplete coverage without counting it as evidence of absence or
+// increasing the empty-search backoff. Keep a 30-minute floor because this
+// search path queries all providers again, including those that succeeded.
+func incompleteSearchRetryAt(outcomes []SearchIndexerOutcome, now time.Time) time.Time {
+	floor := now.UTC().Add(noSelectionRetryBase)
+	var earliest *time.Time
+	for _, outcome := range outcomes {
+		if outcome.State == "succeeded" {
+			continue
+		}
+		retry := floor
+		if outcome.RetryAt != nil && outcome.RetryAt.After(retry) {
+			retry = outcome.RetryAt.UTC()
+		}
+		if earliest == nil || retry.Before(*earliest) {
+			earliest = &retry
+		}
+	}
+	if earliest != nil {
+		return *earliest
+	}
+	return floor
+}
 
 // noSelectionRetryDelay paces the next targeted search after runs in the
 // current round that selected nothing: 30 minutes after the first, doubling

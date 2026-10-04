@@ -374,9 +374,9 @@ func applyReleaseBlocks(observation releases.Observation, evaluation releases.Ev
 }
 
 func constrainMediaMatch(observation releases.Observation, evaluation releases.Evaluation, media catalog.MediaItem) releases.Evaluation {
-	if !releases.TitleMatches(observation.Title, media.Title) {
+	if !mediaTitleMatches(observation.Title, media) {
 		evaluation.Verdict = releases.VerdictRejected
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested title", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "release title does not begin with the requested canonical title"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested title", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "release title does not begin with a saved canonical, original or alias title"})
 		return evaluation
 	}
 	verified := make(map[string]string)
@@ -468,7 +468,7 @@ func buildRequest(search postgres.SearchContext, config indexerConfig) newznab.S
 	params := []newznab.Param{}
 	// Indexers match release names, which use scene spelling: send
 	// "Forraeder Under kutten", not "Forræder: Under kutten".
-	title := releases.SearchQueryTitle(search.Media.Title)
+	title := searchTitle(search)
 	scope, scopeOK := workflows.ParseVariant(search.Variant)
 	if search.Media.Kind == catalog.KindSeries && scopeOK && (scope.Kind == workflows.VariantSeason || scope.Kind == workflows.VariantEpisode) {
 		season := int(scope.Season)

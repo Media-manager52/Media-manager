@@ -38,7 +38,7 @@ export function seerrStateLabel(state: string): string {
 export function requestProgressMessage(item: APIRequest): string {
   if (item.attention_detail || item.intake_error) return item.attention_detail || item.intake_error || ""
   if (item.lifecycle === "waiting") {
-    if (item.waiting_reason === "no eligible release yet") return "Added to Media Manager. No eligible release was found."
+    if (item.waiting_reason === "no eligible release yet") return "Added to Media Manager. No eligible release matched the latest search."
     if (item.waiting_reason) return item.waiting_reason
     if (item.workflow_count > 0) return "Added to Media Manager; acquisition is waiting."
   }

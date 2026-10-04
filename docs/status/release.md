@@ -1,5 +1,30 @@
 # Media Manager core release status
 
+## Waiting search evidence (2026-10-04)
+
+A read-only production review covered all 79 waiting requests. All were linked
+to workflows; 43 carried the generic no-eligible reason. Of those, 31 had no
+stored candidates, 12 had observed candidates, and eight included latest scans
+with incomplete provider coverage. These are search outcomes, not evidence of
+global unavailability. Saved original titles and aliases were ignored by both
+query construction and title matching. An offline replay of stored facts found
+113 previously title-rejected, unattempted candidates across five titles that
+can satisfy existing policy/match checks when saved aliases are honoured;
+Danish output verification remains required.
+
+Scheduled scans now rotate one saved name per complete scan, with no additional
+requests per scan, and matching accepts provenanced saved aliases. Partial scans
+keep their query title, do not increase the empty-search backoff, and retry with
+a 30-minute floor or the earliest later provider deferral. Request summaries
+identify historical partial scans; the UI describes the latest search rather
+than implying permanent absence. Identity/year/scope, acquisition-round, failed
+output retention, exclusions and provider pacing protections remain intact.
+
+Focused regressions, full local Go vet/race tests with disposable PostgreSQL,
+frontend lint/typecheck/docs/build, 46 unit cases and 153 browser cases passed.
+GitHub Verify/Deploy runs and the authenticated running commit remain the
+deployment evidence.
+
 ## V2 test UI (2026-10-01)
 
 An opt-in preview at `/v2` provides a new scoped shell, poster library, request
