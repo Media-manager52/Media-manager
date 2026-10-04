@@ -196,6 +196,7 @@ func run() error {
 	altMountReconciler := &acquisition.AltMountReconcileService{Store: store, ResolveSecret: resolveSecret, MediaInfoProbe: mediaInfoProbe}
 	handlers["altmount.reconcile_requested"] = altMountReconciler.Handle
 	handlers["altmount.output_reverify_requested"] = altMountReconciler.HandleRetainedOutputReverification
+	handlers["altmount.movie_reinspect_requested"] = altMountReconciler.HandleRetainedMovieInspection
 	publicationService := &publication.Service{Store: store}
 	handlers["library.publish_requested"] = publicationService.Handle
 	handlers["library.displaced_remove_requested"] = publicationService.HandleDisplacedRemoval

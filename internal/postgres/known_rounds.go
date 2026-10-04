@@ -66,7 +66,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		JOIN release_observations observation ON observation.id=candidate.observation_id
 		WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
 		  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
-		  AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=candidate.workflow_id AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)
+		  AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=candidate.workflow_id AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)`+" AND NOT "+knownSubtitleFailureSQL("candidate")+`
 		ORDER BY
 		  (EXISTS (SELECT 1 FROM jsonb_array_elements(observation.normalized_facts) fact WHERE fact->>'name'='subtitle_languages' AND fact->'values' @> '["da"]'::jsonb)) DESC,
 		  (observation.title ~* '(nordic|danish|dansub|dksubs|dansk)') DESC,

@@ -329,6 +329,31 @@ func TestWorkflowReleaseExclusionOnlyRejectsExactNativeRelease(t *testing.T) {
 	}
 }
 
+func TestVerifiedSubtitleFailureRejectsOnlyExactTitleCrossPosts(t *testing.T) {
+	indexerID, otherID := uuid.NewV7(), uuid.NewV7()
+	for _, test := range []struct {
+		name, title, kind string
+		unverified        bool
+		want              releases.Verdict
+	}{
+		{"known exact title", " Film.2026.1080p.WEB-GROUP ", "subtitle_verification", true, releases.VerdictRejected},
+		{"different encode", "Film.2026.720p.WEB-GROUP", "subtitle_verification", true, releases.VerdictEligible},
+		{"recovered output", "Film.2026.1080p.WEB-GROUP", "subtitle_verification", false, releases.VerdictEligible},
+		{"access rejection", "Film.2026.1080p.WEB-GROUP", "release_retrieval", true, releases.VerdictEligible},
+		{"reinspected ambiguous movie without Danish", "Film.2026.1080p.WEB-GROUP", "movie_primary_ambiguous", true, releases.VerdictRejected},
+		{"ambiguous movie with no subtitle inspection", "Film.2026.1080p.WEB-GROUP", "movie_primary_ambiguous", false, releases.VerdictEligible},
+		{"missing inspection", "Film.2026.1080p.WEB-GROUP", "subtitle_verification", false, releases.VerdictEligible},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			search := postgres.SearchContext{Exclusions: []postgres.WorkflowReleaseExclusion{{IndexerInstanceID: indexerID, NativeKey: "failed-guid", ReleaseTitle: "film.2026.1080p.web-group", FailureKind: test.kind, SubtitleUnverified: test.unverified}}}
+			got := applyWorkflowExclusions(releases.Observation{IndexerID: otherID, NativeGUID: "new-guid", Title: test.title}, releases.Evaluation{Verdict: releases.VerdictEligible}, search)
+			if got.Verdict != test.want {
+				t.Fatalf("got %s want %s", got.Verdict, test.want)
+			}
+		})
+	}
+}
+
 func TestWorkflowScopeRulesSeparateEpisodeAndPackScope(t *testing.T) {
 	now := time.Unix(1, 0).UTC()
 	evaluate := func(t *testing.T, variant, title string) releases.Verdict {
@@ -429,6 +454,7 @@ func TestConstrainMovieYearAcceptsPositiveProviderIdentity(t *testing.T) {
 	}{
 		{name: "off-by-one year with matching identity", title: "A.Monster.Calls.2017.1080p.AMZN.WEB-DL", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"3416532"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictEligible},
 		{name: "no year with matching identity", title: "A.Monster.Calls.1080p.BluRay", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"tt3416532"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictEligible},
+		{name: "distant year with matching identity held", title: "A.Monster.Calls.1994.1080p.BluRay", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"tt3416532"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictHeld},
 		{name: "off-by-one year without identity held", title: "A.Monster.Calls.2017.1080p.AMZN.WEB-DL", wantVerdict: releases.VerdictHeld},
 		{name: "off-by-one year with other identity rejected", title: "A.Monster.Calls.2017.1080p.AMZN.WEB-DL", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"9999999"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictRejected},
 		{name: "conflicting identity held", title: "A.Monster.Calls.2017.1080p", facts: []releases.Fact{{Name: "imdb_id", Values: []string{"3416532", "9999999"}, State: releases.FactConflicting}}, wantVerdict: releases.VerdictHeld},

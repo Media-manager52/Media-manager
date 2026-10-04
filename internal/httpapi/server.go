@@ -113,6 +113,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/recover-altmount-submission", server.requireOwner(server.recoverAltMountSubmission))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconcile-altmount", server.requireOwner(server.reconcileAltMount))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reverify-retained-output", server.requireOwner(server.reverifyRetainedOutput))
+	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reinspect-retained-movie", server.requireOwner(server.reinspectRetainedMovie))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconfirm-plex", server.requireOwner(server.reconfirmPlex))
 	server.mux.HandleFunc("POST /api/v1/plex/reconfirm-timed-out", server.requireOwner(server.reconfirmTimedOutPlex))
 	server.mux.HandleFunc("POST /api/v1/workflows/{id}/cancel", server.requireOwner(server.cancelWorkflow))

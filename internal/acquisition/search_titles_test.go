@@ -28,6 +28,25 @@ func TestSearchTitlesRotateSavedNamesWithoutExtraRequests(t *testing.T) {
 	}
 }
 
+func TestEventYearFormatKeepsIdentityAndPartGuards(t *testing.T) {
+	year := uint16(2026)
+	media := catalog.MediaItem{Kind: catalog.KindMovie, Title: "WWE SummerSlam 2026: Sunday", Year: &year, Identities: []catalog.ExternalIdentity{{Namespace: "imdb", Value: "tt43732886", State: catalog.IdentityVerified}}}
+	for _, tc := range []struct {
+		title, id string
+		want      releases.Verdict
+	}{
+		{"WWE.SummerSlam.Sunday.2026.1080p.WEB", "43732886", releases.VerdictEligible},
+		{"WWE.SummerSlam.Sunday.2026.1080p.WEB", "9999999", releases.VerdictRejected},
+		{"WWE.SummerSlam.Saturday.2026.1080p.WEB", "43732886", releases.VerdictRejected},
+		{"WWE.SummerSlam.Sunday.2025.1080p.WEB", "43732886", releases.VerdictRejected},
+	} {
+		observation := releases.Observation{Title: tc.title, Facts: []releases.Fact{{Name: "imdb_id", Values: []string{tc.id}, State: releases.FactObserved}}}
+		if got := constrainMediaMatch(observation, releases.Evaluation{Verdict: releases.VerdictEligible}, media).Verdict; got != tc.want {
+			t.Fatalf("title %q id %q: got %s want %s", tc.title, tc.id, got, tc.want)
+		}
+	}
+}
+
 func TestSavedAliasesStillRequireIdentityAndYear(t *testing.T) {
 	year := uint16(1995)
 	media := catalog.MediaItem{Kind: catalog.KindMovie, Title: "Final Hour", Year: &year,

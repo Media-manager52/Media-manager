@@ -10,8 +10,27 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/mediainfo"
+	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/subtitles"
 )
+
+func TestMoviePrimaryExcludesExplicitBonusDirectories(t *testing.T) {
+	main := packs.ObservedAsset{ID: uuid.NewV7(), RelativePath: "Film.2026/Film.2026.mkv", Size: 1000}
+	for _, path := range []string{"Film.2026/extra/Other.Film.1990.mkv", "Film.2026/EXTRAS/Interview.mkv", "Film.2026/featurettes/Interview.mkv"} {
+		got := selectedMovieAssets([]packs.ObservedAsset{main, {ID: uuid.NewV7(), RelativePath: path, Size: 900}})
+		if len(got) != 1 || got[0].ID != main.ID {
+			t.Fatalf("bonus %s changed selected main: %+v", path, got)
+		}
+	}
+	for _, path := range []string{"Film.2026/Other.Film.2026.mkv", "Film.2026/extraordinary/Feature.mkv", "Film.2026/Bonus.2026.mkv"} {
+		if got := selectedMovieAssets([]packs.ObservedAsset{main, {ID: uuid.NewV7(), RelativePath: path, Size: 900}}); len(got) != 0 {
+			t.Fatalf("ambiguous feature %s selected: %+v", path, got)
+		}
+	}
+	if got := selectedMovieAssets([]packs.ObservedAsset{{ID: uuid.NewV7(), RelativePath: "extras/Film.mkv", Size: 900}}); len(got) != 0 {
+		t.Fatalf("extras-only inventory selected: %+v", got)
+	}
+}
 
 type failingSubtitleProbe struct{ err error }
 

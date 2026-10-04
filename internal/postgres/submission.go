@@ -286,7 +286,7 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			    WHERE exclusion.workflow_id=candidate.workflow_id
 			      AND exclusion.indexer_instance_id=candidate.indexer_instance_id
 			      AND exclusion.native_key=candidate.native_key
-			  )
+			  )`+" AND NOT "+knownSubtitleFailureSQL("candidate")+`
 			ORDER BY (candidate.first_seen_sequence>round.novelty_cutoff_sequence) DESC,decision.score DESC,candidate.indexer_instance_id,candidate.native_key
 			LIMIT 1`, retrieval.Workflow.ID.String()).Scan(&nextCandidateText)
 	}
@@ -449,7 +449,7 @@ func (store *Store) SelectCrossPostWithGrabBudget(ctx context.Context, retrieval
 		  AND (SELECT count(*) FROM indexer_request_reservations reservation
 		       WHERE reservation.indexer_instance_id=candidate.indexer_instance_id AND reservation.request_family='grab'
 		         AND reservation.reserved_at > $3::timestamptz - make_interval(secs => COALESCE(NULLIF(integration.config->>'budget_window_seconds','')::bigint, 86400)))
-		      < COALESCE(NULLIF(NULLIF(integration.config->>'grab_limit',''),'0')::int, $4)
+		      < COALESCE(NULLIF(NULLIF(integration.config->>'grab_limit',''),'0')::int, $4)`+" AND NOT "+knownSubtitleFailureSQL("candidate")+`
 		ORDER BY decision.score DESC,candidate.indexer_instance_id,candidate.native_key
 		LIMIT 1`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), now.UTC(), indexers.ConservativeGrabLimit).Scan(&nextText, &indexerName)
 	if errors.Is(err, pgx.ErrNoRows) {

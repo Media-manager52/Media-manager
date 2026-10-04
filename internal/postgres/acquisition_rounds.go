@@ -338,7 +338,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
 		WHERE candidate.workflow_id=$1 AND candidate.id=$2 AND candidate.first_seen_sequence=$3 AND decision.policy_version=$4 AND decision.verdict='eligible'
 		AND NOT EXISTS(SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
-		AND NOT EXISTS(SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=candidate.workflow_id AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)
+		AND NOT EXISTS(SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=candidate.workflow_id AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)`+" AND NOT "+knownSubtitleFailureSQL("candidate")+`
 	)`, workflowID.String(), readyCandidateText, readySequence, policyVersion).Scan(&candidateValid); err != nil {
 		return err
 	}

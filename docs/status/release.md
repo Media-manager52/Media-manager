@@ -1,5 +1,35 @@
 # Media Manager core release status
 
+## Completed-output recovery and duplicate prevention (2026-10-04)
+
+The deeper backlog review identified repeated exact-title releases with
+different NZB hashes after completed subtitle failures, and a usable movie
+rejected because its inventory included a sizeable film under `extra/`.
+Completed negative subtitle evidence now guards fresh searches, persisted
+selection paths and final retrieval admission against exact-title cross-posts.
+Infrastructure/access failures are not broadened into title exclusions.
+
+Movie primary-file selection ignores only explicit bonus directories. An
+owner-only, one-use retained-movie action can inspect the latest ambiguous
+last-slot output under the unchanged policy, without requesting another NZB
+or resetting any accounting. Publication binds to the exact verified asset
+ID/path. Multiple features outside explicit bonus directories remain blocked.
+
+A provider's matching movie ID no longer overrides an explicit release year
+more than one year from the canonical year. The final retrieval guard also
+covers old persisted eligible decisions, preventing mislabelled remake grabs.
+Required subtitles, identity/scope and exact Plex confirmation still apply.
+
+Movie event titles can place the canonical year at the end (`SummerSlam
+2026 Sunday` → `SummerSlam Sunday 2026`); every other word retains its order.
+Other event parts, years and arbitrary word reordering remain rejected.
+
+No schema change is needed. Tests cover negative cross-post evidence,
+selection/retrieval guards, bonus selection, retained inspection concurrency
+and policy/publication guards, verified asset binding, and remake-year
+contradictions. GitHub Verify/Deploy receipts and the running commit establish
+deployment; this source note alone does not assert production rollout.
+
 ## Owner recovery of stopped searches (2026-10-04)
 
 An owner-only discovery action advances an exhausted workflow’s existing
