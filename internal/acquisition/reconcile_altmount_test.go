@@ -28,9 +28,9 @@ func TestInspectSubtitleRequirementsPreservesDefinitiveNoVideoEvidence(t *testin
 		t.Fatal(err)
 	}
 	asset := subtitles.Asset{ID: uuid.NewV7(), RelativePath: "Movie.mkv", Size: 7}
-	for _, probeErr := range []error{mediainfo.ErrNoVideoTrack, errors.New("media-info has no video track"), context.DeadlineExceeded} {
+	for _, probeErr := range []error{mediainfo.ErrNoVideoTrack, mediainfo.ErrEncryptedVideo, errors.New("media-info has no video track"), errors.New("media-info video has an unsupported encrypted codec tag"), context.DeadlineExceeded} {
 		verification, err := inspectSubtitleRequirements(t.Context(), root, []subtitles.Asset{asset}, []subtitles.Asset{asset}, subtitles.Policy{Required: []string{"da"}}, failingSubtitleProbe{err: probeErr}, nil)
-		if err == nil || verification.Status != "" || errors.Is(err, mediainfo.ErrNoVideoTrack) != errors.Is(probeErr, mediainfo.ErrNoVideoTrack) {
+		if err == nil || verification.Status != "" || errors.Is(err, mediainfo.ErrNoVideoTrack) != errors.Is(probeErr, mediainfo.ErrNoVideoTrack) || errors.Is(err, mediainfo.ErrEncryptedVideo) != errors.Is(probeErr, mediainfo.ErrEncryptedVideo) {
 			t.Fatalf("probe error=%v verification=%+v returned error=%v", probeErr, verification, err)
 		}
 	}
@@ -58,6 +58,8 @@ func TestReleaseAttributableQueueFailure(t *testing.T) {
 		code   string
 	}{
 		{"compressed files are not supported: Under.The.Skin.iso (uses rar2.9 compression)", "archive_unsupported"},
+		{"compressed media files are not supported: Krummerne.Saa.er.det.Jul.igen.2006.Danish.1080p.Web-dl.DD5.1.x264-NDF.mkv (uses rar5.0 compression)", "archive_unsupported"},
+		{"compressed media files are not supported: permission denied", ""},
 		{`failed to iterate RAR archive "Movie.part01.rar": rardecode: bad header crc`, "archive_unsupported"},
 		{"no files with allowed extensions found (allowed: [.mp4 .mkv ...])", "no_playable_media"},
 		{"The file is incomplete or missing parts. Some segments of this file could not be found on any provider", "release_incomplete"},

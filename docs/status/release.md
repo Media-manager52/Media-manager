@@ -1,5 +1,28 @@
 # Media Manager core release status
 
+## Owner recovery of stopped searches (2026-10-04)
+
+An owner-only discovery action advances an exhausted workflow’s existing
+paced search without opening a round or downloading. It preserves partial-scan
+provider scope, counters and all failure evidence, invalidates obsolete
+generations, and is idempotent while a current scan is due or running.
+
+An open round restored under the current policy now permits an owner search
+even when historical discovery still points at an older exhausted round.
+The obsolete schedule is paused transactionally; active jobs and policy
+mismatches still block recovery. No schema or media-property change applies.
+
+AltMount's explicit "compressed media files are not supported" failure now
+uses the existing unsupported-archive recovery, like its older "compressed
+files" wording. Only the exact release/package is excluded; the next candidate
+uses the current bounded round. Infrastructure error precedence is preserved.
+
+A successfully parsed video stream with no usable codec and an explicit `encv`
+tag is now a typed no-playable-media failure. The exact release/package stays
+retained and excluded, and bounded acquisition recovery can try an alternative.
+Unknown codecs without this explicit evidence and failed probes remain
+infrastructure attention. Required subtitle and Plex verification still apply.
+
 ## Waiting search evidence (2026-10-04)
 
 A read-only production review covered all 79 waiting requests. All were linked

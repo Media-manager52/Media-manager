@@ -105,3 +105,28 @@ printf '%s' '{"format":{"format_name":"matroska","duration":"60"},"streams":[{"i
 		t.Fatalf("evidence=%+v", evidence)
 	}
 }
+
+func TestParseDistinguishesUnsupportedEncryptedVideoFromUnknownCodec(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, stream string
+		encrypted    bool
+	}{
+		{"encrypted video with Danish subtitle", `{"index":0,"codec_type":"video","codec_tag_string":"encv","width":1920,"height":1080}`, true},
+		{"missing codec without encryption", `{"index":0,"codec_type":"video","width":1920,"height":1080}`, false},
+		{"unknown codec tag", `{"index":0,"codec_type":"video","codec_tag_string":"unknown","width":1920,"height":1080}`, false},
+		{"audio is not encrypted video", `{"index":0,"codec_type":"audio","codec_tag_string":"encv","channels":2}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"format":{"format_name":"matroska"},"streams":[` + tc.stream + `,{"index":1,"codec_type":"subtitle","codec_name":"subrip","tags":{"language":"dan"}}]}`)
+			evidence, err := Parse(body)
+			if err == nil || errors.Is(err, ErrEncryptedVideo) != tc.encrypted || evidence.SchemaVersion != 0 {
+				t.Fatalf("error=%v evidence=%+v encrypted=%v", err, evidence, tc.encrypted)
+			}
+		})
+	}
+	body := []byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","codec_tag_string":"avc1","width":1920,"height":1080}]}`)
+	if evidence, err := Parse(body); err != nil || evidence.VideoTracks[0].Codec != "h264" {
+		t.Fatalf("clear video evidence=%+v error=%v", evidence, err)
+	}
+}

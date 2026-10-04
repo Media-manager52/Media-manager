@@ -286,6 +286,20 @@ observations, candidates, decisions, and a selection. Then:
 
 ## 5. Acquisition rounds, failures, and discovery recovery
 
+The owner can advance a waiting exhausted round’s discovery scan with
+`POST /api/v1/workflows/{id}/discover`. This queues the existing guarded
+background search, preserves unfinished-provider scope and empty-scan backoff,
+and invalidates the previous scheduled generation. It grants no acquisition
+slots. Re-observed known releases are evaluated again under the current policy;
+opening a round from a known eligible release remains a separate owner action.
+Repeated requests while the current scan is due or running queue no duplicate.
+
+Legacy policy restorations can leave a newer open round beside an older
+exhausted round’s discovery schedule. That older discovery cannot run while
+a round is open. An owner search retires the obsolete schedule only when the
+open round matches the current quality policy and no AltMount job is active;
+round snapshots, exclusions and retained failures stay intact.
+
 Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
 `subtitle_reverification.go`.
 

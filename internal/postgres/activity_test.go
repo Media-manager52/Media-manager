@@ -48,6 +48,7 @@ func TestWorkflowSearchReadinessMatchesRecoveryGuards(t *testing.T) {
 		{name: "first failed output", item: WorkflowSummary{State: workflows.StateNeedsAttention, RoundSlotsUsed: 1, RoundAttemptLimit: 2}, currentJobNeedsAttention: true, allowed: true},
 		{name: "second failed output", item: WorkflowSummary{State: workflows.StateNeedsAttention, RoundSlotsUsed: 2, RoundAttemptLimit: 2}, currentJobNeedsAttention: true},
 		{name: "exhausted discovery", item: WorkflowSummary{State: workflows.StateWaiting, RoundState: "exhausted", RetryDiscoveryState: "waiting"}},
+		{name: "restored open round with old discovery", item: WorkflowSummary{State: workflows.StateWaiting, RoundState: "open", RetryDiscoveryState: "waiting"}, allowed: true},
 		{name: "new release ready", item: WorkflowSummary{State: workflows.StateWaiting, RoundState: "exhausted", RetryDiscoveryState: "ready"}},
 		{name: "submission rejected", item: WorkflowSummary{State: workflows.StateNeedsAttention, AttentionCode: "altmount_submission_rejected"}},
 		{name: "publication started", item: WorkflowSummary{State: workflows.StateNeedsAttention}, publicationStarted: true},

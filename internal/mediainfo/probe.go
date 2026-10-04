@@ -31,6 +31,10 @@ var ErrOutputLimit = errors.New("media-info output exceeded its limit")
 // video. It is distinct from an unavailable or inconclusive inspection.
 var ErrNoVideoTrack = errors.New("media-info has no video track")
 
+// ErrEncryptedVideo identifies explicit protected-video evidence with no
+// usable codec, rather than an inconclusive probe or an arbitrary missing codec.
+var ErrEncryptedVideo = errors.New("media-info video has an unsupported encrypted codec tag")
+
 type Evidence struct {
 	SchemaVersion   int            `json:"schema_version"`
 	ContainerNames  []string       `json:"container_names"`
@@ -126,7 +130,7 @@ func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.F
 	defer cancel()
 	command := exec.CommandContext(probeContext, executable,
 		"-v", "error",
-		"-show_entries", "format=format_name,duration:stream=index,codec_type,codec_name,width,height,channels,channel_layout,color_transfer,color_primaries,color_space:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
+		"-show_entries", "format=format_name,duration:stream=index,codec_type,codec_name,codec_tag_string,width,height,channels,channel_layout,color_transfer,color_primaries,color_space:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
 		"-of", "json", path,
 	)
 	command.ExtraFiles = extraFiles
@@ -160,6 +164,7 @@ type rawStream struct {
 	Index          int    `json:"index"`
 	Type           string `json:"codec_type"`
 	Codec          string `json:"codec_name"`
+	CodecTag       string `json:"codec_tag_string"`
 	Width          int    `json:"width"`
 	Height         int    `json:"height"`
 	Channels       int    `json:"channels"`
@@ -200,6 +205,9 @@ func Parse(body []byte) (Evidence, error) {
 		result.DurationSeconds = &duration
 	}
 	for _, stream := range raw.Streams {
+		if stream.Type == "video" && strings.TrimSpace(stream.Codec) == "" && strings.EqualFold(strings.TrimSpace(stream.CodecTag), "encv") {
+			return Evidence{}, ErrEncryptedVideo
+		}
 		track, err := normalizeTrack(stream)
 		if err != nil {
 			return Evidence{}, err

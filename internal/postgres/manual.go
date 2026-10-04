@@ -322,14 +322,17 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	if state != workflows.StateMonitored && state != workflows.StateWaiting && state != workflows.StateNeedsAttention && state != workflows.StateHeld {
 		return errors.New("workflow cannot be searched from its current state")
 	}
-	var exhaustedRound, retryDiscovery bool
+	var exhaustedRound, retryDiscovery, currentOpenRound bool
 	if err := transaction.QueryRow(ctx, `SELECT
 		EXISTS(SELECT 1 FROM acquisition_rounds exhausted WHERE exhausted.workflow_id=$1 AND exhausted.state='exhausted'
 		  AND NOT EXISTS(SELECT 1 FROM acquisition_rounds open_round WHERE open_round.workflow_id=$1 AND open_round.state='open')),
-		EXISTS(SELECT 1 FROM workflow_retry_discovery WHERE workflow_id=$1 AND state IN ('waiting','ready'))`, workflowID.String()).Scan(&exhaustedRound, &retryDiscovery); err != nil {
+		EXISTS(SELECT 1 FROM workflow_retry_discovery WHERE workflow_id=$1 AND state IN ('waiting','ready')),
+		EXISTS(SELECT 1 FROM acquisition_rounds round JOIN workflows workflow ON workflow.id=round.workflow_id
+		  JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
+		  WHERE round.workflow_id=$1 AND round.state='open' AND round.policy_version=profile.policy_version)`, workflowID.String()).Scan(&exhaustedRound, &retryDiscovery, &currentOpenRound); err != nil {
 		return err
 	}
-	if exhaustedRound || retryDiscovery {
+	if exhaustedRound || retryDiscovery && !currentOpenRound {
 		return errors.New("the acquisition round is exhausted; wait for a new eligible release and use the owner start-next-round action")
 	}
 	var indexerAvailable bool
@@ -338,6 +341,23 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	}
 	if !indexerAvailable {
 		return errors.New("search requires at least one commissioned Newznab indexer")
+	}
+	if retryDiscovery && currentOpenRound {
+		// Legacy policy restorations could leave discovery attached to an older
+		// exhausted round. Retire that schedule, preserving its failure history.
+		var activeJob bool
+		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM altmount_jobs WHERE workflow_id=$1
+			AND state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))`, workflowID.String()).Scan(&activeJob); err != nil {
+			return err
+		}
+		if activeJob {
+			return errors.New("recover the active AltMount job before searching again")
+		}
+		if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,
+			rescan_generation=rescan_generation+1,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2
+			WHERE workflow_id=$1 AND state IN ('waiting','ready')`, workflowID.String(), now.UTC()); err != nil {
+			return err
+		}
 	}
 	type failedOutput struct {
 		candidateID, indexerID uuid.UUID
