@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -107,5 +108,36 @@ func TestOldBoysCredentialOwnerRoutesWithEncryptedDatabase(t *testing.T) {
 	loaded, err = service.Load(ctx)
 	if err != nil || loaded != input {
 		t.Fatal("invalid request changed saved credentials")
+	}
+}
+
+func TestOldBoysCommissionRequiresOwnerAndSanitizesProviderErrors(t *testing.T) {
+	calls := 0
+	server, err := New(Config{OwnerToken: strings.Repeat("o", 32), CommissionOldBoys: func(context.Context) (postgres.Integration, error) {
+		calls++
+		return postgres.Integration{}, errors.New("provider URL with secret-pid-fixture")
+	}}, &postgres.Store{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range []struct {
+		owner, cross bool
+		status       int
+	}{{false, false, 401}, {true, true, 403}, {true, false, 502}} {
+		request := httptest.NewRequest("POST", "/api/v1/settings/oldboys/commission", nil)
+		if spec.owner {
+			request.Header.Set("Authorization", "Bearer "+strings.Repeat("o", 32))
+		}
+		if spec.cross {
+			request.Header.Set("Sec-Fetch-Site", "cross-site")
+		}
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != spec.status || strings.Contains(response.Body.String(), "secret-pid-fixture") {
+			t.Fatal("commission owner/origin/error boundary failed")
+		}
+	}
+	if calls != 1 {
+		t.Fatal("unprotected commission sent requests")
 	}
 }

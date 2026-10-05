@@ -63,7 +63,7 @@ export function uptimeLabel(startedAt: string | undefined, now = Date.now()) {
 export function systemTiles(health: APISystemHealth, startedAt?: string): Tile[] {
   const components = health.components ?? []
   const byKind = (kind: string) => components.filter((component) => component.kind === kind && component.enabled)
-  const indexers = byKind("newznab")
+  const indexers = [...byKind("newznab"), ...byKind("oldboys")]
   const healthyIndexers = indexers.filter(sourceHealthy).length
   const clients = byKind("altmount")
   const plex = byKind("plex")

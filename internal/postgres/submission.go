@@ -280,7 +280,7 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			JOIN acquisition_rounds round ON round.workflow_id=workflow.id AND round.state='open' AND round.policy_version=decision.policy_version
 			WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
 			  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
-			AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions denied WHERE denied.retrieval_round_id=round.id AND denied.indexer_instance_id=candidate.indexer_instance_id AND denied.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))
+			AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions denied WHERE denied.retrieval_round_id=round.id AND denied.indexer_instance_id=candidate.indexer_instance_id AND denied.retrieval_error_code IN ('newznab_http_401','newznab_http_403','oldboys_http_401','oldboys_http_403'))
 			  AND NOT EXISTS (
 			    SELECT 1 FROM workflow_release_exclusions exclusion
 			    WHERE exclusion.workflow_id=candidate.workflow_id
@@ -440,10 +440,10 @@ func (store *Store) SelectCrossPostWithGrabBudget(ctx context.Context, retrieval
 		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
 		  AND decision.policy_version=round.policy_version AND decision.verdict='eligible'
 		JOIN integration_instances integration ON integration.id=candidate.indexer_instance_id
-		  AND integration.kind='newznab' AND integration.enabled AND integration.config->'mode_verified'='true'::jsonb
+		  AND integration.kind IN ('newznab','oldboys') AND integration.enabled AND integration.config->'mode_verified'='true'::jsonb
 		WHERE current.workflow_id=$1 AND current.id=$2
 		  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
-			AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions denied WHERE denied.retrieval_round_id=round.id AND denied.indexer_instance_id=candidate.indexer_instance_id AND denied.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))
+			AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions denied WHERE denied.retrieval_round_id=round.id AND denied.indexer_instance_id=candidate.indexer_instance_id AND denied.retrieval_error_code IN ('newznab_http_401','newznab_http_403','oldboys_http_401','oldboys_http_403'))
 		  AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=candidate.workflow_id
 		    AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)
 		  AND (SELECT count(*) FROM indexer_request_reservations reservation

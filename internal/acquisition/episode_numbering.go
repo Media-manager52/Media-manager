@@ -42,7 +42,7 @@ func applyEpisodeNumbering(observation releases.Observation, search postgres.Sea
 	if !broadcast && !broadcastPack {
 		return observation
 	}
-	positive := false
+	positive := hasOldBoysCatalogueBinding(observation, search.Media)
 	for _, f := range observation.Facts {
 		for _, id := range search.Media.Identities {
 			if id.State == catalog.IdentityVerified && f.Name == id.Namespace+"_id" && f.State != releases.FactUnknown && f.State != releases.FactConflicting {

@@ -21,10 +21,11 @@ test("OldBoys owner setup exposes only credential status and empty password fiel
   const response = await page.request.get("/api/v1/settings/oldboys/credentials")
   expect(response.status()).toBe(200)
   const body = await response.json()
-  const status = body.data as { available: boolean; configured: boolean }
+  const status = body.data as { available: boolean; configured: boolean; enabled: boolean }
   // Assert field names without printing any unexpected response values.
-  expect(Object.keys(status).every((key) => ["available", "configured", "updated_at"].includes(key))).toBe(true)
-  expect(typeof status.available === "boolean" && typeof status.configured === "boolean").toBe(true)
+  expect(Object.keys(status).every((key) => ["available", "configured", "enabled", "updated_at"].includes(key))).toBe(true)
+  expect(typeof status.available === "boolean" && typeof status.configured === "boolean" && typeof status.enabled === "boolean").toBe(true)
+  if (status.enabled) await expect(page.getByText("OldBoys is enabled for Danish TV and films.", { exact: true })).toBeVisible()
   await expect(page.getByRole("heading", { name: "OldBoys credentials", exact: true })).toBeVisible()
   for (const label of ["API Token", "Pass Key (PID)", "RSS Key (RID)"]) {
     const field = page.getByLabel(label, { exact: true })

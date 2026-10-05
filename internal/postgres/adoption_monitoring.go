@@ -70,6 +70,7 @@ func (store *Store) validateAdoptionMonitoring(ctx context.Context, transaction 
 		return err
 	}
 	searchRequired := false
+	oldBoysAllowed := true
 	for _, scope := range scopes {
 		var mediaLock int
 		if err := transaction.QueryRow(ctx, `SELECT 1 FROM media_items WHERE id=$1 FOR UPDATE`, scope.MediaID.String()).Scan(&mediaLock); err != nil {
@@ -82,6 +83,13 @@ func (store *Store) validateAdoptionMonitoring(ctx context.Context, transaction 
 			return errors.New("a monitored adopted movie must contain exactly one primary file")
 		}
 		searchRequired = searchRequired || scope.SearchImmediately
+		if scope.SearchImmediately {
+			var danish bool
+			if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM media_metadata WHERE media_id=$1 AND data->>'original_language'='da')`, scope.MediaID.String()).Scan(&danish); err != nil {
+				return err
+			}
+			oldBoysAllowed = oldBoysAllowed && danish
+		}
 		var activeWorkflow bool
 		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL)`, scope.MediaID.String(), scope.Variant).Scan(&activeWorkflow); err != nil {
 			return err
@@ -104,11 +112,11 @@ func (store *Store) validateAdoptionMonitoring(ctx context.Context, transaction 
 	}
 	if searchRequired {
 		var indexerAvailable bool
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances WHERE kind='newznab' AND enabled AND config->'mode_verified' = 'true'::jsonb)`).Scan(&indexerAvailable); err != nil {
+		if err := transaction.QueryRow(ctx, commissionedScopedIndexerSQL, oldBoysAllowed).Scan(&indexerAvailable); err != nil {
 			return err
 		}
 		if !indexerAvailable {
-			return errors.New("immediate adoption search requires a commissioned Newznab indexer")
+			return errors.New("immediate adoption search requires a commissioned indexer for the reviewed media")
 		}
 	}
 	return nil

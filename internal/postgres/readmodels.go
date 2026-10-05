@@ -696,7 +696,7 @@ func integrationConfigurationState(kind string, enabled bool, config json.RawMes
 	if enabled {
 		return "configured"
 	}
-	if kind != "newznab" {
+	if kind != "newznab" && kind != "oldboys" {
 		return "disabled"
 	}
 	var settings struct {

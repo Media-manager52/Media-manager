@@ -171,7 +171,8 @@ export const restoreAdoptedFiles = (id: string, confirmation: string) => request
 export const confirmRealFilePurge = (id: string, confirmation: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/confirm-purge`, { method: "POST", body: JSON.stringify({ confirmation }) })
 export const createIntegration = (input: Omit<APIIntegration, "id" | "created_at" | "updated_at">) => requestJSON<APIIntegration>("/api/v1/settings/integrations", { method: "POST", body: JSON.stringify(input) })
 export const commissionIntegration = (id: string) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/commission`, { method: "POST" })
-export type APIOldBoysCredentialStatus = { available: boolean; configured: boolean; updated_at?: string }
+export type APIOldBoysCredentialStatus = { available: boolean; configured: boolean; enabled?: boolean; updated_at?: string }
+export const commissionOldBoys = () => requestJSON<APIIntegration>("/api/v1/settings/oldboys/commission", { method: "POST" })
 export const loadOldBoysCredentialStatus = (signal?: AbortSignal) => requestJSON<APIOldBoysCredentialStatus>("/api/v1/settings/oldboys/credentials", { signal })
 export const saveOldBoysCredentials = (input: { api_token: string; pass_key: string; rss_key: string }) => requestJSON<APIOldBoysCredentialStatus>("/api/v1/settings/oldboys/credentials", { method: "PUT", body: JSON.stringify(input) })
 export const loadSeerrRouting = (instanceID: string) => requestJSON<APISeerrRouting>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes`)

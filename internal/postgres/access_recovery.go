@@ -17,13 +17,13 @@ import (
 const accessRejectedRetryQuery = `FROM workflows w
  JOIN media_items m ON m.id=w.media_id AND m.deleted_at IS NULL
  JOIN release_candidates c ON c.workflow_id=w.id AND c.id=w.selected_release_id
- JOIN integration_instances i ON i.id=c.indexer_instance_id AND i.kind='newznab' AND i.enabled AND i.config->'mode_verified'='true'::jsonb
+ JOIN integration_instances i ON i.id=c.indexer_instance_id AND i.kind IN ('newznab','oldboys') AND i.enabled AND i.config->'mode_verified'='true'::jsonb
  JOIN quality_profiles p ON p.id=w.quality_profile_id
  JOIN acquisition_rounds r ON r.workflow_id=w.id AND r.state='open' AND r.policy_version=p.policy_version
  JOIN candidate_decisions d ON d.workflow_id=w.id AND d.candidate_id=c.id AND d.policy_version=p.policy_version AND d.verdict='eligible'
  JOIN workflow_release_exclusions e ON e.workflow_id=w.id AND e.candidate_id=c.id AND e.indexer_instance_id=c.indexer_instance_id AND e.native_key=c.native_key
   AND e.failure_kind='release_retrieval' AND (
-   (e.retrieval_round_id=r.id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))
+   (e.retrieval_round_id=r.id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403','oldboys_http_401','oldboys_http_403'))
    OR (e.retrieval_round_id IS NULL AND e.retrieval_error_code IS NULL AND e.created_at>=r.opened_at AND e.reason IN (
     'selected release NZB access was rejected after one bounded request (newznab_http_401)',
     'selected release NZB access was rejected after one bounded request (newznab_http_403)',
@@ -43,7 +43,7 @@ const accessRejectedRetryQuery = `FROM workflows w
   (j.candidate_id=c.id OR j.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested')))
  AND NOT EXISTS(SELECT 1 FROM library_link_versions v WHERE v.workflow_id=w.id AND v.state IN ('publishing','verified','current','quarantined'))
  AND NOT EXISTS(SELECT 1 FROM workflow_release_exclusions x WHERE x.retrieval_round_id=r.id AND x.indexer_instance_id=c.indexer_instance_id
-  AND x.native_key<>c.native_key AND x.retrieval_error_code IN ('newznab_http_401','newznab_http_403'))
+  AND x.native_key<>c.native_key AND x.retrieval_error_code IN ('newznab_http_401','newznab_http_403','oldboys_http_401','oldboys_http_403'))
  AND NOT EXISTS(SELECT 1 FROM release_blocks b WHERE (b.expires_at IS NULL OR b.expires_at>now()) AND
   ((b.scope='native_release' AND b.indexer_instance_id=c.indexer_instance_id AND b.native_key=c.native_key)
    OR (b.scope='pack_release' AND b.media_id=w.media_id AND b.variant=w.variant AND lower(b.release_title)=lower(c.title))))

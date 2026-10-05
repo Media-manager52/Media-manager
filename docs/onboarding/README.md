@@ -5,7 +5,7 @@ codebase. It is written for an engineer or AI agent with **zero prior
 context** who must safely read, change, test, and operate the repository.
 
 Source checkpoint: Seerr waiting progress and VPS GitHub workflows
-(2026-10-01), database schema 43, Go 1.27, Node 24 / Next 16 (Vinext),
+(2026-10-01), database schema 44, Go 1.27, Node 24 / Next 16 (Vinext),
 PostgreSQL 18. This includes the earlier bounded NZB retrieval and access-rejection
 recovery, IPv4-only API egress, configurable acquisition budgets, and recorded
 request search schedules. Existing round snapshots remain immutable.

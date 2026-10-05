@@ -1,5 +1,19 @@
 # Media Manager core release status
 
+## Native OldBoys provider (2026-10-05, source)
+
+The dedicated OldBoys adapter supports bearer filter search and the live-proven
+PID download route, with fixed HTTPS origin, IPv4, no redirects, shared durable
+pacing/budgets, exact numeric provider identities and secret-free metadata.
+Only Danish-original catalogue films/TV and standalone DANiSH releases are
+eligible. Unknown IDs and sizes stay unknown; TV title bindings are explicitly
+inferred, with unchanged conflict, frozen episode, output and Plex checks.
+The owner can validate four positive/negative search controls and one discarded
+NZB in Connections. Credential replacement disables the commission atomically;
+configuration and credential snapshots guard every send, result persistence and
+activation. Schema remains 44. See [native contract](../operations/oldboys.md).
+Deployment and completed acquisition evidence are pending at this source note.
+
 ## OldBoys credential setup (2026-10-05, source)
 
 An owner-only form under Settings → Connections accepts the OldBoys API Token,

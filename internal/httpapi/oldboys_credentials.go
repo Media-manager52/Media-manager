@@ -4,6 +4,7 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"time"
 
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 )
@@ -50,4 +51,26 @@ func (server *Server) saveOldBoysCredentials(writer http.ResponseWriter, request
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: status})
+}
+
+func (server *Server) commissionOldBoys(writer http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		writeError(writer, http.StatusForbidden, "origin_rejected", "Validate OldBoys from Media Manager settings")
+		return
+	}
+	if server.config.CommissionOldBoys == nil {
+		writeError(writer, http.StatusServiceUnavailable, "commissioning_unavailable", "OldBoys commissioning is unavailable")
+		return
+	}
+	integration, err := server.config.CommissionOldBoys(request.Context())
+	if err != nil {
+		writeError(writer, http.StatusBadGateway, "oldboys_commission_failed", "OldBoys validation failed; the provider remains disabled. Check the saved credentials and provider pacing before trying again.")
+		return
+	}
+	requeued, requeueErr := server.store.RequeueSeerrNeedsConfiguration(request.Context(), time.Now().UTC())
+	if requeueErr != nil {
+		writeJSON(writer, http.StatusOK, dataEnvelope{Data: integration, Meta: map[string]string{"warning": "OldBoys enabled; requests awaiting configuration could not be requeued"}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: integration, Meta: map[string]int{"seerr_requests_requeued": requeued}})
 }

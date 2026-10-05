@@ -45,13 +45,13 @@ func (store *Store) RequestWorkflowDiscovery(ctx context.Context, workflowID uui
 	}
 	var indexerAvailable, alreadyQueued bool
 	if err := transaction.QueryRow(ctx, `SELECT
-		EXISTS(SELECT 1 FROM integration_instances WHERE kind='newznab' AND enabled AND config->'mode_verified'='true'::jsonb),
+		EXISTS(SELECT 1 FROM integration_instances i WHERE i.enabled AND i.config->'mode_verified'='true'::jsonb AND (i.kind='newznab' OR (i.kind='oldboys' AND EXISTS(SELECT 1 FROM media_metadata metadata JOIN workflows workflow ON workflow.media_id=metadata.media_id WHERE workflow.id=$1 AND metadata.data->>'original_language'='da')))),
 		EXISTS(SELECT 1 FROM outbox_events WHERE aggregate_type='workflow_retry_discovery' AND aggregate_id=$1
 		  AND aggregate_revision=$2 AND event_type='workflow.discovery_rescan_requested' AND completed_at IS NULL AND available_at<=$3)`, workflowID.String(), generation, now.UTC()).Scan(&indexerAvailable, &alreadyQueued); err != nil {
 		return err
 	}
 	if !indexerAvailable {
-		return errors.New("discovery requires at least one commissioned Newznab indexer")
+		return errors.New("discovery requires at least one commissioned indexer for this media")
 	}
 	if alreadyQueued {
 		return transaction.Commit(ctx)
