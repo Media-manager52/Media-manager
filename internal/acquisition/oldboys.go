@@ -15,6 +15,7 @@ import (
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
+	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -32,8 +33,8 @@ func newOldBoysClient(ctx context.Context, store *postgres.Store, scheduler *ind
 	return oldboys.New(integration.ID, credentials, scheduler, transport, func(ctx context.Context) error { return store.ValidateOldBoysSnapshot(ctx, integration, false) })
 }
 
-// One filter request per scan. Alternate ordinal/calendar labels for annual
-// snapshots; every eight complete scans move to the next bounded result page.
+// One filter request per scan. Include a title-only shape so collection packs
+// are discoverable; each shape visits four pages across completed scans.
 // Query only original/canonical Danish titles, never foreign-title aliases.
 func oldBoysSearchRequest(search postgres.SearchContext) oldboys.SearchRequest {
 	title := search.Media.Title
@@ -43,16 +44,24 @@ func oldBoysSearchRequest(search postgres.SearchContext) oldboys.SearchRequest {
 	title = releases.SearchQueryTitle(title)
 	category := oldboys.MovieCategory
 	phase := search.CompleteSearches
+	page := 1 + int((phase/8)%oldboys.MaxPage)
 	suffix := ""
 	if search.Media.Kind == catalog.KindSeries {
 		category = oldboys.SeriesCategory
 		scope, ok := workflows.ParseVariant(search.Variant)
 		if ok && (scope.Kind == workflows.VariantSeason || scope.Kind == workflows.VariantEpisode) {
+			cycle := uint64(2)
+			if search.EpisodeNumbering.Year != 0 {
+				cycle = 3
+			}
+			page = 1 + int((phase/cycle)%oldboys.MaxPage)
 			suffix = fmt.Sprintf(" S%02d", scope.Season)
 			if scope.Kind == workflows.VariantEpisode {
 				suffix += fmt.Sprintf("E%02d", scope.Episode)
 			}
-			if search.EpisodeNumbering.Year != 0 && phase%2 == 0 {
+			if phase%cycle == 0 {
+				suffix = ""
+			} else if search.EpisodeNumbering.Year != 0 && phase%cycle == 1 {
 				// Bare year catches S2026 and date-named uploads. Frozen numbering and
 				// exact workflow scope decide which returned episodes are acceptable.
 				suffix = fmt.Sprintf(" %d", search.EpisodeNumbering.Year)
@@ -61,7 +70,40 @@ func oldBoysSearchRequest(search postgres.SearchContext) oldboys.SearchRequest {
 	} else if search.Media.Year != nil {
 		suffix = fmt.Sprintf(" %d", *search.Media.Year)
 	}
-	return oldboys.SearchRequest{Name: title + suffix + " DANiSH", Category: category, Page: 1 + int((phase/8)%oldboys.MaxPage)}
+	return oldboys.SearchRequest{Name: title + suffix + " DANiSH", Category: category, Page: page}
+}
+
+// The range is title evidence only. Exact episode coverage remains a mandatory
+// output check; no provider episode IDs or single-episode facts are invented.
+func oldBoysSeasonRange(observation releases.Observation, media catalog.MediaItem) (packs.SeasonRange, bool) {
+	if !hasOldBoysCatalogueBinding(observation, media) {
+		return packs.SeasonRange{}, false
+	}
+	return packs.DeclaredSeasonRange(observation.Title)
+}
+
+func oldBoysRangeScope(observation releases.Observation, search postgres.SearchContext, scopeRules, qualityRules []releases.Rule) (releases.Observation, []releases.Rule) {
+	rangeScope, ok := oldBoysSeasonRange(observation, search.Media)
+	if !ok && (!hasOldBoysCatalogueBinding(observation, search.Media) || !packs.HasSeasonRange(observation.Title)) {
+		return observation, append(append([]releases.Rule{}, scopeRules...), qualityRules...)
+	}
+	variant, validVariant := workflows.ParseVariant(search.Variant)
+	if !validVariant || (variant.Kind != workflows.VariantSeason && variant.Kind != workflows.VariantEpisode) {
+		return observation, append(append([]releases.Rule{}, scopeRules...), qualityRules...)
+	}
+	values := []string{}
+	state := releases.FactUnknown
+	if ok && search.Media.Metadata.SeasonCount != nil && rangeScope.Last <= *search.Media.Metadata.SeasonCount {
+		state = releases.FactInferred
+		for season := rangeScope.First; season <= rangeScope.Last; season++ {
+			values = append(values, strconv.Itoa(int(season)))
+		}
+	}
+	observation.Facts = append(observation.Facts, releases.Fact{Name: "declared_pack_seasons", Values: values, State: state, ObservedAt: observation.ObservedAt})
+	// Preserve the generic title facts (including its first season) as evidence.
+	// Native range admission uses membership rather than rewriting those facts.
+	rules := []releases.Rule{{Name: "Requested season in declared collection", Fact: "declared_pack_seasons", AllowedValues: []string{strconv.Itoa(int(variant.Season))}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold}}
+	return observation, append(rules, qualityRules...)
 }
 
 var oldBoysWords = regexp.MustCompile(`[^\pL\pN]+`)

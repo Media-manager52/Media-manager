@@ -27,7 +27,9 @@ Only catalogue movies/series with original language `da` use this provider;
 release titles must also contain a standalone `DANiSH` token. Each scheduled
 scan makes one request, rotating at most four 25-row pages across complete scans.
 Native search progress starts at page one independently of older Newznab searches.
-TV queries alternate calendar-year and ordinal labels when the workflow has an
+TV scans include a title-only shape so multi-season collection titles are found;
+title/ordinal/calendar shapes each rotate through at most four pages.
+TV queries cycle through title-only, calendar-year and ordinal labels when the workflow has an
 unambiguous frozen annual mapping. No website scraping, fake Newznab CAPS,
 provider ID invention, guessed media sizes or credential-bearing locators are
 used. Missing IDs, sizes and subtitle evidence remain unknown. Native Danish TV
@@ -35,6 +37,16 @@ identity can be bound to an exact saved original/canonical title immediately
 followed by a scene scope/year token. This is labelled inferred catalogue
 binding, never an observed provider ID. Conflicting IDs, wrong titles, remake
 years and unresolved episode mapping still fail the existing admission rules.
+A native explicit range such as S01-S16 records inferred declared season
+membership; it does not claim an observed episode inventory or fabricated IDs.
+Admission requires the requested season within the catalogue-bounded range and
+retains the quality policy. The download remains one opaque original NZB.
+Post-download collection evaluation selects only files belonging to the frozen
+requested scope, keeps the full inventory digest, and rejects missing, duplicate,
+unsafe, ambiguous or out-of-range media. Other plainly numbered files from the
+declared collection remain retained and are not published by that workflow.
+Acquisition still follows the existing per-workflow job/round lifecycle; this
+change does not create a shared physical download job across multiple workflows.
 Output inspection, subtitle policy and exact Plex confirmation remain required.
 
 Saving replacement credentials disables native OldBoys in the same transaction

@@ -161,7 +161,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			if numberingErr != nil {
 				return numberingErr
 			}
-			report := packs.EvaluateNumbered(seriesID, season, expected, assets, numbering)
+			report := evaluateJobPack(job, seriesID, season, expected, assets, numbering)
 			if err := service.Store.PersistPackEvaluation(ctx, expectationID, inventoryID, report, time.Now().UTC()); err != nil {
 				return err
 			}
@@ -200,6 +200,13 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		return service.Store.CompleteImport(ctx, job, true, detail, time.Now().UTC())
 	}
 	return errors.New("unhandled AltMount phase")
+}
+
+func evaluateJobPack(job postgres.AltMountJobContext, seriesID string, season uint16, expected []packs.ExpectedEpisode, assets []packs.ObservedAsset, numbering packs.EpisodeNumbering) packs.Report {
+	if declared, nativeRange := oldBoysSeasonRange(job.ReleaseObservation, job.Media); nativeRange {
+		return packs.EvaluateSeasonRange(seriesID, season, expected, assets, numbering, declared)
+	}
+	return packs.EvaluateNumbered(seriesID, season, expected, assets, numbering)
 }
 
 func (service *AltMountReconcileService) HandleRetainedOutputReverification(ctx context.Context, event postgres.OutboxEvent) error {

@@ -21,6 +21,26 @@ standard Newznab conformance. Enabling requires the final runtime five-control
 commission, plus its own Verify/Deploy evidence. No generic Newznab CAPS or
 retired proxy is used. See [native contract](../operations/oldboys.md).
 
+### Native runtime commissioning and collection investigation
+
+PR #43 was deployed through Verify 37337754290 / Deploy 37339782861, and the
+supported owner commission enabled OldBoys at 2026-10-05 16:20:19 UTC after all
+five controls passed. Normal Danish workflow searches and three deployed browser
+viewports succeeded. A normal Operation X S16E06 search found no eligible release;
+this is not a claim that OldBoys lacks the series.
+
+The owner supplied release 77005, `Operation.X.S01-S16.DANISH.720p.AAC2.0-PlexLover`.
+Six additional guarded paced search diagnostics proved both S16E06 and 2019
+filters empty, while title-only searches returned 61 Danish rows across three
+pages, including 77005 on page three (the fourth page was empty). One guarded PID
+retrieval returned a valid 7,392,857-byte NZB with 124 file subjects, 99 RAR-volume
+subjects and no declared episode filenames. The body was inspected in memory
+and discarded; no job was submitted by these diagnostics. RAR is an existing
+supported analysis path, so the obfuscated archive manifest alone does not prove
+it is unsupported or playable. Actual coverage/streams require completed output
+inspection. The native title-only/range follow-up addresses the discovery and
+scope gap; live pack output/Plex evidence remains pending.
+
 ## Supported configured providers
 
 The bounded profile reproduced Media Manager's real `extended=1` request

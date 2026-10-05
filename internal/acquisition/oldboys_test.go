@@ -55,22 +55,67 @@ func TestOldBoysCatalogueBindingIsInferredScopedAndPreservesUnknownIDs(t *testin
 		})
 	}
 }
-func TestOldBoysSearchAlternatesCalendarWithoutForeignIDsOrAdditionalCalls(t *testing.T) {
+func TestOldBoysSearchVisitsTitleCalendarAndOrdinalPagesWithoutAdditionalCalls(t *testing.T) {
 	search := numberingSearch()
 	search.Media.Metadata = &catalog.MediaMetadata{OriginalLanguage: "da", OriginalTitle: "Operation X"}
-	if got := oldBoysSearchRequest(search); got.Name != "Operation X 2026 DANiSH" || got.Category != 2 || got.Page != 1 {
-		t.Fatalf("ordinal=%+v", got)
+	for phase := uint64(0); phase < 24; phase++ {
+		search.CompleteSearches = phase
+		got := oldBoysSearchRequest(search)
+		want := []string{"Operation X DANiSH", "Operation X 2026 DANiSH", "Operation X S23E02 DANiSH"}[phase%3]
+		if got.Name != want || got.Page != 1+int((phase/3)%4) || got.Category != 2 {
+			t.Fatalf("phase %d: %+v", phase, got)
+		}
 	}
-	search.CompleteSearches = 1
-	if got := oldBoysSearchRequest(search); got.Name != "Operation X S23E02 DANiSH" || got.Page != 1 {
-		t.Fatalf("calendar=%+v", got)
+	search.EpisodeNumbering.Year = 0
+	for phase := uint64(0); phase < 16; phase++ {
+		search.CompleteSearches = phase
+		got := oldBoysSearchRequest(search)
+		want := []string{"Operation X DANiSH", "Operation X S23E02 DANiSH"}[phase%2]
+		if got.Name != want || got.Page != 1+int((phase/2)%4) {
+			t.Fatalf("nonannual phase %d: %+v", phase, got)
+		}
 	}
-	search.CompleteSearches = 8
-	if got := oldBoysSearchRequest(search); got.Page != 2 {
-		t.Fatal("bounded pagination did not advance")
-	}
-	search.CompleteSearches = 32
-	if got := oldBoysSearchRequest(search); got.Page != 1 {
-		t.Fatal("pagination exceeded bound")
+}
+
+func TestOldBoysCollectionAdmissionUsesDeclaredMembershipAndPreservesFacts(t *testing.T) {
+	search := numberingSearch()
+	search.Media.ID = uuid.NewV7()
+	seasons := uint16(23)
+	search.Media.Metadata = &catalog.MediaMetadata{OriginalLanguage: "da", OriginalTitle: "Operation X", SeasonCount: &seasons}
+	for _, spec := range []struct {
+		variant, title, version string
+		want                    releases.Verdict
+	}{
+		{"season:16:episode:06", "Operation.X.S01-S16.DANISH.720p.AAC2.0-PlexLover", "oldboys-v1", releases.VerdictEligible},
+		{"season:16", "Operation.X.S01-S16.DANISH.720p.AAC2.0-PlexLover", "oldboys-v1", releases.VerdictEligible},
+		{"season:17", "Operation.X.S01-S16.DANISH.720p.AAC2.0-PlexLover", "oldboys-v1", releases.VerdictRejected},
+		{"season:16", "Operation.X.S01-S99.DANISH.720p", "oldboys-v1", releases.VerdictHeld},
+		{"season:16", "Operation.X.S16-S01.DANISH.720p", "oldboys-v1", releases.VerdictHeld},
+		{"season:16", "Operation.X.Spinoff.S01-S16.DANISH.720p", "oldboys-v1", releases.VerdictRejected},
+		{"season:16", "Operation.X.S01-S16.DANISH.720p", "newznab-v1", releases.VerdictRejected},
+	} {
+		t.Run(spec.variant+spec.title+spec.version, func(t *testing.T) {
+			search.Variant = spec.variant
+			o := releases.InferTitleFacts(releases.Observation{Title: spec.title, ParseVersion: spec.version}, time.Now().UTC())
+			o = bindOldBoysCatalogue(o, search, time.Now().UTC())
+			scope, _ := workflowScopeRules(search.Variant)
+			o, rules := oldBoysRangeScope(o, search, scope, []releases.Rule{{Name: "quality", Fact: "resolution", AllowedValues: []string{"720p"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold}})
+			result, err := releases.Evaluate(o, rules)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result = constrainMediaMatch(o, result, search.Media)
+			if result.Verdict != spec.want {
+				t.Fatalf("got %+v", result)
+			}
+			for _, fact := range o.Facts {
+				if fact.Name == "season_number" && len(fact.Values) == 1 && fact.Values[0] != "1" && spec.title == "Operation.X.S01-S16.DANISH.720p.AAC2.0-PlexLover" {
+					t.Fatal("first declared season was rewritten")
+				}
+				if fact.Name == "episode_number" {
+					t.Fatal("pack episode invented")
+				}
+			}
+		})
 	}
 }
