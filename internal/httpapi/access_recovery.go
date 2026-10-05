@@ -15,10 +15,7 @@ func (server *Server) retryAccessRejectedRelease(writer http.ResponseWriter, req
 		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
 		return
 	}
-	var input struct {
-		CandidateID string `json:"candidate_id"`
-		Revision    uint64 `json:"revision"`
-	}
+	var input retryAccessRejectedReleaseInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return

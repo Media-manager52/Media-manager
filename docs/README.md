@@ -8,6 +8,7 @@ behavioral truth is always the code and the SQL migrations.
 | Audience | Path |
 | --- | --- |
 | New engineer or AI agent | [onboarding/README.md](onboarding/README.md) — overview, read order, hard rules |
+| AI agent operating the running server | [operations/ai-agents.md](operations/ai-agents.md) — API discovery (`GET /api/v1`, OpenAPI), effects, safe calling, common tasks |
 | Coding agent session | [onboarding/agent-briefs/claude-code.md](onboarding/agent-briefs/claude-code.md) — paste-ready finish-today execution brief |
 | Hard-problem review | [onboarding/agent-briefs/claude-review-hard-parts.md](onboarding/agent-briefs/claude-review-hard-parts.md) — the eight open hard problems with live state, tried approaches, constraints, and acceptance criteria |
 | Availability audit | [onboarding/agent-briefs/claude-availability-audit.md](onboarding/agent-briefs/claude-availability-audit.md) — prove per title whether missing content is truly unavailable or blocked by a pipeline defect |
@@ -24,6 +25,7 @@ behavioral truth is always the code and the SQL migrations.
 | [architecture/backend.md](architecture/backend.md) | Package-by-package Go reference (`cmd/`, `internal/`) |
 | [architecture/database.md](architecture/database.md) | Migrations, conventions, table catalog, `*Store` file map, concurrency rules |
 | [architecture/api.md](architecture/api.md) | Every HTTP route, auth model, envelopes, write-path protections |
+| [reference/openapi.json](reference/openapi.json) | Generated OpenAPI 3.1 description of every route (also served at `GET /api/v1/openapi.json`) |
 | [architecture/frontend.md](architecture/frontend.md) | Vinext/Next UI, route→screen map, API client, tests, styling |
 | [architecture/workflows.md](architecture/workflows.md) | Domain lifecycle: intake → search → AltMount → verify → publish → Plex → Seerr, plus rounds, upgrades, adoption, recycle |
 | [reference/glossary.md](reference/glossary.md) | Exact domain vocabulary |

@@ -57,12 +57,7 @@ func (server *Server) saveSeerrRoute(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusNotFound, "not_found", "Seerr integration not found")
 		return
 	}
-	var body struct {
-		MediaKind        string `json:"media_kind"`
-		RootFolder       string `json:"root_folder"`
-		LibraryRootID    string `json:"library_root_id"`
-		QualityProfileID string `json:"quality_profile_id"`
-	}
+	var body saveSeerrRouteInput
 	if err := decodeJSON(request, &body, 64<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return

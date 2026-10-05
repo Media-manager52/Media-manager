@@ -1,0 +1,5886 @@
+{
+  "components": {
+    "schemas": {
+      "ApproveProwlarrImportInput": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "secret_ref": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_ExternalIdentity": {
+        "properties": {
+          "namespace": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_MediaMetadata": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/Catalog_MetadataAlias"
+            },
+            "type": "array"
+          },
+          "backdrop_url": {
+            "type": "string"
+          },
+          "certification": {
+            "type": "string"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/Catalog_MetadataCompany"
+            },
+            "type": "array"
+          },
+          "countries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "credits": {
+            "items": {
+              "$ref": "#/components/schemas/Catalog_MetadataCredit"
+            },
+            "type": "array"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "episode_count": {
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/Catalog_MetadataEvent"
+            },
+            "type": "array"
+          },
+          "format": {
+            "type": "string"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "networks": {
+            "items": {
+              "$ref": "#/components/schemas/Catalog_MetadataNetwork"
+            },
+            "type": "array"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "original_language": {
+            "type": "string"
+          },
+          "original_title": {
+            "type": "string"
+          },
+          "overview": {
+            "type": "string"
+          },
+          "poster_url": {
+            "type": "string"
+          },
+          "ratings": {
+            "items": {
+              "$ref": "#/components/schemas/Catalog_MetadataRating"
+            },
+            "type": "array"
+          },
+          "release_date": {
+            "type": "string"
+          },
+          "runtime_minutes": {
+            "type": "integer"
+          },
+          "season_count": {
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/Catalog_MetadataSource"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tagline": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_MetadataAlias": {
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_MetadataCompany": {
+        "properties": {
+          "country": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_MetadataCredit": {
+        "properties": {
+          "character": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "profile_url": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_MetadataEvent": {
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "country": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "date_conflict": {
+            "type": "boolean"
+          },
+          "episode_number": {
+            "type": "integer"
+          },
+          "network": {
+            "type": "string"
+          },
+          "season_number": {
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_MetadataNetwork": {
+        "properties": {
+          "country": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_MetadataRating": {
+        "properties": {
+          "provenance": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          },
+          "votes": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Catalog_MetadataSource": {
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Commissioningv2_CompleteSeasonFixture": {
+        "properties": {
+          "canonical_title": {
+            "type": "string"
+          },
+          "identities": {
+            "items": {
+              "$ref": "#/components/schemas/Commissioningv2_VerifiedIdentity"
+            },
+            "type": "array"
+          },
+          "key": {
+            "type": "string"
+          },
+          "local": {
+            "$ref": "#/components/schemas/Commissioningv2_LocalFixtureRef"
+          },
+          "season": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Commissioningv2_FixtureDocument": {
+        "properties": {
+          "complete_season": {
+            "$ref": "#/components/schemas/Commissioningv2_CompleteSeasonFixture"
+          },
+          "movie": {
+            "$ref": "#/components/schemas/Commissioningv2_MovieFixture"
+          },
+          "schema_version": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Commissioningv2_LocalFixtureRef": {
+        "properties": {
+          "media_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Commissioningv2_MovieFixture": {
+        "properties": {
+          "canonical_title": {
+            "type": "string"
+          },
+          "identities": {
+            "items": {
+              "$ref": "#/components/schemas/Commissioningv2_VerifiedIdentity"
+            },
+            "type": "array"
+          },
+          "key": {
+            "type": "string"
+          },
+          "local": {
+            "$ref": "#/components/schemas/Commissioningv2_LocalFixtureRef"
+          },
+          "source": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Commissioningv2_VerifiedIdentity": {
+        "properties": {
+          "namespace": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ConfirmRealFilePurgeInput": {
+        "properties": {
+          "confirmation": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CreateAdoptionBatchInput": {
+        "properties": {
+          "monitoring_enabled": {
+            "type": "boolean"
+          },
+          "quality_profile_id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "search_immediately": {
+            "type": "boolean"
+          },
+          "source_root": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CreateCollectionInput": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "media_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CreateImportListInput": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "movie_quality_profile_id": {
+            "type": "string"
+          },
+          "movie_root_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CreateMediaInput": {
+        "properties": {
+          "download_client_id": {
+            "type": "string"
+          },
+          "identities": {
+            "items": {
+              "$ref": "#/components/schemas/Catalog_ExternalIdentity"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/Catalog_MediaMetadata"
+          },
+          "quality_profile_id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "search_immediately": {
+            "type": "boolean"
+          },
+          "seasons": {
+            "items": {
+              "properties": {
+                "episodes": {
+                  "items": {
+                    "$ref": "#/components/schemas/Postgres_ManualEpisode"
+                  },
+                  "type": "array"
+                },
+                "monitored": {
+                  "type": "boolean"
+                },
+                "number": {
+                  "type": "integer"
+                },
+                "prefer_season_pack": {
+                  "type": "boolean"
+                },
+                "search_immediately": {
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CreateMediaWorkflowInput": {
+        "properties": {
+          "adopted_replacement_confirmation": {
+            "type": "string"
+          },
+          "download_client_id": {
+            "type": "string"
+          },
+          "quality_profile_id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "search_immediately": {
+            "type": "boolean"
+          },
+          "season": {
+            "properties": {
+              "episodes": {
+                "items": {
+                  "$ref": "#/components/schemas/Postgres_ManualEpisode"
+                },
+                "type": "array"
+              },
+              "monitored": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "integer"
+              },
+              "prefer_season_pack": {
+                "type": "boolean"
+              },
+              "search_immediately": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "CreateNotificationDestinationInput": {
+        "properties": {
+          "allow_http": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "secret_ref": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CreateReleaseBlockInput": {
+        "properties": {
+          "candidate_id": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "retention_days": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Envelope": {
+        "properties": {
+          "data": {},
+          "meta": {}
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "Error": {
+        "properties": {
+          "error": {
+            "properties": {
+              "code": {
+                "description": "Stable snake_case reason.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "ExecuteAdoptionBatchInput": {
+        "properties": {
+          "adopted_replacement_confirmation": {
+            "type": "string"
+          },
+          "confirmation": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ExpectedRevisionInput": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Oldboyscredentials_Credentials": {
+        "properties": {
+          "api_token": {
+            "type": "string"
+          },
+          "pass_key": {
+            "type": "string"
+          },
+          "rss_key": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_Integration": {
+        "properties": {
+          "config": {
+            "description": "Arbitrary JSON."
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "secret_ref": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_LibraryRoot": {
+        "properties": {
+          "destination_root": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "plex_instance_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "plex_library_id": {
+            "type": "string"
+          },
+          "plex_visible_root": {
+            "type": "string"
+          },
+          "source_visible_root": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_ManualEpisode": {
+        "properties": {
+          "air_date": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "provider_episode_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_QualityProfile": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "policy": {
+            "description": "Arbitrary JSON."
+          },
+          "policy_version": {
+            "type": "integer"
+          },
+          "upgrades_enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "PreviewCollectionInput": {
+        "properties": {
+          "media_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ReinspectRetainedMovieInput": {
+        "properties": {
+          "job_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RelocateWorkflowLinksInput": {
+        "properties": {
+          "root_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RestoreAdoptedFilesInput": {
+        "properties": {
+          "confirmation": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RetryAccessRejectedReleaseInput": {
+        "properties": {
+          "candidate_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ReverifyRetainedOutputInput": {
+        "properties": {
+          "job_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ReviewAdoptionItemInput": {
+        "properties": {
+          "media_id": {
+            "type": "string"
+          },
+          "monitoring_enabled": {
+            "type": "boolean"
+          },
+          "proposed_relative": {
+            "type": "string"
+          },
+          "quality_profile_id": {
+            "type": "string"
+          },
+          "review_state": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "search_immediately": {
+            "type": "boolean"
+          },
+          "variant": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SaveSeerrRouteInput": {
+        "properties": {
+          "library_root_id": {
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "quality_profile_id": {
+            "type": "string"
+          },
+          "root_folder": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SealCommissioningV2SearchPlanInput": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer"
+          },
+          "include_complete_season_fallback": {
+            "type": "boolean"
+          },
+          "include_movie_fallback": {
+            "type": "boolean"
+          },
+          "movie_category_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "series_category_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "SearchWorkflowInput": {
+        "properties": {
+          "adopted_replacement_confirmation": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SetNotificationDestinationStateInput": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "SetOldBoysBudgetInput": {
+        "properties": {
+          "grab_limit": {
+            "type": "integer"
+          },
+          "query_limit": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "ownerToken": {
+        "description": "OWNER_TOKEN from the server environment.",
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "seerrWebhook": {
+        "description": "SEERR_WEBHOOK_SECRET; used by Seerr only.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "All /api/v1 routes except the Seerr webhook need \"Authorization: Bearer \u003cOWNER_TOKEN\u003e\".\nSuccess bodies are {\"data\": ..., \"meta\": ...}; errors are {\"error\": {\"code\": \"snake_case\", \"message\": \"...\"}} with a 4xx/5xx status.\nRequest bodies are JSON (Content-Type: application/json) and unknown fields are rejected with 400.\nEvery operation has x-mm-effect: \"read\" (no change), \"write\" (changes Media Manager state or queues local work),\n\"provider\" (contacts or queues requests to indexers, Seerr, Plex or metadata services and can spend provider budget)\nor \"destructive\" (removes or replaces data; ask the owner first). x-mm-auth \"owner_browser\" routes can only be used\nfrom the Media Manager settings page. Workflow actions are guarded by state and revision; a 409 means the action\ndoes not apply right now, and its message says why. Background work is paced: a 202 means queued, not finished.",
+    "title": "Media Manager API",
+    "version": "repository"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "apiIndex",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "API index for agents: conventions, effects, auth and where the OpenAPI document is",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/acquisition-verifications": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listSubtitleVerifications",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Subtitle/output verification results",
+        "tags": [
+          "releases"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/activity": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listActivity",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Merged audit and workflow-transition timeline",
+        "tags": [
+          "overview"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/adoption": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listAdoptionBatches",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Adoption batches (importing existing files)",
+        "tags": [
+          "adoption"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createAdoptionBatch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateAdoptionBatchInput"
+                  }
+                ],
+                "required": [
+                  "source_root",
+                  "root_id",
+                  "quality_profile_id"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Scan a source root and propose an adoption batch",
+        "tags": [
+          "adoption"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/adoption/{id}": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getAdoptionBatch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "One adoption batch with its items",
+        "tags": [
+          "adoption"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/adoption/{id}/approve": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "approveAdoptionBatch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Approve a reviewed adoption batch",
+        "tags": [
+          "adoption"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/adoption/{id}/execute": {
+      "post": {
+        "description": "confirmation must be exactly \"EXECUTE REVIEWED ADOPTION\"; replacing an adopted file also needs adopted_replacement_confirmation \"REPLACE ADOPTED FILE AFTER PLEX VERIFICATION\".\n\nRemoves, replaces or purges data and may be irreversible. Ask the owner first.",
+        "operationId": "executeAdoptionBatch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ExecuteAdoptionBatchInput"
+                  }
+                ],
+                "required": [
+                  "confirmation"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Execute an approved adoption batch",
+        "tags": [
+          "adoption"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "destructive"
+      }
+    },
+    "/api/v1/adoption/{id}/items/{itemID}": {
+      "patch": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "reviewAdoptionItem",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "itemID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ReviewAdoptionItemInput"
+                  }
+                ],
+                "required": [
+                  "review_state"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Review one adoption item",
+        "tags": [
+          "adoption"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/backups": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listBackups",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Encrypted in-app backups",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createBackup",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Queue an encrypted backup with isolated restore verification",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/backups/{id}/download": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "downloadBackup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Download a verified backup file (binary)",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/blocklist": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listReleaseBlocks",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Blocked releases",
+        "tags": [
+          "releases"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createReleaseBlock",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateReleaseBlockInput"
+                  }
+                ],
+                "required": [
+                  "candidate_id"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Block a release candidate",
+        "tags": [
+          "releases"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/blocklist/{id}": {
+      "delete": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "deleteReleaseBlock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Remove a release block",
+        "tags": [
+          "releases"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/calendar": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listCalendar",
+        "parameters": [
+          {
+            "description": "First day (YYYY-MM-DD).",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day (YYYY-MM-DD).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Upcoming and recent episode air dates, one row per episode",
+        "tags": [
+          "overview"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/collections": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listCollections",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Collections",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createCollection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateCollectionInput"
+                  }
+                ],
+                "required": [
+                  "name",
+                  "media_ids"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Create a collection",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/collections/preview": {
+      "post": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "previewCollection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PreviewCollectionInput"
+                  }
+                ],
+                "required": [
+                  "media_ids"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Preview a collection without saving it",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/collections/{id}": {
+      "delete": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "deleteCollection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Delete a collection (media is not affected)",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/dashboard": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "dashboard",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Counts, recent workflows and recent activity",
+        "tags": [
+          "overview"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/discovery/search": {
+      "get": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "discoverySearch",
+        "parameters": [
+          {
+            "description": "Title to search for.",
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Result page (1-based).",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Search metadata providers for titles to add",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/discovery/{kind}/{id}": {
+      "get": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "discoveryMetadata",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Include this season's episodes.",
+            "in": "query",
+            "name": "season",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Provider metadata for one movie or series",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/files": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listManagedFiles",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Managed files (published link generations and adopted files)",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/files/{id}": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getManagedFile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "One managed file with provenance and evidence",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/import-lists": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listImportLists",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Import lists",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createImportList",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateImportListInput"
+                  }
+                ],
+                "required": [
+                  "name",
+                  "provider"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Create an import list",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/import-lists/{id}": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getImportList",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "One import list",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/import-lists/{id}/snapshots": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "createImportListSnapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Fetch a new snapshot of an import list",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/imports/prowlarr": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createProwlarrImport",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "Prowlarr backup archive, at most 128 MiB.",
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Upload a Prowlarr backup to propose indexer imports",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/imports/prowlarr/{id}": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getProwlarrImport",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "One Prowlarr import proposal",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/imports/prowlarr/{id}/approve": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "approveProwlarrImport",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ApproveProwlarrImportInput"
+                  }
+                ],
+                "required": [
+                  "candidates"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Approve selected Prowlarr indexer candidates as disabled integrations",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/integrations/seerr/webhook": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "seerrWebhook",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "security": [
+          {
+            "seerrWebhook": []
+          }
+        ],
+        "summary": "Seerr webhook receiver (called by Seerr, not by agents)",
+        "tags": [
+          "requests"
+        ],
+        "x-mm-auth": "seerr_webhook",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/intelligence/releases": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listReleaseCandidates",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Recently observed release candidates and their decisions",
+        "tags": [
+          "releases"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/media": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listMedia",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of rows to skip, for paging.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "List catalogue media",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "With search_immediately (default true) the new workflows search the indexers right away.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "createMedia",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateMediaInput"
+                  }
+                ],
+                "required": [
+                  "kind",
+                  "title"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Add a movie or series to the catalogue and create its workflows",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/media/{id}": {
+      "delete": {
+        "description": "Removes, replaces or purges data and may be irreversible. Ask the owner first.",
+        "operationId": "recycleMedia",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Move media and its published links to the recycle bin",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "destructive"
+      },
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getMedia",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "One media item",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/media/{id}/archive": {
+      "post": {
+        "description": "Cancels non-terminal workflows and soft-deletes the media row. Never deletes files, AltMount sources or history; refused while files are published or work is in flight.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "archiveMedia",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Retire unwanted media from the active catalogue",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/media/{id}/detail": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getMediaDetail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Media title page: seasons, episodes, workflows, files and Plex state",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/media/{id}/metadata/refresh": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "refreshMediaMetadata",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Re-read catalogue metadata (TMDB/TVDB) for one media item",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/media/{id}/workflows": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "createMediaWorkflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMediaWorkflowInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Create a workflow (for example a season) for existing media",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/notifications/deliveries": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listNotificationDeliveries",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Notification delivery log",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "openAPI",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "OpenAPI 3.1 description of every route, generated from the live route table",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/plex/reconfirm-timed-out": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "reconfirmTimedOutPlex",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Re-queue exact-path Plex confirmation for every timed-out publication",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/recycle": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listRecycle",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Recycle bin entries",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/recycle/{id}/confirm-purge": {
+      "post": {
+        "description": "Irreversible. confirmation must be exactly \"PURGE RETAINED ADOPTED FILE\".\n\nRemoves, replaces or purges data and may be irreversible. Ask the owner first.",
+        "operationId": "confirmRealFilePurge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConfirmRealFilePurgeInput"
+                  }
+                ],
+                "required": [
+                  "confirmation"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Permanently purge a retained adopted file",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "destructive"
+      }
+    },
+    "/api/v1/recycle/{id}/restore": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "restoreRecycle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Restore a recycled item's links",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/recycle/{id}/restore-adopted": {
+      "post": {
+        "description": "confirmation must be exactly \"RESTORE RETAINED ADOPTED FILE AFTER PLEX VERIFICATION\".\n\nRemoves, replaces or purges data and may be irreversible. Ask the owner first.",
+        "operationId": "restoreAdoptedFiles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RestoreAdoptedFilesInput"
+                  }
+                ],
+                "required": [
+                  "confirmation"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Restore a retained adopted file after Plex verification",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "destructive"
+      }
+    },
+    "/api/v1/requests": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listRequests",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of rows to skip, for paging.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Seerr requests with their Media Manager lifecycle",
+        "tags": [
+          "requests"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/requests/{id}": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "One Seerr request with linked workflows",
+        "tags": [
+          "requests"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/requests/{id}/approve": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "approveRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Approve a pending Seerr request (sent to Seerr)",
+        "tags": [
+          "requests"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/requests/{id}/decline": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "declineRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Decline a pending Seerr request (sent to Seerr)",
+        "tags": [
+          "requests"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/integrations": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listIntegrations",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Integrations (indexers, AltMount, Plex, Seerr) and their configuration",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createIntegration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Postgres_Integration"
+                  }
+                ],
+                "required": [
+                  "kind",
+                  "name"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Create a disabled integration",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commission": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "commissionIntegration",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Commission and enable a Newznab indexer (bounded live checks)",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commissioning-v2/runs": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createCommissioningV2Run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Commissioningv2_FixtureDocument"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Start a commissioning v2 run from fixtures",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner_browser",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getCommissioningV2Run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "One commissioning v2 run",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/activate": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "activateCommissioningV2Profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ExpectedRevisionInput"
+                  }
+                ],
+                "required": [
+                  "expected_revision"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Activate the finalized capability profile",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner_browser",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-caps": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "authorizeCommissioningV2CAPS",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ExpectedRevisionInput"
+                  }
+                ],
+                "required": [
+                  "expected_revision"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Authorize the CAPS probe for a run",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner_browser",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-searches": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "authorizeCommissioningV2Searches",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ExpectedRevisionInput"
+                  }
+                ],
+                "required": [
+                  "expected_revision"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Authorize the run's live searches",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner_browser",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/categories": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "sealCommissioningV2SearchPlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SealCommissioningV2SearchPlanInput"
+                  }
+                ],
+                "required": [
+                  "expected_revision"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Seal the run's category search plan",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner_browser",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/draft": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getCommissioningV2Draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "The run's capability profile draft",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "finalizeCommissioningV2Draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ExpectedRevisionInput"
+                  }
+                ],
+                "required": [
+                  "expected_revision"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Finalize the capability profile draft",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner_browser",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/steps/{step}/execute": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "executeCommissioningV2CAPS",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Execute one authorized live step",
+        "tags": [
+          "commissioning"
+        ],
+        "x-mm-auth": "owner_browser",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/seerr-routes": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listSeerrRoutes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Seerr root-folder routing for this Seerr integration",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "saveSeerrRoute",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SaveSeerrRouteInput"
+                  }
+                ],
+                "required": [
+                  "media_kind",
+                  "root_folder",
+                  "library_root_id",
+                  "quality_profile_id"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Map a Seerr root folder to a library root and quality profile",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/seerr-routes/{route}": {
+      "delete": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "deleteSeerrRoute",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "route",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Delete a Seerr route",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/library-roots": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listLibraryRoots",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Library roots",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createLibraryRoot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Postgres_LibraryRoot"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Create a library root",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/notifications": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listNotificationDestinations",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Notification destinations",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createNotificationDestination",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateNotificationDestinationInput"
+                  }
+                ],
+                "required": [
+                  "name",
+                  "endpoint",
+                  "events"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Create a notification destination",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/notifications/{id}": {
+      "patch": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "setNotificationDestinationState",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetNotificationDestinationStateInput"
+                  }
+                ],
+                "required": [
+                  "enabled"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Enable or disable a notification destination",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/oldboys/budget": {
+      "put": {
+        "description": "grab_limit is optional and keeps the current value.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "setOldBoysBudget",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetOldBoysBudgetInput"
+                  }
+                ],
+                "required": [
+                  "query_limit"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Set OldBoys daily search and download limits",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/oldboys/commission": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "commissionOldBoys",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Validate OldBoys with five bounded live checks and enable it",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/oldboys/credentials": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "oldBoysCredentialsStatus",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "OldBoys credential status (never returns the credentials)",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "put": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "saveOldBoysCredentials",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Oldboyscredentials_Credentials"
+                  }
+                ],
+                "required": [
+                  "api_token",
+                  "pass_key",
+                  "rss_key"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Replace the OldBoys API token, PID and RID (disables the provider until recommissioned)",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/quality-profiles": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listQualityProfiles",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Quality profiles",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "createQualityProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Postgres_QualityProfile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Create a quality profile",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/quality-profiles/{id}": {
+      "patch": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "updateQualityProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Postgres_QualityProfile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Update a quality profile (applies to new rounds only)",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/quality-profiles/{id}/apply-policy": {
+      "post": {
+        "description": "Workflows with active AltMount work, a started publication or recovery-only attention are skipped and reported.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "applyQualityProfilePolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Apply the current profile policy to eligible existing workflows",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/sources": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listSources",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Request sources (Seerr, import lists) and their status",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/system/health": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "systemHealth",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Integration health, outbox and failure counters",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/system/info": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "systemInfo",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Version, commit and schema",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/system/tasks": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listTasks",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Background tasks",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/wanted": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listWanted",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Monitored media that is still missing",
+        "tags": [
+          "overview"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/workflows": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listWorkflows",
+        "parameters": [
+          {
+            "description": "Only non-terminal workflows (default true). Pass false for all.",
+            "in": "query",
+            "name": "active",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "List workflows",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/workflows/{id}": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "getWorkflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "One workflow with its state, revision, rounds and attention",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/workflows/{id}/acquisition-rounds": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "openAcquisitionRound",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Open the next acquisition round after discovery found a new eligible release",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/workflows/{id}/acquisition-rounds/from-known": {
+      "post": {
+        "description": "Prefers explicit Danish subtitle evidence, then a Danish/Nordic title marker, then score. Still honours the retained failed-output limit.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "openKnownAcquisitionRound",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Open the next round from the best already-known, never-attempted eligible release",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/workflows/{id}/cancel": {
+      "post": {
+        "description": "Jobs, retained output and exclusions stay visible. Refused while an AltMount job is active.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "cancelWorkflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Cancel a workflow",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/workflows/{id}/discover": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "discoverWorkflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Queue an evidence-only discovery rescan (finds new releases without grabbing)",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/workflows/{id}/reconcile-altmount": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "reconcileAltMount",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Re-read the workflow's AltMount job and continue import/inspection (no new NZB)",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/workflows/{id}/reconfirm-plex": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "reconfirmPlex",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Retry exact-path Plex confirmation after a timeout",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/workflows/{id}/recover-altmount-submission": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "recoverAltMountSubmission",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Recover a submission whose AltMount transport outcome is unknown",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/workflows/{id}/reinspect-retained-movie": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "reinspectRetainedMovie",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ReinspectRetainedMovieInput"
+                  }
+                ],
+                "required": [
+                  "job_id"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Re-inspect the latest ambiguous retained movie output once (no new NZB)",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/workflows/{id}/relocate-links": {
+      "post": {
+        "description": "Link targets and AltMount content are never touched. Plex is not refreshed by this call.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "relocateWorkflowLinks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RelocateWorkflowLinksInput"
+                  }
+                ],
+                "required": [
+                  "root_id"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Move a workflow's published links to another library root of the same kind",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/workflows/{id}/retry-access-rejected-release": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "retryAccessRejectedRelease",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RetryAccessRejectedReleaseInput"
+                  }
+                ],
+                "required": [
+                  "candidate_id",
+                  "revision"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Retry one release that the indexer rejected with HTTP 401/403 before submission",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/workflows/{id}/reverify-retained-output": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "reverifyRetainedOutput",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ReverifyRetainedOutputInput"
+                  }
+                ],
+                "required": [
+                  "job_id"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Re-run subtitle verification on one retained output",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/workflows/{id}/revive-rejected-archives": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "reviveRejectedArchives",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Revive releases rejected as unsupported archives before AltMount ever saw them",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/workflows/{id}/search": {
+      "post": {
+        "description": "Allowed in monitored, waiting, held and needs_attention. Refused while the acquisition round is exhausted (open the next round instead) or an AltMount job is active.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "searchWorkflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchWorkflowInput"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Queue one paced indexer search now",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/health/live": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "live",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "security": [],
+        "summary": "Process liveness",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "none",
+        "x-mm-effect": "read"
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "ready",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "security": [],
+        "summary": "Readiness: database reachable and schema version current",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "none",
+        "x-mm-effect": "read"
+      }
+    }
+  },
+  "security": [
+    {
+      "ownerToken": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Health, version, background tasks, backups and this API's own description.",
+      "name": "system"
+    },
+    {
+      "description": "Dashboard, activity timeline, calendar and wanted list.",
+      "name": "overview"
+    },
+    {
+      "description": "Catalogue movies and series: add, inspect, refresh, archive, recycle.",
+      "name": "media"
+    },
+    {
+      "description": "One acquisition unit (movie, season or episode): state, search and recovery actions.",
+      "name": "workflows"
+    },
+    {
+      "description": "Seerr requests and their Media Manager lifecycle.",
+      "name": "requests"
+    },
+    {
+      "description": "Observed release candidates, verification results and the blocklist.",
+      "name": "releases"
+    },
+    {
+      "description": "Published files, collections and the recycle bin.",
+      "name": "library"
+    },
+    {
+      "description": "Importing files that already exist on disk.",
+      "name": "adoption"
+    },
+    {
+      "description": "Metadata search for new titles, request sources and import lists.",
+      "name": "discovery"
+    },
+    {
+      "description": "Integrations, indexer credentials and budgets, library roots, quality profiles, notifications.",
+      "name": "settings"
+    },
+    {
+      "description": "Browser-only indexer commissioning v2 runs.",
+      "name": "commissioning"
+    }
+  ]
+}
