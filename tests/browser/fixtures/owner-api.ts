@@ -151,6 +151,7 @@ const getResponses: Record<string, unknown> = {
   "/api/v1/dashboard": { counts: { movies: 5, series: 2, active_workflows: 3, needs_attention: 1, current_files: 3, recycle_entries: 1, pending_events: 3 }, recent_workflows: workflows, recent_activity: activity, generated_at: observed },
   "/api/v1/activity": activity,
   "/api/v1/settings/integrations": integrations,
+  "/api/v1/settings/oldboys/credentials": { available: true, configured: false },
   "/api/v1/settings/library-roots": roots,
   "/api/v1/settings/quality-profiles": profiles,
   "/api/v1/acquisition-verifications": [{ id: "ve000001-0000-4000-8000-000000000001", workflow_id: ids.wfAttention, altmount_job_id: "jb000001-0000-4000-8000-000000000001", candidate_id: ids.candidateB, media_title: "Attention Browser Movie", release_title: "Attention.Browser.Movie.2023.1080p.WEB-DL-GROUP", attempt_generation: 2, status: "unverified", required_languages: ["da"], preferred_languages: [], observed_languages: ["en", "fr"], evidence: {}, failure_reasons: ["required subtitle language da was not observed"], retry_state: "exhausted", can_reverify: true, created_at: "2026-09-02T00:00:00Z" }],

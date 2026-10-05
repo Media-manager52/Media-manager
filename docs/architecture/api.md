@@ -25,6 +25,14 @@ Every response goes through `security()`:
 
 ## 2. Envelopes and errors
 
+OldBoys credential setup uses owner-only GET/PUT
+`/api/v1/settings/oldboys/credentials`. GET returns `available`, `configured`,
+and optionally `updated_at`; PUT atomically replaces `api_token`, `pass_key`
+(PID), and `rss_key` (RID), then returns the same status fields. Credentials
+are encrypted with a separate API-only server key and never returned.
+PUT requires JSON, rejects cross-site browser requests, bounds input to 16 KiB,
+and never echoes malformed input. See [setup](../operations/oldboys.md).
+
 Success:
 
 ```json
@@ -169,6 +177,7 @@ the `needs_attention` lifecycle; opening another round remains an owner action.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET/POST | `/api/v1/settings/integrations` | List/create Plex/Seerr/AltMount/Newznab instances (disabled staging by default). |
+| GET/PUT | `/api/v1/settings/oldboys/credentials` | Read status only, or atomically save the API Token/PID/RID encrypted under the separate server key. Does not enable the provider. |
 | POST | `/api/v1/settings/integrations/{id}/commission` | Paced CAPS + negative query; enable only on success. |
 | GET | `/api/v1/settings/integrations/{id}/seerr-routes` | Configured Seerr root-folder routes plus every folder observed on persisted Seerr requests. |
 | POST | `/api/v1/settings/integrations/{id}/seerr-routes` | Create/replace a route (`media_kind`, `root_folder`, `library_root_id`, optional `quality_profile_id`); requeues paused Seerr requests. |

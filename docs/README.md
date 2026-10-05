@@ -34,6 +34,7 @@ behavioral truth is always the code and the SQL migrations.
 | --- | --- |
 | [operations/runbook.md](operations/runbook.md) | Deploy, Cosmos edge, env vars, backup/restore, smoke tests, troubleshooting |
 | [operations/github-vps.md](operations/github-vps.md) | VPS-hosted GitHub checks, private image uploads and owner-triggered production updates |
+| [operations/oldboys.md](operations/oldboys.md) | Owner credential setup, encryption key backup/recovery, and pending native provider validation |
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 

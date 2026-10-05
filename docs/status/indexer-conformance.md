@@ -130,3 +130,12 @@ not standard Newznab and must not be enabled through the generic adapter.
 5. Use Media Manager's supported **Validate & enable** action. Production
    commissioning and runtime traffic continue through Media Manager's durable
    pacing, rolling budgets, sanitizer, and redirect protections.
+
+## OldBoys credential preparation (2026-10-05)
+
+The owner UI can accept the OldBoys API Token, Pass Key (PID), and RSS Key (RID)
+into encrypted server-side storage. This is credential preparation only: no
+OldBoys HTTP request is made by saving, and the disabled legacy Newznab proxy
+is not commissioned or enabled. Native provider validation remains pending;
+the existing provider conformance evidence above is unchanged.
+See [OldBoys setup](../operations/oldboys.md).

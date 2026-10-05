@@ -7,7 +7,7 @@ belongs. Reading this before touching SQL saves hours.
 
 - Migrations are **embedded** Go/SQL: `internal/postgres/migrations/NNNN_name.sql`,
   embedded via `//go:embed migrations/*.sql` in `migrate.go`.
-- `CurrentSchemaVersion int64 = 43` in `migrate.go` is the single version gate.
+- `CurrentSchemaVersion int64 = 44` in `migrate.go` is the single version gate.
   `Migrate` applies every file whose numeric prefix is `<= CurrentSchemaVersion`
   and not yet in `schema_migrations`.
 - Each migration runs in its own transaction; a global advisory lock
@@ -52,8 +52,12 @@ Newznab fields; do not weaken those guarantees in new columns.
 - **JSON columns** hold rich evidence (policy, metadata, verification, plan
   payloads). They are validated by pure packages before or after load; treat
   them as untrusted when reading.
-- **Secrets never live in the DB.** Integrations store `secret_ref` (an env var
-  name); only sanitized values are persisted anywhere else.
+- **Plaintext secrets never live in the DB.** Integrations store `secret_ref`
+  (an env var name); ordinary provider evidence is sanitized. The dedicated
+  `oldboys_credentials` table is an explicit encrypted-storage exception:
+  AES-256-GCM seals all three keys under a separate API-only server key. No
+  read model returns the ciphertext or credentials. See
+  [OldBoys key recovery](../operations/oldboys.md).
 
 ## 3. Table catalog
 
@@ -69,6 +73,7 @@ non-obvious.
 | `audit_events` | Owner-visible write audit. |
 | `command_receipts` | Idempotency receipts for owner commands. |
 | `security_migration_aggregates` | Credential-sanitization evidence from migrations 27/28. |
+| `oldboys_credentials` | One encrypted API Token/PID/RID set plus update time; `oldboys_credentials.go`. Saving appends a secret-free audit in the same transaction. |
 
 ### Catalog and metadata
 

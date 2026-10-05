@@ -171,6 +171,9 @@ export const restoreAdoptedFiles = (id: string, confirmation: string) => request
 export const confirmRealFilePurge = (id: string, confirmation: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/confirm-purge`, { method: "POST", body: JSON.stringify({ confirmation }) })
 export const createIntegration = (input: Omit<APIIntegration, "id" | "created_at" | "updated_at">) => requestJSON<APIIntegration>("/api/v1/settings/integrations", { method: "POST", body: JSON.stringify(input) })
 export const commissionIntegration = (id: string) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/commission`, { method: "POST" })
+export type APIOldBoysCredentialStatus = { available: boolean; configured: boolean; updated_at?: string }
+export const loadOldBoysCredentialStatus = (signal?: AbortSignal) => requestJSON<APIOldBoysCredentialStatus>("/api/v1/settings/oldboys/credentials", { signal })
+export const saveOldBoysCredentials = (input: { api_token: string; pass_key: string; rss_key: string }) => requestJSON<APIOldBoysCredentialStatus>("/api/v1/settings/oldboys/credentials", { method: "PUT", body: JSON.stringify(input) })
 export const loadSeerrRouting = (instanceID: string) => requestJSON<APISeerrRouting>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes`)
 export const saveSeerrRoute = (instanceID: string, input: { media_kind: "movie" | "series"; root_folder: string; library_root_id: string; quality_profile_id?: string }) => requestJSON<APISeerrRoute>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes`, { method: "POST", body: JSON.stringify(input) })
 export const deleteSeerrRoute = (instanceID: string, routeID: string) => requestJSON<void>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes/${encodeURIComponent(routeID)}`, { method: "DELETE" })

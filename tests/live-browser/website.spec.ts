@@ -16,6 +16,25 @@ const baseOrigin = new URL(`http://127.0.0.1:${process.env.MEDIA_MANAGER_LIVE_PO
 const audits = new WeakMap<Page, BrowserAudit>()
 const screenshotRoutes = new Set(["/", "/v2", "/v2/library", "/v2/requests", "/v2/attention", "/media", "/media/series", "/activity/queue", "/system/health"])
 
+test("OldBoys owner setup exposes only credential status and empty password fields", async ({ page }) => {
+  await visit(page, "/settings/connections")
+  const response = await page.request.get("/api/v1/settings/oldboys/credentials")
+  expect(response.status()).toBe(200)
+  const body = await response.json()
+  const status = body.data as { available: boolean; configured: boolean }
+  // Assert field names without printing any unexpected response values.
+  expect(Object.keys(status).every((key) => ["available", "configured", "updated_at"].includes(key))).toBe(true)
+  expect(typeof status.available === "boolean" && typeof status.configured === "boolean").toBe(true)
+  await expect(page.getByRole("heading", { name: "OldBoys credentials", exact: true })).toBeVisible()
+  for (const label of ["API Token", "Pass Key (PID)", "RSS Key (RID)"]) {
+    const field = page.getByLabel(label, { exact: true })
+    await expect(field).toHaveAttribute("type", "password")
+    await expect(field).toHaveValue("")
+    if (status.available) await expect(field).toBeEnabled()
+    else await expect(field).toBeDisabled()
+  }
+})
+
 // V2 keeps short navigation labels but uses editorial page headings. Assert
 // those exact headings without weakening the existing console's title checks.
 const previewHeadings: Record<string, string> = {
