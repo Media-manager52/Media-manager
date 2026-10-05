@@ -67,13 +67,38 @@ Each operation carries:
   rejected with `400`.
 - `202` means queued, not done. Background work is paced per provider, so
   check the workflow again later instead of re-sending.
-- `409` means the action does not apply in the current state. The message
-  says why, for example "the acquisition round is exhausted; …". Read the
-  workflow again rather than retrying.
+- `409` means the action does not apply in the current state. `error.code`
+  is stable (for example `round_exhausted`, `retained_output_limit_reached`,
+  `altmount_job_active`, `concurrent_modification`) and `error.hint` says what
+  to do instead. Read the workflow again rather than retrying.
 - Some actions take a `revision` or `expected_revision`. Read it immediately
   before acting; a stale revision is refused by design.
 
-## 4. Common tasks
+## 4. Workflow actions
+
+`GET /api/v1/workflows/{id}` (and each row of `GET /api/v1/workflows`)
+includes `available_actions`. Each entry has:
+
+```json
+{ "action": "open_next_round", "operation_id": "openAcquisitionRound",
+  "method": "POST", "path": "/api/v1/workflows/<id>/acquisition-rounds",
+  "effect": "provider", "available": false,
+  "reason": "No newly discovered eligible release is ready yet; paced discovery keeps looking." }
+```
+
+- Call only actions with `"available": true`. Send `body` exactly when
+  present; it is pre-filled, for example the candidate and revision for an
+  access-rejected retry.
+- `confirmation` means the owner must approve first. Never send the phrase
+  without asking.
+- `available` reflects what the read model can see. The server re-checks
+  everything, so a `409` with a hint is still possible.
+
+The action names are `search`, `discover`, `open_next_round`,
+`open_round_from_known`, `reconcile_altmount`, `reconfirm_plex`, `cancel` and,
+when one exists, `retry_access_rejected_release`.
+
+## 5. Common tasks
 
 | Goal | Calls |
 | --- | --- |
@@ -81,14 +106,13 @@ Each operation carries:
 | What needs attention? | `GET /api/v1/dashboard`, `GET /api/v1/workflows`, `GET /api/v1/requests` |
 | Look at one title | `GET /api/v1/media?limit=…` then `GET /api/v1/media/{id}/detail` |
 | Look at one workflow | `GET /api/v1/workflows/{id}` |
+| Fix a workflow that needs attention | `GET /api/v1/workflows/{id}`, then the `available_actions` entry that is available |
 | Search now for one workflow | `POST /api/v1/workflows/{id}/search` (provider) |
-| Continue after AltMount finished | `POST /api/v1/workflows/{id}/reconcile-altmount` |
-| Plex confirmation timed out | `POST /api/v1/workflows/{id}/reconfirm-plex` |
 | Approve a Seerr request | `POST /api/v1/requests/{id}/approve` (provider) |
 | Change OldBoys daily limits | `PUT /api/v1/settings/oldboys/budget` `{"query_limit":5000}` |
 | Back up now | `POST /api/v1/backups` |
 
-## 5. Safety rules
+## 6. Safety rules
 
 - Prefer `read` operations. Ask the owner before any `destructive` operation
   and before bulk `provider` operations (many searches or rounds at once).

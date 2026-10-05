@@ -62,6 +62,8 @@ type apiOperation struct {
 	Required []string // required top-level body fields
 	// OptionalBody means the body may be omitted entirely.
 	OptionalBody bool
+	// Response is a zero value of the type returned in "data", when declared.
+	Response any
 }
 
 var (
@@ -91,8 +93,8 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "POST", Path: "/api/v1/media/{id}/archive", Handler: s.archiveMedia, Auth: owner, Effect: effectWrite, Tag: "media", Summary: "Retire unwanted media from the active catalogue", Description: "Cancels non-terminal workflows and soft-deletes the media row. Never deletes files, AltMount sources or history; refused while files are published or work is in flight."},
 		{Method: "DELETE", Path: "/api/v1/media/{id}", Handler: s.recycleMedia, Auth: owner, Effect: effectDestructive, Tag: "media", Summary: "Move media and its published links to the recycle bin"},
 
-		{Method: "GET", Path: "/api/v1/workflows", Handler: s.listWorkflows, Auth: owner, Effect: effectRead, Tag: "workflows", Summary: "List workflows", Query: []apiParam{{Name: "active", Type: "boolean", Description: "Only non-terminal workflows (default true). Pass false for all."}, limitParam}},
-		{Method: "GET", Path: "/api/v1/workflows/{id}", Handler: s.getWorkflow, Auth: owner, Effect: effectRead, Tag: "workflows", Summary: "One workflow with its state, revision, rounds and attention"},
+		{Method: "GET", Path: "/api/v1/workflows", Handler: s.listWorkflows, Auth: owner, Effect: effectRead, Tag: "workflows", Summary: "List workflows with their available actions", Query: []apiParam{{Name: "active", Type: "boolean", Description: "Only non-terminal workflows (default true). Pass false for all."}, limitParam}, Response: []workflowView{}},
+		{Method: "GET", Path: "/api/v1/workflows/{id}", Handler: s.getWorkflow, Auth: owner, Effect: effectRead, Tag: "workflows", Summary: "One workflow: state, revision, rounds, retained output, attention and available_actions", Description: "available_actions lists every owner action with its route, effect, whether it applies now (or why not) and a ready-to-send body where one is needed.", Response: workflowDetail{}},
 		{Method: "POST", Path: "/api/v1/workflows/{id}/search", Handler: s.searchWorkflow, Auth: owner, Effect: effectProvider, Tag: "workflows", Summary: "Queue one paced indexer search now", Description: "Allowed in monitored, waiting, held and needs_attention. Refused while the acquisition round is exhausted (open the next round instead) or an AltMount job is active.", Body: searchWorkflowInput{}, OptionalBody: true},
 		{Method: "POST", Path: "/api/v1/workflows/{id}/discover", Handler: s.discoverWorkflow, Auth: owner, Effect: effectProvider, Tag: "workflows", Summary: "Queue an evidence-only discovery rescan (finds new releases without grabbing)"},
 		{Method: "POST", Path: "/api/v1/workflows/{id}/acquisition-rounds", Handler: s.openAcquisitionRound, Auth: owner, Effect: effectProvider, Tag: "workflows", Summary: "Open the next acquisition round after discovery found a new eligible release"},

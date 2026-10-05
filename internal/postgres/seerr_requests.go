@@ -323,7 +323,7 @@ func (store *Store) SeerrRequest(ctx context.Context, instanceID, requestID stri
 	}
 	detail := SeerrRequestDetail{Request: summary, Workflows: []WorkflowSummary{}, Seasons: []SeerrRequestSeason{}, Files: []ManagedFile{}}
 	if summary.MediaID != nil {
-		detail.Workflows, err = store.workflowSummaries(ctx, 500, false, summary.MediaID)
+		detail.Workflows, err = store.workflowSummaries(ctx, 500, false, summary.MediaID, nil)
 		if err != nil {
 			return SeerrRequestDetail{}, err
 		}

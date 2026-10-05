@@ -61,6 +61,8 @@ type errorEnvelope struct {
 	Error struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		// Hint is the next step, when the server knows one.
+		Hint string `json:"hint,omitempty"`
 	} `json:"error"`
 }
 type dataEnvelope struct {
@@ -1115,7 +1117,11 @@ func (server *Server) listWorkflows(writer http.ResponseWriter, request *http.Re
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load workflows")
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]any{"count": len(items), "active_only": activeOnly}})
+	views := make([]workflowView, 0, len(items))
+	for _, item := range items {
+		views = append(views, newWorkflowView(item))
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: views, Meta: map[string]any{"count": len(items), "active_only": activeOnly}})
 }
 
 func (server *Server) createMediaWorkflow(writer http.ResponseWriter, request *http.Request) {
@@ -1194,7 +1200,7 @@ func (server *Server) searchWorkflow(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
 		return
 	} else if err != nil {
-		writeError(writer, http.StatusConflict, "search_failed", err.Error())
+		writeConflict(writer, err, "search_failed", err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "search_queued", "id": id.String()}})
@@ -1210,7 +1216,7 @@ func (server *Server) discoverWorkflow(writer http.ResponseWriter, request *http
 		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
 		return
 	} else if err != nil {
-		writeError(writer, http.StatusConflict, "discovery_failed", err.Error())
+		writeConflict(writer, err, "discovery_failed", err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "discovery_queued", "id": id.String()}})
@@ -1226,7 +1232,7 @@ func (server *Server) openAcquisitionRound(writer http.ResponseWriter, request *
 		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
 		return
 	} else if err != nil {
-		writeError(writer, http.StatusConflict, "round_open_failed", err.Error())
+		writeConflict(writer, err, "round_open_failed", err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "round_opened", "id": id.String()}})
@@ -1242,7 +1248,7 @@ func (server *Server) openKnownAcquisitionRound(writer http.ResponseWriter, requ
 		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
 		return
 	} else if err != nil {
-		writeError(writer, http.StatusConflict, "round_open_failed", err.Error())
+		writeConflict(writer, err, "round_open_failed", err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "round_opened_from_known", "id": id.String()}})
@@ -1286,7 +1292,7 @@ func (server *Server) relocateWorkflowLinks(writer http.ResponseWriter, request 
 		writeError(writer, http.StatusNotFound, "not_found", "workflow or root was not found")
 		return
 	} else if err != nil {
-		writeError(writer, http.StatusConflict, "relocate_failed", err.Error())
+		writeConflict(writer, err, "relocate_failed", err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]any{"status": "links_relocated", "id": id.String(), "moved": moved}})
@@ -1333,7 +1339,7 @@ func (server *Server) reconcileAltMount(writer http.ResponseWriter, request *htt
 		writeError(writer, http.StatusNotFound, "not_found", "workflow or current AltMount job was not found")
 		return
 	} else if err != nil {
-		writeError(writer, http.StatusConflict, "reconciliation_failed", "current AltMount job cannot be reconciled safely")
+		writeConflict(writer, err, "reconciliation_failed", "current AltMount job cannot be reconciled safely")
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "reconciliation_queued", "id": id.String()}})
@@ -1350,7 +1356,7 @@ func (server *Server) reconfirmPlex(writer http.ResponseWriter, request *http.Re
 	case errors.Is(err, postgres.ErrNotFound):
 		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
 	case errors.Is(err, postgres.ErrPlexReconfirmationNotTimedOut), errors.Is(err, postgres.ErrPlexReconfirmationUnverified), errors.Is(err, postgres.ErrPlexReconfirmationLimit):
-		writeError(writer, http.StatusConflict, "reconfirmation_rejected", err.Error())
+		writeConflict(writer, err, "reconfirmation_rejected", err.Error())
 	case err != nil:
 		writeError(writer, http.StatusConflict, "reconfirmation_failed", "Plex confirmation cannot be retried safely")
 	default:
@@ -1396,7 +1402,7 @@ func (server *Server) cancelWorkflow(writer http.ResponseWriter, request *http.R
 		return
 	}
 	if err != nil {
-		writeError(writer, http.StatusConflict, "cancel_failed", err.Error())
+		writeConflict(writer, err, "cancel_failed", err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: workflow})
@@ -1529,9 +1535,29 @@ func (server *Server) getWorkflow(writer http.ResponseWriter, request *http.Requ
 	// explicit owner action before another acquisition. Surface that as
 	// needs_attention to owner-facing readers without changing the durable
 	// waiting state that discovery depends on.
-	workflow.State = workflow.OwnerAttentionState()
+	summary, err := server.store.WorkflowSummary(request.Context(), id)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load workflow")
+		return
+	}
+	// Actions are computed from the durable state before the owner-facing
+	// state replaces it for display.
+	view := workflowDetail{workflowView: newWorkflowView(summary), RootID: workflow.RootID.String(), QualityProfileID: workflow.QualityProfileID.String(), DownloadClientID: workflow.DownloadClientID.String(), SelectedReleaseID: workflow.SelectedRelease, GrabAttemptID: workflow.GrabAttemptID}
+	view.State = workflow.OwnerAttentionState()
+	view.Revision = workflow.Revision
 	writer.Header().Set("ETag", `"`+strconv.FormatUint(workflow.Revision, 10)+`"`)
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: workflow})
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: view})
+}
+
+// workflowDetail is the single-workflow read: the list read model, the
+// workflow's configuration references and its available actions.
+type workflowDetail struct {
+	workflowView
+	RootID            string     `json:"root_id"`
+	QualityProfileID  string     `json:"quality_profile_id"`
+	DownloadClientID  string     `json:"download_client_id"`
+	SelectedReleaseID *uuid.UUID `json:"selected_release_id,omitempty"`
+	GrabAttemptID     *uuid.UUID `json:"grab_attempt_id,omitempty"`
 }
 
 // archiveMedia retires a confirmed unwanted media record (for example test or
@@ -1905,9 +1931,44 @@ func decodeJSON(request *http.Request, output any, limit int64) error {
 }
 
 func writeError(writer http.ResponseWriter, status int, code, message string) {
+	writeErrorHint(writer, status, code, message, "")
+}
+
+func writeErrorHint(writer http.ResponseWriter, status int, code, message, hint string) {
 	response := errorEnvelope{}
-	response.Error.Code, response.Error.Message = code, message
+	response.Error.Code, response.Error.Message, response.Error.Hint = code, message, hint
 	writeJSON(writer, status, response)
+}
+
+const workflowActionsHint = "Read available_actions on GET /api/v1/workflows/{id} for what applies now."
+
+// conflictSentinels gives the store's sentinel refusals stable codes and hints.
+var conflictSentinels = []struct {
+	err        error
+	code, hint string
+}{
+	{postgres.ErrConcurrentModification, "concurrent_modification", "The workflow changed while the action ran. Re-read GET /api/v1/workflows/{id} and retry with its current revision."},
+	{postgres.ErrWorkflowAltMountJobActive, "altmount_job_active", "Wait for the active AltMount job to settle, then retry."},
+	{postgres.ErrWorkflowNotCancellable, "workflow_not_cancellable", "Workflows that are publishing, published or terminal cannot be cancelled."},
+	{postgres.ErrPlexReconfirmationNotTimedOut, "plex_not_timed_out", "Only a workflow in needs_attention with attention_code plex_timeout can be reconfirmed."},
+}
+
+// writeConflict reports a refused owner action as 409. A typed ActionRefusal
+// or known sentinel keeps a stable code and hint; anything else keeps the
+// caller's code and message, with a pointer to the workflow's actions.
+func writeConflict(writer http.ResponseWriter, err error, code, message string) {
+	var refusal postgres.ActionRefusal
+	if errors.As(err, &refusal) {
+		writeErrorHint(writer, http.StatusConflict, refusal.Code, refusal.Message, refusal.Hint)
+		return
+	}
+	for _, sentinel := range conflictSentinels {
+		if errors.Is(err, sentinel.err) {
+			writeErrorHint(writer, http.StatusConflict, sentinel.code, err.Error(), sentinel.hint)
+			return
+		}
+	}
+	writeErrorHint(writer, http.StatusConflict, code, message, workflowActionsHint)
 }
 
 func writeJSON(writer http.ResponseWriter, status int, body any) {

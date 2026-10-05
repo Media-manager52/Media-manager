@@ -307,7 +307,7 @@ func (store *Store) MediaDetail(ctx context.Context, mediaID uuid.UUID) (MediaDe
 		return MediaDetail{}, err
 	}
 	result := MediaDetail{Media: item, Workflows: []WorkflowSummary{}, Seasons: []MediaSeason{}, Files: []ManagedFile{}}
-	result.Workflows, err = store.workflowSummaries(ctx, 500, false, &mediaID)
+	result.Workflows, err = store.workflowSummaries(ctx, 500, false, &mediaID, nil)
 	if err != nil {
 		return MediaDetail{}, err
 	}

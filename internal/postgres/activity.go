@@ -64,7 +64,10 @@ type WorkflowSummary struct {
 	// owner: an unresolved failure state, or a waiting workflow whose paced
 	// discovery found a new eligible release that the owner must approve.
 	// Self-recovering states (held, searching, normal waiting) are false.
-	OwnerActionRequired                    bool       `json:"owner_action_required"`
+	OwnerActionRequired bool `json:"owner_action_required"`
+	// ActiveAltMountJob is true while an AltMount job is submitting, queued or
+	// processing; most owner recovery actions wait for it to settle.
+	ActiveAltMountJob                      bool       `json:"active_altmount_job"`
 	AdoptedReplacementConfirmationRequired bool       `json:"adopted_replacement_confirmation_required"`
 	TerminalAt                             *time.Time `json:"terminal_at,omitempty"`
 	CreatedAt                              time.Time  `json:"created_at"`
@@ -98,16 +101,32 @@ func (store *Store) GetMedia(ctx context.Context, id uuid.UUID) (catalog.MediaIt
 }
 
 func (store *Store) ListWorkflowSummaries(ctx context.Context, limit int, activeOnly bool) ([]WorkflowSummary, error) {
-	return store.workflowSummaries(ctx, limit, activeOnly, nil)
+	return store.workflowSummaries(ctx, limit, activeOnly, nil, nil)
 }
 
-func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly bool, mediaID *uuid.UUID) ([]WorkflowSummary, error) {
+// WorkflowSummary is the owner read model of one workflow, including archived
+// media, terminal workflows and the same readiness facts the list shows.
+func (store *Store) WorkflowSummary(ctx context.Context, id uuid.UUID) (WorkflowSummary, error) {
+	items, err := store.workflowSummaries(ctx, 1, false, nil, &id)
+	if err != nil {
+		return WorkflowSummary{}, err
+	}
+	if len(items) == 0 {
+		return WorkflowSummary{}, ErrNotFound
+	}
+	return items[0], nil
+}
+
+func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly bool, mediaID, workflowID *uuid.UUID) ([]WorkflowSummary, error) {
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
-	var mediaIDValue any
+	var mediaIDValue, workflowIDValue any
 	if mediaID != nil {
 		mediaIDValue = mediaID.String()
+	}
+	if workflowID != nil {
+		workflowIDValue = workflowID.String()
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(NULLIF(workflow.attention_detail,''),(SELECT transition.reason FROM workflow_transitions transition WHERE transition.workflow_id=workflow.id AND transition.to_state='needs_attention' ORDER BY transition.to_revision DESC LIMIT 1),''),
 		COALESCE((SELECT max(job.attempt_generation) FROM altmount_jobs job WHERE job.workflow_id=workflow.id),0),
@@ -133,14 +152,15 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		EXISTS(SELECT 1 FROM adopted_files adopted WHERE adopted.media_id=workflow.media_id AND adopted.variant=workflow.variant AND adopted.state='current' AND NOT EXISTS(SELECT 1 FROM adopted_replacement_authorizations replacement_auth WHERE replacement_auth.workflow_id=workflow.id AND replacement_auth.adopted_file_id=adopted.id AND replacement_auth.destination_relative=adopted.destination_relative AND replacement_auth.source_size=adopted.source_size AND replacement_auth.source_modtime_ns=adopted.source_modtime_ns)),
 		workflow.terminal_at,workflow.created_at,workflow.updated_at,
 		progress.progress_percent,COALESCE(progress.progress_stage,''),progress.progress_observed_at,
-		COALESCE(profile.name,''),access_retry.id,COALESCE(access_retry.title,''),COALESCE(access_retry.indexer_name,'')
+		COALESCE(profile.name,''),access_retry.id,COALESCE(access_retry.title,''),COALESCE(access_retry.indexer_name,''),
+		EXISTS(SELECT 1 FROM altmount_jobs job WHERE job.workflow_id=workflow.id AND job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
 		LEFT JOIN altmount_jobs progress ON progress.id=workflow.grab_attempt_id AND workflow.state IN ('submitting','queued','downloading','streaming_ready')
 		LEFT JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
 		LEFT JOIN LATERAL (SELECT c.id::text,c.title,i.name AS indexer_name `+store.accessRejectedRetryQuery()+` AND w.id=workflow.id) access_retry ON true
-		WHERE media.deleted_at IS NULL AND (NOT $2 OR workflow.terminal_at IS NULL)
-			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid)
-		ORDER BY workflow.updated_at DESC,workflow.id LIMIT $1`, limit, activeOnly, mediaIDValue)
+		WHERE ($4::uuid IS NOT NULL OR media.deleted_at IS NULL) AND (NOT $2 OR workflow.terminal_at IS NULL)
+			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid) AND ($4::uuid IS NULL OR workflow.id=$4::uuid)
+		ORDER BY workflow.updated_at DESC,workflow.id LIMIT $1`, limit, activeOnly, mediaIDValue, workflowIDValue)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +174,7 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		var revision int64
 		var publicationStarted, currentJobNeedsAttention bool
 		var downloadPercent *int16
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

@@ -98,7 +98,7 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 			return nil, err
 		}
 		if !available {
-			return nil, errors.New("search requires at least one commissioned indexer for this media")
+			return nil, refuse("no_commissioned_indexer", "search requires at least one commissioned indexer for this media", "Commission and enable an indexer that serves this media (GET /api/v1/settings/integrations).")
 		}
 	}
 	var year any
@@ -197,7 +197,7 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 			return workflows.Workflow{}, err
 		}
 		if !available {
-			return workflows.Workflow{}, errors.New("search requires at least one commissioned indexer for this media")
+			return workflows.Workflow{}, refuse("no_commissioned_indexer", "search requires at least one commissioned indexer for this media", "Commission and enable an indexer that serves this media (GET /api/v1/settings/integrations).")
 		}
 	}
 	var kind catalog.MediaKind
@@ -320,7 +320,7 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		return transaction.Commit(ctx)
 	}
 	if state != workflows.StateMonitored && state != workflows.StateWaiting && state != workflows.StateNeedsAttention && state != workflows.StateHeld {
-		return errors.New("workflow cannot be searched from its current state")
+		return refuse("workflow_not_searchable", "workflow cannot be searched from its current state", "Only monitored, waiting, held and needs_attention workflows can be searched; read available_actions on GET /api/v1/workflows/{id}.")
 	}
 	var exhaustedRound, retryDiscovery, currentOpenRound bool
 	if err := transaction.QueryRow(ctx, `SELECT
@@ -333,14 +333,14 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		return err
 	}
 	if exhaustedRound || retryDiscovery && !currentOpenRound {
-		return errors.New("the acquisition round is exhausted; wait for a new eligible release and use the owner start-next-round action")
+		return refuse("round_exhausted", "the acquisition round is exhausted; wait for a new eligible release and use the owner start-next-round action", "Paced discovery keeps looking. When available_actions shows open_next_round or open_round_from_known as available, call that instead of search.")
 	}
 	var indexerAvailable bool
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances i WHERE i.enabled AND i.config->'mode_verified'='true'::jsonb AND (i.kind='newznab' OR (i.kind='oldboys' AND EXISTS(SELECT 1 FROM media_metadata WHERE media_id=$1 AND data->>'original_language'='da') AND EXISTS(SELECT 1 FROM oldboys_credentials c WHERE (i.config->>'credentials_updated_at')::timestamptz=c.updated_at))))`, mediaText).Scan(&indexerAvailable); err != nil {
 		return err
 	}
 	if !indexerAvailable {
-		return errors.New("search requires at least one commissioned indexer for this media")
+		return refuse("no_commissioned_indexer", "search requires at least one commissioned indexer for this media", "Commission and enable an indexer that serves this media (GET /api/v1/settings/integrations).")
 	}
 	if retryDiscovery && currentOpenRound {
 		// Legacy policy restorations could leave discovery attached to an older
@@ -351,7 +351,7 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 			return err
 		}
 		if activeJob {
-			return errors.New("recover the active AltMount job before searching again")
+			return refuse("altmount_job_active", "recover the active AltMount job before searching again", "Wait for the AltMount job to settle, or use reconcile_altmount when the workflow needs attention.")
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,
 			rescan_generation=rescan_generation+1,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2
@@ -366,18 +366,18 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	var outputFailure *failedOutput
 	if state == workflows.StateNeedsAttention {
 		if infrastructureAttentionCode(attentionCode) || attentionCode == "altmount_submission_rejected" {
-			return errors.New("workflow needs owner recovery of the current AltMount job before another search can start")
+			return refuse("altmount_recovery_required", "workflow needs owner recovery of the current AltMount job before another search can start", "Use reconcile_altmount (POST /api/v1/workflows/{id}/reconcile-altmount) to continue the same job.")
 		}
 		switch attentionCode {
 		case "plex_timeout", "publication_failed", "seerr_snapshot_changed", "seerr_request_revoked":
-			return errors.New("workflow needs owner recovery before another search can start")
+			return refuse("owner_recovery_required", "workflow needs owner recovery before another search can start", "Read attention_code on the workflow and use the matching recovery action from available_actions.")
 		}
 		var publicationStarted bool
 		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM library_link_versions WHERE workflow_id=$1 AND state IN ('publishing','verified','current','quarantined'))`, workflowID.String()).Scan(&publicationStarted); err != nil {
 			return err
 		}
 		if publicationStarted {
-			return errors.New("workflow publication already started; recover or verify the existing links instead of searching again")
+			return refuse("publication_started", "workflow publication already started; recover or verify the existing links instead of searching again", "Use reconfirm_plex or reconcile_altmount for the existing links instead of searching.")
 		}
 		var jobState, jobText, candidateText, indexerText, nativeKey, detail string
 		var roundSlot, roundLimit int
@@ -394,7 +394,7 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		}
 		if err == nil && jobState == "needs_attention" {
 			if roundSlot >= roundLimit {
-				return errors.New("acquisition round attempt limit reached; failed output remains available for owner review")
+				return refuse("round_attempt_limit_reached", "acquisition round attempt limit reached; failed output remains available for owner review", "Wait for paced discovery to find a new eligible release, then open the next round.")
 			}
 			candidateID, candidateErr := uuid.Parse(candidateText)
 			if candidateErr != nil {

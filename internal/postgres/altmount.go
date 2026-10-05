@@ -584,3 +584,7 @@ func altMountProgress(item altmount.QueueItem) (*int16, *string) {
 	}
 	return percent, stage
 }
+
+// InfrastructureAttentionCode reports attention codes that are recovered by
+// reconciling the same AltMount job rather than searching for another release.
+func InfrastructureAttentionCode(code string) bool { return infrastructureAttentionCode(code) }
