@@ -22,6 +22,15 @@ redirect are rejected. Network sends use direct IPv4, `MediaManager/1`, the
 shared durable request scheduler, a five-second minimum interval, one request
 in flight, and conservative rolling limits of 1,000 searches/100 grabs per 24h.
 These fallback limits are not a claim about the owner's subscription allowance.
+The owner can record the account's real daily limits with
+`PUT /api/v1/settings/oldboys/budget` and a JSON body such as
+`{"query_limit":5000,"grab_limit":100}` (`grab_limit` is optional and keeps the
+current value; allowed ranges are 1–50,000 searches and 1–5,000 grabs). Only the
+two limits change: the provider stays enabled, pacing/window/scope/credentials
+are unchanged, the change is audited as `oldboys.budget_set` with
+`budget_source=owner_stated`, the next search or retrieval uses it, and
+recommissioning keeps an owner-stated budget. Native page rotation is anchored
+on `commissioned_at`, so a budget edit does not send workflows back to page one.
 
 Only catalogue movies/series with original language `da` use this provider;
 release titles must also contain a standalone `DANiSH` token. Each scheduled

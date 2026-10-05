@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -139,5 +140,60 @@ func TestOldBoysCommissionRequiresOwnerAndSanitizesProviderErrors(t *testing.T) 
 	}
 	if calls != 1 {
 		t.Fatal("unprotected commission sent requests")
+	}
+}
+
+func TestOldBoysBudgetOwnerRouteBoundaries(t *testing.T) {
+	store := openHTTPTestStore(t)
+	ctx := context.Background()
+	server, err := New(Config{OwnerToken: strings.Repeat("o", 32)}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(body string, owner, cross bool) *httptest.ResponseRecorder {
+		request := httptest.NewRequest("PUT", "/api/v1/settings/oldboys/budget", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		if owner {
+			request.Header.Set("Authorization", "Bearer "+strings.Repeat("o", 32))
+		}
+		if cross {
+			request.Header.Set("Sec-Fetch-Site", "cross-site")
+		}
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		return response
+	}
+	if call(`{"query_limit":5000}`, false, false).Code != 401 || call(`{"query_limit":5000}`, true, true).Code != 403 {
+		t.Fatal("budget route owner/origin boundary failed")
+	}
+	if call(`{"query_limit":5000}`, true, false).Code != 409 {
+		t.Fatal("budget accepted without a commissioned provider")
+	}
+	vault, err := oldboyscredentials.New(store, strings.Repeat("ab", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := vault.Save(ctx, oldboyscredentials.Credentials{APIToken: "fixture-api", PassKey: "fixture-pid", RSSKey: "fixture-rid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := store.PrepareOldBoysCommission(ctx, *status.UpdatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteOldBoysCommission(ctx, attempt, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"query_limit":0}`, `{"query_limit":50001}`, `{"query_limit":"5000"}`, `{"query_limit":5000,"extra":1}`} {
+		if response := call(body, true, false); response.Code != 400 {
+			t.Fatal("invalid budget accepted", body, response.Code)
+		}
+	}
+	response := call(`{"query_limit":5000}`, true, false)
+	var envelope struct {
+		Data postgres.Integration `json:"data"`
+	}
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &envelope) != nil || !strings.Contains(string(envelope.Data.Config), `"query_limit":5000`) || strings.Contains(response.Body.String(), "fixture-") {
+		t.Fatal("owner budget not saved", response.Code, response.Body.String())
 	}
 }

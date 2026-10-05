@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"time"
 
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
+	"github.com/media-manager/media-manager/internal/postgres"
 )
 
 func (server *Server) oldBoysCredentialsStatus(writer http.ResponseWriter, request *http.Request) {
@@ -73,4 +75,38 @@ func (server *Server) commissionOldBoys(writer http.ResponseWriter, request *htt
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: integration, Meta: map[string]int{"seerr_requests_requeued": requeued}})
+}
+
+func (server *Server) setOldBoysBudget(writer http.ResponseWriter, request *http.Request) {
+	contentType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || contentType != "application/json" {
+		writeError(writer, http.StatusUnsupportedMediaType, "json_required", "The budget must be submitted as JSON")
+		return
+	}
+	if request.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		writeError(writer, http.StatusForbidden, "origin_rejected", "Change the OldBoys budget from Media Manager")
+		return
+	}
+	var input struct {
+		QueryLimit int `json:"query_limit"`
+		GrabLimit  int `json:"grab_limit"`
+	}
+	if err := decodeJSON(request, &input, 4<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_oldboys_budget", "Enter the daily search limit and optional daily download limit as whole numbers")
+		return
+	}
+	integration, err := server.store.SetOldBoysBudget(request.Context(), input.QueryLimit, input.GrabLimit, time.Now().UTC())
+	if errors.Is(err, postgres.ErrInvalidOldBoysBudget) {
+		writeError(writer, http.StatusBadRequest, "invalid_oldboys_budget", fmt.Sprintf("Daily searches must be 1-%d and downloads 1-%d", postgres.MaxOldBoysQueryLimit, postgres.MaxOldBoysGrabLimit))
+		return
+	}
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusConflict, "oldboys_not_commissioned", "Validate and enable OldBoys before setting its budget")
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusServiceUnavailable, "oldboys_budget_unavailable", "Could not save the OldBoys budget")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: integration})
 }
