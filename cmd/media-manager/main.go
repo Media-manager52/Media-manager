@@ -22,6 +22,7 @@ import (
 	"github.com/media-manager/media-manager/internal/httpapi"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/intake"
+	"github.com/media-manager/media-manager/internal/mcpserver"
 	"github.com/media-manager/media-manager/internal/mediainfo"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/notifications"
@@ -66,6 +67,16 @@ func run() error {
 			return fmt.Errorf("health endpoint returned HTTP %d", response.StatusCode)
 		}
 		return nil
+	}
+	if command == "mcp" {
+		// Model Context Protocol over stdio for AI clients. It is an HTTP
+		// client of the local API, so every server-side guard still applies.
+		// Logs go to stderr; stdout carries only the protocol.
+		baseURL := os.Getenv("MEDIA_MANAGER_MCP_URL")
+		if baseURL == "" {
+			baseURL = "http://127.0.0.1:8080"
+		}
+		return mcpserver.Run(context.Background(), os.Stdin, os.Stdout, mcpserver.Config{BaseURL: baseURL, Token: optionalSecret("OWNER_TOKEN"), Version: version})
 	}
 	databaseURL := optionalSecret("DATABASE_URL")
 	if databaseURL == "" && optionalSecret("PGHOST") == "" {

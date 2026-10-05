@@ -10,7 +10,8 @@ truthful, and safe for an owner-operated production media system.
   domain workflows, operations runbook, development recipes, and glossary.
   Start there when you have no prior context; the hub is `docs/README.md`.
 - To inspect or operate a running Media Manager, use its API, not SQL: see
-  `docs/operations/ai-agents.md` (`GET /api/v1`, `GET /api/v1/openapi.json`).
+  `docs/operations/ai-agents.md` (`GET /api/v1`, `GET /api/v1/openapi.json`,
+  or the MCP server: `docker exec -i media-manager-api-1 media-manager mcp`).
 - Read `README.md` for the product contract, local commands, and safety invariants.
 - Read `docs/status/release.md` for release evidence and
   `docs/status/implementation.md` before changing a partial feature.

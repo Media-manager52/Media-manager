@@ -29,6 +29,37 @@ mm() {  # usage: mm GET /api/v1/system/info   |   mm PUT /api/v1/x '{"json":1}'
 }
 ```
 
+### MCP (recommended for Claude, Codex and other MCP clients)
+
+The API binary includes a Model Context Protocol server. It runs inside the
+API container and uses that container's own `OWNER_TOKEN`, so no secret is
+copied to the host or shown to the AI:
+
+```bash
+# Claude Code
+claude mcp add media-manager -- docker exec -i media-manager-api-1 media-manager mcp
+```
+
+```toml
+# Codex (~/.codex/config.toml)
+[mcp_servers.media-manager]
+command = "docker"
+args = ["exec", "-i", "media-manager-api-1", "media-manager", "mcp"]
+```
+
+It offers four tools generated from the live OpenAPI document:
+
+- `overview`: version, health, queue and indexer budgets.
+- `list_operations`: filter by tag, effect or text.
+- `describe_operation`: parameters and full schemas of one operation.
+- `call_operation`: performs a call.
+
+`call_operation` refuses destructive operations unless `confirm: true` is
+passed after the owner approved. It also refuses browser-only routes and
+binary transfers. Every server-side guard still applies, because the MCP
+server is only an HTTP client. Set `MEDIA_MANAGER_MCP_URL` to point it at
+another API address.
+
 ## 2. Discover what exists
 
 1. `GET /api/v1` gives the index: version, conventions, what each effect
@@ -106,10 +137,14 @@ when one exists, `retry_access_rejected_release`.
 | What needs attention? | `GET /api/v1/dashboard`, `GET /api/v1/workflows`, `GET /api/v1/requests` |
 | Look at one title | `GET /api/v1/media?limit=…` then `GET /api/v1/media/{id}/detail` |
 | Look at one workflow | `GET /api/v1/workflows/{id}` |
+| Why is a workflow not finding anything? | `GET /api/v1/workflows/{id}/searches` (per-indexer outcome of each run), `GET /api/v1/workflows/{id}/candidates?verdict=held` (decision reasons) |
+| Is an indexer out of budget or cooling down? | `GET /api/v1/indexers` (budget, used, remaining, background allowance, pacing, 24h outcomes) |
+| Is background work stuck? | `GET /api/v1/system/queue` (due, scheduled, leased, retrying per event type; completions in the last 10 min and hour) |
 | Fix a workflow that needs attention | `GET /api/v1/workflows/{id}`, then the `available_actions` entry that is available |
 | Search now for one workflow | `POST /api/v1/workflows/{id}/search` (provider) |
 | Approve a Seerr request | `POST /api/v1/requests/{id}/approve` (provider) |
-| Change OldBoys daily limits | `PUT /api/v1/settings/oldboys/budget` `{"query_limit":5000}` |
+| Change an indexer's daily limits or pacing | `PATCH /api/v1/settings/integrations/{id}` `{"query_limit":5000,"grab_limit":100,"minimum_interval_ms":5000}` (audited; also works for OldBoys) |
+| Switch off a misbehaving indexer | `PATCH /api/v1/settings/integrations/{id}` `{"enabled":false}` (re-enable with `true` once commissioned) |
 | Back up now | `POST /api/v1/backups` |
 
 ## 6. Safety rules
