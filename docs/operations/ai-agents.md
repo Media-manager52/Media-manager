@@ -29,6 +29,37 @@ mm() {  # usage: mm GET /api/v1/system/info   |   mm PUT /api/v1/x '{"json":1}'
 }
 ```
 
+### MCP (recommended for Claude, Codex and other MCP clients)
+
+The API binary includes a Model Context Protocol server. It runs inside the
+API container and uses that container's own `OWNER_TOKEN`, so no secret is
+copied to the host or shown to the AI:
+
+```bash
+# Claude Code
+claude mcp add media-manager -- docker exec -i media-manager-api-1 media-manager mcp
+```
+
+```toml
+# Codex (~/.codex/config.toml)
+[mcp_servers.media-manager]
+command = "docker"
+args = ["exec", "-i", "media-manager-api-1", "media-manager", "mcp"]
+```
+
+It offers four tools generated from the live OpenAPI document:
+
+- `overview`: version, health, queue and indexer budgets.
+- `list_operations`: filter by tag, effect or text.
+- `describe_operation`: parameters and full schemas of one operation.
+- `call_operation`: performs a call.
+
+`call_operation` refuses destructive operations unless `confirm: true` is
+passed after the owner approved. It also refuses browser-only routes and
+binary transfers. Every server-side guard still applies, because the MCP
+server is only an HTTP client. Set `MEDIA_MANAGER_MCP_URL` to point it at
+another API address.
+
 ## 2. Discover what exists
 
 1. `GET /api/v1` gives the index: version, conventions, what each effect
