@@ -155,6 +155,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /api/v1/settings/oldboys/commission", server.requireOwner(server.commissionOldBoys))
 	server.mux.HandleFunc("GET /api/v1/settings/oldboys/credentials", server.requireOwner(server.oldBoysCredentialsStatus))
 	server.mux.HandleFunc("PUT /api/v1/settings/oldboys/credentials", server.requireOwner(server.saveOldBoysCredentials))
+	server.mux.HandleFunc("PUT /api/v1/settings/oldboys/budget", server.requireOwner(server.setOldBoysBudget))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations", server.requireOwner(server.createIntegration))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commission", server.requireOwner(server.commissionIntegration))
 	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/seerr-routes", server.requireOwner(server.listSeerrRoutes))
