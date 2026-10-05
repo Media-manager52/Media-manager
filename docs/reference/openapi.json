@@ -662,6 +662,162 @@
         },
         "type": "object"
       },
+      "Postgres_CandidateDecisionView": {
+        "properties": {
+          "decided_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "integer"
+          },
+          "reasons": {
+            "description": "Arbitrary JSON."
+          },
+          "score": {
+            "type": "integer"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_CandidateExclusionView": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "failure_kind": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IndexerBudgetView": {
+        "properties": {
+          "background_query_limit": {
+            "type": "integer"
+          },
+          "grab_limit": {
+            "type": "integer"
+          },
+          "minimum_interval_ms": {
+            "type": "integer"
+          },
+          "query_limit": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "window_seconds": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IndexerOutcomeCount": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IndexerPacingView": {
+        "properties": {
+          "consecutive_failures": {
+            "type": "integer"
+          },
+          "cooldown_until": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_outcome": {
+            "type": "string"
+          },
+          "last_outcome_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "next_allowed_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IndexerUsage": {
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/Postgres_IndexerBudgetView"
+          },
+          "commissioned": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pacing": {
+            "$ref": "#/components/schemas/Postgres_IndexerPacingView"
+          },
+          "search_outcomes_24h": {
+            "items": {
+              "$ref": "#/components/schemas/Postgres_IndexerOutcomeCount"
+            },
+            "type": "array"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Postgres_IndexerUsageWindow"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IndexerUsageWindow": {
+        "properties": {
+          "background_queries_remaining": {
+            "type": "integer"
+          },
+          "grabs_remaining": {
+            "type": "integer"
+          },
+          "grabs_used": {
+            "type": "integer"
+          },
+          "oldest_reservation_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "queries_remaining": {
+            "type": "integer"
+          },
+          "queries_used": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_Integration": {
         "properties": {
           "config": {
@@ -777,6 +933,180 @@
           },
           "upgrades_enabled": {
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_QueueEventCounts": {
+        "properties": {
+          "due": {
+            "type": "integer"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "leased": {
+            "type": "integer"
+          },
+          "next_scheduled_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "oldest_due_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "retrying": {
+            "type": "integer"
+          },
+          "scheduled": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_QueueSnapshot": {
+        "properties": {
+          "by_type": {
+            "items": {
+              "$ref": "#/components/schemas/Postgres_QueueEventCounts"
+            },
+            "type": "array"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "completed_last_10m": {
+            "type": "integer"
+          },
+          "completed_last_hour": {
+            "type": "integer"
+          },
+          "due": {
+            "type": "integer"
+          },
+          "leased": {
+            "type": "integer"
+          },
+          "retrying": {
+            "type": "integer"
+          },
+          "scheduled": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_SearchRunIndexerOutcome": {
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "indexer_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "indexer_kind": {
+            "type": "string"
+          },
+          "indexer_name": {
+            "type": "string"
+          },
+          "retry_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_SearchRunView": {
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "indexers": {
+            "items": {
+              "$ref": "#/components/schemas/Postgres_SearchRunIndexerOutcome"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "new_candidates": {
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_WorkflowCandidateView": {
+        "properties": {
+          "attempted": {
+            "type": "boolean"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/Postgres_CandidateDecisionView"
+          },
+          "exclusion": {
+            "$ref": "#/components/schemas/Postgres_CandidateExclusionView"
+          },
+          "first_observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "indexer_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "indexer_kind": {
+            "type": "string"
+          },
+          "indexer_name": {
+            "type": "string"
+          },
+          "last_observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "observation_count": {
+            "type": "integer"
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "size_bytes": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -2683,6 +3013,55 @@
         ],
         "x-mm-auth": "owner",
         "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/indexers": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listIndexerUsage",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_IndexerUsage"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Every indexer's effective budget, rolling-window usage, remaining requests, pacing and 24h search outcomes",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
       }
     },
     "/api/v1/integrations/seerr/webhook": {
@@ -5159,6 +5538,52 @@
         "x-mm-effect": "read"
       }
     },
+    "/api/v1/system/queue": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "systemQueue",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Postgres_QueueSnapshot"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Background queue: due, scheduled, leased and retrying events per type, plus recent throughput",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
     "/api/v1/system/tasks": {
       "get": {
         "description": "No state change and no provider contact. Always safe.",
@@ -5493,6 +5918,83 @@
         ],
         "x-mm-auth": "owner",
         "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/workflows/{id}/candidates": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listWorkflowCandidates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only candidates whose latest decision is eligible, held or rejected.",
+            "in": "query",
+            "name": "verdict",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_WorkflowCandidateView"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Release candidates of one workflow with their latest decision, reasons, attempts and exclusions",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
       }
     },
     "/api/v1/workflows/{id}/discover": {
@@ -6012,6 +6514,74 @@
         ],
         "x-mm-auth": "owner",
         "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/workflows/{id}/searches": {
+      "get": {
+        "description": "partial runs had a deferred or failed indexer and are retried; only complete runs advance search phases.\n\nNo state change and no provider contact. Always safe.",
+        "operationId": "listWorkflowSearches",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_SearchRunView"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Recent search runs of one workflow with each indexer's outcome",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
       }
     },
     "/health/live": {

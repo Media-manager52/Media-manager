@@ -106,6 +106,9 @@ when one exists, `retry_access_rejected_release`.
 | What needs attention? | `GET /api/v1/dashboard`, `GET /api/v1/workflows`, `GET /api/v1/requests` |
 | Look at one title | `GET /api/v1/media?limit=…` then `GET /api/v1/media/{id}/detail` |
 | Look at one workflow | `GET /api/v1/workflows/{id}` |
+| Why is a workflow not finding anything? | `GET /api/v1/workflows/{id}/searches` (per-indexer outcome of each run), `GET /api/v1/workflows/{id}/candidates?verdict=held` (decision reasons) |
+| Is an indexer out of budget or cooling down? | `GET /api/v1/indexers` (budget, used, remaining, background allowance, pacing, 24h outcomes) |
+| Is background work stuck? | `GET /api/v1/system/queue` (due, scheduled, leased, retrying per event type; completions in the last 10 min and hour) |
 | Fix a workflow that needs attention | `GET /api/v1/workflows/{id}`, then the `available_actions` entry that is available |
 | Search now for one workflow | `POST /api/v1/workflows/{id}/search` (provider) |
 | Approve a Seerr request | `POST /api/v1/requests/{id}/approve` (provider) |
