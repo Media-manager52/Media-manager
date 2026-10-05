@@ -344,3 +344,8 @@ The worker uses the original read-only inventory, requires a single main file
 matching a saved movie title, and runs the normal bounded subtitle inspection,
 publication and exact Plex verification. It creates no NZB request, job or
 round. Historical failure evidence, exclusions and retained output remain.
+
+Native OldBoys commissioning is owner-only `POST /api/v1/settings/oldboys/commission`.
+It runs four bounded search controls and one discarded, validated NZB; it enables
+only the exact saved credential/configuration snapshot. Credential status also
+reports `enabled`, never values. See [OldBoys operations](../operations/oldboys.md).

@@ -14,6 +14,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/indexers"
+	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -22,10 +23,11 @@ import (
 const maxReleaseRetrievalAttempts = 2
 
 type RetrievalService struct {
-	Store         *postgres.Store
-	Scheduler     *indexers.Scheduler
-	ResolveSecret SecretResolver
-	Transport     http.RoundTripper
+	Store              *postgres.Store
+	Scheduler          *indexers.Scheduler
+	ResolveSecret      SecretResolver
+	OldBoysCredentials *oldboyscredentials.Service
+	Transport          http.RoundTripper
 }
 
 type altMountConfig struct {
@@ -109,26 +111,14 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if err := json.Unmarshal(retrieval.Indexer.Config, &indexerConfiguration); err != nil {
 		return err
 	}
-	if retrieval.Indexer.Kind != "newznab" || !retrieval.Indexer.Enabled || !indexerConfiguration.ModeVerified {
+	if (retrieval.Indexer.Kind != "newznab" && retrieval.Indexer.Kind != "oldboys") || !retrieval.Indexer.Enabled || !indexerConfiguration.ModeVerified {
 		return errors.New("selected indexer is not commissioned")
-	}
-	apiKey, err := service.ResolveSecret(retrieval.Indexer.SecretRef)
-	if err != nil {
-		return err
 	}
 	budget := indexers.NewznabBudget(indexerConfiguration.MinimumIntervalMS, indexerConfiguration.QueryLimit, indexerConfiguration.GrabLimit, indexerConfiguration.BudgetWindow)
 	if err := service.Scheduler.Configure(retrieval.Indexer.ID.String(), budget); err != nil {
 		return err
 	}
-	indexerClient, err := newznab.New(newznab.Config{IndexerID: retrieval.Indexer.ID.String(), BaseURL: indexerConfiguration.BaseURL, APIKey: apiKey, AllowHTTP: indexerConfiguration.AllowHTTP}, service.Scheduler, service.Transport)
-	if err != nil {
-		return err
-	}
-	retrievalID, err := newznab.RetrievalID(retrieval.NativeID, indexerConfiguration.BaseURL)
-	if err != nil {
-		return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, err)
-	}
-	nzb, err := indexerClient.GetNZBPackageFromLocatorGuarded(ctx, retrievalID, retrieval.DownloadLocatorRef, func(guardCtx context.Context) error {
+	guard := func(guardCtx context.Context) error {
 		allowed, guardErr := service.Store.PrepareReleaseRetrieval(guardCtx, retrieval, time.Now().UTC())
 		if guardErr != nil {
 			return guardErr
@@ -137,7 +127,32 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 			return postgres.ErrConcurrentModification
 		}
 		return nil
-	})
+	}
+	var nzb newznab.NZBPackage
+	if retrieval.Indexer.Kind == "oldboys" {
+		client, clientErr := newOldBoysClient(ctx, service.Store, service.Scheduler, service.OldBoysCredentials, retrieval.Indexer, service.Transport)
+		if clientErr != nil {
+			return clientErr
+		}
+		if retrieval.DownloadLocatorRef != "native:"+retrieval.NativeID {
+			return errors.New("native OldBoys release contains an unexpected download locator")
+		}
+		nzb, err = client.GetNZBPackageGuarded(ctx, retrieval.NativeID, guard)
+	} else {
+		apiKey, secretErr := service.ResolveSecret(retrieval.Indexer.SecretRef)
+		if secretErr != nil {
+			return secretErr
+		}
+		client, clientErr := newznab.New(newznab.Config{IndexerID: retrieval.Indexer.ID.String(), BaseURL: indexerConfiguration.BaseURL, APIKey: apiKey, AllowHTTP: indexerConfiguration.AllowHTTP}, service.Scheduler, service.Transport)
+		if clientErr != nil {
+			return clientErr
+		}
+		retrievalID, idErr := newznab.RetrievalID(retrieval.NativeID, indexerConfiguration.BaseURL)
+		if idErr != nil {
+			return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, idErr)
+		}
+		nzb, err = client.GetNZBPackageFromLocatorGuarded(ctx, retrievalID, retrieval.DownloadLocatorRef, guard)
+	}
 	if errors.Is(err, postgres.ErrConcurrentModification) {
 		return nil
 	}
@@ -230,5 +245,5 @@ func (service *RetrievalService) retryOrRecordRetrievalFailure(ctx context.Conte
 }
 
 func terminalRetrievalAccessFailure(safeCode string) bool {
-	return safeCode == "newznab_http_401" || safeCode == "newznab_http_403"
+	return safeCode == "newznab_http_401" || safeCode == "newznab_http_403" || safeCode == "oldboys_http_401" || safeCode == "oldboys_http_403"
 }

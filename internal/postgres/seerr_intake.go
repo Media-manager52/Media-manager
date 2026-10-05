@@ -194,7 +194,7 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		return IntakeResult{}, err
 	}
 	var indexerAvailable bool
-	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances WHERE kind='newznab' AND enabled AND config->'mode_verified' = 'true'::jsonb)`).Scan(&indexerAvailable); err != nil {
+	if err := transaction.QueryRow(ctx, commissionedScopedIndexerSQL, intake.Metadata != nil && intake.Metadata.OriginalLanguage == "da").Scan(&indexerAvailable); err != nil {
 		return IntakeResult{}, err
 	}
 	if !indexerAvailable {

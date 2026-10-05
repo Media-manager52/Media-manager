@@ -14,6 +14,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/indexers"
+	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
@@ -23,10 +24,11 @@ import (
 type SecretResolver func(string) (string, error)
 
 type SearchService struct {
-	Store         *postgres.Store
-	Scheduler     *indexers.Scheduler
-	ResolveSecret SecretResolver
-	Transport     http.RoundTripper
+	Store              *postgres.Store
+	Scheduler          *indexers.Scheduler
+	ResolveSecret      SecretResolver
+	OldBoysCredentials *oldboyscredentials.Service
+	Transport          http.RoundTripper
 }
 
 type indexerConfig struct {
@@ -187,21 +189,55 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			outcomes = append(outcomes, outcome)
 			continue
 		}
-		secret, err := service.ResolveSecret(integration.SecretRef)
-		if err != nil {
-			outcome.Detail = "indexer_secret_unavailable"
-			outcomes = append(outcomes, outcome)
-			continue
-		}
 		budget := indexers.NewznabBudget(config.MinimumIntervalMS, config.QueryLimit, config.GrabLimit, config.BudgetWindow)
 		if err := service.Scheduler.Configure(integration.ID.String(), budget); err != nil {
 			return err
 		}
-		client, err := newznab.New(newznab.Config{IndexerID: integration.ID.String(), BaseURL: config.BaseURL, APIKey: secret, AllowHTTP: config.AllowHTTP}, service.Scheduler, service.Transport)
-		if err != nil {
-			outcome.Detail = "indexer_client_invalid"
-			outcomes = append(outcomes, outcome)
-			continue
+		var executeSearch func(newznab.SearchRequest) ([]releases.Observation, error)
+		recoveryGuard := func(guardCtx context.Context) error {
+			if recovery {
+				return service.Store.ValidateRecoveryDiscovery(guardCtx, event.AggregateID, int64(event.AggregateRevision))
+			}
+			return nil
+		}
+		if integration.Kind == "oldboys" {
+			client, clientErr := newOldBoysClient(ctx, service.Store, service.Scheduler, service.OldBoysCredentials, integration, service.Transport)
+			if clientErr != nil {
+				outcome.Detail = "oldboys_client_unavailable"
+				outcomes = append(outcomes, outcome)
+				continue
+			}
+			nativeSearch := search
+			nativeSearch.CompleteSearches, err = service.Store.OldBoysSearchPhase(ctx, search.Workflow.ID, integration)
+			if err != nil {
+				return err
+			}
+			executeSearch = func(newznab.SearchRequest) ([]releases.Observation, error) {
+				workload := indexers.WorkloadInteractive
+				if recovery {
+					workload = indexers.WorkloadBackground
+				}
+				return client.Search(ctx, oldBoysSearchRequest(nativeSearch), workload, recoveryGuard)
+			}
+		} else {
+			secret, secretErr := service.ResolveSecret(integration.SecretRef)
+			if secretErr != nil {
+				outcome.Detail = "indexer_secret_unavailable"
+				outcomes = append(outcomes, outcome)
+				continue
+			}
+			client, clientErr := newznab.New(newznab.Config{IndexerID: integration.ID.String(), BaseURL: config.BaseURL, APIKey: secret, AllowHTTP: config.AllowHTTP}, service.Scheduler, service.Transport)
+			if clientErr != nil {
+				outcome.Detail = "indexer_client_invalid"
+				outcomes = append(outcomes, outcome)
+				continue
+			}
+			executeSearch = func(request newznab.SearchRequest) ([]releases.Observation, error) {
+				if recovery {
+					return client.BackgroundSearchGuarded(ctx, request, recoveryGuard)
+				}
+				return client.Search(ctx, request)
+			}
 		}
 		if recovery {
 			if err := service.Store.ValidateRecoveryDiscovery(ctx, event.AggregateID, int64(event.AggregateRevision)); err != nil {
@@ -211,14 +247,6 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				return err
 			}
 		}
-		executeSearch := func(request newznab.SearchRequest) ([]releases.Observation, error) {
-			if recovery {
-				return client.BackgroundSearchGuarded(ctx, request, func(guardCtx context.Context) error {
-					return service.Store.ValidateRecoveryDiscovery(guardCtx, event.AggregateID, int64(event.AggregateRevision))
-				})
-			}
-			return client.Search(ctx, request)
-		}
 		// Prefer the immutable active capability profile. When it is unavailable
 		// or cannot satisfy this item, keep the legacy commissioned dialect so an
 		// indexer that has not completed profile-backed commissioning still works.
@@ -227,12 +255,14 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		// deferred back to the same zero-result state forever. A future milestone
 		// may schedule the fallback as its own paced attempt.
 		request := buildRequest(search, config)
-		if plan, planErr := service.searchProfilePlan(ctx, integration.ID, search, config); planErr == nil {
-			request = plan.Primary.Request
-		} else if !errors.Is(planErr, errNoActiveSearchProfile) {
-			outcome.Detail = safeIndexerOutcomeCode(planErr)
-			outcomes = append(outcomes, outcome)
-			continue
+		if integration.Kind == "newznab" {
+			if plan, planErr := service.searchProfilePlan(ctx, integration.ID, search, config); planErr == nil {
+				request = plan.Primary.Request
+			} else if !errors.Is(planErr, errNoActiveSearchProfile) {
+				outcome.Detail = safeIndexerOutcomeCode(planErr)
+				outcomes = append(outcomes, outcome)
+				continue
+			}
 		}
 		var observations []releases.Observation
 		request = numberedSearchRequest(search, request)
@@ -260,6 +290,9 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		outcomes = append(outcomes, outcome)
 		for _, observation := range observations {
 			observation = releases.InferTitleFacts(observation, time.Now().UTC())
+			if integration.Kind == "oldboys" {
+				observation = bindOldBoysCatalogue(observation, search, time.Now().UTC())
+			}
 			observation = applyEpisodeNumbering(observation, search, time.Now().UTC())
 			evaluation, evaluateErr := releases.Evaluate(observation, rules)
 			if evaluateErr != nil {
@@ -396,7 +429,10 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 			verified[identity.Namespace+"_id"] = identity.Value
 		}
 	}
-	positiveIdentity := false
+	positiveIdentity := hasOldBoysCatalogueBinding(observation, media)
+	if positiveIdentity {
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native Danish series catalogue binding", Fact: "oldboys_catalogue_binding", Decision: releases.DecisionPass, Values: []string{media.ID.String()}, Reason: "inferred from exact original/canonical title and explicit scene scope; provider IDs remain unknown"})
+	}
 	for _, fact := range observation.Facts {
 		expected, comparable := verified[strings.ToLower(strings.TrimSpace(fact.Name))]
 		if !comparable || len(fact.Values) == 0 {

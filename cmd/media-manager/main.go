@@ -187,18 +187,19 @@ func run() error {
 	}
 	backupConfigured := optionalSecret(backups.KeyReference) != ""
 	commissionService := &commissioning.NewznabService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
+	oldBoysCommission := &commissioning.OldBoysService{Store: store, Scheduler: scheduler, Credentials: oldBoysCredentials}
 	liveCAPSService := &commissioning.LiveCAPSService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
-	api, err := httpapi.New(httpapi.Config{OldBoysCredentials: oldBoysCredentials, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
+	api, err := httpapi.New(httpapi.Config{OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
 	if err != nil {
 		return err
 	}
 	workerContext, stopWorker := context.WithCancel(context.Background())
 	defer stopWorker()
 	handlers := map[string]platform.Handler{}
-	searchService := &acquisition.SearchService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
+	searchService := &acquisition.SearchService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret, OldBoysCredentials: oldBoysCredentials}
 	handlers["workflow.search_requested"] = searchService.Handle
 	handlers["workflow.discovery_rescan_requested"] = searchService.HandleDiscovery
-	retrievalService := &acquisition.RetrievalService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
+	retrievalService := &acquisition.RetrievalService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret, OldBoysCredentials: oldBoysCredentials}
 	handlers["release.retrieve_requested"] = retrievalService.Handle
 	mediaInfoProbe := mediainfo.NewProbe()
 	altMountReconciler := &acquisition.AltMountReconcileService{Store: store, ResolveSecret: resolveSecret, MediaInfoProbe: mediaInfoProbe}

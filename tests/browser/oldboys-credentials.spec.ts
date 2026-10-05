@@ -51,3 +51,28 @@ test("provider credential errors never echo secrets into the form", async ({ pag
   expect(await page.locator("body").innerText()).not.toContain(credentials.api_token)
   expect(recorder.unexpected).toEqual([])
 })
+
+test("owner validation enables OldBoys without sending saved credentials to the browser", async ({ page }) => {
+  const recorder = await installOwnerAPI(page, baseURL)
+  let enabled = false
+  let commissions = 0
+  await page.route(`${baseURL}/api/v1/settings/oldboys/credentials`, async (route) => {
+    expect(route.request().method()).toBe("GET")
+    await route.fulfill({ status: 200, json: { data: { available: true, configured: true, enabled } } })
+  })
+  await page.route(`${baseURL}/api/v1/settings/oldboys/commission`, async (route) => {
+    expect(route.request().method()).toBe("POST")
+    expect(route.request().postData()).toBeNull()
+    enabled = true; commissions++
+    await route.fulfill({ status: 200, json: { data: { kind: "oldboys", enabled: true } } })
+  })
+  await page.goto("/settings/connections")
+  await page.getByRole("button", { name: "Validate and enable OldBoys", exact: true }).click()
+  await expect(page.getByText("OldBoys is enabled for Danish TV and films.", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Validate and enable OldBoys", exact: true })).toHaveCount(0)
+  for (const label of ["API Token", "Pass Key (PID)", "RSS Key (RID)"]) await expect(page.getByLabel(label, { exact: true })).toHaveValue("")
+  await page.reload()
+  await expect(page.getByText("OldBoys is enabled for Danish TV and films.", { exact: true })).toBeVisible()
+  expect(commissions).toBe(1)
+  expect(recorder.unexpected).toEqual([])
+})

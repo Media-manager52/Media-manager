@@ -94,11 +94,11 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 	}
 	if needsIndexer {
 		var available bool
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances WHERE kind='newznab' AND enabled AND config->'mode_verified' = 'true'::jsonb)`).Scan(&available); err != nil {
+		if err := transaction.QueryRow(ctx, commissionedScopedIndexerSQL, OldBoysMediaAllowed(item)).Scan(&available); err != nil {
 			return nil, err
 		}
 		if !available {
-			return nil, errors.New("search requires at least one commissioned Newznab indexer")
+			return nil, errors.New("search requires at least one commissioned indexer for this media")
 		}
 	}
 	var year any
@@ -193,11 +193,11 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	defer transaction.Rollback(ctx)
 	if search {
 		var available bool
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances WHERE kind='newznab' AND enabled AND config->'mode_verified' = 'true'::jsonb)`).Scan(&available); err != nil {
+		if err := transaction.QueryRow(ctx, commissionedScopedIndexerSQL, OldBoysMediaAllowed(item)).Scan(&available); err != nil {
 			return workflows.Workflow{}, err
 		}
 		if !available {
-			return workflows.Workflow{}, errors.New("search requires at least one commissioned Newznab indexer")
+			return workflows.Workflow{}, errors.New("search requires at least one commissioned indexer for this media")
 		}
 	}
 	var kind catalog.MediaKind
@@ -336,11 +336,11 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		return errors.New("the acquisition round is exhausted; wait for a new eligible release and use the owner start-next-round action")
 	}
 	var indexerAvailable bool
-	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances WHERE kind='newznab' AND enabled AND config->'mode_verified' = 'true'::jsonb)`).Scan(&indexerAvailable); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances i WHERE i.enabled AND i.config->'mode_verified'='true'::jsonb AND (i.kind='newznab' OR (i.kind='oldboys' AND EXISTS(SELECT 1 FROM media_metadata WHERE media_id=$1 AND data->>'original_language'='da') AND EXISTS(SELECT 1 FROM oldboys_credentials c WHERE (i.config->>'credentials_updated_at')::timestamptz=c.updated_at))))`, mediaText).Scan(&indexerAvailable); err != nil {
 		return err
 	}
 	if !indexerAvailable {
-		return errors.New("search requires at least one commissioned Newznab indexer")
+		return errors.New("search requires at least one commissioned indexer for this media")
 	}
 	if retryDiscovery && currentOpenRound {
 		// Legacy policy restorations could leave discovery attached to an older

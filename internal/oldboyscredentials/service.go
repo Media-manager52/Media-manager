@@ -27,6 +27,7 @@ type Credentials struct {
 type Status struct {
 	Available  bool       `json:"available"`
 	Configured bool       `json:"configured"`
+	Enabled    bool       `json:"enabled"`
 	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
 }
 
@@ -61,7 +62,15 @@ func New(store Store, key string) (*Service, error) {
 
 func (service *Service) Status(ctx context.Context) (Status, error) {
 	updated, err := service.store.OldBoysCredentialStatus(ctx)
-	return Status{Available: true, Configured: updated != nil, UpdatedAt: updated}, err
+	status := Status{Available: true, Configured: updated != nil, UpdatedAt: updated}
+	if err == nil {
+		if provider, ok := service.store.(interface {
+			OldBoysEnabled(context.Context) (bool, error)
+		}); ok {
+			status.Enabled, err = provider.OldBoysEnabled(ctx)
+		}
+	}
+	return status, err
 }
 
 func (service *Service) Save(ctx context.Context, credentials Credentials) (Status, error) {
@@ -106,4 +115,22 @@ func (service *Service) Load(ctx context.Context) (Credentials, error) {
 
 func validToken(value string) bool {
 	return len(value) >= 1 && len(value) <= 4096 && !strings.Contains(value, "://") && !strings.ContainsAny(value, "?#&") && strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r > 126 }) == -1
+}
+
+// LoadVersioned binds an in-memory credential set to its durable replacement
+// time. A replacement overlapping decryption fails closed.
+func (service *Service) LoadVersioned(ctx context.Context) (Credentials, time.Time, error) {
+	before, err := service.store.OldBoysCredentialStatus(ctx)
+	if err != nil || before == nil {
+		return Credentials{}, time.Time{}, errors.New("OldBoys credentials are unavailable")
+	}
+	credentials, err := service.Load(ctx)
+	if err != nil {
+		return Credentials{}, time.Time{}, err
+	}
+	after, err := service.store.OldBoysCredentialStatus(ctx)
+	if err != nil || after == nil || !before.Equal(*after) {
+		return Credentials{}, time.Time{}, errors.New("OldBoys credentials changed; validate the saved set again")
+	}
+	return credentials, *after, nil
 }

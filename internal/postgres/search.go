@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -192,7 +193,7 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 		var config struct {
 			ModeVerified bool `json:"mode_verified"`
 		}
-		if integration.Kind == "newznab" && integration.Enabled && json.Unmarshal(integration.Config, &config) == nil && config.ModeVerified {
+		if (integration.Kind == "newznab" || integration.Kind == "oldboys" && OldBoysMediaAllowed(result.Media)) && integration.Enabled && json.Unmarshal(integration.Config, &config) == nil && config.ModeVerified {
 			result.Indexers = append(result.Indexers, integration)
 		}
 	}
@@ -270,6 +271,31 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		return workflows.Workflow{}, err
 	}
 	defer transaction.Rollback(ctx)
+	// Native results are admissible only for the exact commission/credential
+	// snapshot that searched. Lock credentials before integrations, matching
+	// credential replacement and commissioning lock order.
+	for _, integration := range search.Indexers {
+		if integration.Kind == "oldboys" {
+			var stamp time.Time
+			if err := transaction.QueryRow(ctx, `SELECT updated_at FROM oldboys_credentials WHERE singleton=true FOR SHARE`).Scan(&stamp); err != nil {
+				return workflows.Workflow{}, err
+			}
+			var enabled bool
+			var config []byte
+			if err := transaction.QueryRow(ctx, `SELECT enabled,config FROM integration_instances WHERE id=$1 AND kind='oldboys' FOR SHARE`, integration.ID.String()).Scan(&enabled, &config); err != nil {
+				return workflows.Workflow{}, err
+			}
+			var expected, actual map[string]any
+			if json.Unmarshal(integration.Config, &expected) != nil || json.Unmarshal(config, &actual) != nil {
+				return workflows.Workflow{}, ErrConcurrentModification
+			}
+			version, _ := actual["credentials_updated_at"].(string)
+			configuredAt, parseErr := time.Parse(time.RFC3339Nano, version)
+			if !enabled || parseErr != nil || !stamp.Equal(configuredAt) || !reflect.DeepEqual(expected, actual) {
+				return workflows.Workflow{}, ErrConcurrentModification
+			}
+		}
+	}
 	if options.RecoveryRescan {
 		var discoveryState, roundState string
 		var persistedGeneration int64
@@ -418,7 +444,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_attempted_releases WHERE workflow_id=$1 AND candidate_id=$2)
 				OR EXISTS(SELECT 1 FROM workflow_release_exclusions e JOIN acquisition_rounds r ON r.id=e.retrieval_round_id AND r.state='open'
 				 JOIN release_candidates c ON c.id=$2 AND c.workflow_id=$1
-				 WHERE e.workflow_id=$1 AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403')) OR EXISTS(SELECT 1 FROM release_candidates c WHERE c.workflow_id=$1 AND c.id=$2 AND `+knownSubtitleFailureSQL("c")+`)`, search.Workflow.ID.String(), candidate.String()).Scan(&alreadyAttempted); err != nil {
+				 WHERE e.workflow_id=$1 AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403','oldboys_http_401','oldboys_http_403')) OR EXISTS(SELECT 1 FROM release_candidates c WHERE c.workflow_id=$1 AND c.id=$2 AND `+knownSubtitleFailureSQL("c")+`)`, search.Workflow.ID.String(), candidate.String()).Scan(&alreadyAttempted); err != nil {
 				return false, err
 			}
 			return alreadyAttempted, nil

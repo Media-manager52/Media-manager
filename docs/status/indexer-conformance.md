@@ -4,6 +4,23 @@ Verified 2026-09-01 with the developer-only DRI Indexer Lab
 `media-manager` profile at local lab commit `90a5821`. The lab is not a Media
 Manager service, dependency, credential store, or runtime fallback.
 
+## Native OldBoys investigation (2026-10-05)
+
+A separate bounded native probe, from Media Manager's production IPv4 network
+and durable scheduler, made seven requests: four film/TV positive and randomized
+negative controls, one RID retrieval (404), one scoped annual TV query, and one
+PID retrieval (200). Positive searches returned Danish Operation X/Klovn rows;
+both negative controls were empty. The PID body was NZB XML (122 files, 3,154
+segments), despite its misleading bittorrent Content-Type; password metadata
+was present and preserved in memory. No download-client job was created.
+Inspected rows had no IDs, sizes or media-info evidence. Only sanitized metadata
+and counts were retained in the owner's protected evidence report.
+
+The native implementation and dedicated commissioning action are separate from
+standard Newznab conformance. Enabling requires the final runtime five-control
+commission, plus its own Verify/Deploy evidence. No generic Newznab CAPS or
+retired proxy is used. See [native contract](../operations/oldboys.md).
+
 ## Supported configured providers
 
 The bounded profile reproduced Media Manager's real `extended=1` request

@@ -30,6 +30,7 @@ import (
 
 type Config struct {
 	OldBoysCredentials     *oldboyscredentials.Service
+	CommissionOldBoys      func(context.Context) (postgres.Integration, error)
 	OwnerToken             string
 	SeerrEnabled           bool
 	SeerrWebhookSecret     string
@@ -151,6 +152,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/imports/prowlarr/{id}", server.requireOwner(server.getProwlarrImport))
 	server.mux.HandleFunc("POST /api/v1/imports/prowlarr/{id}/approve", server.requireOwner(server.approveProwlarrImport))
 	server.mux.HandleFunc("GET /api/v1/settings/integrations", server.requireOwner(server.listIntegrations))
+	server.mux.HandleFunc("POST /api/v1/settings/oldboys/commission", server.requireOwner(server.commissionOldBoys))
 	server.mux.HandleFunc("GET /api/v1/settings/oldboys/credentials", server.requireOwner(server.oldBoysCredentialsStatus))
 	server.mux.HandleFunc("PUT /api/v1/settings/oldboys/credentials", server.requireOwner(server.saveOldBoysCredentials))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations", server.requireOwner(server.createIntegration))
