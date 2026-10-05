@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 	"uuid"
 
@@ -69,4 +70,32 @@ func (server *Server) listWorkflowCandidates(writer http.ResponseWriter, request
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]any{"count": len(items)}})
+}
+
+func (server *Server) updateIndexerSettings(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "integration ID is invalid")
+		return
+	}
+	var input postgres.IndexerSettingsPatch
+	if err := decodeJSON(request, &input, 8<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "send a JSON object with name, enabled, query_limit, grab_limit or minimum_interval_ms")
+		return
+	}
+	integration, err := server.store.UpdateIndexerSettings(request.Context(), id, input, time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "integration was not found")
+		return
+	}
+	var refusal postgres.ActionRefusal
+	if errors.As(err, &refusal) && (strings.HasPrefix(refusal.Code, "invalid_") || refusal.Code == "empty_patch") {
+		writeErrorHint(writer, http.StatusBadRequest, refusal.Code, refusal.Message, refusal.Hint)
+		return
+	}
+	if err != nil {
+		writeConflict(writer, err, "settings_update_failed", "the indexer settings could not be changed")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: integration})
 }

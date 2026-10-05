@@ -112,7 +112,8 @@ when one exists, `retry_access_rejected_release`.
 | Fix a workflow that needs attention | `GET /api/v1/workflows/{id}`, then the `available_actions` entry that is available |
 | Search now for one workflow | `POST /api/v1/workflows/{id}/search` (provider) |
 | Approve a Seerr request | `POST /api/v1/requests/{id}/approve` (provider) |
-| Change OldBoys daily limits | `PUT /api/v1/settings/oldboys/budget` `{"query_limit":5000}` |
+| Change an indexer's daily limits or pacing | `PATCH /api/v1/settings/integrations/{id}` `{"query_limit":5000,"grab_limit":100,"minimum_interval_ms":5000}` (audited; also works for OldBoys) |
+| Switch off a misbehaving indexer | `PATCH /api/v1/settings/integrations/{id}` `{"enabled":false}` (re-enable with `true` once commissioned) |
 | Back up now | `POST /api/v1/backups` |
 
 ## 6. Safety rules

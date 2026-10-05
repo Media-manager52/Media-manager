@@ -758,6 +758,26 @@
         },
         "type": "object"
       },
+      "Postgres_IndexerSettingsPatch": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "grab_limit": {
+            "type": "integer"
+          },
+          "minimum_interval_ms": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "query_limit": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_IndexerUsage": {
         "properties": {
           "budget": {
@@ -4100,6 +4120,72 @@
           }
         },
         "summary": "Create a disabled integration",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}": {
+      "patch": {
+        "description": "Indexers only (newznab, oldboys). Limits become budget_source owner_stated; minimum_interval_ms is at least 3000 (OldBoys 5000). enabled=true needs a commissioned Newznab indexer; OldBoys is re-enabled only by its validation. Audited as integration.settings_changed.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "updateIndexerSettings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Postgres_IndexerSettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Postgres_Integration"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Change an indexer's name, daily limits, minimum interval, or disable it",
         "tags": [
           "settings"
         ],
