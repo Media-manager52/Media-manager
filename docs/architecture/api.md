@@ -1,8 +1,13 @@
 # 04 — HTTP API reference
 
 Purpose: the complete route surface, authentication model, envelopes, and the
-write-path protections you must preserve. Source: `internal/httpapi/server.go`
-and `internal/httpapi/commissioning_v2.go`.
+write-path protections you must preserve. Source of truth for the route list:
+`internal/httpapi/api_catalog.go`, which registers every route and generates
+the OpenAPI 3.1 document served at `GET /api/v1/openapi.json` (committed copy:
+[reference/openapi.json](../reference/openapi.json)). `GET /api/v1` is a short
+index for agents; see [AI agent guide](../operations/ai-agents.md). Each
+operation is tagged `x-mm-effect` (`read`, `write`, `provider`, `destructive`)
+and `x-mm-auth`.
 
 ## 1. Authentication model
 

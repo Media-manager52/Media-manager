@@ -9,6 +9,8 @@ truthful, and safe for an owner-operated production media system.
   read order, architecture maps, backend/database/API/frontend references,
   domain workflows, operations runbook, development recipes, and glossary.
   Start there when you have no prior context; the hub is `docs/README.md`.
+- To inspect or operate a running Media Manager, use its API, not SQL: see
+  `docs/operations/ai-agents.md` (`GET /api/v1`, `GET /api/v1/openapi.json`).
 - Read `README.md` for the product contract, local commands, and safety invariants.
 - Read `docs/status/release.md` for release evidence and
   `docs/status/implementation.md` before changing a partial feature.
@@ -26,7 +28,11 @@ truthful, and safe for an owner-operated production media system.
 - `internal/adapters`: bounded external-service clients. Keep pacing, redirect,
   path-containment, and credential boundaries intact.
 - `internal/postgres`: PostgreSQL repositories and migrations.
-- `internal/httpapi`: owner and internal HTTP routes.
+- `internal/httpapi`: owner and internal HTTP routes. `api_catalog.go` is the
+  single route table (auth, effect, body type); the OpenAPI document is
+  generated from it. Add new routes there and regenerate
+  `docs/reference/openapi.json`
+  (`MM_WRITE_OPENAPI=1 go test ./internal/httpapi -run TestCommittedOpenAPIIsCurrent`).
 - `app`, `components`, `lib`: Vinext/React UI, route screens, and API client.
 - `lib/media-library.ts`: pure movie/series library joins and local filtering.
 - `tests` and `tests/browser`: local UI/unit and browser coverage; unexpected external

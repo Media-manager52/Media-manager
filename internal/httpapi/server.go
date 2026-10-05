@@ -79,111 +79,6 @@ func New(config Config, store *postgres.Store) (*Server, error) {
 
 func (server *Server) Handler() http.Handler { return server.security(server.mux) }
 
-func (server *Server) routes() {
-	server.mux.HandleFunc("GET /health/live", server.live)
-	server.mux.HandleFunc("GET /health/ready", server.ready)
-	server.mux.HandleFunc("GET /api/v1/dashboard", server.requireOwner(server.dashboard))
-	server.mux.HandleFunc("GET /api/v1/adoption", server.requireOwner(server.listAdoptionBatches))
-	server.mux.HandleFunc("POST /api/v1/adoption", server.requireOwner(server.createAdoptionBatch))
-	server.mux.HandleFunc("GET /api/v1/adoption/{id}", server.requireOwner(server.getAdoptionBatch))
-	server.mux.HandleFunc("PATCH /api/v1/adoption/{id}/items/{itemID}", server.requireOwner(server.reviewAdoptionItem))
-	server.mux.HandleFunc("POST /api/v1/adoption/{id}/approve", server.requireOwner(server.approveAdoptionBatch))
-	server.mux.HandleFunc("POST /api/v1/adoption/{id}/execute", server.requireOwner(server.executeAdoptionBatch))
-	server.mux.HandleFunc("GET /api/v1/collections", server.requireOwner(server.listCollections))
-	server.mux.HandleFunc("POST /api/v1/collections", server.requireOwner(server.createCollection))
-	server.mux.HandleFunc("POST /api/v1/collections/preview", server.requireOwner(server.previewCollection))
-	server.mux.HandleFunc("DELETE /api/v1/collections/{id}", server.requireOwner(server.deleteCollection))
-	server.mux.HandleFunc("GET /api/v1/calendar", server.requireOwner(server.listCalendar))
-	server.mux.HandleFunc("GET /api/v1/discovery/search", server.requireOwner(server.discoverySearch))
-	server.mux.HandleFunc("GET /api/v1/discovery/{kind}/{id}", server.requireOwner(server.discoveryMetadata))
-	server.mux.HandleFunc("GET /api/v1/media", server.requireOwner(server.listMedia))
-	server.mux.HandleFunc("POST /api/v1/media", server.requireOwner(server.createMedia))
-	server.mux.HandleFunc("GET /api/v1/media/{id}", server.requireOwner(server.getMedia))
-	server.mux.HandleFunc("GET /api/v1/media/{id}/detail", server.requireOwner(server.getMediaDetail))
-	server.mux.HandleFunc("POST /api/v1/media/{id}/metadata/refresh", server.requireOwner(server.refreshMediaMetadata))
-	server.mux.HandleFunc("DELETE /api/v1/media/{id}", server.requireOwner(server.recycleMedia))
-	server.mux.HandleFunc("POST /api/v1/media/{id}/workflows", server.requireOwner(server.createMediaWorkflow))
-	server.mux.HandleFunc("POST /api/v1/media/{id}/archive", server.requireOwner(server.archiveMedia))
-	server.mux.HandleFunc("GET /api/v1/workflows", server.requireOwner(server.listWorkflows))
-	server.mux.HandleFunc("GET /api/v1/workflows/{id}", server.requireOwner(server.getWorkflow))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/search", server.requireOwner(server.searchWorkflow))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/discover", server.requireOwner(server.discoverWorkflow))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/retry-access-rejected-release", server.requireOwner(server.retryAccessRejectedRelease))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/acquisition-rounds", server.requireOwner(server.openAcquisitionRound))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/acquisition-rounds/from-known", server.requireOwner(server.openKnownAcquisitionRound))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/revive-rejected-archives", server.requireOwner(server.reviveRejectedArchives))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/relocate-links", server.requireOwner(server.relocateWorkflowLinks))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/recover-altmount-submission", server.requireOwner(server.recoverAltMountSubmission))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconcile-altmount", server.requireOwner(server.reconcileAltMount))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reverify-retained-output", server.requireOwner(server.reverifyRetainedOutput))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reinspect-retained-movie", server.requireOwner(server.reinspectRetainedMovie))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/reconfirm-plex", server.requireOwner(server.reconfirmPlex))
-	server.mux.HandleFunc("POST /api/v1/plex/reconfirm-timed-out", server.requireOwner(server.reconfirmTimedOutPlex))
-	server.mux.HandleFunc("POST /api/v1/workflows/{id}/cancel", server.requireOwner(server.cancelWorkflow))
-	server.mux.HandleFunc("GET /api/v1/activity", server.requireOwner(server.listActivity))
-	server.mux.HandleFunc("GET /api/v1/files", server.requireOwner(server.listManagedFiles))
-	server.mux.HandleFunc("GET /api/v1/files/{id}", server.requireOwner(server.getManagedFile))
-	server.mux.HandleFunc("GET /api/v1/intelligence/releases", server.requireOwner(server.listReleaseCandidates))
-	server.mux.HandleFunc("GET /api/v1/acquisition-verifications", server.requireOwner(server.listSubtitleVerifications))
-	server.mux.HandleFunc("GET /api/v1/blocklist", server.requireOwner(server.listReleaseBlocks))
-	server.mux.HandleFunc("POST /api/v1/blocklist", server.requireOwner(server.createReleaseBlock))
-	server.mux.HandleFunc("DELETE /api/v1/blocklist/{id}", server.requireOwner(server.deleteReleaseBlock))
-	server.mux.HandleFunc("GET /api/v1/wanted", server.requireOwner(server.listWanted))
-	server.mux.HandleFunc("GET /api/v1/requests", server.requireOwner(server.listRequests))
-	server.mux.HandleFunc("GET /api/v1/requests/{id}", server.requireOwner(server.getRequest))
-	server.mux.HandleFunc("POST /api/v1/requests/{id}/approve", server.requireOwner(server.decideRequest(seerr.DecisionApprove)))
-	server.mux.HandleFunc("POST /api/v1/requests/{id}/decline", server.requireOwner(server.decideRequest(seerr.DecisionDecline)))
-	server.mux.HandleFunc("GET /api/v1/sources", server.requireOwner(server.listSources))
-	server.mux.HandleFunc("GET /api/v1/import-lists", server.requireOwner(server.listImportLists))
-	server.mux.HandleFunc("POST /api/v1/import-lists", server.requireOwner(server.createImportList))
-	server.mux.HandleFunc("GET /api/v1/import-lists/{id}", server.requireOwner(server.getImportList))
-	server.mux.HandleFunc("POST /api/v1/import-lists/{id}/snapshots", server.requireOwner(server.createImportListSnapshot))
-	server.mux.HandleFunc("GET /api/v1/system/health", server.requireOwner(server.systemHealth))
-	server.mux.HandleFunc("GET /api/v1/system/tasks", server.requireOwner(server.listTasks))
-	server.mux.HandleFunc("GET /api/v1/system/info", server.requireOwner(server.systemInfo))
-	server.mux.HandleFunc("GET /api/v1/backups", server.requireOwner(server.listBackups))
-	server.mux.HandleFunc("POST /api/v1/backups", server.requireOwner(server.createBackup))
-	server.mux.HandleFunc("GET /api/v1/backups/{id}/download", server.requireOwner(server.downloadBackup))
-	server.mux.HandleFunc("GET /api/v1/recycle", server.requireOwner(server.listRecycle))
-	server.mux.HandleFunc("POST /api/v1/recycle/{id}/restore", server.requireOwner(server.restoreRecycle))
-	server.mux.HandleFunc("POST /api/v1/recycle/{id}/restore-adopted", server.requireOwner(server.restoreAdoptedFiles))
-	server.mux.HandleFunc("POST /api/v1/recycle/{id}/confirm-purge", server.requireOwner(server.confirmRealFilePurge))
-	server.mux.HandleFunc("POST /api/v1/imports/prowlarr", server.requireOwner(server.createProwlarrImport))
-	server.mux.HandleFunc("GET /api/v1/imports/prowlarr/{id}", server.requireOwner(server.getProwlarrImport))
-	server.mux.HandleFunc("POST /api/v1/imports/prowlarr/{id}/approve", server.requireOwner(server.approveProwlarrImport))
-	server.mux.HandleFunc("GET /api/v1/settings/integrations", server.requireOwner(server.listIntegrations))
-	server.mux.HandleFunc("POST /api/v1/settings/oldboys/commission", server.requireOwner(server.commissionOldBoys))
-	server.mux.HandleFunc("GET /api/v1/settings/oldboys/credentials", server.requireOwner(server.oldBoysCredentialsStatus))
-	server.mux.HandleFunc("PUT /api/v1/settings/oldboys/credentials", server.requireOwner(server.saveOldBoysCredentials))
-	server.mux.HandleFunc("PUT /api/v1/settings/oldboys/budget", server.requireOwner(server.setOldBoysBudget))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations", server.requireOwner(server.createIntegration))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commission", server.requireOwner(server.commissionIntegration))
-	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/seerr-routes", server.requireOwner(server.listSeerrRoutes))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/seerr-routes", server.requireOwner(server.saveSeerrRoute))
-	server.mux.HandleFunc("DELETE /api/v1/settings/integrations/{id}/seerr-routes/{route}", server.requireOwner(server.deleteSeerrRoute))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs", server.requireOwnerMutation(server.createCommissioningV2Run))
-	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}", server.requireOwner(server.getCommissioningV2Run))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-caps", server.requireOwnerMutation(server.authorizeCommissioningV2CAPS))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/categories", server.requireOwnerMutation(server.sealCommissioningV2SearchPlan))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-searches", server.requireOwnerMutation(server.authorizeCommissioningV2Searches))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/steps/{step}/execute", server.requireOwnerMutation(server.executeCommissioningV2CAPS))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/draft", server.requireOwnerMutation(server.finalizeCommissioningV2Draft))
-	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/draft", server.requireOwner(server.getCommissioningV2Draft))
-	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/activate", server.requireOwnerMutation(server.activateCommissioningV2Profile))
-	server.mux.HandleFunc("GET /api/v1/settings/library-roots", server.requireOwner(server.listLibraryRoots))
-	server.mux.HandleFunc("POST /api/v1/settings/library-roots", server.requireOwner(server.createLibraryRoot))
-	server.mux.HandleFunc("GET /api/v1/settings/quality-profiles", server.requireOwner(server.listQualityProfiles))
-	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles", server.requireOwner(server.createQualityProfile))
-	server.mux.HandleFunc("PATCH /api/v1/settings/quality-profiles/{id}", server.requireOwner(server.updateQualityProfile))
-	server.mux.HandleFunc("POST /api/v1/settings/quality-profiles/{id}/apply-policy", server.requireOwner(server.applyQualityProfilePolicy))
-	server.mux.HandleFunc("GET /api/v1/settings/notifications", server.requireOwner(server.listNotificationDestinations))
-	server.mux.HandleFunc("POST /api/v1/settings/notifications", server.requireOwner(server.createNotificationDestination))
-	server.mux.HandleFunc("PATCH /api/v1/settings/notifications/{id}", server.requireOwner(server.setNotificationDestinationState))
-	server.mux.HandleFunc("GET /api/v1/notifications/deliveries", server.requireOwner(server.listNotificationDeliveries))
-	server.mux.HandleFunc("POST /api/v1/integrations/seerr/webhook", server.seerrWebhook)
-	server.registerServarrRoutes()
-}
-
 func (server *Server) listBackups(writer http.ResponseWriter, request *http.Request) {
 	items, err := server.store.ListBackups(request.Context(), 100)
 	if err != nil {
@@ -270,13 +165,7 @@ func (server *Server) listImportLists(writer http.ResponseWriter, request *http.
 }
 
 func (server *Server) createImportList(writer http.ResponseWriter, request *http.Request) {
-	var input struct {
-		Name                  string `json:"name"`
-		Provider              string `json:"provider"`
-		Enabled               bool   `json:"enabled"`
-		MovieRootID           string `json:"movie_root_id"`
-		MovieQualityProfileID string `json:"movie_quality_profile_id"`
-	}
+	var input createImportListInput
 	if err := decodeJSON(request, &input, 32<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -364,14 +253,7 @@ func (server *Server) listNotificationDestinations(writer http.ResponseWriter, r
 }
 
 func (server *Server) createNotificationDestination(writer http.ResponseWriter, request *http.Request) {
-	var input struct {
-		Name      string   `json:"name"`
-		Endpoint  string   `json:"endpoint"`
-		AllowHTTP bool     `json:"allow_http"`
-		Enabled   bool     `json:"enabled"`
-		Events    []string `json:"events"`
-		SecretRef string   `json:"secret_ref"`
-	}
+	var input createNotificationDestinationInput
 	if err := decodeJSON(request, &input, 64<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -392,9 +274,7 @@ func (server *Server) setNotificationDestinationState(writer http.ResponseWriter
 		writeError(writer, http.StatusBadRequest, "invalid_id", "notification destination ID is invalid")
 		return
 	}
-	var input struct {
-		Enabled *bool `json:"enabled"`
-	}
+	var input setNotificationDestinationStateInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil || input.Enabled == nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "enabled state is required")
 		return
@@ -473,9 +353,7 @@ func (server *Server) listCollections(writer http.ResponseWriter, request *http.
 }
 
 func (server *Server) previewCollection(writer http.ResponseWriter, request *http.Request) {
-	var input struct {
-		MediaIDs []string `json:"media_ids"`
-	}
+	var input previewCollectionInput
 	if err := decodeJSON(request, &input, 256<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -498,11 +376,7 @@ func (server *Server) previewCollection(writer http.ResponseWriter, request *htt
 }
 
 func (server *Server) createCollection(writer http.ResponseWriter, request *http.Request) {
-	var input struct {
-		Name        string   `json:"name"`
-		Description string   `json:"description"`
-		MediaIDs    []string `json:"media_ids"`
-	}
+	var input createCollectionInput
 	if err := decodeJSON(request, &input, 256<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -548,13 +422,7 @@ func (server *Server) listAdoptionBatches(writer http.ResponseWriter, request *h
 }
 
 func (server *Server) createAdoptionBatch(writer http.ResponseWriter, request *http.Request) {
-	var input struct {
-		SourceRoot        string `json:"source_root"`
-		RootID            string `json:"root_id"`
-		QualityProfileID  string `json:"quality_profile_id"`
-		MonitoringEnabled bool   `json:"monitoring_enabled"`
-		SearchImmediately bool   `json:"search_immediately"`
-	}
+	var input createAdoptionBatchInput
 	if err := decodeJSON(request, &input, 32<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -623,16 +491,7 @@ func (server *Server) reviewAdoptionItem(writer http.ResponseWriter, request *ht
 		writeError(writer, http.StatusBadRequest, "invalid_id", "adoption batch or item ID is invalid")
 		return
 	}
-	var input struct {
-		ReviewState       string `json:"review_state"`
-		MediaID           string `json:"media_id"`
-		RootID            string `json:"root_id"`
-		QualityProfileID  string `json:"quality_profile_id"`
-		ProposedRelative  string `json:"proposed_relative"`
-		Variant           string `json:"variant"`
-		MonitoringEnabled bool   `json:"monitoring_enabled"`
-		SearchImmediately bool   `json:"search_immediately"`
-	}
+	var input reviewAdoptionItemInput
 	if err := decodeJSON(request, &input, 32<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -682,10 +541,7 @@ func (server *Server) executeAdoptionBatch(writer http.ResponseWriter, request *
 		writeError(writer, http.StatusBadRequest, "invalid_id", "adoption batch ID is invalid")
 		return
 	}
-	var input struct {
-		Confirmation                   string `json:"confirmation"`
-		AdoptedReplacementConfirmation string `json:"adopted_replacement_confirmation"`
-	}
+	var input executeAdoptionBatchInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil || input.Confirmation != "EXECUTE REVIEWED ADOPTION" {
 		writeError(writer, http.StatusBadRequest, "confirmation_required", "exact adoption execution confirmation is required")
 		return
@@ -718,13 +574,7 @@ func (server *Server) listReleaseBlocks(writer http.ResponseWriter, request *htt
 }
 
 func (server *Server) createReleaseBlock(writer http.ResponseWriter, request *http.Request) {
-	var input struct {
-		CandidateID   string `json:"candidate_id"`
-		Scope         string `json:"scope"`
-		Reason        string `json:"reason"`
-		ExpiresAt     string `json:"expires_at"`
-		RetentionDays int    `json:"retention_days"`
-	}
+	var input createReleaseBlockInput
 	if err := decodeJSON(request, &input, 32<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -1213,12 +1063,7 @@ func (server *Server) approveProwlarrImport(writer http.ResponseWriter, request 
 		writeError(writer, http.StatusBadRequest, "invalid_id", "Prowlarr import ID is invalid")
 		return
 	}
-	var input struct {
-		Candidates []struct {
-			ID        string `json:"id"`
-			SecretRef string `json:"secret_ref"`
-		} `json:"candidates"`
-	}
+	var input approveProwlarrImportInput
 	if err := decodeJSON(request, &input, 64<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "approval body is invalid")
 		return
@@ -1288,20 +1133,7 @@ func (server *Server) createMediaWorkflow(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load media")
 		return
 	}
-	var input struct {
-		RootID                         string `json:"root_id"`
-		QualityProfileID               string `json:"quality_profile_id"`
-		DownloadClientID               string `json:"download_client_id"`
-		AdoptedReplacementConfirmation string `json:"adopted_replacement_confirmation"`
-		SearchImmediately              *bool  `json:"search_immediately"`
-		Season                         *struct {
-			Number            uint16                   `json:"number"`
-			Episodes          []postgres.ManualEpisode `json:"episodes"`
-			Monitored         *bool                    `json:"monitored"`
-			SearchImmediately *bool                    `json:"search_immediately"`
-			PreferSeasonPack  *bool                    `json:"prefer_season_pack"`
-		} `json:"season"`
-	}
+	var input createMediaWorkflowInput
 	if err := decodeJSON(request, &input, 256<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -1351,9 +1183,7 @@ func (server *Server) searchWorkflow(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
 		return
 	}
-	var input struct {
-		AdoptedReplacementConfirmation string `json:"adopted_replacement_confirmation"`
-	}
+	var input searchWorkflowInput
 	if request.ContentLength != 0 {
 		if err := decodeJSON(request, &input, 8<<10); err != nil {
 			writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
@@ -1441,9 +1271,7 @@ func (server *Server) relocateWorkflowLinks(writer http.ResponseWriter, request 
 		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
 		return
 	}
-	var input struct {
-		RootID string `json:"root_id"`
-	}
+	var input relocateWorkflowLinksInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -1536,9 +1364,7 @@ func (server *Server) reverifyRetainedOutput(writer http.ResponseWriter, request
 		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
 		return
 	}
-	var input struct {
-		JobID string `json:"job_id"`
-	}
+	var input reverifyRetainedOutputInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -1602,24 +1428,7 @@ func (server *Server) listMedia(writer http.ResponseWriter, request *http.Reques
 }
 
 func (server *Server) createMedia(writer http.ResponseWriter, request *http.Request) {
-	var input struct {
-		Kind              catalog.MediaKind          `json:"kind"`
-		Title             string                     `json:"title"`
-		Year              *uint16                    `json:"year"`
-		Identities        []catalog.ExternalIdentity `json:"identities"`
-		Metadata          *catalog.MediaMetadata     `json:"metadata"`
-		RootID            string                     `json:"root_id"`
-		QualityProfileID  string                     `json:"quality_profile_id"`
-		DownloadClientID  string                     `json:"download_client_id"`
-		SearchImmediately *bool                      `json:"search_immediately"`
-		Seasons           []struct {
-			Number            uint16                   `json:"number"`
-			Episodes          []postgres.ManualEpisode `json:"episodes"`
-			Monitored         *bool                    `json:"monitored"`
-			SearchImmediately *bool                    `json:"search_immediately"`
-			PreferSeasonPack  *bool                    `json:"prefer_season_pack"`
-		} `json:"seasons"`
-	}
+	var input createMediaInput
 	if err := decodeJSON(request, &input, 256<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -1803,9 +1612,7 @@ func (server *Server) confirmRealFilePurge(writer http.ResponseWriter, request *
 		writeError(writer, http.StatusBadRequest, "invalid_id", "recycle entry ID is invalid")
 		return
 	}
-	var input struct {
-		Confirmation string `json:"confirmation"`
-	}
+	var input confirmRealFilePurgeInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
@@ -1826,9 +1633,7 @@ func (server *Server) restoreAdoptedFiles(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusBadRequest, "invalid_id", "recycle entry ID is invalid")
 		return
 	}
-	var input struct {
-		Confirmation string `json:"confirmation"`
-	}
+	var input restoreAdoptedFilesInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return

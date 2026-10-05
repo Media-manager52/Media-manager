@@ -165,13 +165,7 @@ func (server *Server) sealCommissioningV2SearchPlan(writer http.ResponseWriter, 
 	if !ok {
 		return
 	}
-	var input struct {
-		ExpectedRevision              uint64 `json:"expected_revision"`
-		MovieCategoryIDs              []int  `json:"movie_category_ids"`
-		SeriesCategoryIDs             []int  `json:"series_category_ids"`
-		IncludeMovieFallback          bool   `json:"include_movie_fallback"`
-		IncludeCompleteSeasonFallback bool   `json:"include_complete_season_fallback"`
-	}
+	var input sealCommissioningV2SearchPlanInput
 	if err := decodeJSON(request, &input, 64<<10); err != nil || input.ExpectedRevision == 0 {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "expected_revision is required")
 		return
@@ -202,9 +196,7 @@ func (server *Server) authorizeCommissioningV2Searches(writer http.ResponseWrite
 }
 
 func decodeExpectedRevision(writer http.ResponseWriter, request *http.Request) (uint64, bool) {
-	var input struct {
-		ExpectedRevision uint64 `json:"expected_revision"`
-	}
+	var input expectedRevisionInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil || input.ExpectedRevision == 0 {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "expected_revision is required")
 		return 0, false

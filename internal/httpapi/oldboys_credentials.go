@@ -87,10 +87,7 @@ func (server *Server) setOldBoysBudget(writer http.ResponseWriter, request *http
 		writeError(writer, http.StatusForbidden, "origin_rejected", "Change the OldBoys budget from Media Manager")
 		return
 	}
-	var input struct {
-		QueryLimit int `json:"query_limit"`
-		GrabLimit  int `json:"grab_limit"`
-	}
+	var input setOldBoysBudgetInput
 	if err := decodeJSON(request, &input, 4<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_oldboys_budget", "Enter the daily search limit and optional daily download limit as whole numbers")
 		return

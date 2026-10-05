@@ -15,9 +15,7 @@ func (server *Server) reinspectRetainedMovie(writer http.ResponseWriter, request
 		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
 		return
 	}
-	var input struct {
-		JobID string `json:"job_id"`
-	}
+	var input reinspectRetainedMovieInput
 	if err := decodeJSON(request, &input, 8<<10); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
