@@ -1,5 +1,15 @@
 # Media Manager core release status
 
+## OldBoys credential setup (2026-10-05, source)
+
+An owner-only form under Settings → Connections accepts the OldBoys API Token,
+Pass Key (PID), and RSS Key (RID). Schema 44 adds encrypted credential storage;
+the API requires a separate server sealing key. Read responses contain status
+only, and password fields clear after a successful save. This prepares native
+provider work without enabling the retired proxy or claiming provider validation.
+See [setup and recovery](../operations/oldboys.md). Deployment evidence remains
+pending at this source checkpoint.
+
 ## Completed-output recovery and duplicate prevention (2026-10-04)
 
 The deeper backlog review identified repeated exact-title releases with

@@ -25,6 +25,7 @@ import (
 	"github.com/media-manager/media-manager/internal/mediainfo"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/notifications"
+	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/platform"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/publication"
@@ -173,6 +174,13 @@ func run() error {
 	}
 	scheduler := indexers.NewScheduler(4, store)
 	resolveSecret := func(reference string) (string, error) { return requiredSecret(reference) }
+	var oldBoysCredentials *oldboyscredentials.Service
+	if key := optionalSecret(oldboyscredentials.KeyReference); key != "" {
+		oldBoysCredentials, err = oldboyscredentials.New(store, key)
+		if err != nil {
+			return err
+		}
+	}
 	backupDirectory := strings.TrimSpace(os.Getenv("BACKUP_DIRECTORY"))
 	if backupDirectory == "" {
 		backupDirectory = "/var/lib/media-manager/backups"
@@ -180,7 +188,7 @@ func run() error {
 	backupConfigured := optionalSecret(backups.KeyReference) != ""
 	commissionService := &commissioning.NewznabService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
 	liveCAPSService := &commissioning.LiveCAPSService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
-	api, err := httpapi.New(httpapi.Config{OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
+	api, err := httpapi.New(httpapi.Config{OldBoysCredentials: oldBoysCredentials, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
 	if err != nil {
 		return err
 	}

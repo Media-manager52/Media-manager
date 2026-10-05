@@ -22,12 +22,14 @@ import (
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/importlists"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
+	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/prowlarrbackup"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
 type Config struct {
+	OldBoysCredentials     *oldboyscredentials.Service
 	OwnerToken             string
 	SeerrEnabled           bool
 	SeerrWebhookSecret     string
@@ -149,6 +151,8 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /api/v1/imports/prowlarr/{id}", server.requireOwner(server.getProwlarrImport))
 	server.mux.HandleFunc("POST /api/v1/imports/prowlarr/{id}/approve", server.requireOwner(server.approveProwlarrImport))
 	server.mux.HandleFunc("GET /api/v1/settings/integrations", server.requireOwner(server.listIntegrations))
+	server.mux.HandleFunc("GET /api/v1/settings/oldboys/credentials", server.requireOwner(server.oldBoysCredentialsStatus))
+	server.mux.HandleFunc("PUT /api/v1/settings/oldboys/credentials", server.requireOwner(server.saveOldBoysCredentials))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations", server.requireOwner(server.createIntegration))
 	server.mux.HandleFunc("POST /api/v1/settings/integrations/{id}/commission", server.requireOwner(server.commissionIntegration))
 	server.mux.HandleFunc("GET /api/v1/settings/integrations/{id}/seerr-routes", server.requireOwner(server.listSeerrRoutes))

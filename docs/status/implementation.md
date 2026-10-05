@@ -8,6 +8,18 @@ The audit covers the Go route registry, PostgreSQL migrations/store methods
 and the React route switch. This document describes implemented behavior,
 not the development fixture's claims.
 
+## OldBoys credential setup (2026-10-05)
+
+Settings → Connections accepts the API Token, Pass Key (PID), and RSS Key (RID)
+through owner-only, bounded GET/PUT routes. Schema 44 stores the complete set
+with AES-256-GCM encryption under a separate server key. Status responses expose
+only availability, saved state and update time; successful saving clears the
+password inputs. Native provider search/download support and commissioning
+remain pending. Saving credentials does not enable the disabled legacy proxy.
+See [setup and key recovery](../operations/oldboys.md).
+
+This source note describes code, not deployment evidence.
+
 ## Annual TV episode acquisition (2026-10-05)
 
 TV searches can alternate the existing ordinal-season request with one bounded
