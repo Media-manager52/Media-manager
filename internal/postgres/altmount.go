@@ -14,6 +14,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/packs"
+	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -34,6 +35,7 @@ type AltMountJobContext struct {
 	Client              Integration
 	Root                LibraryRoot
 	Media               catalog.MediaItem
+	ReleaseObservation  releases.Observation
 }
 
 func (store *Store) LoadAltMountJob(ctx context.Context, jobID uuid.UUID) (AltMountJobContext, error) {
@@ -51,6 +53,14 @@ func (store *Store) LoadAltMountJob(ctx context.Context, jobID uuid.UUID) (AltMo
 	}
 	result.JobID = jobID
 	result.CandidateID, _ = uuid.Parse(candidateText)
+	var releaseFacts []byte
+	err = store.Pool.QueryRow(ctx, `SELECT o.title,o.parse_version,o.normalized_facts FROM release_candidates c JOIN release_observations o ON o.id=c.observation_id WHERE c.id=$1 AND c.workflow_id=$2`, candidateText, workflowText).Scan(&result.ReleaseObservation.Title, &result.ReleaseObservation.ParseVersion, &releaseFacts)
+	if err != nil {
+		return AltMountJobContext{}, err
+	}
+	if err = json.Unmarshal(releaseFacts, &result.ReleaseObservation.Facts); err != nil {
+		return AltMountJobContext{}, err
+	}
 	result.Workflow.ID, _ = uuid.Parse(workflowText)
 	result.Workflow.DownloadClientID, _ = uuid.Parse(clientText)
 	result.Workflow.RootID, _ = uuid.Parse(rootText)
@@ -74,6 +84,12 @@ func (store *Store) LoadAltMountJob(ctx context.Context, jobID uuid.UUID) (AltMo
 	result.Media.Identities, err = store.identities(ctx, result.Media.ID)
 	if err != nil {
 		return AltMountJobContext{}, err
+	}
+	if result.ReleaseObservation.ParseVersion == "oldboys-v1" {
+		result.Media.Metadata, err = store.metadata(ctx, result.Media.ID)
+		if err != nil {
+			return AltMountJobContext{}, err
+		}
 	}
 	result.Client, err = store.Integration(ctx, result.Workflow.DownloadClientID)
 	if err != nil {

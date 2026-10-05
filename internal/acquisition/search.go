@@ -165,6 +165,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		return err
 	}
 	rules = appendSubtitleRules(rules, subtitlePolicy)
+	qualityRules := append([]releases.Rule{}, rules...)
 	scopeRules, scopeErr := workflowScopeRules(search.Variant)
 	if scopeErr != nil {
 		return scopeErr
@@ -172,7 +173,11 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	rules = append(scopeRules, rules...)
 	var currentEvaluation *releases.Evaluation
 	if search.CurrentRelease != nil {
-		evaluatedCurrent, evaluateErr := releases.Evaluate(*search.CurrentRelease, rules)
+		currentObservation, currentRules := *search.CurrentRelease, rules
+		if currentObservation.ParseVersion == "oldboys-v1" {
+			currentObservation, currentRules = oldBoysRangeScope(currentObservation, search, scopeRules, qualityRules)
+		}
+		evaluatedCurrent, evaluateErr := releases.Evaluate(currentObservation, currentRules)
 		if evaluateErr != nil {
 			return evaluateErr
 		}
@@ -294,7 +299,11 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				observation = bindOldBoysCatalogue(observation, search, time.Now().UTC())
 			}
 			observation = applyEpisodeNumbering(observation, search, time.Now().UTC())
-			evaluation, evaluateErr := releases.Evaluate(observation, rules)
+			observationRules := rules
+			if integration.Kind == "oldboys" {
+				observation, observationRules = oldBoysRangeScope(observation, search, scopeRules, qualityRules)
+			}
+			evaluation, evaluateErr := releases.Evaluate(observation, observationRules)
 			if evaluateErr != nil {
 				return evaluateErr
 			}

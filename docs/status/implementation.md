@@ -8,6 +8,27 @@ The audit covers the Go route registry, PostgreSQL migrations/store methods
 and the React route switch. This document describes implemented behavior,
 not the development fixture's claims.
 
+## Native collection-pack discovery (2026-10-05, source)
+
+The OldBoys query cycle now includes title-only searches, alongside ordinal and
+verified calendar-year searches, and visits four bounded pages for each shape.
+Each scan still sends one request per provider. This fixes collection titles
+such as `Operation.X.S01-S16.DANISH.720p.AAC2.0-PlexLover` being invisible to
+`S16E06` or `2019` filters. Native range admission records the explicitly declared
+season membership without inventing episode IDs or rewriting the first-season
+facts. Malformed or out-of-catalogue ranges remain held; unrelated titles,
+conflicting IDs, quality rules and workflow/round protections still apply.
+
+For a selected native collection, output evaluation checks only the immutable
+requested season/episode scope. Extra clearly numbered episodes in the declared
+range remain retained and unpublished by that workflow. Missing, duplicate,
+unsafe, ambiguous, composite and out-of-range media cannot pass verification.
+The full inventory digest remains bound to the check. Media/subtitle inspection
+and exact Plex confirmation still gate completion. This introduces no migration
+or automatic fan-out of download jobs; each workflow uses its existing bounded
+acquisition lifecycle. Source gate/deployment and completed-pack evidence are
+pending at this checkpoint.
+
 ## Native OldBoys provider (2026-10-05, source)
 
 The dedicated OldBoys adapter supports bearer filter search and the live-proven
@@ -20,7 +41,16 @@ The owner can validate four positive/negative search controls and one discarded
 NZB in Connections. Credential replacement disables the commission atomically;
 configuration and credential snapshots guard every send, result persistence and
 activation. Schema remains 44. See [native contract](../operations/oldboys.md).
-Deployment and completed acquisition evidence are pending at this source note.
+PR #43 is deployed at `666056b45350026da38a9024e4494eec2ad01e9c`:
+[Verify 37337754290](https://github.com/Media-manager52/Media-manager/actions/runs/37337754290)
+passed all five jobs and
+[Deploy 37339782861](https://github.com/Media-manager52/Media-manager/actions/runs/37339782861)
+succeeded with backup, schema 44 and healthy matching API/UI images. Native owner
+commissioning passed all five controls and enabled the source at 16:20:19 UTC.
+Normal worker searches succeeded; deployed read-only desktop/tablet/mobile checks
+passed with configured/enabled status and empty credential fields. This proves
+provider integration, not acquisition of every waiting request.
+
 
 ## OldBoys credential setup (2026-10-05)
 
