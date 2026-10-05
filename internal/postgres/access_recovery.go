@@ -79,7 +79,7 @@ func (store *Store) RetryAccessRejectedRelease(ctx context.Context, workflowID, 
 	err = tx.QueryRow(ctx, `SELECT r.id::text,i.id::text,c.native_key,COALESCE(e.retrieval_error_code,CASE WHEN e.reason LIKE '%(newznab_http_401)' THEN 'newznab_http_401' ELSE 'newznab_http_403' END),e.reason,e.created_at `+store.accessRejectedRetryQuery()+`
   AND w.id=$1 AND c.id=$2 FOR UPDATE OF r,c,e`, workflowID.String(), candidateID.String()).Scan(&roundID, &indexerID, &nativeKey, &errorCode, &originalReason, &originalCreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errors.New("this release cannot be retried: recovery requires an eligible, unsubmitted 401/403 rejection in the current open round")
+		return refuse("access_retry_not_eligible", "this release cannot be retried: recovery requires an eligible, unsubmitted 401/403 rejection in the current open round", "Re-read the workflow; access_rejected_candidate_id and revision must be current.")
 	}
 	if err != nil {
 		return err

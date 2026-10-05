@@ -29,7 +29,7 @@ func (server *Server) retryAccessRejectedRelease(writer http.ResponseWriter, req
 		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
 		return
 	} else if err != nil {
-		writeError(writer, http.StatusConflict, "access_retry_failed", "The workflow changed or this release is no longer eligible for access recovery. Refresh and review its current state.")
+		writeConflict(writer, err, "access_retry_failed", "The workflow changed or this release is no longer eligible for access recovery. Refresh and review its current state.")
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "retrieval_queued", "id": id.String()}})

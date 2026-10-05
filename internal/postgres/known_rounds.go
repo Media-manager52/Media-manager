@@ -34,14 +34,14 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		return err
 	}
 	if workflowState != workflows.StateWaiting && workflowState != workflows.StateHeld {
-		return errors.New("workflow is not waiting for a new acquisition round")
+		return refuse("round_not_waiting", "workflow is not waiting for a new acquisition round", "Only waiting workflows with an exhausted round can open a new round.")
 	}
 	var openRounds int
 	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM acquisition_rounds WHERE workflow_id=$1 AND state='open'`, workflowID.String()).Scan(&openRounds); err != nil {
 		return err
 	}
 	if openRounds != 0 {
-		return errors.New("workflow already has an open acquisition round")
+		return refuse("round_already_open", "workflow already has an open acquisition round", "Use search; the open round still has slots.")
 	}
 	var retainedOutputs int
 	if err := transaction.QueryRow(ctx, `SELECT count(DISTINCT job.id) FROM altmount_jobs job
@@ -50,7 +50,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		return err
 	}
 	if retainedOutputs >= store.AcquisitionLimits().RetainedFailedOutputs {
-		return errors.New("retained failed-output limit reached; owner storage review is required before another round")
+		return refuse("retained_output_limit_reached", "retained failed-output limit reached; owner storage review is required before another round", "The owner must review retained failed outputs (or raise ACQUISITION_RETAINED_OUTPUT_LIMIT) before another round.")
 	}
 	var policyVersion int64
 	var policy json.RawMessage
@@ -74,7 +74,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		  candidate.first_seen_sequence
 		LIMIT 1`, workflowID.String(), policyVersion).Scan(&candidateText)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errors.New("no known eligible release is available for a new acquisition round")
+		return refuse("no_known_eligible_release", "no known eligible release is available for a new acquisition round", "Wait for paced discovery or queue one with discover.")
 	}
 	if err != nil {
 		return err

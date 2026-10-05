@@ -23,8 +23,9 @@ Request bodies are JSON (Content-Type: application/json) and unknown fields are 
 Every operation has x-mm-effect: "read" (no change), "write" (changes Media Manager state or queues local work),
 "provider" (contacts or queues requests to indexers, Seerr, Plex or metadata services and can spend provider budget)
 or "destructive" (removes or replaces data; ask the owner first). x-mm-auth "owner_browser" routes can only be used
-from the Media Manager settings page. Workflow actions are guarded by state and revision; a 409 means the action
-does not apply right now, and its message says why. Background work is paced: a 202 means queued, not finished.`
+from the Media Manager settings page. Workflow actions are guarded by state and revision. GET /api/v1/workflows/{id} lists available_actions (route, effect,
+available or the reason why not, and a ready body). A 409 means the action does not apply right now; error.hint says what
+to do instead. Background work is paced: a 202 means queued, not finished.`
 
 var effectMeaning = map[apiEffect]string{
 	effectRead:        "No state change and no provider contact. Always safe.",
@@ -96,7 +97,7 @@ func (server *Server) openAPIDocument() map[string]any {
 		item[strings.ToLower(operation.Method)] = generator.operation(operation)
 	}
 	generator.components["Envelope"] = map[string]any{"type": "object", "properties": map[string]any{"data": map[string]any{}, "meta": map[string]any{}}, "required": []string{"data"}}
-	generator.components["Error"] = map[string]any{"type": "object", "required": []string{"error"}, "properties": map[string]any{"error": map[string]any{"type": "object", "required": []string{"code", "message"}, "properties": map[string]any{"code": map[string]any{"type": "string", "description": "Stable snake_case reason."}, "message": map[string]any{"type": "string"}}}}}
+	generator.components["Error"] = map[string]any{"type": "object", "required": []string{"error"}, "properties": map[string]any{"error": map[string]any{"type": "object", "required": []string{"code", "message"}, "properties": map[string]any{"code": map[string]any{"type": "string", "description": "Stable snake_case reason."}, "message": map[string]any{"type": "string"}, "hint": map[string]any{"type": "string", "description": "The next step, when the server knows one."}}}}}
 	tags := []map[string]any{}
 	for _, tag := range apiTags {
 		tags = append(tags, map[string]any{"name": tag[0], "description": tag[1]})
@@ -194,7 +195,11 @@ func (generator schemaGenerator) operation(operation apiOperation) map[string]an
 		}
 		result["requestBody"] = map[string]any{"required": !operation.OptionalBody, "content": map[string]any{"application/json": map[string]any{"schema": schema}}}
 	}
-	success := map[string]any{"description": "Success. 202 means the work was queued; 204 means an idempotent no-op.", "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/Envelope"}}}}
+	envelope := map[string]any{"$ref": "#/components/schemas/Envelope"}
+	if operation.Response != nil {
+		envelope = map[string]any{"allOf": []any{envelope, map[string]any{"type": "object", "properties": map[string]any{"data": generator.schema(reflect.TypeOf(operation.Response))}}}}
+	}
+	success := map[string]any{"description": "Success. 202 means the work was queued; 204 means an idempotent no-op.", "content": map[string]any{"application/json": map[string]any{"schema": envelope}}}
 	if strings.HasSuffix(operation.Path, "/download") {
 		success["content"] = map[string]any{"application/octet-stream": map[string]any{"schema": map[string]any{"type": "string", "format": "binary"}}}
 	}

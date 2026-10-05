@@ -295,7 +295,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		return err
 	}
 	if workflowState != workflows.StateWaiting {
-		return errors.New("workflow is not waiting for a new acquisition round")
+		return refuse("round_not_waiting", "workflow is not waiting for a new acquisition round", "Only waiting workflows with an exhausted round can open a new round.")
 	}
 	var retainedOutputs int
 	if err := transaction.QueryRow(ctx, `SELECT count(DISTINCT job.id) FROM altmount_jobs job
@@ -304,14 +304,14 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		return err
 	}
 	if retainedOutputs >= store.AcquisitionLimits().RetainedFailedOutputs {
-		return errors.New("retained failed-output limit reached; owner storage review is required before another round")
+		return refuse("retained_output_limit_reached", "retained failed-output limit reached; owner storage review is required before another round", "The owner must review retained failed outputs (or raise ACQUISITION_RETAINED_OUTPUT_LIMIT) before another round.")
 	}
 	var exhaustedRoundText, readyCandidateText string
 	var generation, readySequence int64
 	err = transaction.QueryRow(ctx, `SELECT discovery.exhausted_round_id::text,discovery.ready_candidate_id::text,discovery.rescan_generation,discovery.ready_first_seen_sequence
 		FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=$1 AND discovery.state='ready' FOR UPDATE`, workflowID.String()).Scan(&exhaustedRoundText, &readyCandidateText, &generation, &readySequence)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errors.New("no newly observed eligible release is ready for owner approval")
+		return refuse("no_release_ready", "no newly observed eligible release is ready for owner approval", "Wait for paced discovery, queue one with discover, or try open_round_from_known.")
 	}
 	if err != nil {
 		return err
@@ -330,7 +330,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		return err
 	}
 	if profileVersion != policyVersion {
-		return errors.New("the quality policy changed after this round was exhausted; apply the current policy to the profile instead of reopening the old snapshot")
+		return refuse("policy_changed", "the quality policy changed after this round was exhausted; apply the current policy to the profile instead of reopening the old snapshot", "Call POST /api/v1/settings/quality-profiles/{id}/apply-policy for this workflow's profile.")
 	}
 	var candidateValid bool
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(
@@ -343,7 +343,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		return err
 	}
 	if !candidateValid {
-		return errors.New("the discovered release is no longer eligible; wait for a new complete discovery scan")
+		return refuse("ready_release_no_longer_eligible", "the discovered release is no longer eligible; wait for a new complete discovery scan", "Wait for the next complete discovery scan, or queue one with discover.")
 	}
 	var baseline string
 	err = transaction.QueryRow(ctx, `SELECT COALESCE(string_agg(version.id::text,',' ORDER BY version.id),'') FROM workflows requested

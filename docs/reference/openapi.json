@@ -609,6 +609,10 @@
                 "description": "Stable snake_case reason.",
                 "type": "string"
               },
+              "hint": {
+                "description": "The next step, when the server knows one.",
+                "type": "string"
+              },
               "message": {
                 "type": "string"
               }
@@ -777,6 +781,157 @@
         },
         "type": "object"
       },
+      "Postgres_WorkflowSummary": {
+        "properties": {
+          "access_rejected_candidate_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "access_rejected_indexer_name": {
+            "type": "string"
+          },
+          "access_rejected_release_title": {
+            "type": "string"
+          },
+          "acquisition_attempts": {
+            "type": "integer"
+          },
+          "active_altmount_job": {
+            "type": "boolean"
+          },
+          "adopted_replacement_confirmation_required": {
+            "type": "boolean"
+          },
+          "attention_code": {
+            "type": "string"
+          },
+          "attention_detail": {
+            "type": "string"
+          },
+          "complete_no_new_scans": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "download_observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "download_percent": {
+            "type": "integer"
+          },
+          "download_stage": {
+            "type": "string"
+          },
+          "excluded_release_count": {
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_discovery_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_discovery_complete": {
+            "type": "boolean"
+          },
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "new_release_ready": {
+            "type": "boolean"
+          },
+          "next_rescan_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "open_next_round_allowed": {
+            "type": "boolean"
+          },
+          "owner_action_required": {
+            "type": "boolean"
+          },
+          "quality_profile": {
+            "type": "string"
+          },
+          "ready_candidate_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ready_first_observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ready_indexer_name": {
+            "type": "string"
+          },
+          "ready_release_title": {
+            "type": "string"
+          },
+          "retained_output_bytes": {
+            "type": "integer"
+          },
+          "retained_output_count": {
+            "type": "integer"
+          },
+          "retained_output_limit": {
+            "type": "integer"
+          },
+          "retry_discovery_state": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "round_attempt_limit": {
+            "type": "integer"
+          },
+          "round_ordinal": {
+            "type": "integer"
+          },
+          "round_slots_used": {
+            "type": "integer"
+          },
+          "round_state": {
+            "type": "string"
+          },
+          "search_allowed": {
+            "type": "boolean"
+          },
+          "search_blocked_reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "terminal_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "variant": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "PreviewCollectionInput": {
         "properties": {
           "media_ids": {
@@ -929,6 +1084,82 @@
           }
         },
         "type": "object"
+      },
+      "WorkflowAction": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "body": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "confirmation": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "WorkflowDetail": {
+        "properties": {
+          "download_client_id": {
+            "type": "string"
+          },
+          "grab_attempt_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "quality_profile_id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "selected_release_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "WorkflowView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Postgres_WorkflowSummary"
+          },
+          {
+            "properties": {
+              "available_actions": {
+                "items": {
+                  "$ref": "#/components/schemas/WorkflowAction"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        ]
       }
     },
     "securitySchemes": {
@@ -945,7 +1176,7 @@
     }
   },
   "info": {
-    "description": "All /api/v1 routes except the Seerr webhook need \"Authorization: Bearer \u003cOWNER_TOKEN\u003e\".\nSuccess bodies are {\"data\": ..., \"meta\": ...}; errors are {\"error\": {\"code\": \"snake_case\", \"message\": \"...\"}} with a 4xx/5xx status.\nRequest bodies are JSON (Content-Type: application/json) and unknown fields are rejected with 400.\nEvery operation has x-mm-effect: \"read\" (no change), \"write\" (changes Media Manager state or queues local work),\n\"provider\" (contacts or queues requests to indexers, Seerr, Plex or metadata services and can spend provider budget)\nor \"destructive\" (removes or replaces data; ask the owner first). x-mm-auth \"owner_browser\" routes can only be used\nfrom the Media Manager settings page. Workflow actions are guarded by state and revision; a 409 means the action\ndoes not apply right now, and its message says why. Background work is paced: a 202 means queued, not finished.",
+    "description": "All /api/v1 routes except the Seerr webhook need \"Authorization: Bearer \u003cOWNER_TOKEN\u003e\".\nSuccess bodies are {\"data\": ..., \"meta\": ...}; errors are {\"error\": {\"code\": \"snake_case\", \"message\": \"...\"}} with a 4xx/5xx status.\nRequest bodies are JSON (Content-Type: application/json) and unknown fields are rejected with 400.\nEvery operation has x-mm-effect: \"read\" (no change), \"write\" (changes Media Manager state or queues local work),\n\"provider\" (contacts or queues requests to indexers, Seerr, Plex or metadata services and can spend provider budget)\nor \"destructive\" (removes or replaces data; ask the owner first). x-mm-auth \"owner_browser\" routes can only be used\nfrom the Media Manager settings page. Workflow actions are guarded by state and revision. GET /api/v1/workflows/{id} lists available_actions (route, effect,\navailable or the reason why not, and a ready body). A 409 means the action does not apply right now; error.hint says what\nto do instead. Background work is paced: a 202 means queued, not finished.",
     "title": "Media Manager API",
     "version": "repository"
   },
@@ -5036,7 +5267,22 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/WorkflowView"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -5053,7 +5299,7 @@
             "description": "Error with a stable code."
           }
         },
-        "summary": "List workflows",
+        "summary": "List workflows with their available actions",
         "tags": [
           "workflows"
         ],
@@ -5063,7 +5309,7 @@
     },
     "/api/v1/workflows/{id}": {
       "get": {
-        "description": "No state change and no provider contact. Always safe.",
+        "description": "available_actions lists every owner action with its route, effect, whether it applies now (or why not) and a ready-to-send body where one is needed.\n\nNo state change and no provider contact. Always safe.",
         "operationId": "getWorkflow",
         "parameters": [
           {
@@ -5080,7 +5326,19 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/WorkflowDetail"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -5097,7 +5355,7 @@
             "description": "Error with a stable code."
           }
         },
-        "summary": "One workflow with its state, revision, rounds and attention",
+        "summary": "One workflow: state, revision, rounds, retained output, attention and available_actions",
         "tags": [
           "workflows"
         ],

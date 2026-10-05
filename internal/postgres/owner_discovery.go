@@ -27,7 +27,7 @@ func (store *Store) RequestWorkflowDiscovery(ctx context.Context, workflowID uui
 		return err
 	}
 	if state != workflows.StateWaiting {
-		return errors.New("discovery requires a waiting workflow with an exhausted acquisition round")
+		return refuse("discovery_not_applicable", "discovery requires a waiting workflow with an exhausted acquisition round", "Discovery is only for waiting workflows whose round is exhausted; use search otherwise.")
 	}
 	var generation int64
 	err = transaction.QueryRow(ctx, `SELECT discovery.rescan_generation FROM workflow_retry_discovery discovery
@@ -38,7 +38,7 @@ func (store *Store) RequestWorkflowDiscovery(ctx context.Context, workflowID uui
 		AND NOT EXISTS(SELECT 1 FROM altmount_jobs job WHERE job.workflow_id=$1 AND job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))
 		FOR UPDATE OF discovery`, workflowID.String()).Scan(&generation)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errors.New("no exhausted round is waiting for discovery; use the available search or round recovery action")
+		return refuse("discovery_not_applicable", "no exhausted round is waiting for discovery; use the available search or round recovery action", "Read available_actions on GET /api/v1/workflows/{id}.")
 	}
 	if err != nil {
 		return err
@@ -51,7 +51,7 @@ func (store *Store) RequestWorkflowDiscovery(ctx context.Context, workflowID uui
 		return err
 	}
 	if !indexerAvailable {
-		return errors.New("discovery requires at least one commissioned indexer for this media")
+		return refuse("no_commissioned_indexer", "discovery requires at least one commissioned indexer for this media", "Commission and enable an indexer that serves this media (GET /api/v1/settings/integrations).")
 	}
 	if alreadyQueued {
 		return transaction.Commit(ctx)

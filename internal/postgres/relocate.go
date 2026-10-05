@@ -28,7 +28,7 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 	}
 	switch state {
 	case "searching", "candidate_selected", "submitting", "processing", "streaming_ready", "import_complete", "publishing", "plex_scanning":
-		return 0, errors.New("workflow has an in-flight acquisition or publication; relocate after it settles")
+		return 0, refuse("workflow_in_flight", "workflow has an in-flight acquisition or publication; relocate after it settles", "Wait until the workflow is not acquiring or publishing, then retry.")
 	}
 	if oldRootID == targetRootID.String() {
 		return 0, nil
@@ -41,10 +41,10 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 		return 0, err
 	}
 	if !enabled {
-		return 0, errors.New("target library root is disabled")
+		return 0, refuse("library_root_disabled", "target library root is disabled", "Choose an enabled root from GET /api/v1/settings/library-roots.")
 	}
 	if targetKind != mediaKind {
-		return 0, errors.New("target library root does not serve this media kind")
+		return 0, refuse("library_root_wrong_kind", "target library root does not serve this media kind", "Choose a root with the same media_kind from GET /api/v1/settings/library-roots.")
 	}
 	type relocateItem struct {
 		linkID   string
@@ -92,7 +92,7 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 		return 0, err
 	}
 	if len(links) == 0 && len(companions) == 0 {
-		return 0, errors.New("workflow has no current links in its library root")
+		return 0, refuse("no_current_links", "workflow has no current links in its library root", "Only workflows with published links can be relocated.")
 	}
 	moved := 0
 	for _, item := range links {
