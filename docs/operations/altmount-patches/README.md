@@ -1,10 +1,10 @@
-# Deployed AltMount source patches (2026-09-30)
+# Deployed AltMount source patches (2026-09-30, 2026-10-06)
 
-This bundle preserves the three companion fixes deployed with Media Manager.
+This bundle preserves the five companion fixes deployed with Media Manager.
 They apply to [kipsilabs/altmount](https://github.com/kipsilabs/altmount) at
 `630cad9a845e88018dc521554d8e2f3bd86bc436`. The deployed source is
-`321b3badc04760a387828bbde73e4bf15088508d`, built as
-`altmount-local:321b3ba`. These patches are maintained here for reproducibility;
+`73b7e0e3051f7935b129f2373515d0f7617cae79`, built as
+`altmount-local:73b7e0e` (previous build `altmount-local:321b3ba`, patches 1–3). These patches are maintained here for reproducibility;
 they are not represented as merged upstream.
 
 | Order | Original source commit | Change and regression coverage |
@@ -12,11 +12,18 @@ they are not represented as merged upstream.
 | [1](0001-fix-allow-bounded-NNTP-failover-during-release-probe.patch) | `0c3325b63b1f4b1c0e01a807f97a7e68c961cf45` | Allow provider fallback within the existing 15-second sweep budget; prove fallback beyond two seconds and enforce the total deadline. |
 | [2](0002-fix-detect-gzip-NZBs-when-retry-staging-renames-them.patch) | `c724ec8f0a3183129430c0788809d7237499de28` | Recognize gzip content when retry staging renames `.nzb.gz` to `.nzb`; prove the reader returns XML rather than compressed bytes. |
 | [3](0003-fix-parser-retain-single-file-metadata-names-without.patch) | `321b3badc04760a387828bbde73e4bf15088508d` | Retain the original single-file metadata name when no extension override is supplied; test both retained names and explicit overrides. |
+| [4](0004-fix-rar-rename-a-reposted-first-volume-to-its-.rNN-r.patch) | `ba0322f` | When one head volume (`.rar`/`.part01.rar`) sits next to one contiguous `.r00..` run, rename the head to `<run base>.rar` so old-style volume following continues. Before this, such NZBgeek sets stopped after the first volume and failed as "truncated". |
+| [5](0005-fix-rar-merge-a-clean-named-first-volume-with-its-sc.patch) | `73b7e0e3051f7935b129f2373515d0f7617cae79` | Merge a first volume carrying the clean release name with its scene-named `.r00..` run when the run is contiguous and the head has the run's volume size (within 1%); base comparison is case-insensitive. Before this, such sets failed as "incomplete". |
+
+Patches 4 and 5 recovered 47 of 49 releases that had failed as truncated or
+incomplete on 2026-10-06; the other two are real NNTP 430 gaps.
 
 Each source milestone passed the AltMount backend race suite and vet before
-deployment. Archival verification applies all three patches to the pinned base
+deployment (on 2026-10-06 one unrelated, pre-existing `nzbfilesystem`
+migration test failed once under full-suite load and passed on three reruns).
+Archival verification applies all five patches to the pinned base
 and compares the resulting complete Git tree with the deployed source tree:
-`e3eda74c645d8689a902b19ed20adb66c5768fdd`.
+`6bba6f7033b757ca822b010d063e25f09cd7c4dc` (patches 1–3 alone give `e3eda74c645d8689a902b19ed20adb66c5768fdd`).
 Commit identities after `git am` may differ because committer timestamps differ;
 the tree identity verifies the source content.
 
@@ -24,7 +31,7 @@ the tree identity verifies the source content.
 
 Verify the [patch checksums](SHA256SUMS) from this directory with
 `sha256sum -c SHA256SUMS`. Clone AltMount separately, check out the pinned base,
-then apply the three patches in order:
+then apply the five patches in order:
 
 ```sh
 git checkout --detach 630cad9a845e88018dc521554d8e2f3bd86bc436

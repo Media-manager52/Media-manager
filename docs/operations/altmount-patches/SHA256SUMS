@@ -1,3 +1,5 @@
 cff046a6e443bf92f314b32fdf77633141162a2ce05765ff2329a9cb408c5562  0001-fix-allow-bounded-NNTP-failover-during-release-probe.patch
 0ab8c5a08e07c040e4c90f5b6983f9bce3903a1fcddd3bd58d2c58ae1067cac8  0002-fix-detect-gzip-NZBs-when-retry-staging-renames-them.patch
 f794ca882bac2f23d402115cde235e4982136fd446a5a5ef63513717c8594abf  0003-fix-parser-retain-single-file-metadata-names-without.patch
+ed678337705f52be4e31d7512c32efc234eb88aa8701c0e3936db6444fd25f13  0004-fix-rar-rename-a-reposted-first-volume-to-its-.rNN-r.patch
+ebadcc286f1d6a0b20d1c49d0591af6c9f793428624886c50445f6491949b1ef  0005-fix-rar-merge-a-clean-named-first-volume-with-its-sc.patch
