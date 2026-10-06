@@ -1,6 +1,7 @@
 package mediainfo
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -128,5 +129,46 @@ func TestParseDistinguishesUnsupportedEncryptedVideoFromUnknownCodec(t *testing.
 	body := []byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","codec_tag_string":"avc1","width":1920,"height":1080}]}`)
 	if evidence, err := Parse(body); err != nil || evidence.VideoTracks[0].Codec != "h264" {
 		t.Fatalf("clear video evidence=%+v error=%v", evidence, err)
+	}
+}
+
+// TestParseSkipsUnidentifiableSubtitleTracks proves one subtitle track without
+// a codec (seen on a real screener) no longer fails inspection of an
+// otherwise playable file, never counts as a subtitle, and that video or audio
+// without a codec still fails.
+func TestParseSkipsUnidentifiableSubtitleTracks(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","width":1920,"height":1080},{"index":1,"codec_type":"audio","codec_name":"aac","channels":2},{"index":2,"codec_type":"subtitle","tags":{"language":"dan"}},{"index":3,"codec_type":"subtitle","codec_name":"subrip","tags":{"language":"eng"}},{"index":4,"codec_type":"attachment"}]}`)
+	evidence, err := Parse(body)
+	if err != nil || len(evidence.SubtitleTracks) != 1 || evidence.SubtitleTracks[0].Codec != "subrip" {
+		t.Fatalf("evidence=%+v error=%v", evidence, err)
+	}
+	for _, stream := range []string{`{"index":1,"codec_type":"audio","channels":2}`, `{"index":1,"codec_type":"video","width":1920,"height":1080}`} {
+		body := []byte(`{"format":{"format_name":"matroska"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","width":1920,"height":1080},` + stream + `]}`)
+		if _, err := Parse(body); err == nil {
+			t.Fatalf("stream without codec accepted: %s", stream)
+		}
+	}
+}
+
+// TestInspectWithinReportsZeroFilledFiles proves a file opening with zeros
+// (AltMount's fill for articles no provider has) is reported as such before
+// ffprobe runs, while a real container signature is passed on to ffprobe.
+func TestInspectWithinReportsZeroFilledFiles(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "zero.mkv"), make([]byte, 200000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	signature := append([]byte{0x1a, 0x45, 0xdf, 0xa3}, make([]byte, 200000)...)
+	if err := os.WriteFile(filepath.Join(root, "real.mkv"), signature, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Executable: "/nonexistent/ffprobe"}
+	if _, err := probe.InspectWithin(context.Background(), root, "zero.mkv"); !errors.Is(err, ErrZeroFilledOutput) {
+		t.Fatalf("zero-filled file error=%v", err)
+	}
+	if _, err := probe.InspectWithin(context.Background(), root, "real.mkv"); err == nil || errors.Is(err, ErrZeroFilledOutput) {
+		t.Fatalf("file with a signature must reach ffprobe, error=%v", err)
 	}
 }

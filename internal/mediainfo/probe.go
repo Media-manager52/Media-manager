@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -34,6 +35,14 @@ var ErrNoVideoTrack = errors.New("media-info has no video track")
 // ErrEncryptedVideo identifies explicit protected-video evidence with no
 // usable codec, rather than an inconclusive probe or an arbitrary missing codec.
 var ErrEncryptedVideo = errors.New("media-info video has an unsupported encrypted codec tag")
+
+// ErrZeroFilledOutput reports a file whose opening bytes are all zero. No
+// media container starts that way (Matroska, MP4, AVI and MPEG-TS all open
+// with signature bytes); it is the trace of AltMount zero-filling Usenet
+// articles that no provider has, so the release itself is incomplete.
+var ErrZeroFilledOutput = errors.New("media file starts with zero-filled bytes; the release is missing its opening articles")
+
+const zeroFillProbeBytes = 64 << 10
 
 type Evidence struct {
 	SchemaVersion   int            `json:"schema_version"`
@@ -110,6 +119,9 @@ func (probe *Probe) InspectWithin(ctx context.Context, rootPath, relative string
 		return Evidence{}, errors.New("media-info source is unavailable")
 	}
 	defer file.Close()
+	if zeroFilled(file) {
+		return Evidence{}, ErrZeroFilledOutput
+	}
 	return probe.inspect(ctx, "/proc/self/fd/3", []*os.File{file})
 }
 
@@ -208,8 +220,16 @@ func Parse(body []byte) (Evidence, error) {
 		if stream.Type == "video" && strings.TrimSpace(stream.Codec) == "" && strings.EqualFold(strings.TrimSpace(stream.CodecTag), "encv") {
 			return Evidence{}, ErrEncryptedVideo
 		}
+		if stream.Type != "video" && stream.Type != "audio" && stream.Type != "subtitle" {
+			continue // data and attachment streams carry no playback evidence
+		}
 		track, err := normalizeTrack(stream)
 		if err != nil {
+			if stream.Type == "subtitle" {
+				// A subtitle track ffprobe cannot identify can never satisfy a
+				// language requirement, but it does not make the file unplayable.
+				continue
+			}
 			return Evidence{}, err
 		}
 		switch stream.Type {
@@ -388,3 +408,19 @@ func (buffer *boundedBuffer) Write(value []byte) (int, error) {
 }
 
 func (buffer *boundedBuffer) Bytes() []byte { return buffer.buffer.Bytes() }
+
+// zeroFilled reports whether the file's first zeroFillProbeBytes (or the whole
+// file, if shorter) are all zero. A read error is not evidence either way.
+func zeroFilled(file *os.File) bool {
+	buffer := make([]byte, zeroFillProbeBytes)
+	n, err := file.ReadAt(buffer, 0)
+	if n == 0 || (err != nil && !errors.Is(err, io.EOF)) {
+		return false
+	}
+	for _, b := range buffer[:n] {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
+}
