@@ -182,6 +182,15 @@ func (client *Client) confirmMovieItems(ctx context.Context, items []Item, expec
 			}
 			guid = matchingGUID(detailed, expected.ProviderGUIDs)
 		}
+		if guid == "" && numeric(item.RatingKey) {
+			// See confirmShow: an item Plex never identified is proven by its
+			// exact path alone; a differently identified one is not.
+			unidentifiedGUID, err := client.unidentifiedItemGUID(ctx, item.RatingKey)
+			if err != nil {
+				return Confirmation{}, err
+			}
+			guid = unidentifiedGUID
+		}
 		if guid != "" {
 			return Confirmation{RatingKey: item.RatingKey, Path: matchedPath, ProviderGUID: guid, ConfirmedAt: time.Now().UTC()}, nil
 		}
@@ -429,7 +438,18 @@ func (client *Client) confirmShow(ctx context.Context, show Item, expected Expec
 		return nil, ErrNotConfirmed
 	}
 	if guid == "" {
-		return nil, ErrIdentityMismatch
+		// Plex has not identified this show at all (common for small Danish
+		// titles). Then the exact paths below are the only identity evidence,
+		// and they are sufficient: every expected path and episode must be in
+		// this one show. A show Plex identified differently is still rejected.
+		unidentifiedGUID, err := client.unidentifiedItemGUID(ctx, show.RatingKey)
+		if err != nil {
+			return nil, err
+		}
+		if unidentifiedGUID == "" {
+			return nil, ErrIdentityMismatch
+		}
+		guid = unidentifiedGUID
 	}
 	leavesBody, err := client.get(ctx, "/library/metadata/"+show.RatingKey+"/allLeaves", nil)
 	if err != nil {
@@ -534,6 +554,43 @@ func (client *Client) get(ctx context.Context, path string, query url.Values) ([
 		return nil, ErrResponseTooLarge
 	}
 	return body, nil
+}
+
+// unidentifiedItemGUID returns the item's own Plex GUID (plex://, local://)
+// when Plex lists no external provider identity for it at all, and "" when it
+// has one. External IDs are requested explicitly so an omitted list is never
+// mistaken for an unidentified item.
+func (client *Client) unidentifiedItemGUID(ctx context.Context, ratingKey string) (string, error) {
+	if !numeric(ratingKey) {
+		return "", ErrNotConfirmed
+	}
+	body, err := client.get(ctx, "/library/metadata/"+ratingKey, url.Values{"includeGuids": []string{"1"}})
+	if err != nil {
+		return "", err
+	}
+	var document struct {
+		Videos      []Item `xml:"Video"`
+		Directories []Item `xml:"Directory"`
+	}
+	if err := xml.Unmarshal(body, &document); err != nil {
+		return "", err
+	}
+	for _, item := range append(document.Videos, document.Directories...) {
+		if item.RatingKey != ratingKey {
+			continue
+		}
+		for _, guid := range append(item.GUIDs, GUID{ID: item.GUID}) {
+			id := strings.ToLower(strings.TrimSpace(guid.ID))
+			if strings.HasPrefix(id, "imdb://") || strings.HasPrefix(id, "tmdb://") || strings.HasPrefix(id, "tvdb://") || strings.Contains(id, "agents.") {
+				return "", nil
+			}
+		}
+		if own := strings.TrimSpace(item.GUID); own != "" {
+			return own, nil
+		}
+		return "plex-item://" + ratingKey, nil
+	}
+	return "", ErrNotConfirmed
 }
 
 func matchingGUID(item Item, expected []string) string {
