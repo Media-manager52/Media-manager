@@ -1,0 +1,193 @@
+From ba0322ff8c1d631f89319eadb31531c559cfc374 Mon Sep 17 00:00:00 2001
+From: Media Manager Steward <media-manager@localhost>
+Date: Tue, 6 Oct 2026 12:30:05 +0200
+Subject: [PATCH 4/5] fix(rar): rename a reposted first volume to its .rNN run
+ so old-style volume following continues
+
+NZBs that rename only the first volume (Show.S01.part01.rar next to
+grp-show.s01.r00..r36) were regrouped into one set, but rardecode computes
+the next old-style volume name from the head (Show.S01.part01.r00), finds
+nothing and stops after one volume. The set then fails the coverage check
+as truncated although every volume is present. When the structure is
+unambiguous (one head, one contiguous .rNN run from r00), rename the head
+to <run base>.rar.
+---
+ internal/importer/archive/rar/processor.go    |  9 +++
+ .../importer/archive/rar/unify_head_test.go   | 78 +++++++++++++++++++
+ internal/importer/archive/rar/utils.go        | 58 ++++++++++++++
+ 3 files changed, 145 insertions(+)
+ create mode 100644 internal/importer/archive/rar/unify_head_test.go
+
+diff --git a/internal/importer/archive/rar/processor.go b/internal/importer/archive/rar/processor.go
+index a68857d..5ba08e0 100644
+--- a/internal/importer/archive/rar/processor.go
++++ b/internal/importer/archive/rar/processor.go
+@@ -113,6 +113,15 @@ func (rh *rarProcessor) AnalyzeRarContentFromNzb(ctx context.Context, rarFiles [
+ 		seenNames[file.Filename] = struct{}{}
+ 	}
+ 
++	// A first volume renamed apart from its .rNN siblings would stop old-style
++	// volume following after one volume; give it the run's name instead.
++	if !allFilesNoExt {
++		if unified, changed := unifyRenamedHeadVolume(rarFiles); changed {
++			rh.log.InfoContext(ctx, "Renamed RAR head volume to match its .rNN volumes", "volumes", len(rarFiles))
++			rarFiles = unified
++		}
++	}
++
+ 	// Get base filename from first file if all files have no extension
+ 	baseFilename := ""
+ 	if allFilesNoExt {
+diff --git a/internal/importer/archive/rar/unify_head_test.go b/internal/importer/archive/rar/unify_head_test.go
+new file mode 100644
+index 0000000..d0425b7
+--- /dev/null
++++ b/internal/importer/archive/rar/unify_head_test.go
+@@ -0,0 +1,78 @@
++package rar
++
++import (
++	"fmt"
++	"testing"
++
++	"github.com/kipsilabs/altmount/internal/importer/parser"
++)
++
++func volumeSet(head string, base string, count int) []parser.ParsedFile {
++	files := []parser.ParsedFile{}
++	if head != "" {
++		files = append(files, parser.ParsedFile{Filename: head})
++	}
++	for i := 0; i < count; i++ {
++		files = append(files, parser.ParsedFile{Filename: fmt.Sprintf("%s.r%02d", base, i)})
++	}
++	return files
++}
++
++func TestUnifyRenamedHeadVolumeRepairsRenamedFirstVolume(t *testing.T) {
++	for _, tc := range []struct{ head, base string }{
++		// Real NZBgeek sets that stopped after one volume.
++		{"Bonderoeven.S14E04.DANiSH.PDTV.x264-TVBYEN.part01.rar", "bonderoeven.s14e04.danish.pdtv.x264-tvbyen"},
++		{"Bonderoeven.S11.DANiSH.PDTV.x264-SCENE.part01.rar", "scene-bonderoeven.s11.pdtv"},
++		{"Bonderoeven.S02.DANISH.DVDRip-SLaursen.part01.rar", "slaursen-bonderoeven.s02.dvdrip"},
++		{"Show.S01.rar", "grp-show.s01"},
++	} {
++		files := volumeSet(tc.head, tc.base, 29)
++		unified, changed := unifyRenamedHeadVolume(files)
++		if !changed || unified[0].Filename != tc.base+".rar" {
++			t.Fatalf("%s: changed=%v head=%q", tc.head, changed, unified[0].Filename)
++		}
++		if files[0].Filename != tc.head {
++			t.Fatal("input slice was modified")
++		}
++		for i := 1; i < len(unified); i++ {
++			if unified[i].Filename != files[i].Filename {
++				t.Fatalf("volume %d renamed: %q", i, unified[i].Filename)
++			}
++		}
++		if next := nextOldVolNameForTest(unified[0].Filename); next != tc.base+".r00" {
++			t.Fatalf("old-style follow from %q gives %q", unified[0].Filename, next)
++		}
++	}
++}
++
++func TestUnifyRenamedHeadVolumeLeavesOtherSetsAlone(t *testing.T) {
++	newStyle := []parser.ParsedFile{}
++	for i := 1; i <= 5; i++ {
++		newStyle = append(newStyle, parser.ParsedFile{Filename: fmt.Sprintf("Movie.part%02d.rar", i)})
++	}
++	gap := volumeSet("Show.part01.rar", "show", 6)
++	gap = append(gap[:3], gap[4:]...) // r02 missing
++	twoRuns := append(volumeSet("Show.part01.rar", "a-show", 3), volumeSet("", "b-show", 3)...)
++	twoHeads := append(volumeSet("Show.part01.rar", "show", 3), parser.ParsedFile{Filename: "Other.rar"})
++	notFromZero := volumeSet("Show.part01.rar", "show", 4)[0:1]
++	notFromZero = append(notFromZero, parser.ParsedFile{Filename: "show.r01"}, parser.ParsedFile{Filename: "show.r02"})
++	for name, files := range map[string][]parser.ParsedFile{
++		"new-style set":        newStyle,
++		"already consistent":   volumeSet("show.rar", "show", 5),
++		"gap in run":           gap,
++		"two .rNN runs":        twoRuns,
++		"two heads":            twoHeads,
++		"run not from r00":     notFromZero,
++		"no head":              volumeSet("", "show", 5),
++		"mixed padding widths": append(volumeSet("Show.part01.rar", "show", 2), parser.ParsedFile{Filename: "show.r002"}),
++	} {
++		if _, changed := unifyRenamedHeadVolume(files); changed {
++			t.Fatalf("%s: set was changed", name)
++		}
++	}
++}
++
++// nextOldVolNameForTest mirrors rardecode's old-style successor for "x.rar".
++func nextOldVolNameForTest(name string) string {
++	return name[:len(name)-len(".rar")] + ".r00"
++}
+diff --git a/internal/importer/archive/rar/utils.go b/internal/importer/archive/rar/utils.go
+index b551ab5..31db0fe 100644
+--- a/internal/importer/archive/rar/utils.go
++++ b/internal/importer/archive/rar/utils.go
+@@ -556,3 +556,61 @@ func normalizeRarPartFilename(filename string, index int, allFilesNoExt bool, to
+ 	// No pattern matched, return original filename
+ 	return filename
+ }
++
++var (
++	oldStyleVolume = regexp.MustCompile(`(?i)^(.+)\.r(\d{2,3})$`)
++	headVolume     = regexp.MustCompile(`(?i)^(.+?)(?:\.part0*1)?\.rar$`)
++)
++
++// unifyRenamedHeadVolume repairs a set whose first volume was renamed
++// separately from the rest, e.g. "Show.S01.DANiSH-GRP.part01.rar" next to
++// "grp-show.s01.r00" ... "grp-show.s01.r36". Old-style RAR archives find
++// their next volume by name (name.rar -> name.r00), so such a set stops after
++// the first volume and looks truncated although every volume is present.
++//
++// It only acts when the structure is unambiguous: exactly one head volume
++// (.rar or .part01.rar), and every other RAR volume belongs to one .rNN run
++// with a single base name, numbered contiguously from r00. The head is then
++// renamed to "<run base>.rar". Anything else is returned unchanged.
++func unifyRenamedHeadVolume(files []parser.ParsedFile) ([]parser.ParsedFile, bool) {
++	head := -1
++	runBase := ""
++	numbers := map[int]bool{}
++	width := 0
++	for i, file := range files {
++		if match := oldStyleVolume.FindStringSubmatch(file.Filename); match != nil {
++			if runBase == "" {
++				runBase, width = match[1], len(match[2])
++			}
++			number, err := strconv.Atoi(match[2])
++			if match[1] != runBase || len(match[2]) != width || err != nil || numbers[number] {
++				return files, false
++			}
++			numbers[number] = true
++			continue
++		}
++		if headVolume.MatchString(file.Filename) {
++			if head >= 0 {
++				return files, false
++			}
++			head = i
++			continue
++		}
++		return files, false // another kind of RAR volume: leave the set alone
++	}
++	if head < 0 || len(numbers) == 0 {
++		return files, false
++	}
++	for number := 0; number < len(numbers); number++ {
++		if !numbers[number] {
++			return files, false
++		}
++	}
++	unified := runBase + ".rar"
++	if files[head].Filename == unified {
++		return files, false
++	}
++	result := slices.Clone(files)
++	result[head].Filename = unified
++	return result, true
++}
+-- 
+2.47.3
+

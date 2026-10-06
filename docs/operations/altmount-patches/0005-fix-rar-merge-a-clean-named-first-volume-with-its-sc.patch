@@ -1,0 +1,138 @@
+From 73b7e0e3051f7935b129f2373515d0f7617cae79 Mon Sep 17 00:00:00 2001
+From: Media Manager Steward <media-manager@localhost>
+Date: Tue, 6 Oct 2026 12:51:32 +0200
+Subject: [PATCH 5/5] fix(rar): merge a clean-named first volume with its
+ scene-named .rNN run by volume size
+
+Some NZBs name the first volume after the release (Show.S02.DANISH.DVDRip-GRP.part01.rar)
+while the continuations keep the scene name (grp-show.s02.dvdrip.r00..). The base-name
+test cannot relate them, so the head was analysed alone and the set failed as incomplete.
+Also accept the merge when the continuations form a contiguous .r00.. run and the lone
+starter has the run's standard volume size (within 1%); base comparison is now
+case-insensitive.
+---
+ .../importer/archive/rar/unify_head_test.go   | 40 ++++++++++++++++
+ internal/importer/archive/rar/utils.go        | 48 ++++++++++++++++++-
+ 2 files changed, 87 insertions(+), 1 deletion(-)
+
+diff --git a/internal/importer/archive/rar/unify_head_test.go b/internal/importer/archive/rar/unify_head_test.go
+index d0425b7..f88f30e 100644
+--- a/internal/importer/archive/rar/unify_head_test.go
++++ b/internal/importer/archive/rar/unify_head_test.go
+@@ -76,3 +76,43 @@ func TestUnifyRenamedHeadVolumeLeavesOtherSetsAlone(t *testing.T) {
+ func nextOldVolNameForTest(name string) string {
+ 	return name[:len(name)-len(".rar")] + ".r00"
+ }
++
++func sizedSet(head string, headSize int64, base string, count int, volumeSize int64) []parser.ParsedFile {
++	files := []parser.ParsedFile{{Filename: head, Size: headSize}}
++	for i := 0; i < count; i++ {
++		size := volumeSize
++		if i == count-1 {
++			size = volumeSize / 3 // last volume is short
++		}
++		files = append(files, parser.ParsedFile{Filename: fmt.Sprintf("%s.r%02d", base, i), Size: size})
++	}
++	return files
++}
++
++func TestGroupingMergesCleanNamedHeadBySize(t *testing.T) {
++	// Real NZBgeek layout: clean release name on the head, scene name on .rNN.
++	files := sizedSet("Bonderoeven.S02.DANISH.DVDRip-SLaursen.part01.rar", 207_700_000, "slaursen-bonderoeven.s02.dvdrip", 39, 207_650_000)
++	groups := GroupArchivesByBaseName(files)
++	if len(groups) != 1 || len(groups[0]) != 40 || groups[0][0].Filename != "slaursen-bonderoeven.s02.dvdrip.rar" || groups[0][1].Filename != "slaursen-bonderoeven.s02.dvdrip.r00" {
++		t.Fatalf("set not merged: %d groups, first %q", len(groups), groups[0][0].Filename)
++	}
++}
++
++func TestGroupingKeepsUnrelatedArchivesApart(t *testing.T) {
++	for name, files := range map[string][]parser.ParsedFile{
++		"different size":   sizedSet("Extras.part01.rar", 50_000_000, "grp-show.s02", 10, 207_650_000),
++		"too few volumes":  sizedSet("Show.part01.rar", 207_650_000, "grp-show.s02", 2, 207_650_000),
++		"unknown sizes":    sizedSet("Show.part01.rar", 0, "grp-show.s02", 10, 207_650_000),
++		"gap in the run":   append(sizedSet("Show.part01.rar", 207_650_000, "grp-show.s02", 4, 207_650_000)[:3], parser.ParsedFile{Filename: "grp-show.s02.r05", Size: 207_650_000}),
++		"run not from r00": sizedSet("Show.part01.rar", 207_650_000, "grp-show.s02", 6, 207_650_000)[0:1],
++	} {
++		if name == "run not from r00" {
++			for i := 1; i <= 5; i++ {
++				files = append(files, parser.ParsedFile{Filename: fmt.Sprintf("grp-show.s02.r%02d", i), Size: 207_650_000})
++			}
++		}
++		if groups := GroupArchivesByBaseName(files); len(groups) < 2 {
++			t.Fatalf("%s: unrelated archives merged into %d group", name, len(groups))
++		}
++	}
++}
+diff --git a/internal/importer/archive/rar/utils.go b/internal/importer/archive/rar/utils.go
+index 31db0fe..6478c7e 100644
+--- a/internal/importer/archive/rar/utils.go
++++ b/internal/importer/archive/rar/utils.go
+@@ -334,7 +334,7 @@ func reconcileRepostedFirstVolume(groups [][]parser.ParsedFile) [][]parser.Parse
+ 	// "movie" → "movie.repost"). Unrelated bases (a continuation set plus a different
+ 	// single-part archive in the same NZB) are left as separate groups.
+ 	starterBase, ok := SetKey(groups[starterIdx][0].Filename)
+-	if !ok || !baseExtends(starterBase, orphanBase) {
++	if !ok {
+ 		return groups
+ 	}
+ 
+@@ -345,6 +345,16 @@ func reconcileRepostedFirstVolume(groups [][]parser.ParsedFile) [][]parser.Parse
+ 		return na < nb
+ 	})
+ 
++	// The name test misses sets whose first volume got the clean release name
++	// while the continuations keep the group's scene name
++	// ("Show.S02.DANISH.DVDRip-GRP.part01.rar" + "grp-show.s02.dvdrip.r00..").
++	// Physical evidence decides those: a contiguous .r00.. run whose standard
++	// volume size the lone starter matches.
++	if !baseExtends(strings.ToLower(starterBase), strings.ToLower(orphanBase)) &&
++		!(orphanScheme == schemeRoll && contiguousFromFirst(orphans) && matchesVolumeSize(groups[starterIdx][0], orphans)) {
++		return groups
++	}
++
+ 	firstName, ok := orphanFirstVolumeName(orphans[0].Filename, orphanScheme)
+ 	if !ok {
+ 		return groups
+@@ -614,3 +624,39 @@ func unifyRenamedHeadVolume(files []parser.ParsedFile) ([]parser.ParsedFile, boo
+ 	result[head].Filename = unified
+ 	return result, true
+ }
++
++// contiguousFromFirst reports whether sorted roll-scheme continuations are
++// exactly .r00, .r01, ... with no gap or duplicate.
++func contiguousFromFirst(sorted []parser.ParsedFile) bool {
++	for i, f := range sorted {
++		_, n, ok := rarVolumeNumber(f.Filename)
++		if !ok || n != i+1 { // .r00 is ordinal 1
++			return false
++		}
++	}
++	return len(sorted) > 0
++}
++
++// matchesVolumeSize reports whether the starter is the size of a standard
++// volume of the set: every continuation except the last shares one size
++// (within 1%, which absorbs yEnc overhead differences), and so does the
++// starter. Needs at least two full continuation volumes as evidence.
++func matchesVolumeSize(starter parser.ParsedFile, sorted []parser.ParsedFile) bool {
++	if len(sorted) < 3 || starter.Size <= 0 {
++		return false
++	}
++	reference := sorted[0].Size
++	within := func(a, b int64) bool {
++		diff := a - b
++		if diff < 0 {
++			diff = -diff
++		}
++		return b > 0 && diff*100 <= b
++	}
++	for _, f := range sorted[:len(sorted)-1] {
++		if !within(f.Size, reference) {
++			return false
++		}
++	}
++	return within(starter.Size, reference)
++}
+-- 
+2.47.3
+
