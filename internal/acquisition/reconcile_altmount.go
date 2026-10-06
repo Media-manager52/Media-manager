@@ -305,13 +305,23 @@ func releaseAttributableQueueFailure(detail string) (string, bool) {
 		strings.Contains(normalized, "password protected"),
 		strings.Contains(normalized, "rar2") && strings.Contains(normalized, "compression"):
 		return releases.PackageFailureArchiveUnsupported, true
-	case strings.Contains(normalized, "no files with allowed extensions"):
+	case strings.Contains(normalized, "no files with allowed extensions"),
+		// AltMount fell through to a leftover side file (.nfo/.sfv) after every
+		// media file or volume failed its first-segment check (NNTP 430).
+		strings.Contains(normalized, "does not match allowed extensions"):
 		return releases.PackageFailureNoPlayableMedia, true
 	case strings.Contains(normalized, "incomplete or missing parts"),
 		strings.Contains(normalized, "nzb file contains only par2 files. this indicates that there are missing segments in your providers"),
 		strings.Contains(normalized, "no valid first rar part found in archive"),
 		strings.Contains(normalized, "invalid nzb: total size is zero"),
-		strings.Contains(normalized, "fast-fail segment check failed: no regular files were successfully processed (all files failed validation)"):
+		strings.Contains(normalized, "fast-fail segment check failed: no regular files were successfully processed (all files failed validation)"),
+		// Every RAR/7z group was skipped for a missing volume.
+		normalized == "no files were successfully processed (all files failed validation)",
+		// Volume following stopped early or the analysed files are not backed by
+		// segments. AltMount marks both non-retryable; a renamed first volume is
+		// repaired inside AltMount before this check.
+		strings.Contains(normalized, "is truncated: followed") && strings.Contains(normalized, "volume bytes"),
+		strings.Contains(normalized, "is incomplete: segments cover only"):
 		return releases.PackageFailureReleaseIncomplete, true
 	}
 	return "", false

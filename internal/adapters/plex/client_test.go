@@ -260,6 +260,11 @@ func localizedLibrary(t *testing.T, routes map[string]string) *Client {
 			_, _ = writer.Write([]byte(body))
 			return
 		}
+		// Like Plex, the detail document lists external IDs when asked.
+		if body, ok := routes[request.URL.Path]; ok && request.URL.RawQuery == "includeGuids=1" {
+			_, _ = writer.Write([]byte(body))
+			return
+		}
 		if request.URL.Path == "/library/sections/1/all" || request.URL.Path == "/library/sections/4/all" {
 			_, _ = writer.Write([]byte(`<MediaContainer size="0"/>`))
 			return
@@ -389,5 +394,62 @@ func TestConfirmationReportsIdentityMismatchForExactPath(t *testing.T) {
 	client = localizedLibrary(t, routes)
 	if _, err := client.Confirm(context.Background(), Expected{LibraryKey: "1", Title: "Unraveled", PlexVisiblePath: localizedMoviePath, ProviderGUIDs: []string{"tmdb://1477664"}}); !errors.Is(err, ErrNotConfirmed) || errors.Is(err, ErrIdentityMismatch) {
 		t.Fatalf("missing path error=%v, want plain ErrNotConfirmed", err)
+	}
+}
+
+// TestConfirmationAcceptsExactPathWhenPlexHasNoProviderIdentity proves a
+// movie Plex never identified (no IMDb/TMDB/TVDB ID at all) is confirmed by
+// its exact path, recording Plex's own GUID, while a movie Plex identified
+// differently, or an unidentified item without the path, is not.
+func TestConfirmationAcceptsExactPathWhenPlexHasNoProviderIdentity(t *testing.T) {
+	client := localizedLibrary(t, localizedMovieRoutes(""))
+	confirmation, err := client.Confirm(context.Background(), Expected{LibraryKey: "1", Title: "Unraveled", PlexVisiblePath: localizedMoviePath, ProviderGUIDs: []string{"tmdb://1477664"}})
+	if err != nil || confirmation.ProviderGUID != "plex://movie/internal" || confirmation.RatingKey != "179744" {
+		t.Fatalf("unidentified exact path confirmation=%+v err=%v", confirmation, err)
+	}
+	routes := localizedMovieRoutes("")
+	routes["/library/sections/1/folder?parent=7049"] = `<MediaContainer/>`
+	if _, err := localizedLibrary(t, routes).Confirm(context.Background(), Expected{LibraryKey: "1", Title: "Unraveled", PlexVisiblePath: localizedMoviePath, ProviderGUIDs: []string{"tmdb://1477664"}}); !errors.Is(err, ErrNotConfirmed) {
+		t.Fatalf("unidentified item without the path error=%v, want ErrNotConfirmed", err)
+	}
+	if _, err := localizedLibrary(t, localizedMovieRoutes(`<Guid id="imdb://tt0000001"/>`)).Confirm(context.Background(), Expected{LibraryKey: "1", Title: "Unraveled", PlexVisiblePath: localizedMoviePath, ProviderGUIDs: []string{"tmdb://1477664"}}); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("differently identified item error=%v, want ErrIdentityMismatch", err)
+	}
+}
+
+// TestConfirmSeriesAcceptsUnidentifiedShowOnlyWithEveryPath proves a show
+// Plex never identified is confirmed when every expected episode path and
+// leaf is in it, and not when one is missing or the show has another ID.
+func TestConfirmSeriesAcceptsUnidentifiedShowOnlyWithEveryPath(t *testing.T) {
+	first := "/tv/Valde (2023) {tvdb-439916}/Season 01/Valde - S01E01.mkv"
+	second := "/tv/Valde (2023) {tvdb-439916}/Season 01/Valde - S01E02.mkv"
+	leaves := `<MediaContainer><Video ratingKey="101" grandparentRatingKey="99" parentIndex="1" index="1"><Media><Part file="` + first + `"/></Media></Video><Video ratingKey="102" grandparentRatingKey="99" parentIndex="1" index="2"><Media><Part file="` + second + `"/></Media></Video></MediaContainer>`
+	routes := map[string]string{
+		"/library/sections":                    `<MediaContainer><Directory key="4" type="show" title="TV"><Location path="/tv"/></Directory></MediaContainer>`,
+		"/library/sections/4/folder":           `<MediaContainer><Directory key="/library/sections/4/folder?parent=10" title="Valde (2023) {tvdb-439916}"/></MediaContainer>`,
+		"/library/sections/4/folder?parent=10": `<MediaContainer><Directory key="/library/sections/4/folder?parent=11" title="Season 01"/></MediaContainer>`,
+		"/library/sections/4/folder?parent=11": leaves,
+		"/library/metadata/99":                 `<MediaContainer><Directory ratingKey="99" guid="plex://show/valde"></Directory></MediaContainer>`,
+		"/library/metadata/99/allLeaves":       leaves,
+	}
+	client := localizedLibrary(t, routes)
+	expected := ExpectedSeries{LibraryKey: "4", Title: "Valde's Christmas", ProviderGUIDs: []string{"tvdb://439916"}, PlexVisiblePaths: []string{first, second}, ExpectedEpisodes: map[string][]EpisodeLeaf{first: {{Season: 1, Episode: 1}}, second: {{Season: 1, Episode: 2}}}}
+	confirmations, err := client.ConfirmSeries(context.Background(), expected)
+	if err != nil || len(confirmations) != 2 || confirmations[1].ProviderGUID != "plex://show/valde" || confirmations[1].RatingKey != "102" {
+		t.Fatalf("unidentified show confirmations=%+v err=%v", confirmations, err)
+	}
+	missing := expected
+	missing.PlexVisiblePaths = []string{first, "/tv/Valde (2023) {tvdb-439916}/Season 01/Valde - S01E03.mkv"}
+	if _, err := client.ConfirmSeries(context.Background(), missing); !errors.Is(err, ErrNotConfirmed) {
+		t.Fatalf("missing episode path error=%v, want ErrNotConfirmed", err)
+	}
+	wrongLeaf := expected
+	wrongLeaf.ExpectedEpisodes = map[string][]EpisodeLeaf{first: {{Season: 1, Episode: 5}}, second: {{Season: 1, Episode: 2}}}
+	if _, err := client.ConfirmSeries(context.Background(), wrongLeaf); !errors.Is(err, ErrNotConfirmed) {
+		t.Fatalf("wrong episode leaf error=%v, want ErrNotConfirmed", err)
+	}
+	routes["/library/metadata/99"] = `<MediaContainer><Directory ratingKey="99" guid="plex://show/other"><Guid id="tvdb://1"/></Directory></MediaContainer>`
+	if _, err := client.ConfirmSeries(context.Background(), expected); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("show identified as another series error=%v, want ErrIdentityMismatch", err)
 	}
 }
