@@ -188,6 +188,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) || errors.Is(inspectionErr, mediainfo.ErrEncryptedVideo) {
 				return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureNoPlayableMedia, inspectionErr.Error(), time.Now().UTC())
 			}
+			if errors.Is(inspectionErr, mediainfo.ErrZeroFilledOutput) {
+				return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureReleaseIncomplete, inspectionErr.Error(), time.Now().UTC())
+			}
 			return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", inspectionErr.Error(), time.Now().UTC())
 		}
 		recorded, recordErr := service.Store.RecordSubtitleVerification(ctx, job, inventoryID, verification, time.Now().UTC())
