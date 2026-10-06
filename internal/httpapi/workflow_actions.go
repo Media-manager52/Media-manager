@@ -55,6 +55,11 @@ func workflowActions(item postgres.WorkflowSummary) []workflowAction {
 		search.Reason = "The workflow is finished."
 	case item.ActiveAltMountJob:
 		search.Reason = "An AltMount job is active; wait for it to settle."
+	case !underLimit:
+		// A search could only rediscover releases the retained-output cap
+		// would refuse to download, so it is not offered.
+		search.Available = false
+		search.Reason = fmt.Sprintf("The retained failed-output limit (%d) is reached; the owner must review storage (or raise ACQUISITION_RETAINED_OUTPUT_LIMIT) before more releases can be tried.", item.RetainedOutputLimit)
 	case !item.SearchAllowed:
 		search.Reason = item.SearchBlockedReason
 		if search.Reason == "" {
