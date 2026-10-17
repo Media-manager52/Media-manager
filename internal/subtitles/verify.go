@@ -52,7 +52,10 @@ type VideoEvidence struct {
 	MediaInfo         mediainfo.Evidence `json:"media_info"`
 	Languages         []LanguageEvidence `json:"languages"`
 	ObservedLanguages []string           `json:"observed_languages"`
-	MissingRequired   []string           `json:"missing_required"`
+	// AudioLanguages lists the canonical audio-track languages. A required
+	// language is satisfied by a subtitle or an audio track in that language.
+	AudioLanguages  []string `json:"audio_languages"`
+	MissingRequired []string `json:"missing_required"`
 }
 
 type Verification struct {
@@ -121,7 +124,14 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 		if probeErr != nil {
 			return Verification{}, fmt.Errorf("bounded media-info inspection failed for %s: %w", video.RelativePath, probeErr)
 		}
-		entry := VideoEvidence{AssetID: video.ID, RelativePath: video.RelativePath, MediaInfo: evidence, Languages: []LanguageEvidence{}, ObservedLanguages: []string{}, MissingRequired: []string{}}
+		entry := VideoEvidence{AssetID: video.ID, RelativePath: video.RelativePath, MediaInfo: evidence, Languages: []LanguageEvidence{}, ObservedLanguages: []string{}, AudioLanguages: []string{}, MissingRequired: []string{}}
+		audio := map[string]bool{}
+		for _, track := range evidence.AudioTracks {
+			if track.CanonicalLanguage != "" {
+				audio[track.CanonicalLanguage] = true
+			}
+		}
+		entry.AudioLanguages = sortedKeys(audio)
 		observed := map[string]bool{}
 		for _, track := range evidence.SubtitleTracks {
 			if track.CanonicalLanguage == "" {
@@ -142,9 +152,9 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 		}
 		entry.ObservedLanguages = sortedKeys(observed)
 		for _, required := range policy.Required {
-			if !observed[required] {
+			if !observed[required] && !audio[required] {
 				entry.MissingRequired = append(entry.MissingRequired, required)
-				result.FailureReasons = append(result.FailureReasons, fmt.Sprintf("%s has no verified %s subtitle", video.RelativePath, required))
+				result.FailureReasons = append(result.FailureReasons, fmt.Sprintf("%s has no verified %s subtitle or audio track", video.RelativePath, required))
 			}
 		}
 		result.Videos = append(result.Videos, entry)

@@ -93,3 +93,32 @@ func fixtureAsset(t *testing.T, root, relative, body string) Asset {
 func mediaEvidence(subtitles ...mediainfo.Track) mediainfo.Evidence {
 	return mediainfo.Evidence{SchemaVersion: 1, ContainerNames: []string{"matroska"}, VideoTracks: []mediainfo.Track{{Index: 0, Codec: "hevc", Width: 1920, Height: 1080}}, AudioTracks: []mediainfo.Track{}, SubtitleTracks: subtitles, Facts: map[string]any{}}
 }
+
+// A Danish dub needs no Danish subtitles: a Danish audio track satisfies the
+// required language. A foreign audio track without Danish subtitles still fails.
+func TestVerifyAcceptsDanishAudioForRequiredLanguage(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dub := fixtureAsset(t, root, "Dub.mkv", "video")
+	english := fixtureAsset(t, root, "English.mkv", "video-en")
+	withAudio := func(language string) mediainfo.Evidence {
+		evidence := mediaEvidence()
+		evidence.AudioTracks = []mediainfo.Track{{Index: 1, Codec: "ac3", Language: language, CanonicalLanguage: language}}
+		return evidence
+	}
+	probe := fixtureProbe{evidence: map[string]mediainfo.Evidence{dub.RelativePath: withAudio("da"), english.RelativePath: withAudio("en")}}
+	result, err := Verify(context.Background(), root, []Asset{dub}, []Asset{dub, english}, Policy{Required: []string{"da"}}, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "verified" || len(result.Videos[0].MissingRequired) != 0 || len(result.Videos[0].AudioLanguages) != 1 || result.Videos[0].AudioLanguages[0] != "da" {
+		t.Fatalf("Danish dub should verify: %+v", result)
+	}
+	result, err = Verify(context.Background(), root, []Asset{english}, []Asset{dub, english}, Policy{Required: []string{"da"}}, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "unverified" || len(result.Videos[0].MissingRequired) != 1 {
+		t.Fatalf("English audio without Danish subtitles must stay unverified: %+v", result)
+	}
+}

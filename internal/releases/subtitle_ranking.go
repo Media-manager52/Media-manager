@@ -23,7 +23,7 @@ func RankForDanishSubtitles(observations []Observation, evaluations []Evaluation
 			rank = 1
 		}
 		for _, fact := range observation.Facts {
-			if fact.Name == "subtitle_languages" && (fact.State == FactObserved || fact.State == FactInferred) && intersectsFold(fact.Values, []string{"da"}) {
+			if (fact.Name == "subtitle_languages" || fact.Name == "audio_languages") && (fact.State == FactObserved || fact.State == FactInferred) && intersectsFold(fact.Values, []string{"da"}) {
 				rank = 2
 			}
 		}

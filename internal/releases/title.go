@@ -29,6 +29,9 @@ var (
 	audioMP3        = regexp.MustCompile(`(?i)(?:^|[ ._\-])mp3(?:$|[ ._\-])`)
 	audioAtmos      = regexp.MustCompile(`(?i)(?:^|[ ._\-])atmos(?:$|[ ._\-])`)
 	danishSubs      = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:da|dan|danish|dansk|dk)[ ._\-]?(?:subs?|subtitles?|undertekst(?:er)?)(?:$|[ ._\-])`)
+	// Explicit Danish-audio markers only (DKaudio, DANISH.DUB, Dansk.Tale). A
+	// bare DANISH can describe the origin or a subtitle set and stays unknown.
+	danishAudio = regexp.MustCompile(`(?i)(?:^|[ ._\-\[(])(?:da|dan|danish|dansk|dk)[ ._\-]?(?:audio|dub(?:bed)?|tale|lyd)(?:$|[ ._\-\])])`)
 )
 
 // CanonicalResolution normalizes only explicit, reliable release resolution
@@ -179,6 +182,9 @@ func InferTitleFacts(observation Observation, observedAt time.Time) Observation 
 	// unknown because they can describe audio, origin, or an unspecified set.
 	if danishSubs.MatchString(observation.Title) {
 		inferred = append(inferred, Fact{Name: "subtitle_languages", Values: []string{"da"}, State: FactInferred, ObservedAt: observedAt.UTC()})
+	}
+	if danishAudio.MatchString(observation.Title) {
+		inferred = append(inferred, Fact{Name: "audio_languages", Values: []string{"da"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	}
 	if strings.Contains(lower, "dolby vision") || strings.Contains(lower, "dovi") || strings.Contains(lower, " dv ") {
 		inferred = append(inferred, Fact{Name: "dynamic_range", Values: []string{"dolby_vision"}, State: FactInferred, ObservedAt: observedAt.UTC()})
