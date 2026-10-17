@@ -318,7 +318,12 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			evaluation = constrainMediaMatch(observation, evaluation, search.Media)
 			evaluation = applyReleaseBlocks(observation, evaluation, search)
 			evaluation = applyWorkflowExclusions(observation, evaluation, search)
-			evaluation = applyUpgradeBaseline(observation, evaluation, search.CurrentRelease, currentEvaluation)
+			evaluation = applyRepairExclusions(observation, evaluation, search.RepairBrokenTitles)
+			if len(search.RepairBrokenTitles) == 0 {
+				// A repair replaces a broken publication: any eligible release is
+				// an improvement, so the upgrade baseline does not apply.
+				evaluation = applyUpgradeBaseline(observation, evaluation, search.CurrentRelease, currentEvaluation)
+			}
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
 		}
 	}
@@ -398,6 +403,20 @@ func appendSubtitleRules(rules []releases.Rule, policy subtitles.Policy) []relea
 		rules = append(rules, releases.Rule{Name: "Preferred subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: 250, Unknown: releases.UnknownAllow})
 	}
 	return rules
+}
+
+// applyRepairExclusions rejects the exact releases whose published files lost
+// their Usenet articles, so a repair never acquires the same broken release.
+func applyRepairExclusions(observation releases.Observation, evaluation releases.Evaluation, brokenTitles []string) releases.Evaluation {
+	title := strings.TrimSpace(observation.Title)
+	for _, broken := range brokenTitles {
+		if title != "" && strings.EqualFold(title, strings.TrimSpace(broken)) {
+			evaluation.Verdict = releases.VerdictRejected
+			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "AltMount repair", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "this release's published file lost its Usenet articles"})
+			return evaluation
+		}
+	}
+	return evaluation
 }
 
 func applyWorkflowExclusions(observation releases.Observation, evaluation releases.Evaluation, search postgres.SearchContext) releases.Evaluation {

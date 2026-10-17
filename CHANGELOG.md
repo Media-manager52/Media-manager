@@ -6,6 +6,10 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ## Unreleased
 
+### Added
+
+- Self-repair of broken published files. Every 30 minutes Media Manager reads AltMount's list of corrupted files (Usenet articles disappeared, so playback fails). For each one it published, it acquires a replacement for exactly that movie or episode (an episode inside a season pack gets its own episode workflow), rejects the broken release, does not require the replacement to beat the broken file, and retires the broken link once Plex confirms the replacement. Older content (library symlinks Media Manager did not publish, in any folder of a library root's Plex library) is identified through Plex: the title is catalogued from TMDB when unknown, an episode is repaired only when Plex and TMDB agree on its air date, and after confirmation only a symlink that still points at the corrupted file is removed. AltMount content is never modified. `GET /api/v1/repairs` lists repairs (`open`, `repaired`, or `needs_attention` with the reason, for example a file covering several episodes). Schema 45 adds `altmount_repairs`. AltMount's own repair needs Radarr/Sonarr, which this stack does not run.
+
 ### Changed
 
 - A Seerr request for a season TMDB does not list (for example a newer season only TheTVDB knows) no longer fails its intake forever. Seerr answers HTTP 500 for such a season; intake now skips the lookup, and an actionable season without an episode list is reported as needing attention, naming the season. Request 368 had retried 3,500 times since 2026-10-07.

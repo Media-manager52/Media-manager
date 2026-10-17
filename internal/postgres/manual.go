@@ -101,19 +101,7 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 			return nil, refuse("no_commissioned_indexer", "search requires at least one commissioned indexer for this media", "Commission and enable an indexer that serves this media (GET /api/v1/settings/integrations).")
 		}
 	}
-	var year any
-	if item.Year != nil {
-		year = int16(*item.Year)
-	}
-	if _, err := transaction.Exec(ctx, `INSERT INTO media_items(id,kind,title,year,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, item.ID.String(), item.Kind, item.Title, year, int64(item.Revision), item.CreatedAt, item.UpdatedAt); err != nil {
-		return nil, err
-	}
-	for _, identity := range item.Identities {
-		if _, err := transaction.Exec(ctx, `INSERT INTO external_identities(id,media_id,media_kind,namespace,value,state,source,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, uuid.NewV7().String(), item.ID.String(), item.Kind, identity.Namespace, identity.Value, identity.State, identity.Source, item.CreatedAt); err != nil {
-			return nil, err
-		}
-	}
-	if err := persistMetadata(ctx, transaction, item.ID, item.Metadata, item.CreatedAt); err != nil {
+	if err := insertMediaItem(ctx, transaction, item); err != nil {
 		return nil, err
 	}
 	created := make([]workflows.Workflow, 0, max(1, len(seasons)))
@@ -169,6 +157,23 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 		return nil, err
 	}
 	return created, nil
+}
+
+// insertMediaItem adds a catalogue item with its identities and metadata.
+func insertMediaItem(ctx context.Context, transaction pgx.Tx, item catalog.MediaItem) error {
+	var year any
+	if item.Year != nil {
+		year = int16(*item.Year)
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO media_items(id,kind,title,year,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, item.ID.String(), item.Kind, item.Title, year, int64(item.Revision), item.CreatedAt, item.UpdatedAt); err != nil {
+		return err
+	}
+	for _, identity := range item.Identities {
+		if _, err := transaction.Exec(ctx, `INSERT INTO external_identities(id,media_id,media_kind,namespace,value,state,source,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, uuid.NewV7().String(), item.ID.String(), item.Kind, identity.Namespace, identity.Value, identity.State, identity.Source, item.CreatedAt); err != nil {
+			return err
+		}
+	}
+	return persistMetadata(ctx, transaction, item.ID, item.Metadata, item.CreatedAt)
 }
 
 const AdoptedReplacementConfirmation = "REPLACE ADOPTED FILE AFTER PLEX VERIFICATION"

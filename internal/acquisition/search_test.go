@@ -490,3 +490,20 @@ func TestBuildRequestSendsSceneSpellingQuery(t *testing.T) {
 		t.Fatalf("search params=%#v", search.Params)
 	}
 }
+
+// A repair must never acquire the release whose published file lost its
+// Usenet articles again; other releases stay eligible.
+func TestApplyRepairExclusionsRejectsOnlyTheBrokenRelease(t *testing.T) {
+	broken := []string{"Show.S01E03.1080p.WEB-DL-GRP"}
+	eligible := releases.Evaluation{Verdict: releases.VerdictEligible}
+	got := applyRepairExclusions(releases.Observation{Title: " show.s01e03.1080p.web-dl-grp "}, eligible, broken)
+	if got.Verdict != releases.VerdictRejected || len(got.Explanations) != 1 || got.Explanations[0].Rule != "AltMount repair" {
+		t.Fatalf("broken release evaluation=%+v, want rejected by the AltMount repair rule", got)
+	}
+	if other := applyRepairExclusions(releases.Observation{Title: "Show.S01E03.1080p.WEB-DL-OTHER"}, eligible, broken); other.Verdict != releases.VerdictEligible {
+		t.Fatalf("other release evaluation=%+v, want eligible", other)
+	}
+	if none := applyRepairExclusions(releases.Observation{Title: "Show.S01E03.1080p.WEB-DL-GRP"}, eligible, nil); none.Verdict != releases.VerdictEligible {
+		t.Fatalf("without a repair the release must stay eligible: %+v", none)
+	}
+}

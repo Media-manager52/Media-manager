@@ -178,6 +178,34 @@ func (client *HTTPClient) ListQueue(ctx context.Context, query QueueQuery) (Queu
 	return page, nil
 }
 
+// HealthItem is one file AltMount's health checker tracks.
+type HealthItem struct {
+	ID        int64  `json:"id"`
+	FilePath  string `json:"file_path"`
+	Status    string `json:"status"`
+	LastError string `json:"last_error"`
+}
+
+// ListCorruptedFiles returns the files AltMount's health checker marked
+// corrupted (Usenet articles missing; playback fails). It pages through the
+// whole list.
+func (client *HTTPClient) ListCorruptedFiles(ctx context.Context) ([]HealthItem, error) {
+	const pageSize = 200
+	all := []HealthItem{}
+	for offset := 0; offset < 100_000; offset += pageSize {
+		values := url.Values{"status": {"corrupted"}, "limit": {strconv.Itoa(pageSize)}, "offset": {strconv.Itoa(offset)}}
+		var page []HealthItem
+		if err := client.json(ctx, http.MethodGet, "/api/health?"+values.Encode(), nil, &page); err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
 func (client *HTTPClient) UploadNZB(ctx context.Context, upload UploadRequest) (QueueItem, error) {
 	if err := validateUpload(upload); err != nil {
 		return QueueItem{}, err

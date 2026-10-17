@@ -3868,6 +3868,40 @@
         "x-mm-effect": "destructive"
       }
     },
+    "/api/v1/repairs": {
+      "get": {
+        "description": "Media Manager checks AltMount's corrupted-file list every 30 minutes and acquires a replacement for each broken movie or episode it published. state is open (replacement being acquired), repaired (replacement confirmed in Plex, broken file retired) or needs_attention (cannot be repaired automatically; detail says why).\n\nNo state change and no provider contact. Always safe.",
+        "operationId": "listAltMountRepairs",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "AltMount repairs: published files whose Usenet articles disappeared and their replacement workflows",
+        "tags": [
+          "library"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
     "/api/v1/requests": {
       "get": {
         "description": "No state change and no provider contact. Always safe.",
