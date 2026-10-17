@@ -910,6 +910,17 @@
         },
         "type": "object"
       },
+      "Postgres_LibraryRootPatch": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "is_default": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_ManualEpisode": {
         "properties": {
           "air_date": {
@@ -5025,6 +5036,72 @@
           }
         },
         "summary": "Create a library root",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/library-roots/{id}": {
+      "patch": {
+        "description": "Making a root the default clears the default of the other roots of the same kind; requests and manual adds without an explicit root land there. Disabling is refused while the root is the default, has open workflows, holds current published links, or an enabled Seerr route points to it (relocate-links first). Audited as library.root_updated.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "updateLibraryRoot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Postgres_LibraryRootPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Postgres_LibraryRoot"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Make a library root the default for its media kind, or enable/disable it",
         "tags": [
           "settings"
         ],
