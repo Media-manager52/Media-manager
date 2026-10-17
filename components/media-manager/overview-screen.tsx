@@ -66,13 +66,16 @@ export function systemTiles(health: APISystemHealth, startedAt?: string): Tile[]
   const indexers = [...byKind("newznab"), ...byKind("oldboys")]
   const healthyIndexers = indexers.filter(sourceHealthy).length
   const clients = byKind("altmount")
+  const deadMounts = (health.mounts ?? []).filter((mount) => mount.state !== "available")
   const plex = byKind("plex")
   const coreReady = health.database_state === "ready" && health.schema_version === health.expected_schema
   const outbox = health.outbox
   return [
     { key: "core", tone: coreReady ? "good" : "warn", title: coreReady ? "Core healthy" : "Core needs attention", detail: coreReady ? `${uptimeLabel(startedAt) ? `Up ${uptimeLabel(startedAt)} · ` : ""}schema ${health.schema_version}` : `Database ${health.database_state} · schema ${health.schema_version}/${health.expected_schema}`, href: "/system/health" },
     { key: "indexers", tone: indexers.length === 0 ? "idle" : healthyIndexers === indexers.length ? "good" : "warn", title: indexers.length === 0 ? "No indexers enabled" : `${healthyIndexers} of ${indexers.length} indexers healthy`, detail: indexers.length === healthyIndexers ? "Searching within pacing" : `${indexers.length - healthyIndexers} need${indexers.length - healthyIndexers === 1 ? "s" : ""} owner action`, href: "/sources/indexers" },
-    { key: "altmount", tone: clients.length === 0 ? "idle" : clients.every(sourceHealthy) ? "good" : "warn", title: clients.length === 0 ? "No download client" : clients.every(sourceHealthy) ? "AltMount connected" : "AltMount needs attention", detail: clients[0]?.last_outcome ? `Last: ${clients[0].last_outcome.replaceAll("_", " ")}` : "Read-only output", href: "/sources/download-clients" },
+    deadMounts.length > 0
+      ? { key: "altmount", tone: "warn", title: "AltMount output unavailable", detail: `${deadMounts[0].path} not readable · imports wait`, href: "/system/health" }
+      : { key: "altmount", tone: clients.length === 0 ? "idle" : clients.every(sourceHealthy) ? "good" : "warn", title: clients.length === 0 ? "No download client" : clients.every(sourceHealthy) ? "AltMount connected" : "AltMount needs attention", detail: clients[0]?.last_outcome ? `Last: ${clients[0].last_outcome.replaceAll("_", " ")}` : "Read-only output", href: "/sources/download-clients" },
     { key: "plex", tone: plex.length === 0 ? "idle" : plex.every(sourceHealthy) ? "good" : "warn", title: plex.length === 0 ? "Plex not configured" : plex.every(sourceHealthy) ? "Plex connected" : "Plex needs attention", detail: plex.length ? `${plex.length} server${plex.length === 1 ? "" : "s"} · exact confirmation` : "Publication needs Plex", href: "/settings/connections" },
     { key: "worker", tone: outbox.retrying > 0 ? "warn" : outbox.pending > 0 ? "good" : "idle", title: outbox.retrying > 0 ? "Worker retrying" : outbox.pending > 0 ? "Worker busy" : "Worker idle", detail: outbox.pending ? `${outbox.pending} pending · ${outbox.due} due · ${outbox.retrying} retrying` : "No queued events", href: "/system/tasks" },
   ]

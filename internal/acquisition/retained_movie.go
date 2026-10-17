@@ -58,6 +58,9 @@ func (service *AltMountReconcileService) HandleRetainedMovieInspection(ctx conte
 	authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, retained.RootRelative)
 	verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, subtitleAssets(retained.Assets), retained.Policy, service.MediaInfoProbe, rootErr)
 	if inspectionErr != nil {
+		if outage := service.mountOutage(config.LocalReadOnlyRoot); outage != nil {
+			return outage
+		}
 		return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", inspectionErr.Error(), time.Now().UTC())
 	}
 	recorded, err := service.Store.RecordSubtitleVerification(ctx, job, retained.InventoryID, verification, time.Now().UTC())

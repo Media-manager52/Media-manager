@@ -722,7 +722,19 @@ type SystemHealthSnapshot struct {
 	ExpectedSchema    int64          `json:"expected_schema"`
 	Outbox            OutboxHealth   `json:"outbox"`
 	Components        []SourceStatus `json:"components"`
-	CheckedAt         time.Time      `json:"checked_at"`
+	// Mounts is filled by the HTTP layer, which probes each enabled AltMount
+	// read-only root; the store itself never touches the filesystem.
+	Mounts    []MountHealth `json:"mounts"`
+	CheckedAt time.Time     `json:"checked_at"`
+}
+
+// MountHealth is the live state of one AltMount read-only output mount.
+type MountHealth struct {
+	IntegrationID uuid.UUID `json:"integration_id"`
+	Name          string    `json:"name"`
+	Path          string    `json:"path"`
+	State         string    `json:"state"` // available or unavailable
+	Detail        string    `json:"detail,omitempty"`
 }
 
 func (store *Store) SystemHealth(ctx context.Context, now time.Time) (SystemHealthSnapshot, error) {

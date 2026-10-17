@@ -30,12 +30,43 @@ type AltMountReconcileService struct {
 	MediaInfoProbe interface {
 		InspectWithin(context.Context, string, string) (mediainfo.Evidence, error)
 	}
+	// CheckMount reports whether the read-only AltMount root is usable;
+	// nil uses altmount.CheckMount.
+	CheckMount func(root string) error
 }
 
 const (
 	altMountSubmissionVisibilityWindow = 30 * time.Minute
 	altMountCompletedOutputGrace       = 5 * time.Minute
+	altMountMountRetryInterval         = time.Minute
 )
+
+// altMountMountUnavailableError defers an AltMount event while the shared
+// read-only mount is down. The same event retries until the mount is back, so
+// a mount outage never becomes per-workflow attention or a release exclusion.
+type altMountMountUnavailableError struct {
+	until time.Time
+	cause error
+}
+
+func (err altMountMountUnavailableError) Error() string      { return err.cause.Error() }
+func (err altMountMountUnavailableError) Unwrap() error      { return err.cause }
+func (err altMountMountUnavailableError) SafeCode() string   { return "altmount_mount_unavailable" }
+func (err altMountMountUnavailableError) RetryAt() time.Time { return err.until.UTC() }
+
+// mountOutage returns a deferral when the read-only root itself cannot be
+// read. Callers consult it before recording any output or inspection failure,
+// because a dead mount makes every job's output look missing or unreadable.
+func (service *AltMountReconcileService) mountOutage(root string) error {
+	check := service.CheckMount
+	if check == nil {
+		check = altmount.CheckMount
+	}
+	if err := check(root); err != nil {
+		return altMountMountUnavailableError{until: time.Now().Add(altMountMountRetryInterval), cause: err}
+	}
+	return nil
+}
 
 func (service *AltMountReconcileService) Handle(ctx context.Context, event postgres.OutboxEvent) error {
 	job, err := service.Store.LoadAltMountJob(ctx, event.AggregateID)
@@ -122,6 +153,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		if completedAt.IsZero() || now.Before(completedAt.Add(altMountCompletedOutputGrace)) {
 			return service.Store.ScheduleAltMountReconcile(ctx, job, now.Add(15*time.Second))
 		}
+		if outage := service.mountOutage(config.LocalReadOnlyRoot); outage != nil {
+			return outage
+		}
 		return service.Store.CompleteImportWithCode(ctx, job, false, "altmount_output_unavailable", "AltMount reported completion, but its read-only output was still unavailable after five minutes. Verify the shared-folder mount before retrying.", now)
 	}
 	phase := altmount.Reconcile(altmount.ReconcileInput{Queue: &item, Output: output})
@@ -185,6 +219,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, inventory.LocalRelative)
 		verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe, rootErr)
 		if inspectionErr != nil {
+			if outage := service.mountOutage(config.LocalReadOnlyRoot); outage != nil {
+				return outage
+			}
 			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) || errors.Is(inspectionErr, mediainfo.ErrEncryptedVideo) {
 				return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureNoPlayableMedia, inspectionErr.Error(), time.Now().UTC())
 			}
@@ -254,6 +291,9 @@ func (service *AltMountReconcileService) HandleRetainedOutputReverification(ctx 
 	authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, retained.RootRelative)
 	verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, retained.Policy, service.MediaInfoProbe, rootErr)
 	if inspectionErr != nil {
+		if outage := service.mountOutage(config.LocalReadOnlyRoot); outage != nil {
+			return outage
+		}
 		return inspectionErr
 	}
 	return service.Store.CompleteRetainedSubtitleReverification(ctx, job, event.AggregateRevision, retained.InventoryID, verification, time.Now().UTC())

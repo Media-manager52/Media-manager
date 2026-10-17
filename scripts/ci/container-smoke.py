@@ -52,7 +52,8 @@ def main():
         commit = os.environ.get("GITHUB_SHA", "local-ci-validation")
         values = {
             "POSTGRES_PASSWORD": secrets.token_urlsafe(32), "OWNER_TOKEN": token,
-            "ALTMOUNT_HOST_PATH": str(root / "altmount"),
+            # Parent of the "altmount" directory; mounted at /mnt in the API.
+            "ALTMOUNT_HOST_PARENT_PATH": str(root),
             "MOVIES_HOST_PATH": str(root / "movies"), "TV_HOST_PATH": str(root / "tv"),
             "MEDIA_LIBRARY_HOST_PATH": str(root / "media"), "MEDIA_NETWORK": project,
             "MEDIA_MANAGER_API_PORT": "38081", "MEDIA_MANAGER_COMMIT": commit,

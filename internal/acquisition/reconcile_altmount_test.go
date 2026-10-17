@@ -3,12 +3,15 @@ package acquisition
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
+	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/mediainfo"
 	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/subtitles"
@@ -108,5 +111,35 @@ func TestReleaseAttributableQueueFailure(t *testing.T) {
 		if code != test.code || matched != (test.code != "") {
 			t.Fatalf("detail=%q code=%q matched=%v, want code=%q", test.detail, code, matched, test.code)
 		}
+	}
+}
+
+// A dead shared mount makes every completed job's output look missing. The
+// reconcile must defer the event (retryable, with a stable safe code) instead
+// of recording altmount_output_unavailable or an inspection failure.
+func TestMountOutageDefersInsteadOfFailing(t *testing.T) {
+	dead := &AltMountReconcileService{CheckMount: func(string) error {
+		return fmt.Errorf("%w: socket not connected", altmount.ErrMountUnavailable)
+	}}
+	err := dead.mountOutage("/mnt/altmount")
+	if !errors.Is(err, altmount.ErrMountUnavailable) {
+		t.Fatalf("mountOutage = %v, want ErrMountUnavailable", err)
+	}
+	var deferred interface {
+		SafeCode() string
+		RetryAt() time.Time
+	}
+	if !errors.As(err, &deferred) || deferred.SafeCode() != "altmount_mount_unavailable" || !deferred.RetryAt().After(time.Now()) {
+		t.Fatalf("mountOutage = %#v, want a future-dated altmount_mount_unavailable deferral", err)
+	}
+
+	healthy := &AltMountReconcileService{CheckMount: func(string) error { return nil }}
+	if err := healthy.mountOutage("/mnt/altmount"); err != nil {
+		t.Fatalf("healthy mount: mountOutage = %v, want nil", err)
+	}
+
+	// The default check treats a bare, empty mount point as unavailable.
+	if err := (&AltMountReconcileService{}).mountOutage(t.TempDir()); !errors.Is(err, altmount.ErrMountUnavailable) {
+		t.Fatalf("empty root: mountOutage = %v, want ErrMountUnavailable", err)
 	}
 }
