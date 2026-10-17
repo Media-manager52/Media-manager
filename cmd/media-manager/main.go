@@ -217,6 +217,8 @@ func run() error {
 	handlers["altmount.reconcile_requested"] = altMountReconciler.Handle
 	handlers["altmount.output_reverify_requested"] = altMountReconciler.HandleRetainedOutputReverification
 	handlers["altmount.movie_reinspect_requested"] = altMountReconciler.HandleRetainedMovieInspection
+	altMountRepair := &acquisition.AltMountRepairService{Store: store, ResolveSecret: resolveSecret}
+	handlers["altmount.repair_sweep_requested"] = altMountRepair.HandleSweep
 	publicationService := &publication.Service{Store: store}
 	handlers["library.publish_requested"] = publicationService.Handle
 	handlers["library.displaced_remove_requested"] = publicationService.HandleDisplacedRemoval
@@ -255,18 +257,25 @@ func run() error {
 	go func() {
 		_, _ = store.PlanDueRecyclePurges(workerContext, time.Now().UTC(), 100)
 		_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
+		_, _ = store.QueueAltMountRepairSweeps(workerContext, time.Now().UTC())
 		if seerrEnabled {
 			_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)
 			_, _ = store.QueueConfirmedSeerrStatusSyncs(workerContext, seerrInstance, time.Now().UTC(), 25)
 		}
 		purgeTicker := time.NewTicker(time.Hour)
 		seerrTicker := time.NewTicker(5 * time.Minute)
+		repairTicker := time.NewTicker(30 * time.Minute)
 		defer purgeTicker.Stop()
 		defer seerrTicker.Stop()
+		defer repairTicker.Stop()
 		for {
 			select {
 			case <-purgeTicker.C:
 				_, _ = store.PlanDueRecyclePurges(workerContext, time.Now().UTC(), 100)
+			case <-repairTicker.C:
+				// AltMount marks files whose Usenet articles disappeared as
+				// corrupted; Media Manager acquires their replacement itself.
+				_, _ = store.QueueAltMountRepairSweeps(workerContext, time.Now().UTC())
 			case <-seerrTicker.C:
 				_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 				if seerrEnabled {

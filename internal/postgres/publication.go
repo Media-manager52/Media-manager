@@ -899,8 +899,11 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 		FROM library_link_versions old
 		JOIN workflows old_workflow ON old_workflow.id=old.workflow_id
 		JOIN workflows current_workflow ON current_workflow.id=$1
-		WHERE old.state='current' AND old_workflow.media_id=current_workflow.media_id AND old_workflow.variant=current_workflow.variant
-		  AND old.altmount_job_id<>(SELECT altmount_job_id FROM plex_scan_requests WHERE id=$2)
+		WHERE old.state='current' AND old.altmount_job_id<>(SELECT altmount_job_id FROM plex_scan_requests WHERE id=$2)
+		  AND ((old_workflow.media_id=current_workflow.media_id AND old_workflow.variant=current_workflow.variant)
+		    -- An AltMount repair also retires the broken file it replaces, which
+		    -- can belong to another scope (an episode inside a season pack).
+		    OR old.id IN (SELECT broken_link_version_id FROM altmount_repairs WHERE repair_workflow_id=$1 AND state='open'))
 		FOR UPDATE OF old`, scan.Workflow.ID.String(), scan.ID.String())
 	if err != nil {
 		return err
@@ -966,6 +969,10 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 		}
 	}
 	if _, err := store.planAdoptedUpgradeDisplacements(ctx, transaction, scan.Workflow.ID, now); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE altmount_repairs SET state='repaired',resolved_at=$2,detail='replacement confirmed in Plex; the broken file was retired'
+		WHERE repair_workflow_id=$1 AND state='open'`, scan.Workflow.ID.String(), now.UTC()); err != nil {
 		return err
 	}
 	command, err := transaction.Exec(ctx, `UPDATE plex_scan_requests SET state='confirmed',revision=revision+1,completed_at=$2,last_polled_at=$2 WHERE id=$1 AND state='polling' AND revision=$3`, scan.ID.String(), now.UTC(), scanRevision)

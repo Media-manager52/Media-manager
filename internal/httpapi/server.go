@@ -1750,6 +1750,15 @@ func (server *Server) commissionIntegration(writer http.ResponseWriter, request 
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: integration})
 }
+func (server *Server) listAltMountRepairs(writer http.ResponseWriter, request *http.Request) {
+	items, err := server.store.ListAltMountRepairs(request.Context(), 500)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load repairs")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
 func (server *Server) listLibraryRoots(writer http.ResponseWriter, request *http.Request) {
 	items, err := server.store.ListLibraryRoots(request.Context())
 	if err != nil {

@@ -40,6 +40,11 @@ type SearchContext struct {
 	// ProfilePolicyVersion is the quality profile's current version. It can
 	// differ from PolicyVersion, which follows the open round's snapshot.
 	ProfilePolicyVersion uint64
+	// RepairBrokenTitles are release titles whose published files lost their
+	// Usenet articles; this workflow acquires their replacement (AltMount
+	// repair). Search rejects these exact titles and does not require the
+	// replacement to improve on the broken publication.
+	RepairBrokenTitles []string
 }
 
 type SearchIndexerOutcome struct {
@@ -253,6 +258,9 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return SearchContext{}, err
 		}
+	}
+	if result.RepairBrokenTitles, err = store.RepairBrokenReleaseTitles(ctx, result.Workflow.ID); err != nil {
+		return SearchContext{}, err
 	}
 	return result, nil
 }
