@@ -264,3 +264,60 @@ func TestAltMountRepairReplacesBrokenMovie(t *testing.T) {
 		t.Fatalf("repair state=%q err=%v, want repaired", state, err)
 	}
 }
+
+// TestUnmanagedRepairQueuesBrokenSymlinkRemovalOnConfirmation proves that when
+// Plex confirms the replacement for a broken symlink Media Manager did not
+// publish, the worker is asked to remove that exact symlink.
+func TestUnmanagedRepairQueuesBrokenSymlinkRemovalOnConfirmation(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	item, workflowID := fixture.movieWorkflow(t, "Unmanaged Repair Movie", "770003")
+	location := t.TempDir()
+	repair := UnmanagedRepair{AltMountID: fixture.altMount.ID, HealthID: 61, FilePath: "movies/Old.Release/Old.Release.mkv", RootID: fixture.root.ID,
+		Location: location, PlexLocation: "/media/Movies", Relative: "Old (2026)/Old.mkv", Target: "/mnt/altmount/movies/Old.Release/Old.Release.mkv",
+		MediaID: item.ID, Kind: catalog.KindMovie, ProfileID: fixture.profile.ID, ReleaseTitle: "Old.Release"}
+	outcome, err := fixture.store.PlanUnmanagedRepair(fixture.ctx, repair, time.Now().UTC())
+	if err != nil || outcome != RepairAttached {
+		t.Fatalf("unmanaged repair outcome=%q err=%v, want attached to the open movie workflow", outcome, err)
+	}
+	if again, err := fixture.store.PlanUnmanagedRepair(fixture.ctx, repair, time.Now().UTC()); err != nil || again != RepairAlreadyOpen {
+		t.Fatalf("second plan=%q err=%v, want already_open", again, err)
+	}
+	job, _, _ := fixture.seedVerifiedMovieOutput(t, workflowID, 1, "unmanaged-repair")
+	source := filepath.Join(fixture.localRoot, "completed", "unmanaged-repair", "Movie.mkv")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("replacement"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	publicationContext, err := fixture.store.LoadPublicationContext(fixture.ctx, workflowID, job.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanID, _, _, destination := fixture.publishMoviePlans(t, workflowID, job.JobID, publicationContext)
+	scan, err := fixture.store.LoadPlexScan(fixture.ctx, scanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.MarkPlexRefreshRequested(fixture.ctx, scan, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if scan, err = fixture.store.LoadPlexScan(fixture.ctx, scanID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.ConfirmPlexScan(fixture.ctx, scan, []plexadapter.Confirmation{{RatingKey: "unmanaged-1", Path: filepath.Join(fixture.plexVisibleRoot, destination), ProviderGUID: "tmdb://770003"}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var repairID string
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT id::text FROM altmount_repairs WHERE unmanaged_relative=$1 AND state='open'`, repair.Relative).Scan(&repairID); err != nil {
+		t.Fatalf("unmanaged repair must stay open until the symlink is removed: %v", err)
+	}
+	var queued int
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT count(*) FROM outbox_events WHERE event_type='library.unmanaged_broken_remove_requested' AND aggregate_id=$1 AND completed_at IS NULL`, repairID).Scan(&queued); err != nil || queued != 1 {
+		t.Fatalf("queued removals=%d err=%v, want 1", queued, err)
+	}
+	removal, err := fixture.store.LoadUnmanagedRemoval(fixture.ctx, uuid.MustParse(repairID))
+	if err != nil || removal.DestinationRoot != location || removal.Relative != repair.Relative || removal.Target != repair.Target || removal.PlexVisibleRoot != "/media/Movies" {
+		t.Fatalf("removal=%+v err=%v", removal, err)
+	}
+}

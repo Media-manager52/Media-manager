@@ -223,6 +223,12 @@ func run() error {
 	handlers["library.publish_requested"] = publicationService.Handle
 	handlers["library.displaced_remove_requested"] = publicationService.HandleDisplacedRemoval
 	plexService := &publication.PlexService{Store: store, ResolveSecret: resolveSecret}
+	altMountRepair.PlexClientFor = plexService.ClientFor
+	altMountRepair.Metadata = metadataService
+	if seerrEnabled {
+		altMountRepair.Seerr = seerrClient
+	}
+	handlers["library.unmanaged_broken_remove_requested"] = altMountRepair.HandleUnmanagedRemoval
 	handlers["plex.scan_requested"] = plexService.HandleScan
 	handlers["plex.confirm_requested"] = plexService.HandleConfirm
 	handlers["plex.recycle_refresh_requested"] = plexService.HandleRecycleRefresh

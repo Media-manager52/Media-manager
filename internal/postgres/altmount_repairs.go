@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,7 +29,7 @@ const (
 type AltMountRepair struct {
 	ID                 uuid.UUID  `json:"id"`
 	AltMountFilePath   string     `json:"altmount_file_path"`
-	MediaID            uuid.UUID  `json:"media_id"`
+	MediaID            *uuid.UUID `json:"media_id,omitempty"`
 	Title              string     `json:"title"`
 	Variant            string     `json:"variant"`
 	RepairWorkflowID   *uuid.UUID `json:"repair_workflow_id,omitempty"`
@@ -235,9 +236,9 @@ func (store *Store) ListAltMountRepairs(ctx context.Context, limit int) ([]AltMo
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT repair.id::text,repair.altmount_file_path,repair.media_id::text,media.title,repair.variant,repair.repair_workflow_id::text,
+	rows, err := store.Pool.Query(ctx, `SELECT repair.id::text,repair.altmount_file_path,repair.media_id::text,COALESCE(media.title,''),repair.variant,repair.repair_workflow_id::text,
 			repair.broken_release_title,repair.state,repair.detail,repair.created_at,repair.resolved_at
-		FROM altmount_repairs repair JOIN media_items media ON media.id=repair.media_id
+		FROM altmount_repairs repair LEFT JOIN media_items media ON media.id=repair.media_id
 		ORDER BY repair.created_at DESC,repair.id DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -246,13 +247,16 @@ func (store *Store) ListAltMountRepairs(ctx context.Context, limit int) ([]AltMo
 	result := []AltMountRepair{}
 	for rows.Next() {
 		var item AltMountRepair
-		var idText, mediaText string
-		var workflowText *string
+		var idText string
+		var mediaText, workflowText *string
 		if err := rows.Scan(&idText, &item.AltMountFilePath, &mediaText, &item.Title, &item.Variant, &workflowText, &item.BrokenReleaseTitle, &item.State, &item.Detail, &item.CreatedAt, &item.ResolvedAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)
-		item.MediaID, _ = uuid.Parse(mediaText)
+		if mediaText != nil {
+			parsed, _ := uuid.Parse(*mediaText)
+			item.MediaID = &parsed
+		}
 		if workflowText != nil {
 			parsed, _ := uuid.Parse(*workflowText)
 			item.RepairWorkflowID = &parsed
@@ -260,4 +264,218 @@ func (store *Store) ListAltMountRepairs(ctx context.Context, limit int) ([]AltMo
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+// UnmanagedRepair describes a corrupted AltMount file reached through a
+// library symlink Media Manager did not publish (older content), identified
+// through Plex. MediaID is set when the title is known; Season/Episode and
+// Episode (the TMDB snapshot) are set for an episode.
+type UnmanagedRepair struct {
+	AltMountID   uuid.UUID
+	HealthID     int64
+	FilePath     string
+	RootID       uuid.UUID
+	Location     string
+	PlexLocation string
+	Relative     string
+	Target       string
+	MediaID      uuid.UUID
+	// NewMedia is catalogued in the same transaction when the title is not
+	// known yet (MediaID is then taken from it).
+	NewMedia     *catalog.MediaItem
+	Kind         catalog.MediaKind
+	Season       uint16
+	Episode      uint16
+	Snapshot     ManualEpisode
+	ProfileID    uuid.UUID
+	ReleaseTitle string
+}
+
+// UnmanagedRepairTracked reports whether a broken unmanaged symlink already has
+// a repair, so a sweep does not repeat Plex and metadata lookups for it.
+func (store *Store) UnmanagedRepairTracked(ctx context.Context, location, relative string) (bool, error) {
+	var exists bool
+	err := store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM altmount_repairs WHERE unmanaged_location=$1 AND unmanaged_relative=$2 AND state IN ('open','needs_attention'))`, location, relative).Scan(&exists)
+	return exists, err
+}
+
+// RecordUnmanagedRepairAttention records a broken unmanaged file that cannot
+// be repaired automatically, with the reason, so it is visible and not
+// retried every sweep.
+func (store *Store) RecordUnmanagedRepairAttention(ctx context.Context, repair UnmanagedRepair, detail string, now time.Time) error {
+	var media *string
+	if repair.MediaID != (uuid.UUID{}) {
+		value := repair.MediaID.String()
+		media = &value
+	}
+	_, err := store.Pool.Exec(ctx, `INSERT INTO altmount_repairs(id,altmount_instance_id,altmount_health_id,altmount_file_path,unmanaged_root_id,unmanaged_location,unmanaged_plex_location,unmanaged_relative,unmanaged_target,media_id,variant,broken_release_title,state,detail,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'needs_attention',$13,$14) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), repair.AltMountID.String(), repair.HealthID, repair.FilePath, repair.RootID.String(), repair.Location, repair.PlexLocation, repair.Relative, repair.Target, media, unmanagedVariant(repair), repair.ReleaseTitle, detail, now.UTC())
+	return err
+}
+
+func unmanagedVariant(repair UnmanagedRepair) string {
+	if repair.Kind == catalog.KindSeries {
+		return workflows.EpisodeVariant(repair.Season, repair.Episode)
+	}
+	return "default"
+}
+
+// MediaIDByIdentities returns the active catalogue item owning any of the
+// verified identities, and whether that item is archived.
+func (store *Store) MediaIDByIdentities(ctx context.Context, kind catalog.MediaKind, identities []catalog.ExternalIdentity) (uuid.UUID, bool, bool, error) {
+	for _, identity := range identities {
+		if identity.State != catalog.IdentityVerified {
+			continue
+		}
+		var mediaText string
+		var archived bool
+		err := store.Pool.QueryRow(ctx, `SELECT identity.media_id::text,media.deleted_at IS NOT NULL FROM external_identities identity JOIN media_items media ON media.id=identity.media_id
+			WHERE identity.media_kind=$1 AND identity.namespace=$2 AND identity.value=$3 AND identity.state='verified'`, kind, identity.Namespace, identity.Value).Scan(&mediaText, &archived)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return uuid.UUID{}, false, false, err
+		}
+		parsed, _ := uuid.Parse(mediaText)
+		return parsed, true, archived, nil
+	}
+	return uuid.UUID{}, false, false, nil
+}
+
+// ResolveRepairProfile chooses the quality profile for repairing an unmanaged
+// file in a library root: the profile an enabled Seerr route assigns to that
+// root (for example WWE), else an enabled profile routed for the title's
+// original language (Danish originals), else the default profile.
+func (store *Store) ResolveRepairProfile(ctx context.Context, kind catalog.MediaKind, rootID uuid.UUID, originalLanguage string) (uuid.UUID, error) {
+	var profileText string
+	err := store.Pool.QueryRow(ctx, `SELECT route.quality_profile_id::text FROM seerr_library_routes route JOIN quality_profiles profile ON profile.id=route.quality_profile_id AND profile.enabled
+		WHERE route.library_root_id=$1 AND route.enabled AND route.media_kind=$2 AND route.quality_profile_id IS NOT NULL ORDER BY route.root_folder LIMIT 1`, rootID.String(), kind).Scan(&profileText)
+	if err == nil {
+		return uuid.Parse(profileText)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.UUID{}, err
+	}
+	if language := strings.ToLower(strings.TrimSpace(originalLanguage)); language != "" {
+		err = store.Pool.QueryRow(ctx, `SELECT id::text FROM quality_profiles WHERE media_kind=$1 AND enabled AND policy->'original_language_routing' ? $2 ORDER BY name LIMIT 1`, kind, language).Scan(&profileText)
+		if err == nil {
+			return uuid.Parse(profileText)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return uuid.UUID{}, err
+		}
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT id::text FROM quality_profiles WHERE media_kind=$1 AND enabled AND is_default LIMIT 1`, kind).Scan(&profileText); err != nil {
+		return uuid.UUID{}, err
+	}
+	return uuid.Parse(profileText)
+}
+
+// PlanUnmanagedRepair opens a repair for a broken unmanaged symlink. The
+// catalogue item must already exist (MediaID). A movie reuses its open
+// workflow; an episode gets an episode workflow with a single-episode
+// expectation from the TMDB snapshot. When Plex confirms the replacement the
+// broken symlink is removed only if it still points at the corrupted file.
+func (store *Store) PlanUnmanagedRepair(ctx context.Context, repair UnmanagedRepair, now time.Time) (string, error) {
+	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM altmount_repairs WHERE unmanaged_location=$1 AND unmanaged_relative=$2 AND state IN ('open','needs_attention'))`, repair.Location, repair.Relative).Scan(&exists); err != nil {
+		return "", err
+	}
+	if exists {
+		return RepairAlreadyOpen, nil
+	}
+	if repair.NewMedia != nil {
+		if err := insertMediaItem(ctx, tx, *repair.NewMedia); err != nil {
+			return "", err
+		}
+		repair.MediaID = repair.NewMedia.ID
+	}
+	variant := unmanagedVariant(repair)
+	var activeWorkflow string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL`, repair.MediaID.String(), variant).Scan(&activeWorkflow)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	outcome := RepairAttached
+	if activeWorkflow == "" {
+		outcome = RepairOpened
+		workflow := workflows.NewWithClient(repair.MediaID, repair.RootID, repair.ProfileID, repair.AltMountID, now.UTC())
+		if err := store.insertManualWorkflow(ctx, tx, workflow, variant, true); err != nil {
+			return "", err
+		}
+		if repair.Kind == catalog.KindSeries {
+			if err := insertSnapshotEpisodeExpectation(ctx, tx, workflow.ID, repair, now); err != nil {
+				return "", err
+			}
+		}
+		activeWorkflow = workflow.ID.String()
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO altmount_repairs(id,altmount_instance_id,altmount_health_id,altmount_file_path,unmanaged_root_id,unmanaged_location,unmanaged_plex_location,unmanaged_relative,unmanaged_target,media_id,variant,repair_workflow_id,broken_release_title,state,detail,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'open',$14,$15)`, uuid.NewV7().String(), repair.AltMountID.String(), repair.HealthID, repair.FilePath, repair.RootID.String(), repair.Location, repair.PlexLocation, repair.Relative, repair.Target,
+		repair.MediaID.String(), variant, activeWorkflow, repair.ReleaseTitle, "AltMount reports missing Usenet articles; a replacement is being acquired", now.UTC()); err != nil {
+		return "", err
+	}
+	auditDetail, _ := json.Marshal(map[string]any{"file": repair.FilePath, "variant": variant, "workflow_id": activeWorkflow, "broken_release": repair.ReleaseTitle, "outcome": outcome, "unmanaged_link": repair.Relative})
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'worker','library.repair_opened','media',$2,$3,$4)`, uuid.NewV7().String(), repair.MediaID.String(), string(auditDetail), now.UTC()); err != nil {
+		return "", err
+	}
+	return outcome, tx.Commit(ctx)
+}
+
+func insertSnapshotEpisodeExpectation(ctx context.Context, tx pgx.Tx, workflowID uuid.UUID, repair UnmanagedRepair, now time.Time) error {
+	var seriesIdentity string
+	if err := tx.QueryRow(ctx, `SELECT namespace || ':' || value FROM external_identities WHERE media_id=$1 AND state='verified' AND namespace IN ('tvdb','tmdb','imdb')
+		ORDER BY CASE namespace WHEN 'tvdb' THEN 0 WHEN 'tmdb' THEN 1 ELSE 2 END LIMIT 1`, repair.MediaID.String()).Scan(&seriesIdentity); err != nil {
+		return err
+	}
+	expectationID := uuid.NewV7()
+	digest := sha256.Sum256([]byte(fmt.Sprintf("repair:%s:%d:%d", repair.MediaID.String(), repair.Season, repair.Episode)))
+	if _, err := tx.Exec(ctx, `INSERT INTO pack_expectation_sets(id,workflow_id,series_identity,season,source_revision,expectation_digest,created_at,frozen_at) VALUES($1,$2,$3,$4,1,$5,$6,$6)`, expectationID.String(), workflowID.String(), seriesIdentity, int16(repair.Season), digest[:], now.UTC()); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO pack_expected_episodes(expectation_id,season,episode,provider_episode_id,title,air_date) VALUES($1,$2,$3,NULLIF($4,''),$5,NULLIF($6,'')::date)`,
+		expectationID.String(), int16(repair.Season), int16(repair.Episode), strings.TrimSpace(repair.Snapshot.ProviderID), strings.TrimSpace(repair.Snapshot.Title), strings.TrimSpace(repair.Snapshot.AirDate))
+	return err
+}
+
+// UnmanagedRemoval is a broken unmanaged symlink whose replacement Plex
+// confirmed.
+type UnmanagedRemoval struct {
+	RepairID        uuid.UUID
+	DestinationRoot string
+	Relative        string
+	Target          string
+	PlexLibraryID   string
+	PlexVisibleRoot string
+	PlexInstanceID  uuid.UUID
+}
+
+// LoadUnmanagedRemoval loads a pending removal of a broken unmanaged symlink.
+func (store *Store) LoadUnmanagedRemoval(ctx context.Context, repairID uuid.UUID) (UnmanagedRemoval, error) {
+	removal := UnmanagedRemoval{RepairID: repairID}
+	var plexText string
+	err := store.Pool.QueryRow(ctx, `SELECT repair.unmanaged_location,repair.unmanaged_relative,repair.unmanaged_target,COALESCE(root.plex_library_id,''),repair.unmanaged_plex_location,root.plex_instance_id::text
+		FROM altmount_repairs repair JOIN library_roots root ON root.id=repair.unmanaged_root_id
+		WHERE repair.id=$1 AND repair.state='open'`, repairID.String()).Scan(&removal.DestinationRoot, &removal.Relative, &removal.Target, &removal.PlexLibraryID, &removal.PlexVisibleRoot, &plexText)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return UnmanagedRemoval{}, ErrNotFound
+	}
+	if err != nil {
+		return UnmanagedRemoval{}, err
+	}
+	removal.PlexInstanceID, _ = uuid.Parse(plexText)
+	return removal, nil
+}
+
+// CompleteUnmanagedRemoval marks an unmanaged repair repaired after its broken
+// symlink was removed.
+func (store *Store) CompleteUnmanagedRemoval(ctx context.Context, repairID uuid.UUID, now time.Time) error {
+	_, err := store.Pool.Exec(ctx, `UPDATE altmount_repairs SET state='repaired',resolved_at=$2,detail='replacement confirmed in Plex; the broken symlink was removed' WHERE id=$1 AND state='open'`, repairID.String(), now.UTC())
+	return err
 }

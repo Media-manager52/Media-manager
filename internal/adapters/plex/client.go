@@ -53,6 +53,8 @@ type Item struct {
 	GUID                 string  `xml:"guid,attr"`
 	Season               string  `xml:"parentIndex,attr"`
 	Episode              string  `xml:"index,attr"`
+	Type                 string  `xml:"type,attr"`
+	AiredAt              string  `xml:"originallyAvailableAt,attr"`
 	GUIDs                []GUID  `xml:"Guid"`
 	Media                []Media `xml:"Media"`
 }
@@ -323,6 +325,25 @@ func folderParent(key, libraryKey string) (string, bool) {
 		return "", false
 	}
 	return parent, true
+}
+
+// ItemAtPath returns the one Plex item whose media part is exactly path in a
+// library section, found by walking the section's folders by exact name.
+func (client *Client) ItemAtPath(ctx context.Context, libraryKey, path string) (Item, error) {
+	items, err := client.itemsAtPath(ctx, libraryKey, path)
+	if err != nil {
+		return Item{}, err
+	}
+	if len(items) != 1 {
+		return Item{}, ErrNotConfirmed
+	}
+	return items[0], nil
+}
+
+// Metadata returns one library item (movie, show or episode) with its
+// provider GUIDs.
+func (client *Client) Metadata(ctx context.Context, ratingKey string) (Item, error) {
+	return client.metadataItem(ctx, ratingKey)
 }
 
 func (client *Client) metadataItem(ctx context.Context, ratingKey string) (Item, error) {

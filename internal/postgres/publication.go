@@ -972,7 +972,16 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE altmount_repairs SET state='repaired',resolved_at=$2,detail='replacement confirmed in Plex; the broken file was retired'
-		WHERE repair_workflow_id=$1 AND state='open'`, scan.Workflow.ID.String(), now.UTC()); err != nil {
+		WHERE repair_workflow_id=$1 AND state='open' AND broken_link_version_id IS NOT NULL`, scan.Workflow.ID.String(), now.UTC()); err != nil {
+		return err
+	}
+	// A broken symlink Media Manager did not publish is removed by the worker
+	// once the replacement is confirmed, and only if it still points at the
+	// corrupted AltMount file.
+	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
+		SELECT gen_random_uuid(),'altmount_repair',repair.id,1,'library.unmanaged_broken_remove_requested',json_build_object('repair_id',repair.id::text),$2,$2
+		FROM altmount_repairs repair WHERE repair.repair_workflow_id=$1 AND repair.state='open' AND repair.unmanaged_root_id IS NOT NULL
+		ON CONFLICT DO NOTHING`, scan.Workflow.ID.String(), now.UTC()); err != nil {
 		return err
 	}
 	command, err := transaction.Exec(ctx, `UPDATE plex_scan_requests SET state='confirmed',revision=revision+1,completed_at=$2,last_polled_at=$2 WHERE id=$1 AND state='polling' AND revision=$3`, scan.ID.String(), now.UTC(), scanRevision)

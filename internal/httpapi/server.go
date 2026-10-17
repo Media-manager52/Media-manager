@@ -680,38 +680,12 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 		writeError(writer, http.StatusBadRequest, "invalid_id", "TMDB ID is invalid")
 		return
 	}
-	metadata, err := server.config.MetadataProvider.Metadata(request.Context(), kind, tmdbID)
+	discovered, err := server.config.MetadataEnricher.Discover(request.Context(), server.config.MetadataProvider, kind, tmdbID, time.Now().UTC())
 	if err != nil {
-		writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr metadata lookup failed")
+		writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr metadata lookup failed or could not be normalized safely")
 		return
 	}
-	title, date := metadata.Title, metadata.ReleaseDate
-	mediaKind := catalog.KindMovie
-	if kind == "tv" {
-		title, date, mediaKind = metadata.Name, metadata.FirstAirDate, catalog.KindSeries
-	}
-	identities := []catalog.ExternalIdentity{{Namespace: "tmdb", Value: strconv.FormatInt(tmdbID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"}}
-	if metadata.ExternalIDs.TVDBID != nil && *metadata.ExternalIDs.TVDBID > 0 {
-		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*metadata.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"})
-	}
-	if strings.TrimSpace(metadata.ExternalIDs.IMDbID) != "" {
-		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: metadata.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: "seerr_metadata"})
-	}
-	enricher := server.config.MetadataEnricher
-	if enricher == nil {
-		enricher = &metadataservice.Service{}
-	}
-	enriched, err := enricher.Build(request.Context(), mediaKind, tmdbID, metadata, identities, time.Now().UTC())
-	if err != nil {
-		writeError(writer, http.StatusBadGateway, "metadata_error", "metadata response could not be normalized safely")
-		return
-	}
-	identities = enriched.Identities
-	var year *uint16
-	if parsed, parseErr := time.Parse("2006-01-02", date); parseErr == nil && parsed.Year() >= 1800 && parsed.Year() <= 9999 {
-		value := uint16(parsed.Year())
-		year = &value
-	}
+	mediaKind, title, year, identities, enriched := discovered.Kind, discovered.Title, discovered.Year, discovered.Identities, discovered.Result
 	response := map[string]any{"kind": mediaKind, "title": title, "year": year, "identities": identities, "tmdb_id": tmdbID, "metadata": enriched.Metadata, "enrichment_state": enriched.EnrichmentState, "provider_states": enriched.ProviderStates}
 	if rawSeason := request.URL.Query().Get("season"); rawSeason != "" {
 		if kind != "tv" {
