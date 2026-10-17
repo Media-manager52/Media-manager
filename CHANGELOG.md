@@ -8,6 +8,8 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Changed
 
+- An AltMount restart or FUSE remount no longer leaves the API with a dead mount. Compose binds the directory containing AltMount's mount point (`ALTMOUNT_HOST_PARENT_PATH`, default `/mnt`) read-only at `/mnt` with `rslave` propagation instead of binding the mount point itself, so a new mount reaches the running API. `ALTMOUNT_HOST_PATH` is no longer used. While the read-only root is unreadable, AltMount reconciles and output inspection wait and retry (`altmount_mount_unavailable`) instead of failing workflows as `altmount_output_unavailable` or `output_inspection_failed`; no release is excluded for a mount outage. System health reports each AltMount output mount, and the Overview tile and sidebar warn when it is unavailable. AltMount companion patches fix the crash behind the 2026-10-06 outage (a race in the AES decrypt reader), keep the mount up when any single FUSE request panics, and add a read-only kernel mount. On 2026-10-06 a dead bind failed 118 workflows over eleven days.
+
 - Acquisition budgets are configurable at startup: one–six attempts per new round (default two) and one–twelve retained failed outputs (default four). Schema 43 widens slot constraints without rewriting historical limits; UI and owner recovery use the configured budgets. Failed outputs, exact exclusions and provider pacing stay enforced.
 
 - The Compose API container explicitly disables IPv6 so indexer requests use the host's IPv4 egress identity even if its external Docker network later enables IPv6. Per-provider pacing, budgets, redirect pinning, and credential boundaries remain unchanged. Other containers and host IPv6 are unaffected.

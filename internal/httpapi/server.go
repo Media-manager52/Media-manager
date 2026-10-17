@@ -16,6 +16,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/adoption"
 	"github.com/media-manager/media-manager/internal/backups"
@@ -997,7 +998,30 @@ func (server *Server) systemHealth(writer http.ResponseWriter, request *http.Req
 		writeError(writer, http.StatusServiceUnavailable, "health_unavailable", "component health could not be loaded")
 		return
 	}
+	snapshot.Mounts = altMountMountHealth(snapshot.Components, altmount.CheckMount)
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: snapshot})
+}
+
+// altMountMountHealth probes the read-only output root of every enabled
+// AltMount client. AltMount's API can be healthy while its FUSE mount is gone
+// from this container, so the mount is reported separately.
+func altMountMountHealth(components []postgres.SourceStatus, check func(string) error) []postgres.MountHealth {
+	mounts := []postgres.MountHealth{}
+	for _, component := range components {
+		if component.Kind != "altmount" || !component.Enabled {
+			continue
+		}
+		var config struct {
+			LocalReadOnlyRoot string `json:"local_read_only_root"`
+		}
+		_ = json.Unmarshal(component.Config, &config)
+		mount := postgres.MountHealth{IntegrationID: component.ID, Name: component.Name, Path: config.LocalReadOnlyRoot, State: "available"}
+		if err := check(config.LocalReadOnlyRoot); err != nil {
+			mount.State, mount.Detail = "unavailable", err.Error()
+		}
+		mounts = append(mounts, mount)
+	}
+	return mounts
 }
 
 func (server *Server) createProwlarrImport(writer http.ResponseWriter, request *http.Request) {

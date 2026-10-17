@@ -1,0 +1,319 @@
+From 6784d3a3066dbc8931869856ce6c8d2ab52c419b Mon Sep 17 00:00:00 2001
+From: Media Manager Steward <media-manager@localhost>
+Date: Sat, 17 Oct 2026 16:06:40 +0200
+Subject: [PATCH 6/7] fix(aes): make Close safe while a Read is creating or
+ reading the source
+
+readFullContext force-closes the reader from another goroutine when a FUSE
+read times out. aesDecryptReader read and wrote its source and closed fields
+without synchronization, so Close could observe a torn io.ReadCloser and call
+(*UsenetReader).Close on a nil receiver. On 2026-10-06 that nil dereference
+crashed the FUSE server and every bind of the old mount stayed dead.
+
+Guard source/closed with a mutex that is never held across a blocking read,
+and close a source that finishes initializing after Close instead of leaking
+it. Regression tests fail under -race before this change.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ internal/encryption/aes/aes_decrypt_reader.go |  77 ++++++++---
+ .../encryption/aes/aes_decrypt_reader_test.go | 123 ++++++++++++++++++
+ 2 files changed, 185 insertions(+), 15 deletions(-)
+ create mode 100644 internal/encryption/aes/aes_decrypt_reader_test.go
+
+diff --git a/internal/encryption/aes/aes_decrypt_reader.go b/internal/encryption/aes/aes_decrypt_reader.go
+index 6407b81..6dc115a 100644
+--- a/internal/encryption/aes/aes_decrypt_reader.go
++++ b/internal/encryption/aes/aes_decrypt_reader.go
+@@ -6,6 +6,7 @@ import (
+ 	"crypto/cipher"
+ 	"fmt"
+ 	"io"
++	"sync"
+ )
+ 
+ // aesDecryptReader wraps an io.ReadCloser with AES-CBC decryption
+@@ -13,7 +14,6 @@ import (
+ type aesDecryptReader struct {
+ 	ctx           context.Context
+ 	getReader     func(ctx context.Context, start, end int64) (io.ReadCloser, error)
+-	source        io.ReadCloser
+ 	key           []byte
+ 	iv            []byte
+ 	origIV        []byte // Original IV for recalculation during seeks
+@@ -25,7 +25,14 @@ type aesDecryptReader struct {
+ 	size          int64  // Total size of decrypted data (for output limiting)
+ 	encryptedSize int64  // Total size of encrypted data (for source reading)
+ 	requestEnd    int64  // Caller's desired end offset in decrypted space (-1 = unbounded)
+-	closed        bool
++
++	// mu guards source and closed. Close may run on another goroutine while a
++	// Read is blocked (readFullContext force-closes on context timeout), so
++	// those two fields must never be read or written without it. The lock is
++	// never held across a blocking read, so Close can always interrupt one.
++	mu     sync.Mutex
++	source io.ReadCloser
++	closed bool
+ }
+ 
+ // newAesDecryptReader creates a new AES-CBC decrypt reader
+@@ -71,14 +78,45 @@ func newAesDecryptReader(
+ 	}, nil
+ }
+ 
++// currentSource returns the source and whether the reader is closed.
++func (r *aesDecryptReader) currentSource() (io.ReadCloser, bool) {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	return r.source, r.closed
++}
++
++// installSource makes src the current source. If Close ran while src was
++// being created, src is closed instead and io.ErrClosedPipe is returned.
++func (r *aesDecryptReader) installSource(src io.ReadCloser) error {
++	r.mu.Lock()
++	if r.closed {
++		r.mu.Unlock()
++		src.Close()
++		return io.ErrClosedPipe
++	}
++	r.source = src
++	r.mu.Unlock()
++	return nil
++}
++
++// detachSource removes and returns the current source.
++func (r *aesDecryptReader) detachSource() io.ReadCloser {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	src := r.source
++	r.source = nil
++	return src
++}
++
+ // Read implements io.Reader
+ func (r *aesDecryptReader) Read(p []byte) (int, error) {
+-	if r.closed {
++	source, closed := r.currentSource()
++	if closed {
+ 		return 0, io.ErrClosedPipe
+ 	}
+ 
+ 	// Lazy initialization of source reader
+-	if r.source == nil {
++	if source == nil {
+ 		sourceEnd := r.encryptedSize - 1
+ 		if r.requestEnd >= 0 {
+ 			encEnd := EncryptedSize(r.requestEnd+1) - 1
+@@ -86,11 +124,14 @@ func (r *aesDecryptReader) Read(p []byte) (int, error) {
+ 				sourceEnd = encEnd
+ 			}
+ 		}
+-		var err error
+-		r.source, err = r.getReader(r.ctx, 0, sourceEnd)
++		created, err := r.getReader(r.ctx, 0, sourceEnd)
+ 		if err != nil {
+ 			return 0, fmt.Errorf("failed to initialize source reader: %w", err)
+ 		}
++		if err := r.installSource(created); err != nil {
++			return 0, err
++		}
++		source = created
+ 	}
+ 
+ 	totalRead := 0
+@@ -132,7 +173,7 @@ func (r *aesDecryptReader) Read(p []byte) (int, error) {
+ 
+ 		// Read encrypted data
+ 		encBuf := make([]byte, readSize)
+-		n, err := io.ReadFull(r.source, encBuf)
++		n, err := io.ReadFull(source, encBuf)
+ 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+ 			return totalRead, err
+ 		}
+@@ -181,7 +222,7 @@ func (r *aesDecryptReader) Read(p []byte) (int, error) {
+ // Seek implements io.Seeker
+ // For CBC mode, seeking requires recalculating the IV based on the previous ciphertext block
+ func (r *aesDecryptReader) Seek(offset int64, whence int) (int64, error) {
+-	if r.closed {
++	if _, closed := r.currentSource(); closed {
+ 		return 0, io.ErrClosedPipe
+ 	}
+ 
+@@ -211,9 +252,8 @@ func (r *aesDecryptReader) Seek(offset int64, whence int) (int64, error) {
+ 	}
+ 
+ 	// Close the current source if it exists
+-	if r.source != nil {
+-		r.source.Close()
+-		r.source = nil
++	if old := r.detachSource(); old != nil {
++		old.Close()
+ 	}
+ 
+ 	// Seeking requires recreating the decrypter with the correct IV
+@@ -267,7 +307,9 @@ func (r *aesDecryptReader) Seek(offset int64, whence int) (int64, error) {
+ 		return 0, fmt.Errorf("failed to recreate cipher: %w", err)
+ 	}
+ 
+-	r.source = newSource
++	if err := r.installSource(newSource); err != nil {
++		return 0, err
++	}
+ 	r.iv = newIV
+ 	r.decrypter = cipher.NewCBCDecrypter(block, newIV)
+ 	r.offset = blockNum * int64(aes.BlockSize)
+@@ -290,13 +332,18 @@ func (r *aesDecryptReader) Seek(offset int64, whence int) (int64, error) {
+ 
+ // Close implements io.Closer
+ func (r *aesDecryptReader) Close() error {
++	r.mu.Lock()
+ 	if r.closed {
++		r.mu.Unlock()
+ 		return nil
+ 	}
+-
+ 	r.closed = true
+-	if r.source != nil {
+-		return r.source.Close()
++	source := r.source
++	r.source = nil
++	r.mu.Unlock()
++
++	if source != nil {
++		return source.Close()
+ 	}
+ 
+ 	return nil
+diff --git a/internal/encryption/aes/aes_decrypt_reader_test.go b/internal/encryption/aes/aes_decrypt_reader_test.go
+new file mode 100644
+index 0000000..d8b00f2
+--- /dev/null
++++ b/internal/encryption/aes/aes_decrypt_reader_test.go
+@@ -0,0 +1,123 @@
++package aes
++
++import (
++	"context"
++	"errors"
++	"io"
++	"sync"
++	"testing"
++	"time"
++)
++
++// blockingSource is a source whose Read blocks until Close, like a
++// UsenetReader waiting on a slow NNTP article.
++type blockingSource struct {
++	closeOnce sync.Once
++	closed    chan struct{}
++}
++
++func newBlockingSource() *blockingSource {
++	return &blockingSource{closed: make(chan struct{})}
++}
++
++func (s *blockingSource) Read(p []byte) (int, error) {
++	<-s.closed
++	return 0, io.ErrClosedPipe
++}
++
++func (s *blockingSource) Close() error {
++	s.closeOnce.Do(func() { close(s.closed) })
++	return nil
++}
++
++func (s *blockingSource) isClosed() bool {
++	select {
++	case <-s.closed:
++		return true
++	default:
++		return false
++	}
++}
++
++func newTestReader(t *testing.T, getReader func(ctx context.Context, start, end int64) (io.ReadCloser, error)) *aesDecryptReader {
++	t.Helper()
++	r, err := newAesDecryptReader(context.Background(), getReader, make([]byte, 16), make([]byte, 16), 4096, 4096, -1)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return r
++}
++
++func waitRead(t *testing.T, done <-chan error) error {
++	t.Helper()
++	select {
++	case err := <-done:
++		return err
++	case <-time.After(5 * time.Second):
++		t.Fatal("Read did not return after Close")
++		return nil
++	}
++}
++
++// Close runs on another goroutine while Read is blocked on the source; this is
++// what readFullContext does when a FUSE read times out. It used to race on
++// the source field and could call Close on a torn interface (nil receiver).
++func TestCloseInterruptsBlockedRead(t *testing.T) {
++	source := newBlockingSource()
++	entered := make(chan struct{})
++	r := newTestReader(t, func(context.Context, int64, int64) (io.ReadCloser, error) {
++		close(entered)
++		return source, nil
++	})
++
++	done := make(chan error, 1)
++	go func() {
++		_, err := r.Read(make([]byte, 16))
++		done <- err
++	}()
++	<-entered
++	// Give Read a moment to block on the source, then close concurrently.
++	time.Sleep(20 * time.Millisecond)
++	if err := r.Close(); err != nil {
++		t.Fatal(err)
++	}
++	if err := waitRead(t, done); err == nil {
++		t.Fatal("Read after Close returned no error")
++	}
++	if !source.isClosed() {
++		t.Fatal("source was not closed")
++	}
++}
++
++// Close runs while Read is still creating the source. The late source must be
++// closed (not leaked) and Read must report the reader as closed.
++func TestCloseDuringLazySourceCreation(t *testing.T) {
++	entered := make(chan struct{})
++	release := make(chan struct{})
++	source := newBlockingSource()
++	r := newTestReader(t, func(context.Context, int64, int64) (io.ReadCloser, error) {
++		close(entered)
++		<-release
++		return source, nil
++	})
++
++	done := make(chan error, 1)
++	go func() {
++		_, err := r.Read(make([]byte, 16))
++		done <- err
++	}()
++	<-entered
++	if err := r.Close(); err != nil {
++		t.Fatal(err)
++	}
++	close(release)
++	if err := waitRead(t, done); !errors.Is(err, io.ErrClosedPipe) {
++		t.Fatalf("Read error = %v, want io.ErrClosedPipe", err)
++	}
++	if !source.isClosed() {
++		t.Fatal("source created after Close was leaked")
++	}
++	if err := r.Close(); err != nil {
++		t.Fatalf("second Close: %v", err)
++	}
++}
+-- 
+2.47.3
+

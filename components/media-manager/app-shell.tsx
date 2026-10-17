@@ -324,8 +324,13 @@ function BrandMark({ className }: { className?: string }) {
 
 type ServiceStatus = { loaded: boolean; ready: boolean; version?: string; warnings: Array<{ name: string; reason: string }> }
 
-/** One sentence per degraded component, from persisted source state only. */
-function componentWarnings(components: APISystemHealth["components"]) {
+/** One sentence per degraded component or unreadable AltMount output mount. */
+function componentWarnings(health: APISystemHealth) {
+  const mounts = (health.mounts ?? []).filter((mount) => mount.state !== "available").map((mount) => ({ name: mount.name, reason: "read-only output mount unavailable" }))
+  return [...mounts, ...componentSourceWarnings(health.components ?? [])]
+}
+
+function componentSourceWarnings(components: APISystemHealth["components"]) {
   return components.filter((component) => component.enabled && (component.configuration_state !== "configured" || component.consecutive_failure > 0)).map((component) => ({
     name: component.name,
     reason: component.configuration_state === "awaiting_commission" ? "awaiting commission" : component.configuration_state === "disabled" ? "disabled" : component.last_outcome ? component.last_outcome.replaceAll("_", " ") : `${component.consecutive_failure} failed attempts`,
@@ -342,7 +347,7 @@ function AppSidebar({ path, onSearch }: { path: string; onSearch: () => void }) 
   React.useEffect(() => {
     const controller = new AbortController()
     Promise.all([loadSystemHealth(controller.signal), loadSystemInfo(controller.signal)])
-      .then(([health, info]) => setService({ loaded: true, ready: health.database_state === "ready" && health.schema_version === health.expected_schema, version: info.version, warnings: componentWarnings(health.components ?? []) }))
+      .then(([health, info]) => setService({ loaded: true, ready: health.database_state === "ready" && health.schema_version === health.expected_schema, version: info.version, warnings: componentWarnings(health) }))
       .catch(() => { if (!controller.signal.aborted) setService({ loaded: true, ready: false, warnings: [] }) })
     return () => controller.abort()
   }, [])

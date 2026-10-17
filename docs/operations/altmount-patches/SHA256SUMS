@@ -3,3 +3,6 @@ cff046a6e443bf92f314b32fdf77633141162a2ce05765ff2329a9cb408c5562  0001-fix-allow
 f794ca882bac2f23d402115cde235e4982136fd446a5a5ef63513717c8594abf  0003-fix-parser-retain-single-file-metadata-names-without.patch
 ed678337705f52be4e31d7512c32efc234eb88aa8701c0e3936db6444fd25f13  0004-fix-rar-rename-a-reposted-first-volume-to-its-.rNN-r.patch
 ebadcc286f1d6a0b20d1c49d0591af6c9f793428624886c50445f6491949b1ef  0005-fix-rar-merge-a-clean-named-first-volume-with-its-sc.patch
+24a89edaca5750bf5d0e1c8cacb29687948768893d5a84b09f6cda08c9353d93  0006-fix-aes-make-Close-safe-while-a-Read-is-creating-or-.patch
+b524e97998caff5b9ea9f702bd8eb793824f485e1944ae967e5126ec64536e46  0007-feat-fuse-optional-read-only-kernel-mount-fuse.read_.patch
+7a70636d51e35fcb3fb0f2a407505be32c9c1248cb6d42a619ad031b5cd02ca1  0008-fix-fuse-fail-only-the-request-when-a-FUSE-operation.patch

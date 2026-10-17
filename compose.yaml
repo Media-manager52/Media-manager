@@ -68,7 +68,19 @@ services:
       - media_manager_tvdb_key
       - media_manager_simkl_client_id
     volumes:
-      - ${ALTMOUNT_HOST_PATH:?set ALTMOUNT_HOST_PATH}:/mnt/altmount:ro
+      # AltMount's FUSE mount must be reached through its PARENT directory with
+      # rslave propagation. Binding the mount point itself pins the FUSE
+      # connection that existed when this container started: after any
+      # AltMount restart or FUSE remount that bind stays dead ("socket not
+      # connected") until the API is recreated. Through the parent, the new
+      # mount propagates in automatically. Mount AltMount's FUSE read-only
+      # (fuse.read_only) so the propagated mount is read-only as well.
+      - type: bind
+        source: ${ALTMOUNT_HOST_PARENT_PATH:-/mnt}
+        target: /mnt
+        read_only: true
+        bind:
+          propagation: rslave
       - ${MOVIES_HOST_PATH:?set MOVIES_HOST_PATH}:/libraries/movies:rw
       - ${TV_HOST_PATH:?set TV_HOST_PATH}:/libraries/tv:rw
       # Optional parent of additional Plex library folders (Seerr root-folder

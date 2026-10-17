@@ -140,7 +140,7 @@ Compose passes PostgreSQL credentials as discrete `PG*` variables, so a strong d
 
 | Container path | Access | Purpose |
 |---|---:|---|
-| `/mnt/altmount` | read-only | AltMount completed/streaming media |
+| `/mnt/altmount` | read-only | AltMount completed/streaming media, reached through the host parent directory (`ALTMOUNT_HOST_PARENT_PATH`, bound at `/mnt` with `rslave` propagation) so FUSE remounts propagate in |
 | `/libraries/movies` | read-write | Movie symlink library built by Media Manager |
 | `/libraries/tv` | read-write | TV symlink library built by Media Manager |
 | `/srv/media` | read-write | Optional parent of additional Plex library folders used by Seerr root-folder routing (`MEDIA_LIBRARY_HOST_PATH` / `MEDIA_LIBRARY_GID`; defaults to an empty project directory when unset) |

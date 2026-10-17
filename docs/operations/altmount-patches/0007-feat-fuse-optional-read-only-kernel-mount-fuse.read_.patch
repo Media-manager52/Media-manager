@@ -1,0 +1,69 @@
+From 7d4d25d7a6e89c475465a7583258aaab3ea894a1 Mon Sep 17 00:00:00 2001
+From: Media Manager Steward <media-manager@localhost>
+Date: Sat, 17 Oct 2026 16:06:40 +0200
+Subject: [PATCH 7/7] feat(fuse): optional read-only kernel mount
+ (fuse.read_only)
+
+Consumers that bind the mount's parent directory with rslave propagation
+follow a FUSE remount automatically, but a propagated mount does not inherit
+a read-only bind flag. Mounting the filesystem itself read-only makes every
+view of it read-only (EROFS on create, write, delete, rename). AltMount's own
+imports and repairs do not write through the mount.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ internal/config/manager.go               | 6 ++++++
+ internal/fuse/backend/cgofuse/backend.go | 3 +++
+ internal/fuse/backend/hanwen/backend.go  | 5 +++++
+ 3 files changed, 14 insertions(+)
+
+diff --git a/internal/config/manager.go b/internal/config/manager.go
+index 71bbe89..cfc8088 100644
+--- a/internal/config/manager.go
++++ b/internal/config/manager.go
+@@ -336,6 +336,12 @@ type FuseConfig struct {
+ 	// media servers re-scanning on unstable VFS mtimes. Note: tools like find -atime
+ 	// will not see meaningful access times on this mount.
+ 	NoModTime bool `yaml:"no_mod_time" mapstructure:"no_mod_time" json:"no_mod_time"`
++	// ReadOnly mounts the filesystem read-only at the kernel level, so every
++	// process and container that sees the mount (including bind mounts that
++	// follow a remount through mount propagation) gets EROFS on writes,
++	// deletes and renames. AltMount's own imports and repairs do not go
++	// through the mount, so they keep working.
++	ReadOnly bool `yaml:"read_only" mapstructure:"read_only" json:"read_only"`
+ }
+ 
+ // APIConfig represents REST API configuration
+diff --git a/internal/fuse/backend/cgofuse/backend.go b/internal/fuse/backend/cgofuse/backend.go
+index d9b9e56..646f26e 100644
+--- a/internal/fuse/backend/cgofuse/backend.go
++++ b/internal/fuse/backend/cgofuse/backend.go
+@@ -172,6 +172,9 @@ func (b *Backend) mountOptions() []string {
+ 			opts = append(opts, "-o", "allow_other")
+ 		}
+ 	}
++	if b.cfg.FuseConfig.ReadOnly && runtime.GOOS != "windows" {
++		opts = append(opts, "-o", "ro")
++	}
+ 
+ 	return opts
+ }
+diff --git a/internal/fuse/backend/hanwen/backend.go b/internal/fuse/backend/hanwen/backend.go
+index 6037ca5..a5fe779 100644
+--- a/internal/fuse/backend/hanwen/backend.go
++++ b/internal/fuse/backend/hanwen/backend.go
+@@ -85,6 +85,11 @@ func (b *Backend) Mount(ctx context.Context, onReady func()) error {
+ 		AttrTimeout:     &attrTimeout,
+ 		NegativeTimeout: &entryTimeout,
+ 	}
++	if b.cfg.FuseConfig.ReadOnly {
++		// "ro" is passed to the kernel as a superblock flag (and to fusermount
++		// as -o ro when direct mounting is unavailable).
++		opts.MountOptions.Options = append(opts.MountOptions.Options, "ro")
++	}
+ 
+ 	// Mount with timeout
+ 	type mountResult struct {
+-- 
+2.47.3
+

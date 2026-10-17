@@ -23,7 +23,7 @@ Mounts (container → purpose):
 
 | Container path | Mode | Purpose |
 | --- | --- | --- |
-| `/mnt/altmount` | `ro` | AltMount completed output. |
+| `/mnt` | `ro`, `rslave` | Host `ALTMOUNT_HOST_PARENT_PATH`, the directory containing AltMount's FUSE mount point (`/mnt/altmount`). Binding the parent, not the mount point, lets an AltMount restart or FUSE remount propagate in; a bind of the mount point itself stays dead ("socket not connected") until the API is recreated. Set AltMount's `fuse.read_only: true` so the propagated mount is read-only too. |
 | `/libraries/movies` | `rw` | Movie symlink library. |
 | `/libraries/tv` | `rw` | TV symlink library. |
 | `/srv/media` | `rw` | Optional parent of additional Plex library folders (Seerr root-folder routing); set `MEDIA_LIBRARY_HOST_PATH`/`MEDIA_LIBRARY_GID`. |
@@ -38,7 +38,8 @@ each root's `source_visible_root`).
 1. `cp .env.example .env`, `cp .env.integrations.example .env.integrations`;
    replace every placeholder. `POSTGRES_PASSWORD` is required; `OWNER_TOKEN`
    must be ≥32 random characters.
-2. Point `ALTMOUNT_HOST_PATH`, `MOVIES_HOST_PATH`, `TV_HOST_PATH` at real host
+2. Point `ALTMOUNT_HOST_PARENT_PATH` (parent of the AltMount FUSE mount point),
+   `MOVIES_HOST_PATH`, `TV_HOST_PATH` at real host
    paths and set `MEDIA_MANAGER_UID`/`GID` to an account that can read AltMount
    and write both library roots (`id -u`, `id -g`).
 3. Create the shared network and attach AltMount once:
@@ -87,7 +88,8 @@ Runtime variables in `.env` (Compose interpolation):
 | `COMMISSIONING_V2_OWNER_ORIGIN` | for v2 UI | Trusted `Origin` for commissioning-v2 mutations. |
 | `MEDIA_NETWORK` | no (`media-manager`) | External integrations network name. |
 | `MEDIA_MANAGER_UID`, `MEDIA_MANAGER_GID` | recommended | API container user (library permissions). |
-| `ALTMOUNT_HOST_PATH`, `MOVIES_HOST_PATH`, `TV_HOST_PATH` | yes | Host paths for the three mounts. |
+| `ALTMOUNT_HOST_PARENT_PATH` | no (`/mnt`) | Host directory containing AltMount's FUSE mount point; mounted read-only at `/mnt` with `rslave` propagation. |
+| `MOVIES_HOST_PATH`, `TV_HOST_PATH` | yes | Host paths for the two library mounts. |
 | `MEDIA_LIBRARY_HOST_PATH`, `MEDIA_LIBRARY_GID` | optional | Parent of additional Plex library folders and the host group that owns them; used by Seerr root-folder routing. Defaults: `./data` and the primary GID. |
 | `METADATA_*_SOURCE_FILE` | if using direct providers | Host files mounted as Docker secrets for TMDB/TVDB/Simkl. |
 | `SEERR_BASE_URL`, `SEERR_API_KEY`, `SEERR_INSTANCE_ID`, `SEERR_WEBHOOK_SECRET` | together or not at all | Seerr intake. Secret ≥32 bytes; instance must be an enabled `seerr` integration UUID. |
@@ -266,6 +268,7 @@ and writes results to `.sites-runtime/live-playwright-results/`.
 | Newznab calls return `deferred`/cooldown | Pacing/budget working as intended. Inspect `indexer_operation_status` and `/sources`, not logs. |
 | Workflow stuck in `waiting` with `owner_action_required` | Round exhausted; wait for discovery `ready`, then `POST .../acquisition-rounds`. |
 | Output retained and unpublished | This is the designed failure behavior. Inspect `/api/v1/acquisition-verifications`, fix the cause, use `reverify-retained-output` once, or open a new round after approval. |
+| Health shows the AltMount output mount `unavailable`; worker events retry with `altmount_mount_unavailable` | The API cannot read `/mnt/altmount` (FUSE gone, "socket not connected", or only the bare mount point is visible). Imports and output inspection wait and resume by themselves once the mount is readable; no workflow is failed or release excluded for it. Check AltMount and `ls /mnt/altmount` on the host. If the host mount is fine but the API still cannot read it, the API was started with a bind of the mount point itself instead of its parent (see §1 mounts); recreate it with the current `compose.yaml`. |
 | Backup creation disabled | `BACKUP_ENCRYPTION_KEY` absent. Provide a base64 32-byte key. |
 | Workflows show `quality_policy_changed` | A quality profile was edited after their rounds opened. Call `POST /api/v1/settings/quality-profiles/{id}/apply-policy` and review the per-workflow outcomes; re-run it after `in_flight` work settles. Never retire or insert `acquisition_rounds` rows by hand. |
 | Plex never confirms | Read the workflow `attention_detail`: it says whether Plex never showed the path, showed it under a different provider identity (fix the Plex match), or confirmed only after the deadline. Check library paths and that Plex can resolve symlink targets. Never fake confirmation. Localized Plex titles are handled by the adapter's exact-path folder lookup. To retry a `plex_timeout` whose links are already `verified`, call `POST /api/v1/workflows/{id}/reconfirm-plex` (idempotent, audited, at most 3 retries per publication); never insert scan rows by hand. |
