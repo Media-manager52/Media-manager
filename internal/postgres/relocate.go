@@ -12,16 +12,18 @@ import (
 	"github.com/media-manager/media-manager/internal/library"
 )
 
-// RelocateWorkflowLinks moves every current Plex-facing link (and verified
-// subtitle companion) of a workflow from its library root to another enabled
+// RelocateWorkflowLinks moves every current Plex-facing link (and its published
+// subtitle companions) of a workflow from its library root to another enabled
 // root of the same media kind, updates the link and workflow records, and
 // records an audit event. The link targets and the read-only AltMount content
 // are never touched. Moves are resumable: a rerun completes a partially
 // applied change because RelocateSymlink is idempotent.
 func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targetRootID uuid.UUID, now time.Time) (int, error) {
 	var mediaKind, oldRootID, fromRoot, state string
-	if err := store.Pool.QueryRow(ctx, `SELECT w.root_id::text,r.media_kind,r.destination_root,w.state
-		FROM workflows w JOIN library_roots r ON r.id=w.root_id WHERE w.id=$1`, workflowID.String()).Scan(&oldRootID, &mediaKind, &fromRoot, &state); errors.Is(err, pgx.ErrNoRows) {
+	var revision int64
+	var terminal bool
+	if err := store.Pool.QueryRow(ctx, `SELECT w.root_id::text,r.media_kind,r.destination_root,w.state,w.revision,w.terminal_at IS NOT NULL
+		FROM workflows w JOIN library_roots r ON r.id=w.root_id WHERE w.id=$1`, workflowID.String()).Scan(&oldRootID, &mediaKind, &fromRoot, &state, &revision, &terminal); errors.Is(err, pgx.ErrNoRows) {
 		return 0, ErrNotFound
 	} else if err != nil {
 		return 0, err
@@ -75,7 +77,7 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 		FROM library_link_companions c
 		JOIN library_link_versions v ON v.id=c.link_version_id AND v.state='current'
 		JOIN library_links l ON l.id=v.library_link_id AND l.root_id=$2
-		WHERE v.workflow_id=$1 AND c.state='verified' ORDER BY c.destination_relative`, workflowID.String(), oldRootID)
+		WHERE v.workflow_id=$1 AND c.state IN ('verified','current') ORDER BY c.destination_relative`, workflowID.String(), oldRootID)
 	if err != nil {
 		return 0, err
 	}
@@ -91,8 +93,11 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
-	if len(links) == 0 && len(companions) == 0 {
-		return 0, refuse("no_current_links", "workflow has no current links in its library root", "Only workflows with published links can be relocated.")
+	// An open workflow without published links still moves: its root decides
+	// where future output is published (for example the waiting episodes of
+	// a series that is being moved to another library).
+	if len(links) == 0 && len(companions) == 0 && terminal {
+		return 0, refuse("no_current_links", "workflow has no current links in its library root", "Only open workflows, or finished workflows with published links, can be relocated.")
 	}
 	moved := 0
 	for _, item := range links {
@@ -110,12 +115,29 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 		}
 		moved++
 	}
-	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET root_id=$2,revision=revision+1,updated_at=$3 WHERE id=$1`, workflowID.String(), targetRootID.String(), now.UTC()); err != nil {
+	tx, err := store.Pool.Begin(ctx)
+	if err != nil {
+		return moved, err
+	}
+	defer tx.Rollback(ctx)
+	updated, err := tx.Exec(ctx, `UPDATE workflows SET root_id=$2,revision=revision+1,updated_at=$3 WHERE id=$1 AND revision=$4`, workflowID.String(), targetRootID.String(), now.UTC(), revision)
+	if err != nil {
+		return moved, err
+	}
+	if updated.RowsAffected() != 1 {
+		return moved, ErrConcurrentModification
+	}
+	// Scheduled work (searches, discovery) is keyed to the workflow revision and
+	// is dropped as stale when the revision no longer matches. Carry pending
+	// events forward so relocating a waiting workflow keeps its next search.
+	if _, err := tx.Exec(ctx, `UPDATE outbox_events e SET aggregate_revision=$3
+		WHERE e.aggregate_type='workflow' AND e.aggregate_id=$1 AND e.aggregate_revision=$2 AND e.completed_at IS NULL
+		AND NOT EXISTS (SELECT 1 FROM outbox_events x WHERE x.aggregate_type='workflow' AND x.aggregate_id=$1 AND x.aggregate_revision=$3 AND x.event_type=e.event_type)`, workflowID.String(), revision, revision+1); err != nil {
 		return moved, err
 	}
 	detail, _ := json.Marshal(map[string]any{"workflow_id": workflowID.String(), "from_root": oldRootID, "to_root": targetRootID.String(), "links": len(links), "companions": len(companions)})
-	if _, err := store.Pool.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','library.links_relocated','workflow',$2,$3,$4)`, uuid.NewV7().String(), workflowID.String(), string(detail), now.UTC()); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','library.links_relocated','workflow',$2,$3,$4)`, uuid.NewV7().String(), workflowID.String(), string(detail), now.UTC()); err != nil {
 		return moved, err
 	}
-	return moved, nil
+	return moved, tx.Commit(ctx)
 }

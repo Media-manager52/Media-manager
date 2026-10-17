@@ -1776,6 +1776,34 @@ func (server *Server) createLibraryRoot(writer http.ResponseWriter, request *htt
 	}
 	writeJSON(writer, 201, dataEnvelope{Data: created, Meta: map[string]int{"seerr_requests_requeued": requeued}})
 }
+func (server *Server) updateLibraryRoot(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "library root ID is invalid")
+		return
+	}
+	var input postgres.LibraryRootPatch
+	if err := decodeJSON(request, &input, 8<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "send a JSON object with is_default and/or enabled")
+		return
+	}
+	root, err := server.store.UpdateLibraryRoot(request.Context(), id, input, time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "library root was not found")
+		return
+	}
+	var refusal postgres.ActionRefusal
+	if errors.As(err, &refusal) && (strings.HasPrefix(refusal.Code, "invalid_") || refusal.Code == "empty_patch") {
+		writeErrorHint(writer, http.StatusBadRequest, refusal.Code, refusal.Message, refusal.Hint)
+		return
+	}
+	if err != nil {
+		writeConflict(writer, err, "library_root_update_failed", "the library root could not be changed")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: root})
+}
+
 func (server *Server) listQualityProfiles(writer http.ResponseWriter, request *http.Request) {
 	items, err := server.store.ListQualityProfiles(request.Context())
 	if err != nil {
