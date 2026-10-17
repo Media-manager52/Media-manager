@@ -139,9 +139,12 @@ func Evaluate(observation Observation, rules []Rule) (Evaluation, error) {
 	if err := ValidateRules(rules); err != nil {
 		return Evaluation{}, err
 	}
-	facts := make(map[string]Fact, len(observation.Facts))
+	facts := make(map[string]Fact, len(observation.Facts)+1)
 	for _, fact := range observation.Facts {
 		facts[normalize(fact.Name)] = fact
+	}
+	if combined, ok := subtitleOrAudioLanguages(facts); ok {
+		facts[SubtitleOrAudioLanguagesFact] = combined
 	}
 	result := Evaluation{ObservationID: observation.ID, Verdict: VerdictEligible}
 	for _, rule := range rules {
@@ -246,4 +249,37 @@ func verdictOrder(verdict Verdict) int {
 	default:
 		return 2
 	}
+}
+
+// SubtitleOrAudioLanguagesFact is derived during evaluation from the
+// subtitle_languages and audio_languages facts. A required language is
+// satisfied by either a subtitle or an audio track in that language: a Danish
+// dub needs no Danish subtitles. The fact exists only when at least one of the
+// two is observed or inferred, so unknown evidence stays unknown.
+const SubtitleOrAudioLanguagesFact = "subtitle_or_audio_languages"
+
+func subtitleOrAudioLanguages(facts map[string]Fact) (Fact, bool) {
+	combined := Fact{Name: SubtitleOrAudioLanguagesFact, State: FactInferred}
+	known := false
+	seen := map[string]bool{}
+	for _, name := range []string{"subtitle_languages", "audio_languages"} {
+		fact, exists := facts[name]
+		if !exists || (fact.State != FactObserved && fact.State != FactInferred) || len(fact.Values) == 0 {
+			continue
+		}
+		known = true
+		if fact.State == FactObserved {
+			combined.State = FactObserved
+		}
+		if fact.ObservedAt.After(combined.ObservedAt) {
+			combined.ObservedAt = fact.ObservedAt
+		}
+		for _, value := range fact.Values {
+			if !seen[normalize(value)] {
+				seen[normalize(value)] = true
+				combined.Values = append(combined.Values, value)
+			}
+		}
+	}
+	return combined, known
 }

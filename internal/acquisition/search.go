@@ -388,8 +388,10 @@ func applyUpgradeBaseline(observation releases.Observation, evaluation releases.
 func appendSubtitleRules(rules []releases.Rule, policy subtitles.Policy) []releases.Rule {
 	for _, language := range policy.Required {
 		rules = append(rules,
-			releases.Rule{Name: "Required subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RuleRequired, Unknown: releases.UnknownAllow},
-			releases.Rule{Name: "Prefer verified required subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: requiredSubtitleEvidenceWeight, Unknown: releases.UnknownAllow},
+			// A required language is satisfied by a subtitle or an audio track in
+			// that language (a Danish dub needs no Danish subtitles).
+			releases.Rule{Name: "Required subtitle or audio " + language, Fact: releases.SubtitleOrAudioLanguagesFact, AllowedValues: []string{language}, Kind: releases.RuleRequired, Unknown: releases.UnknownAllow},
+			releases.Rule{Name: "Prefer verified required subtitle or audio " + language, Fact: releases.SubtitleOrAudioLanguagesFact, AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: requiredSubtitleEvidenceWeight, Unknown: releases.UnknownAllow},
 		)
 	}
 	for _, language := range policy.Preferred {

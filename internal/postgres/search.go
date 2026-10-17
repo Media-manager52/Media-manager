@@ -162,8 +162,11 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 				return SearchContext{}, err
 			}
 		}
-		var observedLanguages []string
-		languageErr := store.Pool.QueryRow(ctx, `SELECT observed_languages FROM subtitle_verifications WHERE workflow_id=$1 AND status='verified' ORDER BY attempt_generation DESC LIMIT 1`, currentWorkflowText).Scan(&observedLanguages)
+		var observedLanguages, audioLanguages []string
+		languageErr := store.Pool.QueryRow(ctx, `SELECT observed_languages,
+			COALESCE((SELECT array_agg(DISTINCT track->>'canonical_language') FROM jsonb_array_elements(COALESCE(evidence->'videos','[]'::jsonb)) video,
+				jsonb_array_elements(COALESCE(video->'media_info'->'audio_tracks','[]'::jsonb)) track WHERE COALESCE(track->>'canonical_language','')<>''),'{}')
+			FROM subtitle_verifications WHERE workflow_id=$1 AND status='verified' ORDER BY attempt_generation DESC LIMIT 1`, currentWorkflowText).Scan(&observedLanguages, &audioLanguages)
 		if languageErr != nil && !errors.Is(languageErr, pgx.ErrNoRows) {
 			return SearchContext{}, languageErr
 		}
@@ -175,6 +178,9 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 				observedLanguages = []string{releases.NoSubtitleLanguageObserved}
 			}
 			currentObservation.Facts = upsertReleaseFact(currentObservation.Facts, releases.Fact{Name: "subtitle_languages", Values: observedLanguages, State: releases.FactObserved})
+			if len(audioLanguages) > 0 {
+				currentObservation.Facts = upsertReleaseFact(currentObservation.Facts, releases.Fact{Name: "audio_languages", Values: audioLanguages, State: releases.FactObserved})
+			}
 		}
 		result.CurrentRelease = &currentObservation
 	} else if !errors.Is(err, pgx.ErrNoRows) {

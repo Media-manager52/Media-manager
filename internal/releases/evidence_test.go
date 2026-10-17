@@ -81,3 +81,36 @@ func TestBestAvailablePreferencesRankResolutionBeforeAudio(t *testing.T) {
 		t.Fatalf("unexpected best-available rank order: %+v", ranked)
 	}
 }
+
+// A required language is satisfied by subtitles or audio. Explicit Danish-audio
+// release names pass; a release listing only Swedish subtitles still fails; a
+// bare DANISH tag stays unknown and therefore allowed but unscored.
+func TestRequiredLanguageAcceptsSubtitleOrAudio(t *testing.T) {
+	rules := []Rule{
+		{Name: "Required subtitle or audio da", Fact: SubtitleOrAudioLanguagesFact, AllowedValues: []string{"da"}, Kind: RuleRequired, Unknown: UnknownAllow},
+		{Name: "Prefer verified required subtitle or audio da", Fact: SubtitleOrAudioLanguagesFact, AllowedValues: []string{"da"}, Kind: RulePreferred, Weight: 100000, Unknown: UnknownAllow},
+	}
+	now := time.Now()
+	for _, tc := range []struct {
+		title   string
+		facts   []Fact
+		verdict Verdict
+		score   int
+	}{
+		{title: "Bluey.S03E01.DKaudio.1080p.WEB.h264-GRP", verdict: VerdictEligible, score: 100000},
+		{title: "Paw.Patrol.S01E01.DANISH.DUBBED.720p.WEB-DL", verdict: VerdictEligible, score: 100000},
+		{title: "Movie.2020.1080p.BluRay.DKsubs.x264", verdict: VerdictEligible, score: 100000},
+		{title: "Movie.2020.DANISH.1080p.WEB.H264", verdict: VerdictEligible, score: 0},
+		{title: "Movie.2020.1080p.WEB.H264", facts: []Fact{{Name: "subtitle_languages", Values: []string{"sv"}, State: FactObserved}}, verdict: VerdictRejected},
+		{title: "Movie.2020.DKaudio.1080p.WEB.H264", facts: []Fact{{Name: "subtitle_languages", Values: []string{"sv"}, State: FactObserved}}, verdict: VerdictEligible, score: 100000},
+	} {
+		observation := InferTitleFacts(Observation{ID: uuid.NewV7(), Title: tc.title, Facts: tc.facts}, now)
+		evaluation, err := Evaluate(observation, rules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if evaluation.Verdict != tc.verdict || evaluation.Score != tc.score {
+			t.Fatalf("%s: verdict=%s score=%d, want %s %d", tc.title, evaluation.Verdict, evaluation.Score, tc.verdict, tc.score)
+		}
+	}
+}
