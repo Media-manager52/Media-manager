@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -40,12 +41,13 @@ type SubtitleVerificationRecord struct {
 // or a quality-rule edit stays scoped to the attempt that started under it.
 func (store *Store) SubtitlePolicyForJob(ctx context.Context, jobID uuid.UUID) (subtitles.Policy, error) {
 	var roundPolicy, profilePolicy []byte
-	err := store.Pool.QueryRow(ctx, `SELECT round.policy_snapshot,profile.policy
+	var originalLanguage string
+	err := store.Pool.QueryRow(ctx, `SELECT round.policy_snapshot,profile.policy,COALESCE((SELECT data->>'original_language' FROM media_metadata WHERE media_id=workflow.media_id),'')
 		FROM altmount_jobs job
 		JOIN acquisition_rounds round ON round.id=job.round_id AND round.workflow_id=job.workflow_id
 		JOIN workflows workflow ON workflow.id=job.workflow_id
 		JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
-		WHERE job.id=$1`, jobID.String()).Scan(&roundPolicy, &profilePolicy)
+		WHERE job.id=$1`, jobID.String()).Scan(&roundPolicy, &profilePolicy, &originalLanguage)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return subtitles.Policy{}, ErrNotFound
 	}
@@ -60,7 +62,7 @@ func (store *Store) SubtitlePolicyForJob(ctx context.Context, jobID uuid.UUID) (
 	if err != nil {
 		return subtitles.Policy{}, err
 	}
-	return mergeRequiredSubtitles(snapshot, live), nil
+	return mergeRequiredSubtitles(snapshot, live).WithOriginalLanguage(originalLanguage), nil
 }
 
 // mergeRequiredSubtitles keeps the attempt's preferences but requires the union
@@ -80,7 +82,14 @@ func mergeRequiredSubtitles(snapshot, live subtitles.Policy) subtitles.Policy {
 		required = append(required, language)
 	}
 	sort.Strings(required)
-	return subtitles.Policy{Required: required, Preferred: append([]string(nil), snapshot.Preferred...)}
+	audio := append([]string(nil), snapshot.RequiredAudio...)
+	for _, language := range live.RequiredAudio {
+		if !slices.Contains(audio, language) {
+			audio = append(audio, language)
+		}
+	}
+	sort.Strings(audio)
+	return subtitles.Policy{Required: required, Preferred: append([]string(nil), snapshot.Preferred...), RequiredAudio: audio}
 }
 
 func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMountJobContext, inventoryID uuid.UUID, verification subtitles.Verification, now time.Time) (SubtitleVerificationRecord, error) {

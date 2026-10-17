@@ -164,6 +164,9 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	if err != nil {
 		return err
 	}
+	if search.Media.Metadata != nil {
+		subtitlePolicy = subtitlePolicy.WithOriginalLanguage(search.Media.Metadata.OriginalLanguage)
+	}
 	rules = appendSubtitleRules(rules, subtitlePolicy)
 	qualityRules := append([]releases.Rule{}, rules...)
 	scopeRules, scopeErr := workflowScopeRules(search.Variant)
@@ -399,6 +402,21 @@ func appendSubtitleRules(rules []releases.Rule, policy subtitles.Policy) []relea
 			releases.Rule{Name: "Prefer verified required subtitle or audio " + language, Fact: releases.SubtitleOrAudioLanguagesFact, AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: requiredSubtitleEvidenceWeight, Unknown: releases.UnknownAllow},
 		)
 	}
+	for _, language := range policy.RequiredAudio {
+		// A required audio language needs a dub: subtitles do not count. Only
+		// releases with Danish-audio evidence in their name are acquired;
+		// releases without any evidence are held instead of downloaded and
+		// rejected after inspection. A title originally in that language
+		// carries it as its own audio, so its releases need no evidence.
+		unknown := releases.UnknownHold
+		if language == policy.OriginalLanguage {
+			unknown = releases.UnknownAllow
+		}
+		rules = append(rules,
+			releases.Rule{Name: "Required audio " + language, Fact: releases.AudioLanguageEvidenceFact, AllowedValues: []string{language}, Kind: releases.RuleRequired, Unknown: unknown},
+			releases.Rule{Name: "Prefer explicit audio " + language, Fact: "audio_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: requiredSubtitleEvidenceWeight, Unknown: releases.UnknownAllow},
+		)
+	}
 	for _, language := range policy.Preferred {
 		rules = append(rules, releases.Rule{Name: "Preferred subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: 250, Unknown: releases.UnknownAllow})
 	}
@@ -412,7 +430,7 @@ func applyRepairExclusions(observation releases.Observation, evaluation releases
 	for _, broken := range brokenTitles {
 		if title != "" && strings.EqualFold(title, strings.TrimSpace(broken)) {
 			evaluation.Verdict = releases.VerdictRejected
-			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "AltMount repair", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "this release's published file lost its Usenet articles"})
+			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "AltMount repair", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "this release's published file is being replaced (broken, or missing a required audio language)"})
 			return evaluation
 		}
 	}

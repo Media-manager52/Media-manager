@@ -340,6 +340,31 @@ func (client *Client) ItemAtPath(ctx context.Context, libraryKey, path string) (
 	return items[0], nil
 }
 
+// ItemsWithoutAudioLanguage lists the movies (or episodes) of a library
+// section that have no audio track tagged with language, an ISO 639-2 code
+// such as "dan", using Plex's audio-language filter. An untagged track does
+// not count as the language. Items carry their media file paths.
+func (client *Client) ItemsWithoutAudioLanguage(ctx context.Context, libraryKey string, episodes bool, language string) ([]Item, error) {
+	if !numeric(libraryKey) || language == "" {
+		return nil, ErrInvalidConfig
+	}
+	itemType := "1"
+	if episodes {
+		itemType = "4"
+	}
+	body, err := client.get(ctx, "/library/sections/"+libraryKey+"/all", url.Values{"type": {itemType}, "audioLanguage!": {language}})
+	if err != nil {
+		return nil, err
+	}
+	var document struct {
+		Videos []Item `xml:"Video"`
+	}
+	if err := xml.Unmarshal(body, &document); err != nil {
+		return nil, err
+	}
+	return document.Videos, nil
+}
+
 // Metadata returns one library item (movie, show or episode) with its
 // provider GUIDs.
 func (client *Client) Metadata(ctx context.Context, ratingKey string) (Item, error) {

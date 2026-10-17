@@ -196,3 +196,156 @@ func TestRootPathPairsTranslatePlexFolders(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+type fakeKidsSeerr struct{ fakeRepairSeerr }
+
+func (fakeKidsSeerr) Metadata(_ context.Context, _ string, tmdbID int64) (seerr.Metadata, error) {
+	language := "en"
+	if tmdbID == 802 {
+		language = "da"
+	}
+	return seerr.Metadata{ID: tmdbID, Title: "Kids Movie " + string(rune('0'+tmdbID%10)), ReleaseDate: "2020-05-01", OriginalLanguage: language}, nil
+}
+
+// TestAudioUpgradeSweepReplacesFilesWithoutRequiredAudio proves the kids
+// library upgrade: a movie Plex reports without Danish audio, in a root whose
+// Seerr route profile requires Danish audio, gets an upgrade under that
+// profile while the old symlink stays. A Danish-made film needs none, and a
+// real file (not an AltMount symlink) is never touched. An upgrade that finds
+// nothing within its window is closed, its waiting workflow cancelled, and the
+// file is not tried again before its retry time.
+func TestAudioUpgradeSweepReplacesFilesWithoutRequiredAudio(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	rootDir := filepath.Join(t.TempDir(), "Børn Film")
+	files := map[string]string{
+		"Kids Movie 1 (2020)/Kids Movie 1.mkv": "/mnt/altmount/movies/Kids.Movie.1.2020.1080p.WEB-GRP/Kids.Movie.1.mkv",
+		"Kids Movie 2 (2020)/Kids Movie 2.mkv": "/mnt/altmount/movies/Kids.Movie.2.2020.1080p.WEB-GRP/Kids.Movie.2.mkv",
+		"Kids Movie 3 (2020)/Kids Movie 3.mkv": "",
+	}
+	for relative, target := range files {
+		path := filepath.Join(rootDir, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if target == "" {
+			if err := os.WriteFile(path, []byte("real file"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.Symlink(target, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	video := func(rating, file string) string {
+		return `<Video ratingKey="` + rating + `" type="movie"><Media><Part file="/media/Børn Film/` + file + `"/></Media></Video>`
+	}
+	routes := map[string]string{
+		"/library/sections": `<MediaContainer><Directory key="40" type="movie" title="Børn Film"><Location path="/media/Børn Film"/></Directory></MediaContainer>`,
+		"/library/sections/40/all?audioLanguage%21=dan&type=1": `<MediaContainer>` + video("801", "Kids Movie 1 (2020)/Kids Movie 1.mkv") + video("802", "Kids Movie 2 (2020)/Kids Movie 2.mkv") + video("803", "Kids Movie 3 (2020)/Kids Movie 3.mkv") + `</MediaContainer>`,
+		"/library/sections/40/folder":                          `<MediaContainer><Directory key="/library/sections/40/folder?parent=21" title="Kids Movie 1 (2020)"/><Directory key="/library/sections/40/folder?parent=22" title="Kids Movie 2 (2020)"/></MediaContainer>`,
+		"/library/sections/40/folder?parent=21":                `<MediaContainer>` + video("801", "Kids Movie 1 (2020)/Kids Movie 1.mkv") + `</MediaContainer>`,
+		"/library/sections/40/folder?parent=22":                `<MediaContainer>` + video("802", "Kids Movie 2 (2020)/Kids Movie 2.mkv") + `</MediaContainer>`,
+		"/library/metadata/801":                                `<MediaContainer><Video ratingKey="801" type="movie"><Guid id="tmdb://801"/></Video></MediaContainer>`,
+		"/library/metadata/802":                                `<MediaContainer><Video ratingKey="802" type="movie"><Guid id="tmdb://802"/></Video></MediaContainer>`,
+	}
+	plexServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		key := request.URL.Path
+		if request.URL.RawQuery != "" {
+			key += "?" + request.URL.RawQuery
+		}
+		if body, ok := routes[key]; ok {
+			_, _ = writer.Write([]byte(body))
+			return
+		}
+		writer.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(plexServer.Close)
+
+	plexIntegration, err := store.CreateIntegration(ctx, postgres.Integration{Kind: "plex", Name: "Kids Plex", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://plex.invalid:32400","allow_http":true}`), SecretRef: "PLEX_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	altMount, err := store.CreateIntegration(ctx, postgres.Integration{Kind: "altmount", Name: "Kids AltMount", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://altmount.invalid:8080","allow_http":true,"category":"media-manager","local_read_only_root":"/mnt/altmount"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seerrIntegration, err := store.CreateIntegration(ctx, postgres.Integration{Kind: "seerr", Name: "Kids Seerr", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://seerr:5055","allow_http":true}`), SecretRef: "SEERR_API_KEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateIntegration(ctx, postgres.Integration{Kind: "newznab", Name: "Kids indexer", Enabled: true, Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api"}`), SecretRef: "INDEXER_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+	root, err := store.CreateLibraryRoot(ctx, postgres.LibraryRoot{MediaKind: catalog.KindMovie, Name: "Børn Film", DestinationRoot: rootDir, PlexVisibleRoot: "/media/Børn Film", SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: &plexIntegration.ID, PlexLibraryID: "40", Default: true, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subsPolicy, _ := json.Marshal(map[string]any{"rules": []releases.Rule{{Name: "Resolution", Fact: "resolution", AllowedValues: []string{"1080p"}, Kind: releases.RulePreferred, Weight: 1}}, "required_subtitle_languages": []string{"da"}})
+	if _, err := store.CreateQualityProfile(ctx, postgres.QualityProfile{MediaKind: catalog.KindMovie, Name: "Movie Danish Subs", PolicyVersion: 1, Policy: subsPolicy, UpgradesEnabled: true, Default: true, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	kidsPolicy, _ := json.Marshal(map[string]any{"rules": []releases.Rule{{Name: "Resolution", Fact: "resolution", AllowedValues: []string{"1080p"}, Kind: releases.RulePreferred, Weight: 1}}, "required_audio_languages": []string{"da"}})
+	kids, err := store.CreateQualityProfile(ctx, postgres.QualityProfile{MediaKind: catalog.KindMovie, Name: "Movie Kids Danish Audio", PolicyVersion: 1, Policy: kidsPolicy, UpgradesEnabled: true, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertSeerrLibraryRoute(ctx, postgres.SeerrLibraryRoute{SeerrInstanceID: seerrIntegration.ID, MediaKind: catalog.KindMovie, RootFolder: "/media/Børn Film", LibraryRootID: root.ID, QualityProfileID: &kids.ID, Enabled: true}, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &AltMountRepairService{
+		Store: store, Seerr: fakeKidsSeerr{}, Metadata: &metadataservice.Service{},
+		ListCorrupted: func(context.Context, postgres.Integration) ([]altmount.HealthItem, error) { return nil, nil },
+		PlexClientFor: func(postgres.Integration) (*plex.Client, error) {
+			return plex.New(plex.Config{BaseURL: plexServer.URL, Token: "secret", AllowHTTP: true}, plexServer.Client().Transport)
+		},
+	}
+	event := postgres.OutboxEvent{Payload: json.RawMessage(`{"integration_id":"` + altMount.ID.String() + `"}`)}
+	for sweep := 0; sweep < 2; sweep++ {
+		if err := service.HandleSweep(ctx, event); err != nil {
+			t.Fatalf("sweep %d: %v", sweep, err)
+		}
+	}
+	repairs, err := store.ListAltMountRepairs(ctx, 10)
+	if err != nil || len(repairs) != 2 {
+		t.Fatalf("repairs=%+v err=%v, want one upgrade and one skipped Danish film", repairs, err)
+	}
+	var open, skipped postgres.AltMountRepair
+	for _, repair := range repairs {
+		switch repair.State {
+		case "open":
+			open = repair
+		case "skipped":
+			skipped = repair
+		}
+	}
+	if open.Reason != postgres.RepairReasonMissingAudio || open.Title != "Kids Movie 1" || open.BrokenReleaseTitle != "Kids.Movie.1.2020.1080p.WEB-GRP" || open.RepairWorkflowID == nil {
+		t.Fatalf("open upgrade=%+v", open)
+	}
+	if skipped.Reason != postgres.RepairReasonMissingAudio || skipped.RepairWorkflowID != nil {
+		t.Fatalf("Danish original must be skipped, got %+v", skipped)
+	}
+	workflow, err := store.GetWorkflow(ctx, *open.RepairWorkflowID)
+	if err != nil || workflow.QualityProfileID != kids.ID || workflow.RootID != root.ID {
+		t.Fatalf("upgrade workflow=%+v err=%v, want the kids profile and root", workflow, err)
+	}
+	if _, err := os.Lstat(filepath.Join(rootDir, "Kids Movie 1 (2020)/Kids Movie 1.mkv")); err != nil {
+		t.Fatalf("the old file must keep playing until the replacement is confirmed: %v", err)
+	}
+
+	later := time.Now().UTC().Add(postgres.AudioUpgradeWindow + time.Hour)
+	closed, err := store.ExpireAudioUpgrades(ctx, later)
+	if err != nil || closed != 1 {
+		t.Fatalf("expired=%d err=%v, want 1", closed, err)
+	}
+	if workflow, err = store.GetWorkflow(ctx, *open.RepairWorkflowID); err != nil || workflow.State != "cancelled" {
+		t.Fatalf("the upgrade's waiting workflow must be cancelled: %+v err=%v", workflow, err)
+	}
+	location, relative := rootDir, "Kids Movie 1 (2020)/Kids Movie 1.mkv"
+	if tracked, err := store.UnmanagedRepairTracked(ctx, location, relative, true, later.Add(time.Hour)); err != nil || !tracked {
+		t.Fatalf("a closed upgrade must wait for its retry time: tracked=%v err=%v", tracked, err)
+	}
+	if tracked, err := store.UnmanagedRepairTracked(ctx, location, relative, true, later.Add(postgres.AudioUpgradeRetry+time.Hour)); err != nil || tracked {
+		t.Fatalf("after the retry time the file is tried again: tracked=%v err=%v", tracked, err)
+	}
+}

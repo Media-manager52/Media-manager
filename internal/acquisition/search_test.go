@@ -70,6 +70,23 @@ func TestRequiredSubtitleEvidenceOutranksUnknownWithoutRejectingUnknown(t *testi
 	}
 }
 
+func TestRequiredAudioHoldsUntaggedReleasesUnlessItIsTheOriginalLanguage(t *testing.T) {
+	t.Parallel()
+	untagged := releases.Observation{ID: uuid.NewV7()}
+	foreign := appendSubtitleRules(nil, subtitles.Policy{RequiredAudio: []string{"da"}}.WithOriginalLanguage("en"))
+	if evaluation, err := releases.Evaluate(untagged, foreign); err != nil || evaluation.Verdict != releases.VerdictHeld {
+		t.Fatalf("a foreign title without Danish-audio evidence must be held: %+v err=%v", evaluation, err)
+	}
+	danish := appendSubtitleRules(nil, subtitles.Policy{RequiredAudio: []string{"da"}}.WithOriginalLanguage("da"))
+	if evaluation, err := releases.Evaluate(untagged, danish); err != nil || evaluation.Verdict != releases.VerdictEligible {
+		t.Fatalf("a Danish title's release carries Danish audio: %+v err=%v", evaluation, err)
+	}
+	english := releases.Observation{ID: uuid.NewV7(), Facts: []releases.Fact{{Name: "audio_languages", Values: []string{"en"}, State: releases.FactObserved}}}
+	if evaluation, err := releases.Evaluate(english, danish); err != nil || evaluation.Verdict != releases.VerdictRejected {
+		t.Fatalf("observed English-only audio must still be rejected: %+v err=%v", evaluation, err)
+	}
+}
+
 func TestUpgradeBaselineRequiresStrictImprovement(t *testing.T) {
 	t.Parallel()
 	indexerID := uuid.NewV7()

@@ -114,3 +114,43 @@ func TestRequiredLanguageAcceptsSubtitleOrAudio(t *testing.T) {
 		}
 	}
 }
+
+// A required audio language needs a dub. Explicit Danish-audio names and a
+// bare DANISH tag (the release's audio language by convention) are acquired;
+// a subtitled or unlabelled release is held instead of downloaded.
+func TestRequiredAudioLanguageNeedsDanishAudioEvidence(t *testing.T) {
+	rules := []Rule{
+		{Name: "Required audio da", Fact: AudioLanguageEvidenceFact, AllowedValues: []string{"da"}, Kind: RuleRequired, Unknown: UnknownHold},
+		{Name: "Prefer explicit audio da", Fact: "audio_languages", AllowedValues: []string{"da"}, Kind: RulePreferred, Weight: 100000, Unknown: UnknownAllow},
+	}
+	now := time.Now()
+	for _, tc := range []struct {
+		title   string
+		facts   []Fact
+		verdict Verdict
+		score   int
+	}{
+		{title: "Bluey.S03E01.DKaudio.1080p.WEB.h264-GRP", verdict: VerdictEligible, score: 100000},
+		{title: "Frost.2.2019.DANISH.1080p.BluRay.x264", verdict: VerdictEligible, score: 0},
+		{title: "Frost.2.2019.DANISH.SUBBED.1080p.BluRay.x264", verdict: VerdictHeld},
+		{title: "Frost.2.2019.1080p.BluRay.DKsubs.x264", verdict: VerdictHeld},
+		{title: "Frost.2.2019.1080p.BluRay.x264", verdict: VerdictHeld},
+		{title: "Frost.2.2019.DANISH.1080p.BluRay.x264", facts: []Fact{{Name: "audio_languages", Values: []string{"en"}, State: FactObserved}}, verdict: VerdictRejected},
+	} {
+		observation := InferTitleFacts(Observation{ID: uuid.NewV7(), Title: tc.title, Facts: tc.facts}, now)
+		evaluation, err := Evaluate(observation, rules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if evaluation.Verdict != tc.verdict || evaluation.Score != tc.score {
+			t.Fatalf("%s: verdict=%s score=%d, want %s %d", tc.title, evaluation.Verdict, evaluation.Score, tc.verdict, tc.score)
+		}
+	}
+	// A bare DANISH tag is never subtitle evidence.
+	observation := InferTitleFacts(Observation{ID: uuid.NewV7(), Title: "Movie.2019.DANISH.1080p.WEB"}, now)
+	for _, fact := range observation.Facts {
+		if fact.Name == "subtitle_languages" || fact.Name == "audio_languages" {
+			t.Fatalf("bare DANISH must only be an audio hint, got %+v", fact)
+		}
+	}
+}

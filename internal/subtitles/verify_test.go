@@ -122,3 +122,42 @@ func TestVerifyAcceptsDanishAudioForRequiredLanguage(t *testing.T) {
 		t.Fatalf("English audio without Danish subtitles must stay unverified: %+v", result)
 	}
 }
+
+// A required audio language is satisfied only by an audio track: Danish
+// subtitles do not make a children's title playable for a child.
+func TestVerifyRequiredAudioIgnoresSubtitles(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	subbed := fixtureAsset(t, root, "Subbed.mkv", "video")
+	dubbed := fixtureAsset(t, root, "Dubbed.mkv", "video-da")
+	subbedEvidence := mediaEvidence(mediainfo.Track{Index: 2, Codec: "subrip", Language: "Danish", CanonicalLanguage: "da"})
+	subbedEvidence.AudioTracks = []mediainfo.Track{{Index: 1, Codec: "ac3", Language: "eng", CanonicalLanguage: "en"}}
+	dubbedEvidence := mediaEvidence()
+	dubbedEvidence.AudioTracks = []mediainfo.Track{{Index: 1, Codec: "ac3", Language: "dan", CanonicalLanguage: "da"}}
+	probe := fixtureProbe{evidence: map[string]mediainfo.Evidence{subbed.RelativePath: subbedEvidence, dubbed.RelativePath: dubbedEvidence}}
+	policy := Policy{RequiredAudio: []string{"da"}}
+	result, err := Verify(context.Background(), root, []Asset{subbed}, []Asset{subbed, dubbed}, policy, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "unverified" || len(result.Videos[0].MissingRequired) != 1 || result.Videos[0].MissingRequired[0] != "audio:da" {
+		t.Fatalf("Danish subtitles must not satisfy required Danish audio: %+v", result)
+	}
+	if result, err = Verify(context.Background(), root, []Asset{dubbed}, []Asset{subbed, dubbed}, policy, probe); err != nil || result.Status != "verified" {
+		t.Fatalf("Danish dub must verify: %+v err=%v", result, err)
+	}
+	untagged := fixtureAsset(t, root, "Untagged.mkv", "video-und")
+	untaggedEvidence := mediaEvidence()
+	untaggedEvidence.AudioTracks = []mediainfo.Track{{Index: 1, Codec: "ac3"}}
+	probe.evidence[untagged.RelativePath] = untaggedEvidence
+	if result, err = Verify(context.Background(), root, []Asset{untagged}, []Asset{untagged}, policy, probe); err != nil || result.Status != "unverified" {
+		t.Fatalf("untagged audio of a foreign title must not count as Danish: %+v err=%v", result, err)
+	}
+	if result, err = Verify(context.Background(), root, []Asset{untagged}, []Asset{untagged}, policy.WithOriginalLanguage("da"), probe); err != nil || result.Status != "verified" {
+		t.Fatalf("untagged audio of a Danish title is its Danish audio: %+v err=%v", result, err)
+	}
+	parsed, err := ParsePolicy([]byte(`{"rules":[],"required_audio_languages":["Danish"]}`))
+	if err != nil || len(parsed.RequiredAudio) != 1 || parsed.RequiredAudio[0] != "da" {
+		t.Fatalf("parsed policy=%+v err=%v", parsed, err)
+	}
+}

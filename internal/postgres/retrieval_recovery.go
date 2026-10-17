@@ -202,12 +202,12 @@ func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval
 			AND NOT EXISTS(SELECT 1 FROM workflow_release_exclusions e WHERE e.workflow_id=c.workflow_id AND e.indexer_instance_id=c.indexer_instance_id AND e.native_key=c.native_key)
 			AND NOT EXISTS(SELECT 1 FROM workflow_release_exclusions e WHERE e.retrieval_round_id=r.id AND e.indexer_instance_id=c.indexer_instance_id AND e.retrieval_error_code IN ('newznab_http_401','newznab_http_403','oldboys_http_401','oldboys_http_403'))`+" AND NOT "+knownSubtitleFailureSQL("c")+`
 			ORDER BY
-			($3 AND EXISTS(SELECT 1 FROM jsonb_array_elements(o.normalized_facts) f WHERE f->>'name'='subtitle_languages' AND f->>'state' IN ('observed','inferred') AND f->'values' @> '["da"]'::jsonb)) DESC,
+			($3 AND EXISTS(SELECT 1 FROM jsonb_array_elements(o.normalized_facts) f WHERE f->>'name' IN ('subtitle_languages','audio_languages','audio_language_hints') AND f->>'state' IN ('observed','inferred') AND f->'values' @> '["da"]'::jsonb)) DESC,
 			($3 AND o.title ~ $4) DESC,
 			(EXISTS(SELECT 1 FROM workflow_release_exclusions e JOIN release_candidates failed ON failed.id=e.candidate_id
 			 WHERE e.workflow_id=c.workflow_id AND e.failure_kind='subtitle_verification' AND lower(failed.title)=lower(c.title))) ASC,
 			(c.first_seen_sequence>r.novelty_cutoff_sequence) DESC,d.score DESC,c.indexer_instance_id,c.native_key
-			LIMIT 1`, retrieval.Workflow.ID.String(), admission.roundID, slices.Contains(policy.Required, "da"), releases.DanishSubtitleHintPattern, now.UTC()).Scan(&next)
+			LIMIT 1`, retrieval.Workflow.ID.String(), admission.roundID, slices.Contains(policy.Required, "da") || slices.Contains(policy.RequiredAudio, "da"), releases.DanishSubtitleHintPattern, now.UTC()).Scan(&next)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
