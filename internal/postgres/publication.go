@@ -971,7 +971,7 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 	if _, err := store.planAdoptedUpgradeDisplacements(ctx, transaction, scan.Workflow.ID, now); err != nil {
 		return err
 	}
-	if _, err := transaction.Exec(ctx, `UPDATE altmount_repairs SET state='repaired',resolved_at=$2,detail='replacement confirmed in Plex; the broken file was retired'
+	if _, err := transaction.Exec(ctx, `UPDATE altmount_repairs SET state='repaired',resolved_at=$2,detail='replacement confirmed in Plex; the old file was retired'
 		WHERE repair_workflow_id=$1 AND state='open' AND broken_link_version_id IS NOT NULL`, scan.Workflow.ID.String(), now.UTC()); err != nil {
 		return err
 	}

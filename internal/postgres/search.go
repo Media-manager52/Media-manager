@@ -439,7 +439,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	if err != nil {
 		return workflows.Workflow{}, err
 	}
-	if slices.Contains(subtitlePolicy.Required, "da") {
+	if slices.Contains(subtitlePolicy.Required, "da") || slices.Contains(subtitlePolicy.RequiredAudio, "da") {
 		ranked = releases.RankForDanishSubtitles(observations, evaluations)
 	}
 	if options.RecoveryRescan {

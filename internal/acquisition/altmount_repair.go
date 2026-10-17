@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/languages"
 	"github.com/media-manager/media-manager/internal/library"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -102,7 +104,7 @@ func (service *AltMountRepairService) HandleSweep(ctx context.Context, event pos
 				}
 			}
 			for _, link := range links[path] {
-				outcome, planErr := service.planUnmanaged(ctx, integration.ID, item.ID, path, link)
+				outcome, planErr := service.planUnmanaged(ctx, integration.ID, item.ID, path, link, nil)
 				if planErr != nil {
 					// One title's Plex or metadata lookup failing must not stop
 					// the sweep; it is retried next sweep.
@@ -128,7 +130,196 @@ func (service *AltMountRepairService) HandleSweep(ctx context.Context, event pos
 		counts[outcome]++
 	}
 	slog.Info("AltMount repair sweep", "integration", integration.Name, "corrupted", len(items), "outcomes", counts)
+	if integration.Default {
+		upgrades, err := service.audioUpgradeSweep(ctx, integration.ID)
+		if err != nil {
+			return err
+		}
+		if len(upgrades) > 0 {
+			slog.Info("Audio upgrade sweep", "outcomes", upgrades)
+		}
+	}
 	return nil
+}
+
+// Audio upgrades are paced: at most maxOpenAudioUpgrades search at a time,
+// each sweep opens at most maxNewAudioUpgrades and identifies at most
+// maxAudioUpgradeLookups older files through Plex and TMDB. Every open
+// workflow searches every indexer, and many titles have no dub at all.
+const (
+	maxOpenAudioUpgrades   = 40
+	maxNewAudioUpgrades    = 10
+	maxAudioUpgradeLookups = 100
+)
+
+// plexAudioLanguage maps a canonical language to the ISO 639-2 code Plex
+// filters audio tracks by.
+var plexAudioLanguage = map[string]string{"da": "dan", "sv": "swe", "no": "nor", "nb": "nob", "en": "eng", "de": "ger", "fi": "fin"}
+
+// audioUpgradeSweep opens upgrades for published files in library roots whose
+// profile requires an audio language (the kids libraries require Danish) but
+// that Plex reports without a track in that language. Movies go first. Only
+// library symlinks into AltMount are upgraded; the old file plays until Plex
+// confirms the replacement. Upgrades that found nothing are closed first so
+// other files get their turn.
+func (service *AltMountRepairService) audioUpgradeSweep(ctx context.Context, altMountID uuid.UUID) (map[string]int, error) {
+	counts := map[string]int{}
+	if service.PlexClientFor == nil {
+		return counts, nil
+	}
+	now := time.Now().UTC()
+	closed, err := service.Store.ExpireAudioUpgrades(ctx, now)
+	if err != nil {
+		return counts, err
+	}
+	if closed > 0 {
+		counts["closed_not_found"] = closed
+	}
+	required, err := service.Store.RequiredAudioByRoot(ctx)
+	if err != nil || len(required) == 0 {
+		return counts, err
+	}
+	open, err := service.Store.OpenAudioUpgrades(ctx)
+	if err != nil {
+		return counts, err
+	}
+	budget := min(maxNewAudioUpgrades, maxOpenAudioUpgrades-open)
+	if budget <= 0 {
+		counts["at_capacity"] = open
+		return counts, nil
+	}
+	lookups := maxAudioUpgradeLookups
+	roots, err := service.Store.ListLibraryRoots(ctx)
+	if err != nil {
+		return counts, err
+	}
+	pairs := rootPathPairs(roots)
+	sort.SliceStable(roots, func(i, j int) bool {
+		return roots[i].MediaKind == catalog.KindMovie && roots[j].MediaKind != catalog.KindMovie
+	})
+	for _, root := range roots {
+		target, ok := required[root.ID]
+		code := plexAudioLanguage[target.Language]
+		if !ok || code == "" || !root.Enabled || root.PlexLibraryID == "" || root.PlexInstanceID == nil || !filepath.IsAbs(root.SourceVisibleRoot) {
+			continue
+		}
+		integration, err := service.Store.Integration(ctx, *root.PlexInstanceID)
+		if err != nil {
+			return counts, err
+		}
+		client, err := service.PlexClientFor(integration)
+		if err != nil {
+			return counts, err
+		}
+		locations, err := sectionLocations(ctx, client, root, pairs)
+		if err != nil {
+			return counts, err
+		}
+		items, err := client.ItemsWithoutAudioLanguage(ctx, root.PlexLibraryID, root.MediaKind == catalog.KindSeries, code)
+		if err != nil {
+			return counts, err
+		}
+		upgrade := postgres.AudioUpgrade{Language: target.Language, ProfileID: target.ProfileID}
+		sourcePrefix := filepath.Clean(root.SourceVisibleRoot) + string(filepath.Separator)
+		for _, item := range items {
+			for _, media := range item.Media {
+				for _, part := range media.Parts {
+					if budget <= 0 {
+						return counts, nil
+					}
+					link, ok := locateLibraryFile(locations, root, part.File)
+					if !ok {
+						counts["outside_library_folders"]++
+						continue
+					}
+					linkTarget, readErr := os.Readlink(filepath.Join(link.Location, link.Relative))
+					if readErr != nil || !strings.HasPrefix(linkTarget, sourcePrefix) {
+						// Only AltMount symlinks are replaced; a real file is never removed.
+						counts["not_altmount_symlink"]++
+						continue
+					}
+					link.Target = linkTarget
+					path := strings.TrimPrefix(linkTarget, sourcePrefix)
+					outcome, planErr := service.Store.PlanAudioUpgrade(ctx, altMountID, path, upgrade, now)
+					if errors.Is(planErr, postgres.ErrConcurrentModification) {
+						counts["retry_next_sweep"]++
+						continue
+					}
+					if planErr != nil {
+						return counts, planErr
+					}
+					if outcome == postgres.RepairUnmanaged {
+						tracked, trackErr := service.Store.UnmanagedRepairTracked(ctx, link.Location, link.Relative, true, now)
+						if trackErr != nil {
+							return counts, trackErr
+						}
+						if tracked {
+							counts["unmanaged_"+postgres.RepairAlreadyOpen]++
+							continue
+						}
+						if lookups <= 0 {
+							counts["unmanaged_next_sweep"]++
+							continue
+						}
+						lookups--
+						outcome, planErr = service.planUnmanaged(ctx, altMountID, 0, path, link, &target)
+						if planErr != nil {
+							slog.Warn("Audio upgrade of an unmanaged file failed", "file", path, "error", planErr)
+							counts["unmanaged_retry"]++
+							continue
+						}
+						outcome = "unmanaged_" + outcome
+					}
+					counts[outcome]++
+					if strings.HasSuffix(outcome, postgres.RepairOpened) || strings.HasSuffix(outcome, postgres.RepairAttached) {
+						budget--
+					}
+				}
+			}
+		}
+	}
+	return counts, nil
+}
+
+// sectionLocations maps every folder of a root's Plex library (as Plex sees
+// it) to the same folder in this container.
+func sectionLocations(ctx context.Context, client *plex.Client, root postgres.LibraryRoot, pairs []pathPair) (map[string]string, error) {
+	locations := map[string]string{filepath.Clean(root.PlexVisibleRoot): filepath.Clean(root.DestinationRoot)}
+	sections, err := client.Sections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, section := range sections {
+		if section.Key != root.PlexLibraryID {
+			continue
+		}
+		for _, location := range section.Locations {
+			if container, ok := translatePlexPath(pairs, location.Path); ok {
+				locations[filepath.Clean(location.Path)] = container
+			}
+		}
+	}
+	return locations, nil
+}
+
+// locateLibraryFile finds the library folder holding a file Plex reports and
+// returns the file as a library link (without its target).
+func locateLibraryFile(locations map[string]string, root postgres.LibraryRoot, plexFile string) (unmanagedLink, bool) {
+	plexFile = filepath.Clean(plexFile)
+	best := ""
+	for plexLocation := range locations {
+		if strings.HasPrefix(plexFile, strings.TrimSuffix(plexLocation, "/")+"/") && len(plexLocation) > len(best) {
+			best = plexLocation
+		}
+	}
+	if best == "" {
+		return unmanagedLink{}, false
+	}
+	relative, err := filepath.Rel(best, plexFile)
+	if err != nil || relative == "." || strings.HasPrefix(relative, "..") {
+		return unmanagedLink{}, false
+	}
+	return unmanagedLink{Root: root, Location: locations[best], PlexLocation: best, Relative: relative}, true
 }
 
 func (service *AltMountRepairService) listCorrupted(ctx context.Context, integration postgres.Integration) ([]altmount.HealthItem, error) {
@@ -275,9 +466,11 @@ func releaseTitleFromPath(path string) string {
 }
 
 // planUnmanaged identifies one broken unmanaged symlink through Plex and opens
-// a repair for it, or records why it cannot be repaired automatically.
-func (service *AltMountRepairService) planUnmanaged(ctx context.Context, altMountID uuid.UUID, healthID int64, path string, link unmanagedLink) (string, error) {
-	tracked, err := service.Store.UnmanagedRepairTracked(ctx, link.Location, link.Relative)
+// a repair for it, or records why it cannot be repaired automatically. With
+// audio set, the file is not broken but lacks the audio language its library
+// requires, and the repair is an upgrade to a dubbed release.
+func (service *AltMountRepairService) planUnmanaged(ctx context.Context, altMountID uuid.UUID, healthID int64, path string, link unmanagedLink, audio *postgres.AudioUpgradeRoot) (string, error) {
+	tracked, err := service.Store.UnmanagedRepairTracked(ctx, link.Location, link.Relative, audio != nil, time.Now().UTC())
 	if err != nil {
 		return "", err
 	}
@@ -285,6 +478,9 @@ func (service *AltMountRepairService) planUnmanaged(ctx context.Context, altMoun
 		return postgres.RepairAlreadyOpen, nil
 	}
 	repair := postgres.UnmanagedRepair{AltMountID: altMountID, HealthID: healthID, FilePath: path, RootID: link.Root.ID, Location: link.Location, PlexLocation: link.PlexLocation, Relative: link.Relative, Target: link.Target, Kind: link.Root.MediaKind, ReleaseTitle: releaseTitleFromPath(path)}
+	if audio != nil {
+		repair.AudioLanguage = audio.Language
+	}
 	attention := func(detail string) (string, error) {
 		if err := service.Store.RecordUnmanagedRepairAttention(ctx, repair, detail, time.Now().UTC()); err != nil {
 			return "", err
@@ -403,6 +599,18 @@ func (service *AltMountRepairService) planUnmanaged(ctx context.Context, altMoun
 		repair.NewMedia = &item
 	} else {
 		repair.MediaID = mediaID
+	}
+	if audio != nil {
+		if canonical, _ := languages.Canonical(language); canonical == audio.Language {
+			// A title made in the required language: its own audio is that
+			// language even when the track is untagged.
+			if err := service.Store.RecordUnmanagedRepairSkipped(ctx, repair, "the title's original language is "+audio.Language+"; its own audio needs no upgrade", time.Now().UTC()); err != nil {
+				return "", err
+			}
+			return postgres.RepairNotNeeded, nil
+		}
+		repair.ProfileID = audio.ProfileID
+		return service.Store.PlanUnmanagedRepair(ctx, repair, time.Now().UTC())
 	}
 	if repair.ProfileID, err = service.Store.ResolveRepairProfile(ctx, repair.Kind, link.Root.ID, language); err != nil {
 		return "", err

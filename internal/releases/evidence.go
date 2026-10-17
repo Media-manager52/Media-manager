@@ -146,6 +146,9 @@ func Evaluate(observation Observation, rules []Rule) (Evaluation, error) {
 	if combined, ok := subtitleOrAudioLanguages(facts); ok {
 		facts[SubtitleOrAudioLanguagesFact] = combined
 	}
+	if evidence, ok := audioLanguageEvidence(facts); ok {
+		facts[AudioLanguageEvidenceFact] = evidence
+	}
 	result := Evaluation{ObservationID: observation.ID, Verdict: VerdictEligible}
 	for _, rule := range rules {
 		unknown := rule.Unknown
@@ -259,11 +262,30 @@ func verdictOrder(verdict Verdict) int {
 const SubtitleOrAudioLanguagesFact = "subtitle_or_audio_languages"
 
 func subtitleOrAudioLanguages(facts map[string]Fact) (Fact, bool) {
-	combined := Fact{Name: SubtitleOrAudioLanguagesFact, State: FactInferred}
+	return unionFacts(SubtitleOrAudioLanguagesFact, facts, "subtitle_languages", "audio_languages")
+}
+
+// AudioLanguageEvidenceFact is derived from explicit audio_languages and the
+// weaker audio_language_hints (a bare DANISH tag). Profiles that require an
+// audio language evaluate it.
+const AudioLanguageEvidenceFact = "audio_language_evidence"
+
+// audioLanguageEvidence prefers audio languages a provider observed; only
+// without them do title-inferred languages and hints count.
+func audioLanguageEvidence(facts map[string]Fact) (Fact, bool) {
+	if observed, exists := facts["audio_languages"]; exists && observed.State == FactObserved && len(observed.Values) > 0 {
+		observed.Name = AudioLanguageEvidenceFact
+		return observed, true
+	}
+	return unionFacts(AudioLanguageEvidenceFact, facts, "audio_languages", "audio_language_hints")
+}
+
+func unionFacts(name string, facts map[string]Fact, sources ...string) (Fact, bool) {
+	combined := Fact{Name: name, State: FactInferred}
 	known := false
 	seen := map[string]bool{}
-	for _, name := range []string{"subtitle_languages", "audio_languages"} {
-		fact, exists := facts[name]
+	for _, source := range sources {
+		fact, exists := facts[source]
 		if !exists || (fact.State != FactObserved && fact.State != FactInferred) || len(fact.Values) == 0 {
 			continue
 		}

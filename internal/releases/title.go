@@ -31,7 +31,12 @@ var (
 	danishSubs      = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:da|dan|danish|dansk|dk)[ ._\-]?(?:subs?|subtitles?|undertekst(?:er)?)(?:$|[ ._\-])`)
 	// Explicit Danish-audio markers only (DKaudio, DANISH.DUB, Dansk.Tale). A
 	// bare DANISH can describe the origin or a subtitle set and stays unknown.
-	danishAudio = regexp.MustCompile(`(?i)(?:^|[ ._\-\[(])(?:da|dan|danish|dansk|dk)[ ._\-]?(?:audio|dub(?:bed)?|tale|lyd)(?:$|[ ._\-\])])`)
+	// A bare DANISH/DANSK token conventionally names the audio language of a
+	// release. It is only a hint: it counts for profiles that require Danish
+	// audio, never as subtitle evidence.
+	danishLanguageToken = regexp.MustCompile(`(?i)(?:^|[ ._\-\[(])(?:danish|dansk)(?:$|[ ._\-\])])`)
+	subtitledToken      = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:subbed|subs?|subtitled|subtitles?)(?:$|[ ._\-])`)
+	danishAudio         = regexp.MustCompile(`(?i)(?:^|[ ._\-\[(])(?:da|dan|danish|dansk|dk)[ ._\-]?(?:audio|dub(?:bed)?|tale|lyd)(?:$|[ ._\-\])])`)
 )
 
 // CanonicalResolution normalizes only explicit, reliable release resolution
@@ -185,6 +190,8 @@ func InferTitleFacts(observation Observation, observedAt time.Time) Observation 
 	}
 	if danishAudio.MatchString(observation.Title) {
 		inferred = append(inferred, Fact{Name: "audio_languages", Values: []string{"da"}, State: FactInferred, ObservedAt: observedAt.UTC()})
+	} else if danishLanguageToken.MatchString(observation.Title) && !danishSubs.MatchString(observation.Title) && !subtitledToken.MatchString(observation.Title) {
+		inferred = append(inferred, Fact{Name: "audio_language_hints", Values: []string{"da"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	}
 	if strings.Contains(lower, "dolby vision") || strings.Contains(lower, "dovi") || strings.Contains(lower, " dv ") {
 		inferred = append(inferred, Fact{Name: "dynamic_range", Values: []string{"dolby_vision"}, State: FactInferred, ObservedAt: observedAt.UTC()})

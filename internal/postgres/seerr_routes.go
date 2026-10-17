@@ -376,15 +376,16 @@ func selectAutoRouteRoot(ctx context.Context, transaction pgx.Tx, kind catalog.M
 }
 
 // selectNoRequiredSubtitleProfile returns the enabled profile for a kind that
-// does not require any subtitle language, preferring one routed for Danish
-// originals. It returns an empty string when no such profile exists.
+// does not require any subtitle language, preferring one that requires Danish
+// audio (the kids profile), then one routed for Danish originals. It returns
+// an empty string when no such profile exists.
 func selectNoRequiredSubtitleProfile(ctx context.Context, transaction pgx.Tx, kind catalog.MediaKind) (string, error) {
 	rows, err := transaction.Query(ctx, `SELECT id::text,policy FROM quality_profiles WHERE media_kind=$1 AND enabled ORDER BY is_default DESC,name,id`, kind)
 	if err != nil {
 		return "", err
 	}
 	defer rows.Close()
-	fallback := ""
+	fallback, danishOriginal := "", ""
 	for rows.Next() {
 		var idText string
 		var policy json.RawMessage
@@ -392,8 +393,9 @@ func selectNoRequiredSubtitleProfile(ctx context.Context, transaction pgx.Tx, ki
 			return "", err
 		}
 		var routing struct {
-			Required  []string `json:"required_subtitle_languages"`
-			Languages []string `json:"original_language_routing"`
+			Required      []string `json:"required_subtitle_languages"`
+			Languages     []string `json:"original_language_routing"`
+			RequiredAudio []string `json:"required_audio_languages"`
 		}
 		if err := json.Unmarshal(policy, &routing); err != nil {
 			return "", errors.New("quality profile policy is invalid")
@@ -401,9 +403,15 @@ func selectNoRequiredSubtitleProfile(ctx context.Context, transaction pgx.Tx, ki
 		if len(routing.Required) != 0 {
 			continue
 		}
-		for _, value := range routing.Languages {
+		// A profile requiring Danish audio (a dub) is the kids profile.
+		for _, value := range routing.RequiredAudio {
 			if canonical, reliable := languages.Canonical(value); reliable && canonical == "da" {
 				return idText, nil
+			}
+		}
+		for _, value := range routing.Languages {
+			if canonical, reliable := languages.Canonical(value); reliable && canonical == "da" && danishOriginal == "" {
+				danishOriginal = idText
 			}
 		}
 		if fallback == "" {
@@ -412,6 +420,9 @@ func selectNoRequiredSubtitleProfile(ctx context.Context, transaction pgx.Tx, ki
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
+	}
+	if danishOriginal != "" {
+		return danishOriginal, nil
 	}
 	return fallback, nil
 }

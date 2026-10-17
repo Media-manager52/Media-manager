@@ -11,6 +11,22 @@ import (
 type Policy struct {
 	Required  []string `json:"required_subtitle_languages"`
 	Preferred []string `json:"preferred_subtitle_languages"`
+	// RequiredAudio languages must be present as an audio track (a dub);
+	// subtitles do not satisfy them. Children's libraries require Danish audio.
+	RequiredAudio []string `json:"required_audio_languages"`
+	// OriginalLanguage is the title's original language, filled in from the
+	// catalogue when the policy is applied (never stored in a profile). A
+	// required audio language equal to it is the release's own audio: a
+	// Danish film needs no "DANISH" tag, and its untagged audio track counts
+	// as Danish.
+	OriginalLanguage string `json:"-"`
+}
+
+// WithOriginalLanguage returns the policy applied to a title with the given
+// original language.
+func (policy Policy) WithOriginalLanguage(language string) Policy {
+	policy.OriginalLanguage, _ = languages.Canonical(language)
+	return policy
 }
 
 // CanonicalLanguage returns only language values that are reliable enough to
@@ -24,8 +40,9 @@ func ParsePolicy(body json.RawMessage) (Policy, error) {
 		return Policy{}, errors.New("quality profile policy is invalid")
 	}
 	var wrapper struct {
-		Required  []string `json:"required_subtitle_languages"`
-		Preferred []string `json:"preferred_subtitle_languages"`
+		Required      []string `json:"required_subtitle_languages"`
+		Preferred     []string `json:"preferred_subtitle_languages"`
+		RequiredAudio []string `json:"required_audio_languages"`
 	}
 	if len(body) > 0 && body[0] == '[' {
 		return Policy{}, nil
@@ -41,7 +58,11 @@ func ParsePolicy(body json.RawMessage) (Policy, error) {
 	if err != nil {
 		return Policy{}, err
 	}
-	return Policy{Required: required, Preferred: preferred}, nil
+	requiredAudio, err := canonicalLanguages(wrapper.RequiredAudio)
+	if err != nil {
+		return Policy{}, err
+	}
+	return Policy{Required: required, Preferred: preferred, RequiredAudio: requiredAudio}, nil
 }
 
 // CanonicalizePolicy preserves the release-rule document while ensuring that
@@ -61,6 +82,8 @@ func CanonicalizePolicy(body json.RawMessage) (json.RawMessage, Policy, error) {
 	preferred, _ := json.Marshal(policy.Preferred)
 	document["required_subtitle_languages"] = required
 	document["preferred_subtitle_languages"] = preferred
+	requiredAudio, _ := json.Marshal(policy.RequiredAudio)
+	document["required_audio_languages"] = requiredAudio
 	canonical, err := json.Marshal(document)
 	if err != nil {
 		return nil, Policy{}, err

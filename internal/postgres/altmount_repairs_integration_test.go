@@ -321,3 +321,86 @@ func TestUnmanagedRepairQueuesBrokenSymlinkRemovalOnConfirmation(t *testing.T) {
 		t.Fatalf("removal=%+v err=%v", removal, err)
 	}
 }
+
+// TestAudioUpgradeReplacesPublishedMovieUnderLibraryProfile proves an audio
+// upgrade of a movie Media Manager published: the new workflow acquires under
+// the library's Danish-audio profile (not the profile the old file came
+// from), the old release is excluded, and a Danish-made film needs none.
+func TestAudioUpgradeReplacesPublishedMovieUnderLibraryProfile(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	item, movieWorkflow := fixture.movieWorkflow(t, "Upgrade Movie", "770004")
+	job, inventoryID, _ := fixture.seedVerifiedMovieOutput(t, movieWorkflow, 1, "upgrade-movie")
+	source := filepath.Join(fixture.localRoot, "completed", "upgrade-movie", "Movie.mkv")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("english audio"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	publicationContext, err := fixture.store.LoadPublicationContext(fixture.ctx, movieWorkflow, job.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanID, _, _, destination := fixture.publishMoviePlans(t, movieWorkflow, job.JobID, publicationContext)
+	scan, err := fixture.store.LoadPlexScan(fixture.ctx, scanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.MarkPlexRefreshRequested(fixture.ctx, scan, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if scan, err = fixture.store.LoadPlexScan(fixture.ctx, scanID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.ConfirmPlexScan(fixture.ctx, scan, []plexadapter.Confirmation{{RatingKey: "upgrade-movie-1", Path: filepath.Join(fixture.plexVisibleRoot, destination), ProviderGUID: "tmdb://770004"}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var root string
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT root_relative FROM altmount_output_inventories WHERE id=$1`, inventoryID.String()).Scan(&root); err != nil {
+		t.Fatal(err)
+	}
+	kidsPolicy := []byte(`{"rules":[{"name":"Resolution","fact":"resolution","allowed_values":["1080p"],"kind":"preferred","weight":1}],"required_audio_languages":["da"]}`)
+	kids, err := fixture.store.CreateQualityProfile(fixture.ctx, QualityProfile{MediaKind: catalog.KindMovie, Name: "Movie Kids Danish Audio", PolicyVersion: 1, Policy: kidsPolicy, UpgradesEnabled: true, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgrade := AudioUpgrade{Language: "da", ProfileID: kids.ID}
+	now := time.Now().UTC()
+
+	if _, err := fixture.store.Pool.Exec(fixture.ctx, `INSERT INTO media_metadata(media_id,data,created_at,updated_at) VALUES($1,'{"original_language":"da"}',$2,$2) ON CONFLICT(media_id) DO UPDATE SET data=media_metadata.data||'{"original_language":"da"}'`, item.ID.String(), now); err != nil {
+		t.Fatal(err)
+	}
+	if outcome, err := fixture.store.PlanAudioUpgrade(fixture.ctx, fixture.altMount.ID, root+"/Movie.mkv", upgrade, now); err != nil || outcome != RepairNotNeeded {
+		t.Fatalf("Danish film outcome=%q err=%v, want not_needed", outcome, err)
+	}
+	if _, err := fixture.store.Pool.Exec(fixture.ctx, `UPDATE media_metadata SET data=data||'{"original_language":"en"}' WHERE media_id=$1`, item.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := fixture.store.PlanAudioUpgrade(fixture.ctx, fixture.altMount.ID, root+"/Movie.mkv", upgrade, now)
+	if err != nil || outcome != RepairOpened {
+		t.Fatalf("upgrade outcome=%q err=%v, want opened", outcome, err)
+	}
+	var upgradeWorkflow, profile, reason string
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT workflow.id::text,workflow.quality_profile_id::text,repair.reason FROM altmount_repairs repair JOIN workflows workflow ON workflow.id=repair.repair_workflow_id WHERE repair.media_id=$1 AND repair.state='open'`, item.ID.String()).Scan(&upgradeWorkflow, &profile, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if profile != kids.ID.String() || reason != RepairReasonMissingAudio {
+		t.Fatalf("upgrade profile=%s reason=%s, want the kids profile and missing_required_audio", profile, reason)
+	}
+	if search, err := fixture.store.LoadSearchContext(fixture.ctx, uuid.MustParse(upgradeWorkflow)); err != nil || len(search.RepairBrokenTitles) != 1 {
+		t.Fatalf("the old release must be excluded: titles=%v err=%v", search.RepairBrokenTitles, err)
+	}
+	if again, err := fixture.store.PlanAudioUpgrade(fixture.ctx, fixture.altMount.ID, root+"/Movie.mkv", upgrade, now); err != nil || again != RepairAlreadyOpen {
+		t.Fatalf("second sweep=%q err=%v, want already_open", again, err)
+	}
+	later := now.Add(AudioUpgradeWindow + time.Hour)
+	if closed, err := fixture.store.ExpireAudioUpgrades(fixture.ctx, later); err != nil || closed != 1 {
+		t.Fatalf("expired=%d err=%v, want 1", closed, err)
+	}
+	if retried, err := fixture.store.PlanAudioUpgrade(fixture.ctx, fixture.altMount.ID, root+"/Movie.mkv", upgrade, later); err != nil || retried != RepairRecentlyTried {
+		t.Fatalf("retry before retry_after=%q err=%v, want recently_tried", retried, err)
+	}
+	if retried, err := fixture.store.PlanAudioUpgrade(fixture.ctx, fixture.altMount.ID, root+"/Movie.mkv", upgrade, later.Add(AudioUpgradeRetry+time.Hour)); err != nil || retried != RepairOpened {
+		t.Fatalf("retry after retry_after=%q err=%v, want opened", retried, err)
+	}
+}
