@@ -1,0 +1,182 @@
+From 91ed7d76c26efebf1d37bdf4437bca6a56f9134c Mon Sep 17 00:00:00 2001
+From: Media Manager Steward <media-manager@localhost>
+Date: Sat, 17 Oct 2026 16:25:22 +0200
+Subject: [PATCH] fix(fuse): fail only the request when a FUSE operation panics
+
+go-fuse serves each request on its own goroutine without recovery, so a
+panic in any read path killed the whole process and the mount disappeared
+for every consumer (2026-10-06). Read-side operations (lookup, readdir,
+getattr, statfs, open, read, release) now recover, log the panic with its
+stack, and return EIO for that one request; the mount stays up.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ internal/fuse/backend/hanwen/dir.go         | 12 ++++++++----
+ internal/fuse/backend/hanwen/file.go        |  9 ++++++---
+ internal/fuse/backend/hanwen/handle.go      |  6 ++++--
+ internal/fuse/backend/hanwen/handle_test.go | 20 ++++++++++++++++++++
+ internal/fuse/backend/hanwen/utils.go       | 14 ++++++++++++++
+ 5 files changed, 52 insertions(+), 9 deletions(-)
+
+diff --git a/internal/fuse/backend/hanwen/dir.go b/internal/fuse/backend/hanwen/dir.go
+index 0415ec2..ac762d6 100644
+--- a/internal/fuse/backend/hanwen/dir.go
++++ b/internal/fuse/backend/hanwen/dir.go
+@@ -67,7 +67,8 @@ func NewDir(
+ func (d *Dir) OnAdd(ctx context.Context) {}
+ 
+ // Getattr implements fs.NodeGetattrer.
+-func (d *Dir) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
++func (d *Dir) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) (errno syscall.Errno) {
++	defer recoverErrno(d.logger, "getattr", d.path, &errno)
+ 	if d.isRootDir {
+ 		out.Mode = 0755 | syscall.S_IFDIR
+ 		out.Uid = d.uid
+@@ -95,7 +96,8 @@ func (d *Dir) Setattr(ctx context.Context, f fs.FileHandle, in *fuse.SetAttrIn,
+ }
+ 
+ // Statfs implements fs.NodeStatfser.
+-func (d *Dir) Statfs(ctx context.Context, out *fuse.StatfsOut) syscall.Errno {
++func (d *Dir) Statfs(ctx context.Context, out *fuse.StatfsOut) (errno syscall.Errno) {
++	defer recoverErrno(d.logger, "statfs", d.path, &errno)
+ 	const totalSize = 1024 * 1024 * 1024 * 1024 * 1024 // 1PB
+ 	const blockSize = 4096
+ 
+@@ -144,7 +146,8 @@ func (d *Dir) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.Ent
+ }
+ 
+ // Lookup implements fs.NodeLookuper.
+-func (d *Dir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
++func (d *Dir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (_ *fs.Inode, errno syscall.Errno) {
++	defer recoverErrno(d.logger, "lookup", d.path, &errno)
+ 	fullPath := filepath.Join(d.path, name)
+ 
+ 	info, err := d.nzbfs.Stat(ctx, fullPath)
+@@ -228,7 +231,8 @@ func (d *Dir) Rmdir(ctx context.Context, name string) syscall.Errno {
+ }
+ 
+ // Readdir implements fs.NodeReaddirer.
+-func (d *Dir) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
++func (d *Dir) Readdir(ctx context.Context) (_ fs.DirStream, errno syscall.Errno) {
++	defer recoverErrno(d.logger, "readdir", d.path, &errno)
+ 	f, err := d.nzbfs.Open(ctx, d.path)
+ 	if err != nil {
+ 		d.logger.ErrorContext(ctx, "Readdir open failed", "path", d.path, "error", err)
+diff --git a/internal/fuse/backend/hanwen/file.go b/internal/fuse/backend/hanwen/file.go
+index a476299..0d5b684 100644
+--- a/internal/fuse/backend/hanwen/file.go
++++ b/internal/fuse/backend/hanwen/file.go
+@@ -41,7 +41,8 @@ type File struct {
+ }
+ 
+ // Getattr implements fs.NodeGetattrer.
+-func (f *File) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
++func (f *File) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) (errno syscall.Errno) {
++	defer recoverErrno(f.logger, "getattr", f.path, &errno)
+ 	info, err := f.nzbfs.Stat(ctx, f.path)
+ 	if err != nil {
+ 		if !os.IsNotExist(err) {
+@@ -61,7 +62,8 @@ func (f *File) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse.SetAttrIn
+ }
+ 
+ // Open implements fs.NodeOpener.
+-func (f *File) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
++func (f *File) Open(ctx context.Context, flags uint32) (_ fs.FileHandle, _ uint32, errno syscall.Errno) {
++	defer recoverErrno(f.logger, "open", f.path, &errno)
+ 	if flags&syscall.O_ACCMODE != syscall.O_RDONLY {
+ 		return nil, 0, syscall.EACCES
+ 	}
+@@ -113,7 +115,8 @@ func (f *File) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, s
+ }
+ 
+ // Read implements fs.NodeReader.
+-func (f *File) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
++func (f *File) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (_ fuse.ReadResult, errno syscall.Errno) {
++	defer recoverErrno(f.logger, "read", f.path, &errno)
+ 	handle := fh.(*Handle)
+ 	return handle.Read(ctx, dest, off)
+ }
+diff --git a/internal/fuse/backend/hanwen/handle.go b/internal/fuse/backend/hanwen/handle.go
+index b428ab4..f9728b4 100644
+--- a/internal/fuse/backend/hanwen/handle.go
++++ b/internal/fuse/backend/hanwen/handle.go
+@@ -59,7 +59,8 @@ func NewHandle(
+ 
+ // Read handles a FUSE read request using offset-native ReadAtContext.
+ // No per-handle lock needed: ReadAtContext serializes internally via mvf.mu.
+-func (h *Handle) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
++func (h *Handle) Read(ctx context.Context, dest []byte, off int64) (_ fuse.ReadResult, errno syscall.Errno) {
++	defer recoverErrno(h.logger, "read", h.path, &errno)
+ 	if h.closed.Load() {
+ 		return nil, syscall.EIO
+ 	}
+@@ -109,7 +110,8 @@ func (h *Handle) Fsync(ctx context.Context, flags uint32) syscall.Errno {
+ }
+ 
+ // Release closes the file. It is idempotent.
+-func (h *Handle) Release(ctx context.Context) syscall.Errno {
++func (h *Handle) Release(ctx context.Context) (errno syscall.Errno) {
++	defer recoverErrno(h.logger, "release", h.path, &errno)
+ 	if !h.closed.CompareAndSwap(false, true) {
+ 		return 0
+ 	}
+diff --git a/internal/fuse/backend/hanwen/handle_test.go b/internal/fuse/backend/hanwen/handle_test.go
+index db6bc69..ea15e4d 100644
+--- a/internal/fuse/backend/hanwen/handle_test.go
++++ b/internal/fuse/backend/hanwen/handle_test.go
+@@ -304,3 +304,23 @@ func TestHandle_Release_Idempotent(t *testing.T) {
+ 
+ 	mockFile.AssertNumberOfCalls(t, "Close", 1)
+ }
++
++// A bug that panics inside one read must fail only that request with EIO. On
++// 2026-10-06 an unrecovered nil dereference in a read path killed the process
++// and the mount went away for every consumer.
++func TestHandleReadPanicFailsOnlyThatRequest(t *testing.T) {
++	file := new(MockFile)
++	file.On("ReadAtContext", mock.Anything, mock.Anything, int64(0)).Run(func(mock.Arguments) {
++		var reader *struct{ closed bool }
++		reader.closed = true // nil dereference, like the crash
++	}).Return(0, nil)
++	file.On("ReadAtContext", mock.Anything, mock.Anything, int64(4096)).Return(4, nil)
++
++	h := NewHandle(file, slog.New(slog.NewTextHandler(io.Discard, nil)), "movies/x.mkv", nil, nil, nil)
++	_, errno := h.Read(context.Background(), make([]byte, 4096), 0)
++	assert.Equal(t, syscall.EIO, errno)
++
++	result, errno := h.Read(context.Background(), make([]byte, 4096), 4096)
++	require.Equal(t, syscall.Errno(0), errno)
++	assert.Equal(t, 4, result.Size())
++}
+diff --git a/internal/fuse/backend/hanwen/utils.go b/internal/fuse/backend/hanwen/utils.go
+index 2d0fa5f..ca32f3f 100644
+--- a/internal/fuse/backend/hanwen/utils.go
++++ b/internal/fuse/backend/hanwen/utils.go
+@@ -8,6 +8,7 @@ import (
+ 	"hash/fnv"
+ 	"log/slog"
+ 	"os"
++	"runtime/debug"
+ 	"sync"
+ 	"syscall"
+ 
+@@ -103,3 +104,16 @@ func fillAttr(info os.FileInfo, out *fuse.Attr, uid, gid uint32, noModTime bool)
+ 		out.Nlink = 1
+ 	}
+ }
++
++// recoverErrno turns a panic inside one FUSE operation into EIO for that
++// request. go-fuse serves each request on its own goroutine without recovery,
++// so an unrecovered panic in any read path would kill the process and take the
++// mount away from every consumer (it did on 2026-10-06). Deferred by every
++// read-side operation; the panic and stack are logged so the bug stays visible.
++func recoverErrno(logger *slog.Logger, op, path string, errno *syscall.Errno) {
++	if recovered := recover(); recovered != nil {
++		logger.Error("FUSE operation panicked; failing only this request",
++			"op", op, "path", path, "panic", recovered, "stack", string(debug.Stack()))
++		*errno = syscall.EIO
++	}
++}
+-- 
+2.47.3
+

@@ -1,9 +1,9 @@
 # Deployed AltMount source patches (2026-09-30, 2026-10-06, 2026-10-17)
 
-This bundle preserves the seven companion fixes deployed with Media Manager.
+This bundle preserves the eight companion fixes deployed with Media Manager.
 They apply to [kipsilabs/altmount](https://github.com/kipsilabs/altmount) at
 `630cad9a845e88018dc521554d8e2f3bd86bc436`. The deployed source is
-`7d4d25d`, built as `altmount-local:7d4d25d` (previous builds
+`91ed7d7`, built as `altmount-local:91ed7d7` (previous builds
 `altmount-local:73b7e0e`, patches 1–5, and `altmount-local:321b3ba`, patches 1–3). These patches are maintained here for reproducibility;
 they are not represented as merged upstream.
 
@@ -17,6 +17,7 @@ they are not represented as merged upstream.
 
 | [6](0006-fix-aes-make-Close-safe-while-a-Read-is-creating-or-.patch) | `6784d3a` | Guard the AES decrypt reader's source and closed state with a mutex that is never held across a blocking read. `readFullContext` force-closes readers from another goroutine on a FUSE read timeout; the unsynchronized field could be seen torn and `(*UsenetReader).Close` ran on a nil receiver, crashing the FUSE server on 2026-10-06. A source finishing initialization after Close is closed, not leaked. Both regression tests fail under `-race` before the change. |
 | [7](0007-feat-fuse-optional-read-only-kernel-mount-fuse.read_.patch) | `7d4d25d` | Optional `fuse.read_only`: mount the FUSE filesystem read-only at the kernel level, so every view of it, including binds that follow a remount through `rslave` propagation, refuses writes, deletes and renames. Deployed with `read_only: true`. |
+| [8](0008-fix-fuse-fail-only-the-request-when-a-FUSE-operation.patch) | `91ed7d7` | Read-side FUSE operations (lookup, readdir, getattr, statfs, open, read, release) recover a panic, log it with its stack and return EIO for that one request. go-fuse runs each request on its own goroutine without recovery, so any unknown bug in a read path used to kill the process and take the mount away from every consumer. The regression test crashes the test binary before the change. |
 
 Patches 4 and 5 recovered 47 of 49 releases that had failed as truncated or
 incomplete on 2026-10-06; the other two are real NNTP 430 gaps.
@@ -24,10 +25,10 @@ incomplete on 2026-10-06; the other two are real NNTP 430 gaps.
 Each source milestone passed the AltMount backend race suite and vet before
 deployment (on 2026-10-06 one unrelated, pre-existing `nzbfilesystem`
 migration test failed once under full-suite load and passed on three reruns).
-Patches 6 and 7 passed AltMount's full backend race suite (64 packages) and vet.
-Archival verification applies all seven patches to the pinned base
+Patches 6–8 passed AltMount's full backend race suite (64 packages) and vet.
+Archival verification applies all eight patches to the pinned base
 and compares the resulting complete Git tree with the deployed source tree:
-`9d6d4ea02eddce1a0fef13b29656c31a63765816` (patches 1–5 give `6bba6f7033b757ca822b010d063e25f09cd7c4dc`;
+`7363b18bb9d6d887e8bf58d1820f71de7f1c0b23` (patches 1–7 give `9d6d4ea02eddce1a0fef13b29656c31a63765816`; patches 1–5 give `6bba6f7033b757ca822b010d063e25f09cd7c4dc`;
 patches 1–3 alone give `e3eda74c645d8689a902b19ed20adb66c5768fdd`).
 Commit identities after `git am` may differ because committer timestamps differ;
 the tree identity verifies the source content.
@@ -36,7 +37,7 @@ the tree identity verifies the source content.
 
 Verify the [patch checksums](SHA256SUMS) from this directory with
 `sha256sum -c SHA256SUMS`. Clone AltMount separately, check out the pinned base,
-then apply the seven patches in order:
+then apply the eight patches in order:
 
 ```sh
 git checkout --detach 630cad9a845e88018dc521554d8e2f3bd86bc436
