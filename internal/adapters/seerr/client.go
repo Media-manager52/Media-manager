@@ -120,7 +120,15 @@ type Metadata struct {
 	OriginCountry       []string    `json:"originCountry"`
 	Networks            []Network   `json:"networks"`
 	ExternalIDs         ExternalIDs `json:"externalIds"`
+	// Seasons lists the seasons TMDB knows for a series. Seerr answers HTTP
+	// 500 for a season outside this list.
+	Seasons []SeasonSummary `json:"seasons"`
 }
+
+type SeasonSummary struct {
+	SeasonNumber int `json:"seasonNumber"`
+}
+
 type EpisodeMetadata struct {
 	ID            int64  `json:"id"`
 	EpisodeNumber int16  `json:"episodeNumber"`

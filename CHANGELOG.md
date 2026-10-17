@@ -8,6 +8,8 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ### Changed
 
+- A Seerr request for a season TMDB does not list (for example a newer season only TheTVDB knows) no longer fails its intake forever. Seerr answers HTTP 500 for such a season; intake now skips the lookup, and an actionable season without an episode list is reported as needing attention, naming the season. Request 368 had retried 3,500 times since 2026-10-07.
+
 - A required language (for example Danish) is now satisfied by a subtitle **or an audio track** in that language: a Danish dub needs no Danish subtitles. Output inspection checks audio-track languages next to subtitles, release selection treats explicit Danish-audio names (`DKaudio`, `DANISH.DUB`, `Dansk.Tale`) as positive evidence, and an already published dub is not treated as missing the language when looking for upgrades. A bare `DANISH` tag stays unknown, as before.
 
 - Moving a title to another library (`POST /api/v1/workflows/{id}/relocate-links`) now moves its published subtitle sidecars too (only "verified" ones moved before, so relocated titles lost their Danish subtitles in Plex), keeps the scheduled search of a waiting workflow (relocation bumps the revision and the pending search used to be dropped as stale), and also accepts open workflows that have nothing published yet, so the waiting episodes of a moved series publish into the new library. New `PATCH /api/v1/settings/library-roots/{id}` makes a root the default for its media kind or disables a root that nothing uses any more.

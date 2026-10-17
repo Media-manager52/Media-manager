@@ -117,17 +117,8 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		intake.Identities = enriched.Identities
 		intake.PosterURL = enriched.Metadata.PosterURL
 		if intake.Kind == catalog.KindSeries {
-			for seasonIndex := range intake.Seasons {
-				details, detailsErr := service.Client.SeasonMetadata(ctx, *request.Media.TMDBID, intake.Seasons[seasonIndex].Number)
-				if detailsErr != nil {
-					return detailsErr
-				}
-				for _, episode := range details.Episodes {
-					if episode.EpisodeNumber <= 0 {
-						continue
-					}
-					intake.Seasons[seasonIndex].Episodes = append(intake.Seasons[seasonIndex].Episodes, postgres.SeerrEpisode{Number: episode.EpisodeNumber, ProviderID: "tmdb:" + strconv.FormatInt(episode.ID, 10), Title: episode.Name, AirDate: episode.AirDate})
-				}
+			if err := fillSeasonEpisodes(ctx, service.Client, *request.Media.TMDBID, metadata, intake.Seasons); err != nil {
+				return err
 			}
 		}
 	}
@@ -189,10 +180,14 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		if len(intake.Seasons) == 0 {
 			return service.Store.MarkSeerrDelivery(ctx, deliveryID, "already_available", "all requested seasons are available")
 		}
+		missing := []string{}
 		for _, season := range intake.Seasons {
 			if len(season.Episodes) == 0 {
-				return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "an actionable season has no exact episode snapshot")
+				missing = append(missing, strconv.Itoa(int(season.Number)))
 			}
+		}
+		if len(missing) > 0 {
+			return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_attention", "an actionable season has no exact episode snapshot (season "+strings.Join(missing, ", ")+" is not in Seerr/TMDB)")
 		}
 	}
 	if intake.Title == "" || intake.Year == nil || !hasPublicationIdentity(intake.Kind, intake.Identities) {
@@ -299,4 +294,46 @@ func seerrRequestDisposition(status int) seerrRequestAction {
 		return seerrRequestCompleted
 	}
 	return seerrRequestWithdrawn
+}
+
+type seasonMetadataSource interface {
+	SeasonMetadata(ctx context.Context, tmdbID int64, season int16) (seerradapter.SeasonMetadata, error)
+}
+
+// fillSeasonEpisodes loads the exact episode snapshot of each requested season.
+// A season TMDB does not list (for example a newer season only TheTVDB has)
+// gets no snapshot instead of a lookup that Seerr answers with HTTP 500 on
+// every retry; an actionable season without a snapshot is then reported as
+// needing attention instead of failing the whole request forever.
+func fillSeasonEpisodes(ctx context.Context, source seasonMetadataSource, tmdbID int64, metadata seerradapter.Metadata, seasons []postgres.SeerrSeason) error {
+	known := knownSeasons(metadata)
+	for index := range seasons {
+		if known != nil && !known[int(seasons[index].Number)] {
+			continue
+		}
+		details, err := source.SeasonMetadata(ctx, tmdbID, seasons[index].Number)
+		if err != nil {
+			return err
+		}
+		for _, episode := range details.Episodes {
+			if episode.EpisodeNumber <= 0 {
+				continue
+			}
+			seasons[index].Episodes = append(seasons[index].Episodes, postgres.SeerrEpisode{Number: episode.EpisodeNumber, ProviderID: "tmdb:" + strconv.FormatInt(episode.ID, 10), Title: episode.Name, AirDate: episode.AirDate})
+		}
+	}
+	return nil
+}
+
+// knownSeasons returns the season numbers TMDB lists for a series, or nil when
+// Seerr sent no season list (then every requested season is looked up).
+func knownSeasons(metadata seerradapter.Metadata) map[int]bool {
+	if len(metadata.Seasons) == 0 {
+		return nil
+	}
+	known := make(map[int]bool, len(metadata.Seasons))
+	for _, season := range metadata.Seasons {
+		known[season.SeasonNumber] = true
+	}
+	return known
 }
