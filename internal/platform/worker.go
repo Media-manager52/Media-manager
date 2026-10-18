@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -20,6 +21,75 @@ type Worker struct {
 	Handlers     map[string]Handler
 	PollInterval time.Duration
 	Lease        time.Duration
+	// Limits caps how long one event type's handler may run (default
+	// DefaultHandlerLimit). AbandonGrace is how long a cancelled handler gets
+	// to return before it is abandoned (default HandlerAbandonGrace).
+	Limits       map[string]time.Duration
+	AbandonGrace time.Duration
+}
+
+// The worker handles one event at a time, so a handler that never returns
+// stops every search, publication, repair and Seerr update behind it. On
+// 2026-10-17 a read blocked inside the AltMount FUSE mount, which no context
+// can interrupt, stalled the worker for two hours. A handler that exceeds its
+// limit is cancelled; one that still does not return within the grace period
+// is abandoned: its event is retried later and the worker moves on.
+const (
+	DefaultHandlerLimit = 30 * time.Minute
+	HandlerAbandonGrace = 30 * time.Second
+	stuckHandlerRetry   = 10 * time.Minute
+)
+
+type handlerStuckError struct {
+	limit time.Duration
+	until time.Time
+}
+
+func (err handlerStuckError) Error() string {
+	return fmt.Sprintf("handler did not return within %s and was abandoned", err.limit)
+}
+func (err handlerStuckError) SafeCode() string   { return "handler_stuck" }
+func (err handlerStuckError) RetryAt() time.Time { return err.until }
+
+type handlerPanicError struct{}
+
+func (handlerPanicError) Error() string    { return "handler panicked" }
+func (handlerPanicError) SafeCode() string { return "handler_panicked" }
+
+// runHandler runs one handler under its time limit. A panic becomes an error
+// (the event is retried) instead of stopping the process.
+func runHandler(ctx context.Context, cancel context.CancelFunc, handler Handler, event postgres.OutboxEvent, limit, grace time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.Error("outbox handler panicked", "event_type", event.Type, "event_id", event.ID, "panic", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+				done <- handlerPanicError{}
+			}
+		}()
+		done <- handler(ctx, event)
+	}()
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	cancel()
+	abandon := time.NewTimer(grace)
+	defer abandon.Stop()
+	select {
+	case err := <-done:
+		if err == nil {
+			err = ctx.Err()
+		}
+		return err
+	case <-abandon.C:
+		slog.Error("outbox handler did not return; abandoned so the worker continues", "event_type", event.Type, "event_id", event.ID, "limit", limit.String())
+		return handlerStuckError{limit: limit, until: time.Now().Add(stuckHandlerRetry)}
+	}
 }
 
 func (worker *Worker) Run(ctx context.Context) error {
@@ -87,7 +157,15 @@ func (worker *Worker) runBatch(ctx context.Context) error {
 				}
 			}
 		}()
-		handlerErr := handler(handlerCtx, event)
+		limit := worker.Limits[event.Type]
+		if limit <= 0 {
+			limit = DefaultHandlerLimit
+		}
+		grace := worker.AbandonGrace
+		if grace <= 0 {
+			grace = HandlerAbandonGrace
+		}
+		handlerErr := runHandler(handlerCtx, cancelHandler, handler, event, limit, grace)
 		close(stopHeartbeat)
 		heartbeatErr := <-heartbeatDone
 		cancelHandler()

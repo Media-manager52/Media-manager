@@ -138,6 +138,16 @@ func TestMountOutageDefersInsteadOfFailing(t *testing.T) {
 		t.Fatalf("healthy mount: mountOutage = %v, want nil", err)
 	}
 
+	// A file that does not answer reads (a blocked FUSE read) defers too, with
+	// its own code; any other inspection failure is not deferred.
+	unresponsive := healthy.inspectionDeferral("/mnt/altmount", fmt.Errorf("probe: %w", mediainfo.ErrSourceUnresponsive))
+	if !errors.As(unresponsive, &deferred) || deferred.SafeCode() != "altmount_output_unresponsive" || deferred.RetryAt().Before(time.Now().Add(5*time.Minute)) {
+		t.Fatalf("inspectionDeferral = %#v, want an altmount_output_unresponsive deferral", unresponsive)
+	}
+	if err := healthy.inspectionDeferral("/mnt/altmount", mediainfo.ErrNoVideoTrack); err != nil {
+		t.Fatalf("a real inspection failure must not be deferred: %v", err)
+	}
+
 	// The default check treats a bare, empty mount point as unavailable.
 	if err := (&AltMountReconcileService{}).mountOutage(t.TempDir()); !errors.Is(err, altmount.ErrMountUnavailable) {
 		t.Fatalf("empty root: mountOutage = %v, want ErrMountUnavailable", err)

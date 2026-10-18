@@ -1,10 +1,13 @@
 package platform
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/media-manager/media-manager/internal/postgres"
 )
 
 type codedTestError struct {
@@ -41,5 +44,48 @@ func TestNextRetryAtHonorsADeferredPacingDeadline(t *testing.T) {
 	}
 	if got := nextRetryAt(errors.New("ordinary"), 1, now); got != now.Add(2*time.Second) {
 		t.Fatalf("ordinary retry=%v", got)
+	}
+}
+
+func TestRunHandlerAbandonsAHandlerThatNeverReturns(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	blocked := make(chan struct{})
+	defer close(blocked)
+	// Like a read blocked inside a FUSE mount: ignores its context.
+	stuck := func(context.Context, postgres.OutboxEvent) error { <-blocked; return nil }
+	started := time.Now()
+	err := runHandler(ctx, cancel, stuck, postgres.OutboxEvent{Type: "altmount.reconcile_requested"}, 20*time.Millisecond, 20*time.Millisecond)
+	var stuckErr handlerStuckError
+	if !errors.As(err, &stuckErr) || safeError(err) != "handler_stuck" || time.Since(started) > 5*time.Second {
+		t.Fatalf("err=%v, want an abandoned handler", err)
+	}
+	if retry := nextRetryAt(err, 1, time.Now()); retry.Before(time.Now().Add(stuckHandlerRetry - time.Minute)) {
+		t.Fatalf("a stuck handler must not be retried immediately: %v", retry)
+	}
+}
+
+func TestRunHandlerCancelsASlowHandlerThatHonorsItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	slow := func(handlerCtx context.Context, _ postgres.OutboxEvent) error {
+		<-handlerCtx.Done()
+		return handlerCtx.Err()
+	}
+	if err := runHandler(ctx, cancel, slow, postgres.OutboxEvent{}, 20*time.Millisecond, time.Second); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v, want the cancellation", err)
+	}
+}
+
+func TestRunHandlerTurnsAPanicIntoARetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	panicking := func(context.Context, postgres.OutboxEvent) error { panic("nil map") }
+	if err := runHandler(ctx, cancel, panicking, postgres.OutboxEvent{}, time.Second, time.Second); safeError(err) != "handler_panicked" {
+		t.Fatalf("err=%v, want handler_panicked", err)
+	}
+	ok := func(context.Context, postgres.OutboxEvent) error { return nil }
+	if err := runHandler(ctx, cancel, ok, postgres.OutboxEvent{}, time.Second, time.Second); err != nil {
+		t.Fatalf("err=%v", err)
 	}
 }
