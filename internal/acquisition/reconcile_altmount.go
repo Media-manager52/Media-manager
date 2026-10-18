@@ -39,6 +39,7 @@ const (
 	altMountSubmissionVisibilityWindow = 30 * time.Minute
 	altMountCompletedOutputGrace       = 5 * time.Minute
 	altMountMountRetryInterval         = time.Minute
+	altMountUnresponsiveRetryInterval  = 10 * time.Minute
 )
 
 // altMountMountUnavailableError defers an AltMount event while the shared
@@ -47,11 +48,18 @@ const (
 type altMountMountUnavailableError struct {
 	until time.Time
 	cause error
+	// code overrides the safe code, for example for one unresponsive file.
+	code string
 }
 
-func (err altMountMountUnavailableError) Error() string      { return err.cause.Error() }
-func (err altMountMountUnavailableError) Unwrap() error      { return err.cause }
-func (err altMountMountUnavailableError) SafeCode() string   { return "altmount_mount_unavailable" }
+func (err altMountMountUnavailableError) Error() string { return err.cause.Error() }
+func (err altMountMountUnavailableError) Unwrap() error { return err.cause }
+func (err altMountMountUnavailableError) SafeCode() string {
+	if err.code != "" {
+		return err.code
+	}
+	return "altmount_mount_unavailable"
+}
 func (err altMountMountUnavailableError) RetryAt() time.Time { return err.until.UTC() }
 
 // mountOutage returns a deferral when the read-only root itself cannot be
@@ -64,6 +72,20 @@ func (service *AltMountReconcileService) mountOutage(root string) error {
 	}
 	if err := check(root); err != nil {
 		return altMountMountUnavailableError{until: time.Now().Add(altMountMountRetryInterval), cause: err}
+	}
+	return nil
+}
+
+// inspectionDeferral returns a deferral when an output inspection failed for a
+// reason that says nothing about the release: the mount is down, or a file did
+// not answer reads in time (a FUSE read can block indefinitely). The same
+// event retries later; nothing is excluded and no attention is raised.
+func (service *AltMountReconcileService) inspectionDeferral(root string, inspectionErr error) error {
+	if outage := service.mountOutage(root); outage != nil {
+		return outage
+	}
+	if errors.Is(inspectionErr, mediainfo.ErrSourceUnresponsive) {
+		return altMountMountUnavailableError{until: time.Now().Add(altMountUnresponsiveRetryInterval), cause: inspectionErr, code: "altmount_output_unresponsive"}
 	}
 	return nil
 }
@@ -219,8 +241,8 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, inventory.LocalRelative)
 		verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe, rootErr)
 		if inspectionErr != nil {
-			if outage := service.mountOutage(config.LocalReadOnlyRoot); outage != nil {
-				return outage
+			if deferral := service.inspectionDeferral(config.LocalReadOnlyRoot, inspectionErr); deferral != nil {
+				return deferral
 			}
 			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) || errors.Is(inspectionErr, mediainfo.ErrEncryptedVideo) {
 				return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureNoPlayableMedia, inspectionErr.Error(), time.Now().UTC())
@@ -291,8 +313,8 @@ func (service *AltMountReconcileService) HandleRetainedOutputReverification(ctx 
 	authorizedRoot, rootErr := authorizedOutputRoot(config.LocalReadOnlyRoot, retained.RootRelative)
 	verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, retained.Policy, service.MediaInfoProbe, rootErr)
 	if inspectionErr != nil {
-		if outage := service.mountOutage(config.LocalReadOnlyRoot); outage != nil {
-			return outage
+		if deferral := service.inspectionDeferral(config.LocalReadOnlyRoot, inspectionErr); deferral != nil {
+			return deferral
 		}
 		return inspectionErr
 	}

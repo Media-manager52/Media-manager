@@ -254,7 +254,9 @@ func run() error {
 		statusService := &intake.SeerrStatusService{Client: seerrClient, Store: store, InstanceID: seerrInstance}
 		handlers["seerr.status_sync_requested"] = statusService.Handle
 	}
-	worker := &platform.Worker{Store: store, Owner: workerOwner(), Handlers: handlers}
+	// A backup dumps and restores the database into an isolated copy, which
+	// can take far longer than any other handler.
+	worker := &platform.Worker{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: map[string]time.Duration{"backup.create_requested": 3 * time.Hour}}
 	go func() {
 		if workerErr := worker.Run(workerContext); workerErr != nil && !errors.Is(workerErr, context.Canceled) {
 			slog.Error("outbox worker stopped", "error", workerErr)

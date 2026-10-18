@@ -42,6 +42,12 @@ var ErrEncryptedVideo = errors.New("media-info video has an unsupported encrypte
 // articles that no provider has, so the release itself is incomplete.
 var ErrZeroFilledOutput = errors.New("media file starts with zero-filled bytes; the release is missing its opening articles")
 
+// ErrSourceUnresponsive reports a media file that did not answer opening or
+// reading within the probe timeout, for example a read blocked inside the
+// AltMount FUSE mount. It says nothing about the release: the inspection is
+// retried later and nothing is excluded.
+var ErrSourceUnresponsive = errors.New("media file did not respond in time")
+
 const zeroFillProbeBytes = 64 << 10
 
 type Evidence struct {
@@ -105,24 +111,79 @@ func (probe *Probe) InspectWithin(ctx context.Context, rootPath, relative string
 	if err != nil || clean != relative {
 		return Evidence{}, errors.New("media-info relative path is unsafe")
 	}
-	root, err := os.OpenRoot(rootPath)
+	opened, err := probe.openWithin(ctx, rootPath, clean)
 	if err != nil {
-		return Evidence{}, errors.New("media-info root is unavailable")
+		return Evidence{}, err
 	}
-	defer root.Close()
-	info, err := root.Lstat(clean)
-	if err != nil || !info.Mode().IsRegular() {
-		return Evidence{}, errors.New("media-info source is not a regular file")
-	}
-	file, err := root.Open(clean)
-	if err != nil {
-		return Evidence{}, errors.New("media-info source is unavailable")
-	}
-	defer file.Close()
-	if zeroFilled(file) {
+	defer opened.close()
+	if opened.zeroFilled {
 		return Evidence{}, ErrZeroFilledOutput
 	}
-	return probe.inspect(ctx, "/proc/self/fd/3", []*os.File{file})
+	return probe.inspect(ctx, "/proc/self/fd/3", []*os.File{opened.file})
+}
+
+type openedSource struct {
+	root       *os.Root
+	file       *os.File
+	zeroFilled bool
+	err        error
+}
+
+func (opened openedSource) close() {
+	if opened.file != nil {
+		opened.file.Close()
+	}
+	if opened.root != nil {
+		opened.root.Close()
+	}
+}
+
+// openWithin opens and samples the media file in this process, bounded by
+// the probe timeout. A FUSE call that never answers cannot be interrupted, so
+// it is left to finish on its own (and its file closed then) while the caller
+// gets ErrSourceUnresponsive instead of waiting forever.
+func (probe *Probe) openWithin(ctx context.Context, rootPath, relative string) (openedSource, error) {
+	timeout := probe.Timeout
+	if timeout <= 0 || timeout > 2*time.Minute {
+		timeout = defaultTimeout
+	}
+	result := make(chan openedSource, 1)
+	go func() {
+		var opened openedSource
+		defer func() { result <- opened }()
+		root, err := os.OpenRoot(rootPath)
+		if err != nil {
+			opened.err = errors.New("media-info root is unavailable")
+			return
+		}
+		opened.root = root
+		info, err := root.Lstat(relative)
+		if err != nil || !info.Mode().IsRegular() {
+			opened.err = errors.New("media-info source is not a regular file")
+			return
+		}
+		file, err := root.Open(relative)
+		if err != nil {
+			opened.err = errors.New("media-info source is unavailable")
+			return
+		}
+		opened.file = file
+		opened.zeroFilled = zeroFilled(file)
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case opened := <-result:
+		if opened.err != nil {
+			opened.close()
+			return openedSource{}, opened.err
+		}
+		return opened, nil
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	go func() { (<-result).close() }()
+	return openedSource{}, ErrSourceUnresponsive
 }
 
 func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.File) (Evidence, error) {
@@ -146,6 +207,8 @@ func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.F
 		"-of", "json", path,
 	)
 	command.ExtraFiles = extraFiles
+	// Do not wait on ffprobe's output pipes forever once it was killed.
+	command.WaitDelay = 5 * time.Second
 	command.Env = []string{"PATH=" + os.Getenv("PATH"), "LANG=C", "LC_ALL=C"}
 	stdout := &boundedBuffer{limit: maxOutput}
 	stderr := &boundedBuffer{limit: 16 << 10}
