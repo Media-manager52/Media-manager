@@ -10,6 +10,8 @@ export type APIMetadataCredit = { name: string; role: string; character?: string
 export type APIMetadataEvent = { type: string; date: string; season_number?: number; episode_number?: number; country?: string; network?: string; confidence?: number; date_conflict: boolean; sources: string[] }
 export type APIMediaMetadata = { original_title?: string; overview?: string; tagline?: string; original_language?: string; format?: string; status?: string; release_date?: string; end_date?: string; certification?: string; runtime_minutes?: number; season_count?: number; episode_count?: number; poster_url?: string; backdrop_url?: string; genres: string[]; keywords?: string[]; countries: string[]; networks: APIMetadataNetwork[]; companies?: APIMetadataCompany[]; credits?: APIMetadataCredit[]; aliases: APIMetadataAlias[]; sources: APIMetadataSource[]; ratings: APIMetadataRating[]; events: APIMetadataEvent[]; observed_at: string }
 export type APIMedia = { id: string; kind: "movie" | "series"; title: string; year?: number; identities: APIIdentity[]; metadata?: APIMediaMetadata }
+export type APISearchRunIndexer = { indexer_id: string; indexer_name: string; indexer_kind: string; state: string; detail?: string; retry_at?: string; completed_at?: string }
+export type APISearchRun = { id: string; mode: string; state: string; started_at: string; completed_at?: string; new_candidates: number; indexers: APISearchRunIndexer[] }
 export type APIWorkflow = {
   access_rejected_candidate_id?: string; access_rejected_release_title?: string; access_rejected_indexer_name?: string
   id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number
@@ -123,6 +125,7 @@ export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]
 }
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []
+export const loadWorkflowSearches = async (id: string, signal?: AbortSignal) => await requestJSON<APISearchRun[] | null>(`/api/v1/workflows/${encodeURIComponent(id)}/searches?limit=10`, { signal }) ?? []
 export const loadIntegrations = async (signal?: AbortSignal) => await requestJSON<APIIntegration[] | null>("/api/v1/settings/integrations", { signal }) ?? []
 export const loadLibraryRoots = async (signal?: AbortSignal) => await requestJSON<APILibraryRoot[] | null>("/api/v1/settings/library-roots", { signal }) ?? []
 export const loadQualityProfiles = async (signal?: AbortSignal) => await requestJSON<APIQualityProfile[] | null>("/api/v1/settings/quality-profiles", { signal }) ?? []

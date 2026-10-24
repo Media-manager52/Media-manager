@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { OldBoysCredentialsForm } from "@/components/media-manager/oldboys-credentials-form"
+import { SearchEvidencePanel } from "@/components/media-manager/search-evidence"
 import {
   approveProwlarrImport,
   approveAdoptionBatch,
@@ -450,6 +451,7 @@ export function LiveMediaDetailScreen({ mediaId }: { mediaId: string }) {
           <div className="mt-3 rounded-lg border border-line bg-surface px-3 py-2 text-[11.5px] leading-[17px] text-fg-subtle">{pipeline.complete ? "Plex confirmed the exact managed path and provider identity." : "Required properties count as met only after the real output is inspected and Plex confirms it."}</div>
         </Panel>}
         <WorkflowTable workflows={detail?.workflows ?? []} empty="No workflows for this media." />
+        {latestWorkflow ? <SearchEvidencePanel workflowID={latestWorkflow.id} variant={latestWorkflow.variant} /> : null}
         <Panel flush title="Managed files" subtitle="Plex-safe AltMount symlinks and reviewed adopted real files with persisted provenance."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Destination</TableHead><TableHead>Origin</TableHead><TableHead>Scope</TableHead><TableHead>Quality evidence</TableHead><TableHead>Plex</TableHead></TableRow></TableHeader><TableBody>{(detail?.files ?? []).map((file) => <TableRow key={file.id}><TableCell><Link href={`/files/${file.id}`} className="font-mono text-[11.5px] text-fg hover:text-info">{file.destination_relative}</Link></TableCell><TableCell>{file.origin === "adoption" ? "Adopted real file" : `AltMount generation ${file.generation}`}</TableCell><TableCell>{file.variant}</TableCell><TableCell><StateBadge state={file.quality_evidence_state} /></TableCell><TableCell>{file.plex_confirmed ? <StatusChip tone="good">Confirmed</StatusChip> : <StatusChip>Not confirmed</StatusChip>}</TableCell></TableRow>)}</TableBody></Table></div>{detail?.files.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">No managed files exist for this item.</div> : null}</Panel>
       </div>
       <div className="min-w-0 space-y-4">
