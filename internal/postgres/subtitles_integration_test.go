@@ -890,7 +890,7 @@ func TestDeferredOutboxWorkDoesNotConsumeAnAttempt(t *testing.T) {
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'test',$2,1,'test.deferred','{}',now(),now())`, eventID.String(), aggregateID.String()); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute)
+	claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute, false)
 	if err != nil || len(claimed) != 1 || claimed[0].ID != eventID || claimed[0].Attempts != 1 {
 		t.Fatalf("foreground work was not claimed before older recovery discovery: claimed=%+v err=%v", claimed, err)
 	}

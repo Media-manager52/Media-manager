@@ -158,3 +158,12 @@ when one exists, `retry_access_rejected_release`.
   credentials or webhook secrets.
 - Report outcomes truthfully. "Queued" is not "in Plex"; the workflow state
   `plex_confirmed` is.
+
+## Queue fairness
+
+Lifecycle work (publication, Plex confirmation, Seerr reconciliation and other
+non-search events) retains priority. After each claimed indexer event, the worker
+alternates preference between acquisition searches and evidence-only discovery
+rescans. Deferred attempts also consume a turn, so provider pacing cannot starve
+the other class. Each class remains oldest-first; due times, leases, provider
+budgets and sequential execution are unchanged.

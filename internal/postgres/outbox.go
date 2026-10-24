@@ -24,29 +24,29 @@ type OutboxEvent struct {
 	LastError         string
 }
 
-func (store *Store) ClaimOutbox(ctx context.Context, owner string, limit int, lease time.Duration) ([]OutboxEvent, error) {
+func (store *Store) ClaimOutbox(ctx context.Context, owner string, limit int, lease time.Duration, preferDiscovery bool) ([]OutboxEvent, error) {
 	if limit < 1 || limit > 100 {
 		limit = 10
 	}
 	if lease <= 0 {
 		lease = time.Minute
 	}
-	// Due lifecycle work (AltMount reconciliation, publication, Plex scans and
-	// confirmations, Seerr, recycle, ...) is claimed before indexer searches,
-	// and evidence-only discovery rescans come last. A paced search can hold
-	// the worker for a long time and deferred searches keep their original
-	// occurred_at, so plain oldest-first ordering let a search backlog delay
-	// time-bounded Plex confirmations. This changes order only: one event is
-	// still handled at a time, and handlers already tolerate any delivery order.
+	// Lifecycle work always precedes indexer work. The worker alternates the
+	// preferred indexer class after each claim, including deferred attempts,
+	// so a steady search backlog cannot starve evidence-only discovery (or
+	// vice versa). Selection still respects due times, leases and row locks.
 	rows, err := store.Pool.Query(ctx, `WITH picked AS (
   SELECT id FROM outbox_events
   WHERE completed_at IS NULL AND available_at <= now() AND (lease_until IS NULL OR lease_until < now())
-  ORDER BY CASE event_type WHEN 'workflow.discovery_rescan_requested' THEN 2 WHEN 'workflow.search_requested' THEN 1 ELSE 0 END,occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1
+  ORDER BY CASE event_type
+    WHEN 'workflow.discovery_rescan_requested' THEN CASE WHEN $4 THEN 1 ELSE 2 END
+    WHEN 'workflow.search_requested' THEN CASE WHEN $4 THEN 2 ELSE 1 END
+    ELSE 0 END,occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1
 )
 UPDATE outbox_events AS event
 SET lease_owner=$2,lease_until=now()+($3 * interval '1 second'),attempts=attempts+1
 FROM picked WHERE event.id=picked.id
-RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at,COALESCE(event.last_error,'')`, limit, owner, lease.Seconds())
+RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at,COALESCE(event.last_error,'')`, limit, owner, lease.Seconds(), preferDiscovery)
 	if err != nil {
 		return nil, err
 	}

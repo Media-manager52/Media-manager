@@ -24,8 +24,9 @@ type Worker struct {
 	// Limits caps how long one event type's handler may run (default
 	// DefaultHandlerLimit). AbandonGrace is how long a cancelled handler gets
 	// to return before it is abandoned (default HandlerAbandonGrace).
-	Limits       map[string]time.Duration
-	AbandonGrace time.Duration
+	Limits          map[string]time.Duration
+	AbandonGrace    time.Duration
+	preferDiscovery bool
 }
 
 // The worker handles one event at a time, so a handler that never returns
@@ -117,11 +118,19 @@ func (worker *Worker) Run(ctx context.Context) error {
 }
 
 func (worker *Worker) runBatch(ctx context.Context) error {
-	events, err := worker.Store.ClaimOutbox(ctx, worker.Owner, 1, worker.Lease)
+	events, err := worker.Store.ClaimOutbox(ctx, worker.Owner, 1, worker.Lease, worker.preferDiscovery)
 	if err != nil {
 		return err
 	}
 	for _, event := range events {
+		// Rotate on claim rather than completion: pacing and budget deferrals
+		// must not monopolize the next indexer turn.
+		switch event.Type {
+		case "workflow.search_requested":
+			worker.preferDiscovery = true
+		case "workflow.discovery_rescan_requested":
+			worker.preferDiscovery = false
+		}
 		handler := worker.Handlers[event.Type]
 		if handler == nil {
 			_ = worker.Store.FailOutbox(ctx, event.ID, worker.Owner, "no handler registered", time.Now().Add(30*time.Minute))
