@@ -85,11 +85,11 @@ func (store *Store) LoadAltMountJob(ctx context.Context, jobID uuid.UUID) (AltMo
 	if err != nil {
 		return AltMountJobContext{}, err
 	}
-	if result.ReleaseObservation.ParseVersion == "oldboys-v1" {
-		result.Media.Metadata, err = store.metadata(ctx, result.Media.ID)
-		if err != nil {
-			return AltMountJobContext{}, err
-		}
+	// Runtime and original-language metadata drive output checks for every
+	// release, not only OldBoys. A missing row is not an error.
+	result.Media.Metadata, err = store.metadata(ctx, result.Media.ID)
+	if err != nil {
+		return AltMountJobContext{}, err
 	}
 	result.Client, err = store.Integration(ctx, result.Workflow.DownloadClientID)
 	if err != nil {

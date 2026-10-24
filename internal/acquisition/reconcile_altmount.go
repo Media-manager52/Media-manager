@@ -252,6 +252,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			}
 			return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", inspectionErr.Error(), time.Now().UTC())
 		}
+		if detail, tooShort := outputTooShortDetail(job, verification); tooShort {
+			return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureReleaseIncomplete, detail, time.Now().UTC())
+		}
 		recorded, recordErr := service.Store.RecordSubtitleVerification(ctx, job, inventoryID, verification, time.Now().UTC())
 		if recordErr != nil {
 			return recordErr
