@@ -237,10 +237,13 @@ All mutation routes below require `requireOwnerMutation`.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/v1/system/health` | DB/schema/outbox/component status; no synthetic success. |
+| GET | `/api/v1/problems` | Grouped owner-actionable problems derived from persisted state. |
+| GET | `/api/v1/problems/support` | Redacted plain-text support bundle. |
 | GET | `/api/v1/system/tasks` | Per-event-type outbox aggregates + recurring schedules. |
 | GET | `/api/v1/system/info` | Version, `started_at` (API process start), auth boundaries, provider states, contracts. |
 | GET/POST | `/api/v1/backups` | Backup overview / queue encrypted backup. |
-| GET | `/api/v1/backups/{id}/download` | Checksum-matching encrypted download only. |
+| GET | `/api/v1/backups/{id}/download` | Checksum-matching encrypted download; falls back to a verified off-site copy when the local file is unavailable. |
+| POST | `/api/v1/backups/{id}/offsite` | Queue a retry of the off-site copy for a verified backup. |
 
 ### Radarr/Sonarr-compatible API (Seerr *arr replacement)
 

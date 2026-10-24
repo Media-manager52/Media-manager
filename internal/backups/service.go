@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,8 @@ type Service struct {
 	Directory     string
 	ResolveSecret SecretResolver
 	Runner        CommandRunner
+	Offsite       OffsiteStore
+	OffsitePrefix string
 }
 
 type execRunner struct{}
@@ -66,7 +69,78 @@ func (service *Service) Handle(ctx context.Context, event postgres.OutboxEvent) 
 		_ = service.Store.FailBackup(ctx, record.ID, safeFailure(err), time.Now().UTC())
 		return err
 	}
-	return service.Store.CompleteBackup(ctx, record.ID, filename, size, checksum, schemaVersion, time.Now().UTC())
+	if err := service.Store.CompleteBackup(ctx, record.ID, filename, size, checksum, schemaVersion, time.Now().UTC()); err != nil {
+		return err
+	}
+	// A failed off-site copy must not invalidate the verified local backup.
+	// The owner can queue a retry; the failure is recorded on the backup.
+	if service.Offsite != nil {
+		if err := service.UploadOffsite(ctx, record.ID); err != nil {
+			slog.Warn("off-site backup copy failed", "backup", record.ID, "error", err)
+		}
+	}
+	return nil
+}
+
+// HandleOffsite retries an off-site copy for a verified backup.
+func (service *Service) HandleOffsite(ctx context.Context, event postgres.OutboxEvent) error {
+	return service.UploadOffsite(ctx, event.AggregateID)
+}
+
+// UploadOffsite copies the already-encrypted, restore-verified backup artifact
+// to the configured destination. It never re-encrypts or reads plaintext.
+func (service *Service) UploadOffsite(ctx context.Context, id uuid.UUID) error {
+	if service.Offsite == nil {
+		return ErrOffsiteNotConfigured
+	}
+	record, err := service.Store.Backup(ctx, id)
+	if err != nil {
+		return err
+	}
+	if record.State != "verified" || record.Filename == "" || record.SizeBytes == nil || record.SHA256 == "" {
+		return errors.New("off-site copy requires a verified backup")
+	}
+	if filepath.Base(record.Filename) != record.Filename || !strings.HasSuffix(record.Filename, ".mmbackup") {
+		return errors.New("verified backup filename is invalid")
+	}
+	directory, err := service.safeDirectory()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(directory, record.Filename)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("verified backup file is unavailable")
+	}
+	digest, size, err := FileDigest(path)
+	if err != nil {
+		return err
+	}
+	if digest != record.SHA256 || size != *record.SizeBytes {
+		return errors.New("verified backup file no longer matches its record")
+	}
+	key, err := OffsiteKey(service.OffsitePrefix, record.Filename)
+	if err != nil {
+		return err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if err := service.Offsite.Put(ctx, key, file, size, digest); err != nil {
+		_ = service.Store.SetBackupOffsite(ctx, id, "failed", "", safeOffsiteError(err), time.Now().UTC())
+		return err
+	}
+	return service.Store.SetBackupOffsite(ctx, id, "uploaded", key, "", time.Now().UTC())
+}
+
+func safeOffsiteError(err error) string {
+	value := strings.TrimSpace(err.Error())
+	if len(value) > 200 {
+		value = value[:200]
+	}
+	return value
 }
 
 func (service *Service) createAndVerify(ctx context.Context, id uuid.UUID) (string, int64, string, int64, error) {

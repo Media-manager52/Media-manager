@@ -35,6 +35,7 @@ export const routeTitles: Record<string, { area: string; title: string; subtitle
   "/system/security": { area: "System", title: "Security", subtitle: "Owner access, secrets, hostile-input boundaries, and outbound controls." },
   "/system/api": { area: "System", title: "API", subtitle: "Scoped machine keys, auditability, limits, and API exploration." },
   "/system/health": { area: "System", title: "Health", subtitle: "Granular component health without false whole-system outages." },
+  "/system/problems": { area: "System", title: "Problems", subtitle: "Grouped actionable issues and a redacted support bundle." },
   "/system/logs": { area: "System", title: "Logs & Audit", subtitle: "Application diagnostics and the durable write audit." },
 }
 

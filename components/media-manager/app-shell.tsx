@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   Activity,
+  AlertTriangle,
   ArchiveRestore,
   Bell,
   BookOpenCheck,
@@ -123,6 +124,7 @@ import {
   LiveWantedScreen,
 } from "./live-operational-screens"
 import { LiveOverviewScreen } from "./overview-screen"
+import { LiveProblemsScreen } from "./problems-screen"
 import { PageHeader, StateBadge } from "./ui"
 
 type NavBadge = "attention" | "active"
@@ -173,6 +175,7 @@ const liveNavigation: NavGroup[] = [
   ] },
   { label: "System", description: "Health and access", collapsed: true, items: [
     { label: "Health", href: "/system/health", icon: HeartPulse },
+    { label: "Problems", href: "/system/problems", icon: AlertTriangle },
     { label: "Tasks", href: "/system/tasks", icon: ListChecks },
     { label: "Backups", href: "/system/backups", icon: DatabaseBackup },
     { label: "Security", href: "/system/security", icon: ShieldCheck },
@@ -563,6 +566,7 @@ function RouteContent({ path }: { path: string }) {
   if (path === "/system/security") return <LiveSystemInfoScreen mode="security" />
   if (path === "/system/api") return <LiveSystemInfoScreen mode="api" />
   if (path === "/system/health") return <LiveComponentHealthScreen />
+  if (path === "/system/problems") return <LiveProblemsScreen />
   if (path === "/system/logs") return <LiveActivityHistoryScreen logs />
   return <LiveUnavailableScreen />
 }

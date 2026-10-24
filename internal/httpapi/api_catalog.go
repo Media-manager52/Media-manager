@@ -151,13 +151,16 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "POST", Path: "/api/v1/import-lists/{id}/snapshots", Handler: s.createImportListSnapshot, Auth: owner, Effect: effectProvider, Tag: "discovery", Summary: "Fetch a new snapshot of an import list"},
 
 		{Method: "GET", Path: "/api/v1/system/health", Handler: s.systemHealth, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Integration health, outbox and failure counters"},
+		{Method: "GET", Path: "/api/v1/problems", Handler: s.listProblems, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Grouped owner-actionable problems derived from persisted workflows, integrations, backups, notifications and repairs", Response: postgres.ProblemFeed{}},
+		{Method: "GET", Path: "/api/v1/problems/support", Handler: s.supportBundle, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Redacted plain-text support bundle with problems, schema, components and recent backup/queue state"},
 		{Method: "GET", Path: "/api/v1/system/queue", Handler: s.systemQueue, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Background queue: due, scheduled, leased and retrying events per type, plus recent throughput", Response: postgres.QueueSnapshot{}},
 		{Method: "GET", Path: "/api/v1/indexers", Handler: s.listIndexerUsage, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Every indexer's effective budget, rolling-window usage, remaining requests, pacing and 24h search outcomes", Response: []postgres.IndexerUsage{}},
 		{Method: "GET", Path: "/api/v1/system/tasks", Handler: s.listTasks, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Background tasks"},
 		{Method: "GET", Path: "/api/v1/system/info", Handler: s.systemInfo, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Version, commit and schema"},
 		{Method: "GET", Path: "/api/v1/backups", Handler: s.listBackups, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Encrypted in-app backups"},
 		{Method: "POST", Path: "/api/v1/backups", Handler: s.createBackup, Auth: owner, Effect: effectWrite, Tag: "system", Summary: "Queue an encrypted backup with isolated restore verification"},
-		{Method: "GET", Path: "/api/v1/backups/{id}/download", Handler: s.downloadBackup, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Download a verified backup file (binary)"},
+		{Method: "GET", Path: "/api/v1/backups/{id}/download", Handler: s.downloadBackup, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Download a verified backup file (binary)", Description: "Falls back to the verified off-site copy when the local file is unavailable; both paths verify the recorded size and SHA-256."},
+		{Method: "POST", Path: "/api/v1/backups/{id}/offsite", Handler: s.retryBackupOffsite, Auth: owner, Effect: effectWrite, Tag: "system", Summary: "Queue a retry of the off-site copy for a verified backup"},
 		{Method: "GET", Path: "/api/v1/notifications/deliveries", Handler: s.listNotificationDeliveries, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Notification delivery log", Query: []apiParam{limitParam}},
 
 		{Method: "GET", Path: "/api/v1/settings/integrations", Handler: s.listIntegrations, Auth: owner, Effect: effectRead, Tag: "settings", Summary: "Integrations (indexers, AltMount, Plex, Seerr) and their configuration"},
