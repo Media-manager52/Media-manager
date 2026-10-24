@@ -85,6 +85,8 @@ export type APIImportListSnapshot = { id: string; import_list_id: string; source
 export type APIImportList = { id: string; name: string; provider: "imdb_export"; enabled: boolean; movie_root_id?: string; movie_root_name?: string; movie_quality_profile_id?: string; movie_quality_profile?: string; created_at: string; updated_at: string; latest_snapshot?: APIImportListSnapshot }
 export type APIBackupRecord = { id: string; state: "queued" | "running" | "verified" | "failed"; format: string; filename?: string; size_bytes?: number; sha256?: string; schema_version?: number; attempts: number; last_error?: string; offsite_state?: "uploaded" | "failed"; offsite_key?: string; offsite_error?: string; offsite_uploaded_at?: string; created_at: string; started_at?: string; completed_at?: string }
 export type APIBackupOverview = { configured: boolean; format: string; restore_verification: string; automatic_deletion: boolean; production_restore: boolean; offsite: { configured: boolean; kind: string; prefix: string }; records: APIBackupRecord[] }
+export type APIProblem = { code: string; area: string; level: "error" | "warning"; title: string; detail?: string; count: number; oldest_at?: string; latest_at?: string; href?: string }
+export type APIProblemFeed = { problems: APIProblem[]; checked_at: string }
 type Envelope<T> = { data: T }
 
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
@@ -151,6 +153,12 @@ export const loadNotificationDeliveries = async (signal?: AbortSignal) => await 
 export const loadImportLists = async (signal?: AbortSignal) => await requestJSON<APIImportList[] | null>("/api/v1/import-lists", { signal }) ?? []
 export const loadImportList = (id: string, signal?: AbortSignal) => requestJSON<APIImportList>(`/api/v1/import-lists/${encodeURIComponent(id)}`, { signal })
 export const loadBackups = (signal?: AbortSignal) => requestJSON<APIBackupOverview>("/api/v1/backups", { signal })
+export const loadProblems = (signal?: AbortSignal) => requestJSON<APIProblemFeed>("/api/v1/problems", { signal })
+export const loadSupportBundle = async () => {
+  const response = await fetch("/api/v1/problems/support", { credentials: "same-origin" })
+  if (!response.ok) throw new Error(`Support bundle returned HTTP ${response.status}`)
+  return await response.text()
+}
 
 export type CreateMediaInput = {
   kind: "movie" | "series"

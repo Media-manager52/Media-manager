@@ -131,7 +131,7 @@ export function ErrorNotice({ error }: { error: string }) {
   return <InlineNotice tone="bad" title="Live data unavailable">{error}</InlineNotice>
 }
 
-function RefreshButton({ onClick }: { onClick: () => void }) {
+export function RefreshButton({ onClick }: { onClick: () => void }) {
   return <Button variant="outline" size="sm" onClick={onClick}><RefreshCw /> Refresh</Button>
 }
 
