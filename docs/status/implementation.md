@@ -342,3 +342,11 @@ for smoke testing without explicit approval.
 2. Complete configuration edit/disable/test lifecycles and full profile rules.
 3. Finish remaining partial read models and approved route interactions, preserving
    truthful empty/error states and never substituting fixture data.
+
+## Nuvio release browsing (2026-10-25)
+
+Implemented an owner-authenticated interactive Newznab search and exact-choice
+NZB retrieval API for the private addon, with shared budgets, bounded caches,
+provider media attributes, optional bounded DETAILS/NFO enrichment and opaque
+choices. Browsing does not acquire or publish. Local verification and deployment
+are recorded separately; implementation alone is not live playback evidence.

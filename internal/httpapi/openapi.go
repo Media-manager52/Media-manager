@@ -70,6 +70,7 @@ func (server *Server) openAPI(writer http.ResponseWriter, _ *http.Request) {
 }
 
 var apiTags = [][2]string{
+	{"streaming", "Interactive release browsing and exact-choice NZB retrieval for private streaming clients."},
 	{"system", "Health, version, background tasks, backups and this API's own description."},
 	{"overview", "Dashboard, activity timeline, calendar and wanted list."},
 	{"media", "Catalogue movies and series: add, inspect, refresh, archive, recycle."},

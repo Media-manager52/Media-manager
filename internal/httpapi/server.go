@@ -16,6 +16,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/media-manager/media-manager/internal/acquisition"
 	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/adoption"
@@ -30,6 +31,7 @@ import (
 )
 
 type Config struct {
+	Streaming              *acquisition.BrowseService
 	OldBoysCredentials     *oldboyscredentials.Service
 	CommissionOldBoys      func(context.Context) (postgres.Integration, error)
 	OwnerToken             string

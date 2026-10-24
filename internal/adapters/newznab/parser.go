@@ -14,7 +14,6 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/releases"
-	"github.com/media-manager/media-manager/internal/subtitles"
 )
 
 type CapabilityState string
@@ -362,6 +361,9 @@ func nativeAttributeGUID(fields []releases.RawField) (string, bool) {
 
 func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases.Fact {
 	aliases := map[string]string{"tvdbid": "tvdb_id", "tmdbid": "tmdb_id", "imdb": "imdb_id", "imdbid": "imdb_id", "tvmazeid": "tvmaze_id", "rageid": "rage_id", "season": "season_number", "episode": "episode", "language": "language", "resolution": "resolution", "size": "size", "group": "group", "subtitle": "subtitle_languages", "subtitles": "subtitle_languages", "subs": "subtitle_languages", "subtitlelanguage": "subtitle_languages", "subtitlelanguages": "subtitle_languages", "subtitle_language": "subtitle_languages"}
+	for alias, name := range mediaAliases {
+		aliases[alias] = name
+	}
 	values := make(map[string][]string)
 	indices := make(map[string][]int)
 	for index, field := range fields {
@@ -369,11 +371,11 @@ func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases
 		if !exists || strings.TrimSpace(field.Value) == "" {
 			continue
 		}
-		if name == "subtitle_languages" {
+		if name == "subtitle_languages" || name == "audio_languages" {
 			for _, token := range strings.FieldsFunc(field.Value, func(value rune) bool {
 				return value == ',' || value == ';' || value == '/' || value == '|' || value == ' ' || value == '\t'
 			}) {
-				if canonical, reliable := subtitles.CanonicalLanguage(token); reliable {
+				if canonical, reliable := canonicalProviderLanguage(token); reliable {
 					values[name] = append(values[name], canonical)
 					indices[name] = append(indices[name], index)
 				}
@@ -381,6 +383,9 @@ func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases
 			continue
 		}
 		value := field.Value
+		if _, media := mediaAliases[strings.ToLower(strings.TrimSpace(field.Name))]; media {
+			value = canonicalMediaValue(name, value)
+		}
 		if name == "season_number" {
 			if canonical, reliable := canonicalSeasonNumber(value); reliable {
 				value = canonical

@@ -92,7 +92,7 @@ func TestParseSearchCanonicalizesRepeatedProviderSubsWithoutChangingRawFields(t 
 	}
 	for _, fact := range items[0].Facts {
 		if fact.Name == "subtitle_languages" {
-			if !reflect.DeepEqual(fact.Values, []string{"da", "da"}) || !reflect.DeepEqual(fact.EvidenceAt, []int{0, 1}) || fact.State != releases.FactObserved {
+			if !reflect.DeepEqual(fact.Values, []string{"en", "da", "da"}) || !reflect.DeepEqual(fact.EvidenceAt, []int{0, 0, 1}) || fact.State != releases.FactObserved {
 				t.Fatalf("unexpected canonical subs fact: %#v", fact)
 			}
 			return

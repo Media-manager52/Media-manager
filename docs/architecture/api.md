@@ -357,3 +357,33 @@ Native OldBoys commissioning is owner-only `POST /api/v1/settings/oldboys/commis
 It runs four bounded search controls and one discarded, validated NZB; it enables
 only the exact saved credential/configuration snapshot. Credential status also
 reports `enabled`, never values. See [OldBoys operations](../operations/oldboys.md).
+
+## Interactive streaming releases
+
+`POST /api/v1/streaming/search` accepts `kind`, `imdb_id`, `title`, `year`, and
+(for series) positive `season` and `episode`. It browses commissioned enabled
+Newznab providers through the same adapters, immutable capability profiles and
+durable query budgets as acquisition. Saved title/identity metadata takes
+precedence when available. It does not create workflows, retrieve NZBs or publish.
+
+Results include opaque release-choice IDs, normalized facts with provenance,
+provider outcomes (complete/deferred/unavailable) and expiry. Searches are
+coalesced and cached for five minutes (30 seconds for partial results). Extended
+provider attributes retain repeated subtitle values and explicit media fields.
+For the first matching result per provider lacking subtitle fields, a bounded
+DETAILS request and an advertised NFO may supplement the search response. This
+is provider-reported evidence, not local file verification. Unknown values stay
+unknown; Danish audio is not a subtitle badge. Capacity is bounded to 10,000
+choices and 128 cached searches; choices expire after six hours or restart.
+
+`POST /api/v1/streaming/releases/{id}/nzb` retrieves only the selected opaque
+choice through Media Manager's guarded Newznab retrieval adapter and durable
+grab budget. It rechecks indexer enablement/configuration before provider access.
+The response is a validated binary NZB with a stable payload-specific filename
+and `X-Media-Kind`, `X-Media-Season`, `X-Media-Episode` headers. Credentials and
+provider locators never reach the streaming client. Expired choices return 410.
+Both APIs require owner authentication and are classified as provider effects.
+
+The private Stremio/Nuvio companion addon handles AltMount preparation and video
+proxying. Native OldBoys and special-episode interactive browsing are not part
+of this API version. Existing library/acquisition behavior remains separate.
