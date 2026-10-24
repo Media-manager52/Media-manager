@@ -240,7 +240,8 @@ All mutation routes below require `requireOwnerMutation`.
 | GET | `/api/v1/system/tasks` | Per-event-type outbox aggregates + recurring schedules. |
 | GET | `/api/v1/system/info` | Version, `started_at` (API process start), auth boundaries, provider states, contracts. |
 | GET/POST | `/api/v1/backups` | Backup overview / queue encrypted backup. |
-| GET | `/api/v1/backups/{id}/download` | Checksum-matching encrypted download only. |
+| GET | `/api/v1/backups/{id}/download` | Checksum-matching encrypted download; falls back to a verified off-site copy when the local file is unavailable. |
+| POST | `/api/v1/backups/{id}/offsite` | Queue a retry of the off-site copy for a verified backup. |
 
 ### Radarr/Sonarr-compatible API (Seerr *arr replacement)
 

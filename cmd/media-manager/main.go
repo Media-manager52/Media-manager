@@ -197,10 +197,35 @@ func run() error {
 		backupDirectory = "/var/lib/media-manager/backups"
 	}
 	backupConfigured := optionalSecret(backups.KeyReference) != ""
+	offsitePrefix, err := backups.NormalizeOffsitePrefix(os.Getenv("BACKUP_OFFSITE_PREFIX"))
+	if err != nil {
+		return fmt.Errorf("off-site backup prefix: %w", err)
+	}
+	offsite, offsiteKind, err := backups.NewOffsite(backups.OffsiteConfig{
+		Kind:   os.Getenv("BACKUP_OFFSITE_KIND"),
+		Prefix: offsitePrefix,
+		S3: backups.S3Config{
+			Endpoint:  strings.TrimSpace(os.Getenv("BACKUP_OFFSITE_S3_ENDPOINT")),
+			Region:    strings.TrimSpace(os.Getenv("BACKUP_OFFSITE_S3_REGION")),
+			Bucket:    strings.TrimSpace(os.Getenv("BACKUP_OFFSITE_S3_BUCKET")),
+			AccessKey: optionalSecret("BACKUP_OFFSITE_S3_ACCESS_KEY"),
+			SecretKey: optionalSecret("BACKUP_OFFSITE_S3_SECRET_KEY"),
+			AllowHTTP: strings.EqualFold(os.Getenv("BACKUP_OFFSITE_ALLOW_HTTP"), "true"),
+		},
+		WebDAV: backups.WebDAVConfig{
+			URL:       strings.TrimSpace(os.Getenv("BACKUP_OFFSITE_WEBDAV_URL")),
+			Username:  optionalSecret("BACKUP_OFFSITE_WEBDAV_USERNAME"),
+			Password:  optionalSecret("BACKUP_OFFSITE_WEBDAV_PASSWORD"),
+			AllowHTTP: strings.EqualFold(os.Getenv("BACKUP_OFFSITE_ALLOW_HTTP"), "true"),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("off-site backup: %w", err)
+	}
 	commissionService := &commissioning.NewznabService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
 	oldBoysCommission := &commissioning.OldBoysService{Store: store, Scheduler: scheduler, Credentials: oldBoysCredentials}
 	liveCAPSService := &commissioning.LiveCAPSService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
-	api, err := httpapi.New(httpapi.Config{OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
+	api, err := httpapi.New(httpapi.Config{OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
 	if err != nil {
 		return err
 	}
@@ -246,8 +271,9 @@ func run() error {
 	handlers["workflow.transitioned"] = func(context.Context, postgres.OutboxEvent) error { return nil }
 	notificationService := &notifications.Service{Store: store, ResolveSecret: resolveSecret}
 	handlers["notification.deliver_requested"] = notificationService.Handle
-	backupService := &backups.Service{Store: store, Directory: backupDirectory, ResolveSecret: resolveSecret}
+	backupService := &backups.Service{Store: store, Directory: backupDirectory, ResolveSecret: resolveSecret, Offsite: offsite, OffsitePrefix: offsitePrefix}
 	handlers["backup.create_requested"] = backupService.Handle
+	handlers["backup.offsite_requested"] = backupService.HandleOffsite
 	if seerrEnabled {
 		service := &intake.SeerrService{Client: seerrClient, Store: store, InstanceID: seerrInstance, MetadataEnricher: metadataService}
 		handlers["seerr.reconcile"] = service.Handle
@@ -256,7 +282,7 @@ func run() error {
 	}
 	// A backup dumps and restores the database into an isolated copy, which
 	// can take far longer than any other handler.
-	worker := &platform.Worker{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: map[string]time.Duration{"backup.create_requested": 3 * time.Hour}}
+	worker := &platform.Worker{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: map[string]time.Duration{"backup.create_requested": 3 * time.Hour, "backup.offsite_requested": 3 * time.Hour}}
 	go func() {
 		if workerErr := worker.Run(workerContext); workerErr != nil && !errors.Is(workerErr, context.Canceled) {
 			slog.Error("outbox worker stopped", "error", workerErr)

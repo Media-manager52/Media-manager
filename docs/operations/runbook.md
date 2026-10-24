@@ -106,6 +106,11 @@ API-only variables (set by Compose, overridable for standalone deploys):
 | `HEALTHCHECK_URL` | Target for `media-manager healthcheck`. |
 | `BACKUP_DIRECTORY` | Backup output directory (default `/var/lib/media-manager/backups`). |
 | `BACKUP_ENCRYPTION_KEY` / `BACKUP_ENCRYPTION_KEY_FILE` | Base64 32-byte key for encrypted backups. Absent → backup creation disabled in the UI. |
+| `BACKUP_OFFSITE_KIND` | `s3`, `webdav`, or empty. Enables copying the encrypted backup artifact to off-site storage. |
+| `BACKUP_OFFSITE_PREFIX` | Relative object/folder prefix (default `media-manager/backups`). Parent traversal and unsafe characters are refused. |
+| `BACKUP_OFFSITE_S3_ENDPOINT`, `_REGION`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY` | Path-style S3-compatible destination. Keys accept `_FILE`. |
+| `BACKUP_OFFSITE_WEBDAV_URL`, `_USERNAME`, `_PASSWORD` | WebDAV collection destination. Parent collections are created on upload. |
+| `BACKUP_OFFSITE_ALLOW_HTTP` | `true` only for a private test endpoint; production endpoints must be HTTPS. |
 | `<NAME>_FILE` | For any secret `NAME`, a file path whose content overrides the env value. |
 
 `.env.integrations` (loaded only into the API container) contains the values
@@ -196,6 +201,11 @@ Two independent backup mechanisms:
    recorded, restore-verified into an isolated temporary database, encrypted
    download only on checksum match. Requires `BACKUP_ENCRYPTION_KEY` (base64 32
    bytes). There is **no** production restore automation and no auto-deletion.
+   Set `BACKUP_OFFSITE_KIND` to `s3` or `webdav` to copy the encrypted artifact
+   off the server after verification. A failed copy leaves the verified local
+   backup intact, is shown on the record, and can be retried from
+   `/system/backups`; `GET /api/v1/backups/{id}/download` falls back to the
+   off-site object and verifies the recorded size and SHA-256 before serving it.
 2. **Manual dump** (README):
    ```sh
    docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > media-manager.dump

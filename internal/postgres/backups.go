@@ -16,18 +16,22 @@ var ErrBackupInProgress = errors.New("a backup is already in progress")
 var backupChecksum = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type BackupRecord struct {
-	ID            uuid.UUID  `json:"id"`
-	State         string     `json:"state"`
-	Format        string     `json:"format"`
-	Filename      string     `json:"filename,omitempty"`
-	SizeBytes     *int64     `json:"size_bytes,omitempty"`
-	SHA256        string     `json:"sha256,omitempty"`
-	SchemaVersion *int64     `json:"schema_version,omitempty"`
-	Attempts      int        `json:"attempts"`
-	LastError     string     `json:"last_error,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+	ID                uuid.UUID  `json:"id"`
+	State             string     `json:"state"`
+	Format            string     `json:"format"`
+	Filename          string     `json:"filename,omitempty"`
+	SizeBytes         *int64     `json:"size_bytes,omitempty"`
+	SHA256            string     `json:"sha256,omitempty"`
+	SchemaVersion     *int64     `json:"schema_version,omitempty"`
+	Attempts          int        `json:"attempts"`
+	LastError         string     `json:"last_error,omitempty"`
+	OffsiteState      string     `json:"offsite_state,omitempty"`
+	OffsiteKey        string     `json:"offsite_key,omitempty"`
+	OffsiteError      string     `json:"offsite_error,omitempty"`
+	OffsiteUploadedAt *time.Time `json:"offsite_uploaded_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
 }
 
 func (store *Store) CreateBackup(ctx context.Context, now time.Time) (BackupRecord, error) {
@@ -64,7 +68,7 @@ func (store *Store) ListBackups(ctx context.Context, limit int) ([]BackupRecord,
 	if limit < 1 || limit > 200 {
 		limit = 100
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT id::text,state,format,COALESCE(filename,''),size_bytes,COALESCE(sha256,''),schema_version,attempts,COALESCE(last_error,''),created_at,started_at,completed_at FROM backup_records ORDER BY created_at DESC LIMIT $1`, limit)
+	rows, err := store.Pool.Query(ctx, `SELECT id::text,state,format,COALESCE(filename,''),size_bytes,COALESCE(sha256,''),schema_version,attempts,COALESCE(last_error,''),COALESCE(offsite_state,''),COALESCE(offsite_key,''),COALESCE(offsite_error,''),offsite_uploaded_at,created_at,started_at,completed_at FROM backup_records ORDER BY created_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +85,7 @@ func (store *Store) ListBackups(ctx context.Context, limit int) ([]BackupRecord,
 }
 
 func (store *Store) Backup(ctx context.Context, id uuid.UUID) (BackupRecord, error) {
-	item, err := scanBackup(store.Pool.QueryRow(ctx, `SELECT id::text,state,format,COALESCE(filename,''),size_bytes,COALESCE(sha256,''),schema_version,attempts,COALESCE(last_error,''),created_at,started_at,completed_at FROM backup_records WHERE id=$1`, id.String()))
+	item, err := scanBackup(store.Pool.QueryRow(ctx, `SELECT id::text,state,format,COALESCE(filename,''),size_bytes,COALESCE(sha256,''),schema_version,attempts,COALESCE(last_error,''),COALESCE(offsite_state,''),COALESCE(offsite_key,''),COALESCE(offsite_error,''),offsite_uploaded_at,created_at,started_at,completed_at FROM backup_records WHERE id=$1`, id.String()))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BackupRecord{}, ErrNotFound
 	}
@@ -91,7 +95,7 @@ func (store *Store) Backup(ctx context.Context, id uuid.UUID) (BackupRecord, err
 func scanBackup(row rowScanner) (BackupRecord, error) {
 	var item BackupRecord
 	var idText string
-	if err := row.Scan(&idText, &item.State, &item.Format, &item.Filename, &item.SizeBytes, &item.SHA256, &item.SchemaVersion, &item.Attempts, &item.LastError, &item.CreatedAt, &item.StartedAt, &item.CompletedAt); err != nil {
+	if err := row.Scan(&idText, &item.State, &item.Format, &item.Filename, &item.SizeBytes, &item.SHA256, &item.SchemaVersion, &item.Attempts, &item.LastError, &item.OffsiteState, &item.OffsiteKey, &item.OffsiteError, &item.OffsiteUploadedAt, &item.CreatedAt, &item.StartedAt, &item.CompletedAt); err != nil {
 		return BackupRecord{}, err
 	}
 	item.ID, _ = uuid.Parse(idText)
@@ -131,6 +135,54 @@ func (store *Store) CompleteBackup(ctx context.Context, id uuid.UUID, filename s
 		return err
 	}
 	return transaction.Commit(ctx)
+}
+
+// QueueBackupOffsite queues a durable retry of an off-site copy for one
+// verified backup. A pending request is not duplicated.
+func (store *Store) QueueBackupOffsite(ctx context.Context, id uuid.UUID, now time.Time) (BackupRecord, error) {
+	record, err := store.Backup(ctx, id)
+	if err != nil {
+		return BackupRecord{}, err
+	}
+	if record.State != "verified" || record.Filename == "" {
+		return BackupRecord{}, ErrNotFound
+	}
+	payload, _ := json.Marshal(map[string]string{"backup_id": record.ID.String()})
+	_, err = store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
+		SELECT $1,'backup',$2,1,'backup.offsite_requested',$3,$4,$4
+		WHERE NOT EXISTS(SELECT 1 FROM outbox_events WHERE aggregate_type='backup' AND aggregate_id=$2 AND event_type='backup.offsite_requested' AND completed_at IS NULL)`, uuid.NewV7().String(), record.ID.String(), payload, now.UTC())
+	if err != nil {
+		return BackupRecord{}, err
+	}
+	return record, nil
+}
+
+// SetBackupOffsite records the outcome of copying a verified backup to the
+// configured off-site destination. A failed copy keeps the local verified
+// record intact and is retryable.
+func (store *Store) SetBackupOffsite(ctx context.Context, id uuid.UUID, state, key, detail string, now time.Time) error {
+	state, key, detail = strings.TrimSpace(state), strings.TrimSpace(key), strings.TrimSpace(detail)
+	if state != "uploaded" && state != "failed" {
+		return errors.New("invalid off-site backup state")
+	}
+	if state == "uploaded" && key == "" {
+		return errors.New("uploaded off-site backup needs an object key")
+	}
+	if len(detail) > 200 {
+		detail = detail[:200]
+	}
+	var uploaded any
+	if state == "uploaded" {
+		uploaded = now.UTC()
+	}
+	command, err := store.Pool.Exec(ctx, `UPDATE backup_records SET offsite_state=$2,offsite_key=NULLIF($3,''),offsite_error=NULLIF($4,''),offsite_uploaded_at=$5 WHERE id=$1 AND state='verified'`, id.String(), state, key, detail, uploaded)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (store *Store) FailBackup(ctx context.Context, id uuid.UUID, safeDetail string, now time.Time) error {

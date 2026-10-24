@@ -2049,7 +2049,7 @@
     },
     "/api/v1/backups/{id}/download": {
       "get": {
-        "description": "No state change and no provider contact. Always safe.",
+        "description": "Falls back to the verified off-site copy when the local file is unavailable; both paths verify the recorded size and SHA-256.\n\nNo state change and no provider contact. Always safe.",
         "operationId": "downloadBackup",
         "parameters": [
           {
@@ -2090,6 +2090,50 @@
         ],
         "x-mm-auth": "owner",
         "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/backups/{id}/offsite": {
+      "post": {
+        "description": "Changes Media Manager state or queues local work. Audited.",
+        "operationId": "retryBackupOffsite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Queue a retry of the off-site copy for a verified backup",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
       }
     },
     "/api/v1/blocklist": {

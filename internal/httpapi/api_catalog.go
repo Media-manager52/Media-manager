@@ -157,7 +157,8 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "GET", Path: "/api/v1/system/info", Handler: s.systemInfo, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Version, commit and schema"},
 		{Method: "GET", Path: "/api/v1/backups", Handler: s.listBackups, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Encrypted in-app backups"},
 		{Method: "POST", Path: "/api/v1/backups", Handler: s.createBackup, Auth: owner, Effect: effectWrite, Tag: "system", Summary: "Queue an encrypted backup with isolated restore verification"},
-		{Method: "GET", Path: "/api/v1/backups/{id}/download", Handler: s.downloadBackup, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Download a verified backup file (binary)"},
+		{Method: "GET", Path: "/api/v1/backups/{id}/download", Handler: s.downloadBackup, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Download a verified backup file (binary)", Description: "Falls back to the verified off-site copy when the local file is unavailable; both paths verify the recorded size and SHA-256."},
+		{Method: "POST", Path: "/api/v1/backups/{id}/offsite", Handler: s.retryBackupOffsite, Auth: owner, Effect: effectWrite, Tag: "system", Summary: "Queue a retry of the off-site copy for a verified backup"},
 		{Method: "GET", Path: "/api/v1/notifications/deliveries", Handler: s.listNotificationDeliveries, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Notification delivery log", Query: []apiParam{limitParam}},
 
 		{Method: "GET", Path: "/api/v1/settings/integrations", Handler: s.listIntegrations, Auth: owner, Effect: effectRead, Tag: "settings", Summary: "Integrations (indexers, AltMount, Plex, Seerr) and their configuration"},
