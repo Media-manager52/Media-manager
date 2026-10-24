@@ -43,7 +43,7 @@ func TestClaimOutboxPrefersLifecycleWorkOverSearchBacklog(t *testing.T) {
 	}
 
 	for _, want := range []uuid.UUID{reconcile, confirm, oldSearch, newSearch, discovery} {
-		claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute)
+		claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute, false)
 		if err != nil || len(claimed) != 1 || claimed[0].ID != want {
 			t.Fatalf("claimed=%+v err=%v, want %s", claimed, err, want)
 		}
@@ -51,7 +51,7 @@ func TestClaimOutboxPrefersLifecycleWorkOverSearchBacklog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute); err != nil || len(claimed) != 0 {
+	if claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute, false); err != nil || len(claimed) != 0 {
 		t.Fatalf("not-yet-due event claimed=%+v err=%v", claimed, err)
 	}
 }
@@ -94,5 +94,75 @@ func TestPlexConfirmationWindowStartsAtRefresh(t *testing.T) {
 	}
 	if state != "polling" || deadline.Before(before.Add(plexConfirmationWindow-time.Second)) || deadline.After(time.Now().UTC().Add(plexConfirmationWindow)) {
 		t.Fatalf("refreshed scan state=%q deadline=%s, want about %s", state, deadline, before.Add(plexConfirmationWindow))
+	}
+}
+
+// Both indexer classes must get a turn while lifecycle work remains first.
+// A preferred but leased/not-yet-due event must not prevent useful work.
+func TestClaimOutboxAlternatesIndexerPriorityWithoutDelayingLifecycle(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	store := subtitleIntegrationStore(t, ctx, databaseURL)
+	defer store.Close()
+	insert := func(kind string, age time.Duration) uuid.UUID {
+		t.Helper()
+		id := uuid.NewV7()
+		_, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'test',$2,1,$3,'{}',$4,now())`, id.String(), uuid.NewV7().String(), kind, time.Now().Add(-age))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	oldDiscovery := insert("workflow.discovery_rescan_requested", 8*time.Hour)
+	newDiscovery := insert("workflow.discovery_rescan_requested", 7*time.Hour)
+	oldSearch := insert("workflow.search_requested", 2*time.Hour)
+	newSearch := insert("workflow.search_requested", time.Hour)
+	future := insert("workflow.discovery_rescan_requested", 24*time.Hour)
+	leased := insert("workflow.discovery_rescan_requested", 25*time.Hour)
+	if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=now()+interval '1 hour' WHERE id=$1`, future.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET lease_owner='other-worker',lease_until=now()+interval '1 hour' WHERE id=$1`, leased.String()); err != nil {
+		t.Fatal(err)
+	}
+	lifecycle := insert("plex.confirm_requested", time.Second)
+	for _, step := range []struct {
+		preferDiscovery bool
+		want            uuid.UUID
+	}{
+		{true, lifecycle},
+		{false, oldSearch},
+		{true, oldDiscovery},
+		{false, newSearch},
+		{true, newDiscovery},
+	} {
+		got, err := store.ClaimOutbox(ctx, "fair-worker", 1, time.Minute, step.preferDiscovery)
+		if err != nil || len(got) != 1 || got[0].ID != step.want {
+			t.Fatalf("preference=%v got=%+v err=%v want=%s", step.preferDiscovery, got, err, step.want)
+		}
+		if step.want == oldSearch {
+			// A pacing deferral stays in the queue and must not block the
+			// following discovery turn or be re-claimed before its deadline.
+			err = store.DeferOutbox(ctx, step.want, "fair-worker", "indexer_pacing_deferred", time.Now().Add(time.Hour))
+		} else {
+			err = store.CompleteOutbox(ctx, step.want, "fair-worker")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := store.ClaimOutbox(ctx, "fair-worker", 1, time.Minute, true); err != nil || len(got) != 0 {
+		t.Fatalf("claimed deferred or leased work: %+v, %v", got, err)
+	}
+	// Preference is not a filter: if discovery is preferred but absent,
+	// an available search still runs.
+	fallback := insert("workflow.search_requested", time.Second)
+	got, err := store.ClaimOutbox(ctx, "fair-worker", 1, time.Minute, true)
+	if err != nil || len(got) != 1 || got[0].ID != fallback {
+		t.Fatalf("fallback=%+v err=%v", got, err)
 	}
 }

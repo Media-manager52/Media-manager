@@ -26,7 +26,7 @@ func (server *Server) systemQueue(writer http.ResponseWriter, request *http.Requ
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load the background queue")
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: snapshot, Meta: map[string]string{"order": "One event at a time: other events first, then searches, then discovery rescans; oldest first within each."}})
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: snapshot, Meta: map[string]string{"order": "One event at a time: lifecycle events first, then alternating searches and discovery rescans; oldest first within each class."}})
 }
 
 func (server *Server) listWorkflowSearches(writer http.ResponseWriter, request *http.Request) {
