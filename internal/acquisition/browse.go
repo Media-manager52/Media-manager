@@ -90,8 +90,17 @@ type BrowseService struct {
 	mu      sync.Mutex
 	choices map[string]browseChoice
 	cache   map[BrowseInput]browseCache
-	flights singleflight.Group
-	active  int
+	// OldBoys is queried by title only, so its rows are shared by every
+	// episode in that season/title. Cache them separately from the exact
+	// Newznab episode searches.
+	oldBoysCache map[string]oldBoysBrowseCache
+	flights      singleflight.Group
+	active       int
+}
+
+type oldBoysBrowseCache struct {
+	observations []releases.Observation
+	until        time.Time
 }
 
 func (s *BrowseService) Browse(ctx context.Context, in BrowseInput) (BrowseResult, error) {
@@ -191,7 +200,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 					if clientErr != nil {
 						e = clientErr
 					} else {
-						observations, e = oldBoysBrowseObservations(ctx, native, in)
+						observations, e = s.oldBoysBrowseObservations(ctx, native, i.ID.String(), in)
 					}
 				}
 			} else {
@@ -359,7 +368,50 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 // oldBoysBrowseObservations queries the native Danish provider. OldBoys
 // returns at most 25 rows per page and has a small fixed page count; four
 // pages cover the useful catalogue without turning an interactive open into
-// an unbounded scrape.
+// an unbounded scrape. The title-only result is cached across episodes.
+func (s *BrowseService) oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, integrationID string, in BrowseInput) ([]releases.Observation, error) {
+	request := oldBoysBrowseRequest(in)
+	key := integrationID + "|" + request.Name + "|" + strconv.Itoa(request.Category)
+	now := time.Now()
+	s.mu.Lock()
+	if cached, ok := s.oldBoysCache[key]; ok && now.Before(cached.until) {
+		observations := append([]releases.Observation(nil), cached.observations...)
+		s.mu.Unlock()
+		return observations, nil
+	}
+	s.mu.Unlock()
+	value, err, _ := s.flights.Do("oldboys|"+key, func() (any, error) {
+		observations, err := oldBoysBrowseObservations(ctx, client, in)
+		if err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		if s.oldBoysCache == nil {
+			s.oldBoysCache = map[string]oldBoysBrowseCache{}
+		}
+		if len(s.oldBoysCache) >= 200 {
+			for oldKey, entry := range s.oldBoysCache {
+				if now.After(entry.until) {
+					delete(s.oldBoysCache, oldKey)
+				}
+			}
+			if len(s.oldBoysCache) >= 200 {
+				for oldKey := range s.oldBoysCache {
+					delete(s.oldBoysCache, oldKey)
+					break
+				}
+			}
+		}
+		s.oldBoysCache[key] = oldBoysBrowseCache{observations: append([]releases.Observation(nil), observations...), until: now.Add(10 * time.Minute)}
+		s.mu.Unlock()
+		return observations, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append([]releases.Observation(nil), value.([]releases.Observation)...), nil
+}
+
 func oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, in BrowseInput) ([]releases.Observation, error) {
 	request := oldBoysBrowseRequest(in)
 	all := []releases.Observation{}
