@@ -215,6 +215,10 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   `indexer_request_reservations`.
 - `ParseRetryAfter`, `PacingFloor`, `MarkLanePacingFloor` implement header
   respect and lane floors.
+- `WorkloadBrowse` is reserved for viewer-facing searches. It waits out the
+  remaining per-indexer minimum interval while retaining the lane, so active
+  background recovery cannot repeatedly take the next pacing slot. Failure
+  cooldowns and intervals longer than the bounded browse wait still defer.
 
 ---
 
@@ -513,3 +517,5 @@ It keeps bounded expiring choices in memory and permits retrieval only through
 an exact choice. No acquisition workflow or library publication is created.
 `internal/adapters/newznab/media.go` reads explicit media attributes and bounded
 MediaInfo-style NFO fields while keeping subtitle/audio provenance separate.
+Primary browse searches use `WorkloadBrowse`; acquisition search and recovery
+keep their existing fail-fast pacing behavior.

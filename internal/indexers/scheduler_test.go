@@ -313,6 +313,62 @@ func TestRecordResultRejectsInvalidScopeClassificationConservatively(t *testing.
 	}
 }
 
+func TestBrowseWaitsForPacingSlotButNotFailureCooldown(t *testing.T) {
+	now := time.Unix(500, 0).UTC()
+	minimum := 5 * time.Second
+	scheduler := NewScheduler(1, nil)
+	scheduler.now = func() time.Time { return now }
+	if err := scheduler.Configure("browse", Budget{MinimumInterval: minimum, FailureBackoff: time.Second, MaximumBackoff: time.Minute, QueryLimit: 100, LimitWindow: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	permit, err := scheduler.Acquire(context.Background(), "browse", WorkloadInteractive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = permit.Record(context.Background(), OutcomeSuccess, nil); err != nil {
+		t.Fatal(err)
+	}
+	waited := time.Duration(0)
+	waitCalls := 0
+	scheduler.wait = func(_ context.Context, delay time.Duration) error {
+		waitCalls++
+		waited = delay
+		now = now.Add(delay)
+		return nil
+	}
+
+	// Existing interactive acquisition traffic must keep its fail-fast behavior.
+	_, err = scheduler.Acquire(context.Background(), "browse", WorkloadInteractive)
+	var deferred CooldownError
+	if !errors.As(err, &deferred) {
+		t.Fatalf("interactive acquisition did not defer: %v", err)
+	}
+	if waitCalls != 0 {
+		t.Fatal("interactive acquisition unexpectedly waited")
+	}
+
+	permit, err = scheduler.Acquire(context.Background(), "browse", WorkloadBrowse)
+	if err != nil {
+		t.Fatalf("browse did not wait for its pacing slot: %v", err)
+	}
+	if waitCalls != 1 || waited != minimum {
+		t.Fatalf("browse wait calls=%d delay=%s, want one %s wait", waitCalls, waited, minimum)
+	}
+	permit.Close()
+
+	lane := scheduler.getLane("browse")
+	lane.mu.Lock()
+	lane.snapshot.CooldownUntil = now.Add(30 * time.Second)
+	lane.mu.Unlock()
+	_, err = scheduler.Acquire(context.Background(), "browse", WorkloadBrowse)
+	if !errors.As(err, &deferred) || deferred.RetryAt() != now.Add(30*time.Second) {
+		t.Fatalf("failure cooldown error=%v retry=%v", err, deferred.RetryAt())
+	}
+	if waitCalls != 1 {
+		t.Fatal("browse waited through a failure cooldown")
+	}
+}
+
 func TestMinimumIntervalDefersNextRequest(t *testing.T) {
 	now := time.Unix(400, 0).UTC()
 	minimum := 5 * time.Second

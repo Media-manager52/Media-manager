@@ -158,6 +158,12 @@ func (client *Client) Search(ctx context.Context, request SearchRequest) ([]rele
 	return client.search(ctx, indexers.WorkloadInteractive, request, nil)
 }
 
+// BrowseSearch performs a viewer-facing search that may wait for its next
+// permitted pacing slot instead of deferring behind background recovery work.
+func (client *Client) BrowseSearch(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
+	return client.search(ctx, indexers.WorkloadBrowse, request, nil)
+}
+
 // BackgroundSearch uses a conservative share of the persisted query budget.
 // It otherwise has exactly the same parsing and transport behavior as Search.
 func (client *Client) BackgroundSearch(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {

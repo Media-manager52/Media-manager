@@ -168,7 +168,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 				}
 				request.Extended = true
 				if e == nil {
-					observations, e = client.Search(ctx, request)
+					observations, e = client.BrowseSearch(ctx, request)
 				}
 			}
 			if e == nil {
