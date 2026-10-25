@@ -37,6 +37,11 @@ const (
 	// search omitted the fields. Keep that work off the critical path when a
 	// provider is slow.
 	browseEnrichmentTimeout = 5 * time.Second
+	// Bounded retention for interactive choices and search results. Evict the
+	// oldest entries instead of failing every new search once a heavy viewer
+	// has opened enough titles.
+	maxBrowseChoices = 10000
+	maxBrowseCache   = 128
 )
 
 type BrowseInput struct {
@@ -279,9 +284,35 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			delete(s.cache, k)
 		}
 	}
-	// Do not invalidate choices that a player may still have cached.
-	if len(s.choices)+len(choices) > 10000 || len(s.cache) >= 128 {
-		return BrowseResult{}, errors.New("streaming search capacity reached")
+	// Keep the caches bounded without making the next search fail. Removing
+	// the oldest entries can invalidate a stale player URL, but that is
+	// preferable to turning every later search into a hard 503.
+	for len(s.choices)+len(choices) > maxBrowseChoices {
+		oldestKey := ""
+		var oldest time.Time
+		for key, value := range s.choices {
+			if oldestKey == "" || value.expires.Before(oldest) {
+				oldestKey, oldest = key, value.expires
+			}
+		}
+		if oldestKey == "" {
+			break
+		}
+		delete(s.choices, oldestKey)
+	}
+	for len(s.cache) >= maxBrowseCache {
+		oldestKey := BrowseInput{}
+		var oldest time.Time
+		found := false
+		for key, value := range s.cache {
+			if !found || value.until.Before(oldest) {
+				oldestKey, oldest, found = key, value.until, true
+			}
+		}
+		if !found {
+			break
+		}
+		delete(s.cache, oldestKey)
 	}
 	for k, v := range choices {
 		s.choices[k] = v
