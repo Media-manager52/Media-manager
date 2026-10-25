@@ -383,17 +383,17 @@ func oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, in B
 func oldBoysBrowseRequest(in BrowseInput) oldboys.SearchRequest {
 	title := releases.SearchQueryTitle(in.Title)
 	category := oldboys.MovieCategory
-	suffix := ""
 	if in.Kind == catalog.KindSeries {
 		category = oldboys.SeriesCategory
-		suffix = fmt.Sprintf(" S%02dE%02d", in.Season, in.Episode)
-	} else if in.Year != 0 {
-		suffix = fmt.Sprintf(" %d", in.Year)
 	}
-	return oldboys.SearchRequest{Name: title + suffix + " DANiSH", Category: category, Page: 1}
+	// Ask for the title, not the exact episode: OldBoys' native filter is
+	// title-oriented and the scene scope is enforced after parsing. This also
+	// finds multi-episode uploads that cover the requested episode.
+	return oldboys.SearchRequest{Name: title, Category: category, Page: 1}
 }
 
 var oldBoysEpisodeTag = regexp.MustCompile(`(?i)\bS([0-9]{1,3})E([0-9]{1,3})\b`)
+var oldBoysSeasonTag = regexp.MustCompile(`(?i)(?:^|[.\s_-])S([0-9]{1,2})(?:[.\s_-]|$)`)
 
 func oldBoysBrowseMatches(observation releases.Observation, media catalog.MediaItem, in BrowseInput) bool {
 	if observation.ParseVersion != "oldboys-v1" || !mediaTitleMatches(observation.Title, media) {
@@ -403,12 +403,20 @@ func oldBoysBrowseMatches(observation releases.Observation, media catalog.MediaI
 		return true
 	}
 	match := oldBoysEpisodeTag.FindStringSubmatch(observation.Title)
-	if len(match) != 3 {
+	if len(match) == 3 {
+		season, seasonErr := strconv.Atoi(match[1])
+		episode, episodeErr := strconv.Atoi(match[2])
+		return seasonErr == nil && episodeErr == nil && season == int(in.Season) && episode == int(in.Episode)
+	}
+	// OldBoys often has a complete season pack instead of a single episode.
+	// The player can open the requested episode from the pack just as it does
+	// for a Newznab season pack.
+	pack := oldBoysSeasonTag.FindStringSubmatch(observation.Title)
+	if len(pack) != 2 {
 		return false
 	}
-	season, seasonErr := strconv.Atoi(match[1])
-	episode, episodeErr := strconv.Atoi(match[2])
-	return seasonErr == nil && episodeErr == nil && season == int(in.Season) && episode == int(in.Episode)
+	season, seasonErr := strconv.Atoi(pack[1])
+	return seasonErr == nil && season == int(in.Season)
 }
 
 func (s *BrowseService) client(i postgres.Integration, c indexerConfig) (*newznab.Client, error) {
