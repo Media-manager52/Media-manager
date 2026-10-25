@@ -8,7 +8,8 @@ import (
 )
 
 var (
-	resolutionToken = regexp.MustCompile(`(?i)(?:^|[ ._\-])(2160p|4k|uhd|1080p|720p|576p|480p)(?:$|[ ._\-])`)
+	resolutionPixel = regexp.MustCompile(`(?i)(?:^|[ ._\-])(2160p|1080p|720p|576p|480p)(?:$|[ ._\-])`)
+	resolutionAlias = regexp.MustCompile(`(?i)(?:^|[ ._\-])(4k|uhd)(?:$|[ ._\-])`)
 	resolutionSize  = regexp.MustCompile(`(?i)^\s*(\d{3,4})\s*[x×]\s*(2160|1080|720|576|480)(?:\s|$)`)
 	seasonToken     = regexp.MustCompile(`(?i)(?:^|[ ._\-])S(\d{1,3})(?:$|[ ._\-]|E)`)
 	episodeToken    = regexp.MustCompile(`(?i)S\d{1,3}E\d{1,3}`)
@@ -156,7 +157,13 @@ func TitleContainsYear(releaseTitle string, year uint16) bool {
 // a hard requirement.
 func InferTitleFacts(observation Observation, observedAt time.Time) Observation {
 	inferred := []Fact{}
-	if match := resolutionToken.FindStringSubmatch(observation.Title); len(match) == 2 {
+	if match := resolutionPixel.FindStringSubmatch(observation.Title); len(match) == 2 {
+		if resolution, reliable := CanonicalResolution(match[1]); reliable {
+			inferred = append(inferred, Fact{Name: "resolution", Values: []string{resolution}, State: FactInferred, ObservedAt: observedAt.UTC()})
+		}
+	} else if match := resolutionAlias.FindStringSubmatch(observation.Title); len(match) == 2 {
+		// Marketing aliases such as "4K Remaster" can accompany an explicit
+		// 1080p encode, so an explicit pixel height always wins.
 		if resolution, reliable := CanonicalResolution(match[1]); reliable {
 			inferred = append(inferred, Fact{Name: "resolution", Values: []string{resolution}, State: FactInferred, ObservedAt: observedAt.UTC()})
 		}

@@ -125,6 +125,27 @@ func TestInferTitleFactsCanonicalizesUHD(t *testing.T) {
 	t.Fatal("UHD was not inferred as canonical 2160p")
 }
 
+func TestInferTitleFactsPrefersExplicitPixelHeight(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"The Matrix 1999 4K Remaster 1080p BluRay DTS x264-Geek": "1080p",
+		"Movie.2026.4K.Remaster.2160p.WEB-DL":                    "2160p",
+		"Movie.2026.4K.UHD.WEB-DL":                               "2160p",
+	}
+	for title, want := range tests {
+		observation := InferTitleFacts(Observation{Title: title}, time.Unix(1, 0))
+		got := ""
+		for _, fact := range observation.Facts {
+			if fact.Name == "resolution" && fact.State == FactInferred && len(fact.Values) == 1 {
+				got = fact.Values[0]
+			}
+		}
+		if got != want {
+			t.Errorf("%q resolution=%q, want %q", title, got, want)
+		}
+	}
+}
+
 func TestInferTitleFactsRecordsOnlyExplicitDanishSubtitleEvidence(t *testing.T) {
 	t.Parallel()
 	positive := []string{
