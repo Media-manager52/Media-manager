@@ -19,6 +19,11 @@ const (
 	WorkloadCommissioning Workload = "commissioning"
 	WorkloadRetrieval     Workload = "retrieval"
 	WorkloadBackground    Workload = "background"
+	// WorkloadBrowse is a viewer-facing indexer search. Unlike other
+	// interactive acquisition traffic it waits for the remainder of the
+	// per-indexer minimum interval while holding the lane, so a continuous
+	// background recovery sweep cannot keep taking the next pacing slot.
+	WorkloadBrowse Workload = "browse"
 )
 
 type Outcome string
@@ -101,6 +106,7 @@ type Scheduler struct {
 	global chan struct{}
 	store  SnapshotStore
 	now    func() time.Time
+	wait   func(context.Context, time.Duration) error
 }
 
 type lane struct {
@@ -219,8 +225,24 @@ func NewScheduler(globalLimit int, store SnapshotStore) *Scheduler {
 	if globalLimit < 1 {
 		globalLimit = 1
 	}
-	return &Scheduler{lanes: make(map[string]*lane), global: make(chan struct{}, globalLimit), store: store, now: time.Now}
+	return &Scheduler{lanes: make(map[string]*lane), global: make(chan struct{}, globalLimit), store: store, now: time.Now, wait: waitForPacing}
 }
+
+func waitForPacing(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// Maximum time a viewer-facing browse request may hold an indexer lane while
+// waiting for its next permitted pacing slot. Longer waits are caused by a
+// failure cooldown, which is reported rather than held.
+const maxBrowsePacingWait = 10 * time.Second
 
 // ValidBudget is Scheduler.Configure's predicate verbatim, extracted so
 // callers outside the package can reject a configuration the scheduler itself
@@ -332,14 +354,54 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 	now := scheduler.now().UTC()
 	lane.mu.RLock()
 	notBefore := lane.snapshot.NextAllowedAt
+	cooldownActive := lane.snapshot.CooldownUntil.After(now)
 	if lane.snapshot.CooldownUntil.After(notBefore) {
 		notBefore = lane.snapshot.CooldownUntil
 	}
 	lane.mu.RUnlock()
 	if notBefore.After(now) {
+		// Browse waits for a pacing slot while retaining the lane. Releasing
+		// the global slot during the wait keeps other indexers moving. A
+		// failure cooldown, or a pacing interval longer than the browse
+		// budget, is still reported immediately.
+		if workload != WorkloadBrowse || cooldownActive || notBefore.Sub(now) > maxBrowsePacingWait {
+			<-scheduler.global
+			<-lane.gate
+			return nil, CooldownError{Until: notBefore}
+		}
 		<-scheduler.global
-		<-lane.gate
-		return nil, CooldownError{Until: notBefore}
+		waitErr := scheduler.wait(ctx, notBefore.Sub(now))
+		if waitErr == nil {
+			select {
+			case scheduler.global <- struct{}{}:
+			case <-ctx.Done():
+				waitErr = ctx.Err()
+			}
+		}
+		if waitErr != nil {
+			<-lane.gate
+			return nil, waitErr
+		}
+		if err := ctx.Err(); err != nil {
+			<-scheduler.global
+			<-lane.gate
+			return nil, err
+		}
+		// No other goroutine can advance this lane while its gate is held.
+		// Re-read only to keep the decision explicit and testable.
+		now = scheduler.now().UTC()
+		lane.mu.RLock()
+		notBefore = lane.snapshot.NextAllowedAt
+		cooldownActive = lane.snapshot.CooldownUntil.After(now)
+		if lane.snapshot.CooldownUntil.After(notBefore) {
+			notBefore = lane.snapshot.CooldownUntil
+		}
+		lane.mu.RUnlock()
+		if cooldownActive || notBefore.After(now) {
+			<-scheduler.global
+			<-lane.gate
+			return nil, CooldownError{Until: notBefore}
+		}
 	}
 	lane.mu.RLock()
 	budget := lane.budget
