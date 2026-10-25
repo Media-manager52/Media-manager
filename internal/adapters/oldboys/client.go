@@ -30,7 +30,7 @@ const searchLimit = 4 << 20
 const nzbLimit = 128 << 20
 
 var numericID = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
-var danishToken = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])danish(?:$|[^a-z0-9])`)
+var danishToken = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:danish|nordic|nortekst|norvid|dansub|dansk|dksubs|dan-sub)(?:$|[^a-z0-9])`)
 
 func DanishTitle(title string) bool { return danishToken.MatchString(title) }
 func ValidID(id string) bool        { return numericID.MatchString(id) }
