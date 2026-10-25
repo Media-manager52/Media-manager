@@ -17,6 +17,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
+	"github.com/media-manager/media-manager/internal/adapters/oldboys"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -157,7 +158,13 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 	lanes := make(chan struct{}, browseProviderConcurrency)
 	for _, integration := range all {
 		var cfg indexerConfig
-		if integration.Kind != "newznab" || !integration.Enabled || json.Unmarshal(integration.Config, &cfg) != nil || !cfg.ModeVerified {
+		if !integration.Enabled || json.Unmarshal(integration.Config, &cfg) != nil {
+			continue
+		}
+		if integration.Kind != "newznab" && integration.Kind != "oldboys" {
+			continue
+		}
+		if integration.Kind == "newznab" && !cfg.ModeVerified {
 			continue
 		}
 		wg.Add(1)
@@ -174,17 +181,32 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			}
 			provider := BrowseProvider{Name: i.Name, State: "unavailable"}
 			var observations []releases.Observation
-			client, e := s.client(i, c)
-			if e == nil {
-				request := buildRequest(search, c)
-				if plan, pe := s.Search.searchProfilePlan(ctx, i.ID, search, c); pe == nil {
-					request = plan.Primary.Request
-				} else if !errors.Is(pe, errNoActiveSearchProfile) {
-					e = pe
+			var client *newznab.Client
+			var e error
+			if i.Kind == "oldboys" {
+				if budgetErr := s.Search.Scheduler.Configure(i.ID.String(), indexers.NewznabBudget(c.MinimumIntervalMS, c.QueryLimit, c.GrabLimit, c.BudgetWindow)); budgetErr != nil {
+					e = budgetErr
+				} else {
+					native, clientErr := newOldBoysClient(ctx, s.Search.Store, s.Search.Scheduler, s.Search.OldBoysCredentials, i, s.Search.Transport)
+					if clientErr != nil {
+						e = clientErr
+					} else {
+						observations, e = oldBoysBrowseObservations(ctx, native, in)
+					}
 				}
-				request.Extended = true
+			} else {
+				client, e = s.client(i, c)
 				if e == nil {
-					observations, e = client.BrowseSearch(ctx, request)
+					request := buildRequest(search, c)
+					if plan, pe := s.Search.searchProfilePlan(ctx, i.ID, search, c); pe == nil {
+						request = plan.Primary.Request
+					} else if !errors.Is(pe, errNoActiveSearchProfile) {
+						e = pe
+					}
+					request.Extended = true
+					if e == nil {
+						observations, e = client.BrowseSearch(ctx, request)
+					}
 				}
 			}
 			if e == nil {
@@ -201,7 +223,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			// opening a title cannot fan out hundreds of API requests. A short
 			// budget keeps a slow details/NFO endpoint from delaying playback
 			// choices; the unenriched extended-search facts remain usable.
-			if e == nil {
+			if e == nil && client != nil {
 				enrichCtx, cancel := context.WithTimeout(ctx, browseEnrichmentTimeout)
 				defer cancel()
 				for n, observation := range observations {
@@ -241,11 +263,17 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 				}
 				seen[o.NativeGUID] = true
 				o = releases.InferTitleFacts(o, time.Now().UTC())
-				if !browseMatches(o, media, in) {
-					continue
-				}
-				if _, e := newznab.RetrievalID(o.NativeGUID, c.BaseURL); e != nil {
-					continue
+				if i.Kind == "oldboys" {
+					if !oldBoysBrowseMatches(o, media, in) {
+						continue
+					}
+				} else {
+					if !browseMatches(o, media, in) {
+						continue
+					}
+					if _, e := newznab.RetrievalID(o.NativeGUID, c.BaseURL); e != nil {
+						continue
+					}
 				}
 				o.Fields = nil // Only exact identity, locator and normalized display facts are retained.
 				token := uuid.NewV4().String()
@@ -327,6 +355,62 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 	s.cache[in] = browseCache{result: result, until: now.Add(ttl)}
 	return result, nil
 }
+
+// oldBoysBrowseObservations queries the native Danish provider. OldBoys
+// returns at most 25 rows per page and has a small fixed page count; four
+// pages cover the useful catalogue without turning an interactive open into
+// an unbounded scrape.
+func oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, in BrowseInput) ([]releases.Observation, error) {
+	request := oldBoysBrowseRequest(in)
+	all := []releases.Observation{}
+	for page := 1; page <= 4; page++ {
+		request.Page = page
+		observations, err := client.Search(ctx, request, indexers.WorkloadBrowse, nil)
+		if err != nil {
+			if len(all) > 0 {
+				break
+			}
+			return nil, err
+		}
+		all = append(all, observations...)
+		if len(observations) == 0 {
+			break
+		}
+	}
+	return all, nil
+}
+
+func oldBoysBrowseRequest(in BrowseInput) oldboys.SearchRequest {
+	title := releases.SearchQueryTitle(in.Title)
+	category := oldboys.MovieCategory
+	suffix := ""
+	if in.Kind == catalog.KindSeries {
+		category = oldboys.SeriesCategory
+		suffix = fmt.Sprintf(" S%02dE%02d", in.Season, in.Episode)
+	} else if in.Year != 0 {
+		suffix = fmt.Sprintf(" %d", in.Year)
+	}
+	return oldboys.SearchRequest{Name: title + suffix + " DANiSH", Category: category, Page: 1}
+}
+
+var oldBoysEpisodeTag = regexp.MustCompile(`(?i)\bS([0-9]{1,3})E([0-9]{1,3})\b`)
+
+func oldBoysBrowseMatches(observation releases.Observation, media catalog.MediaItem, in BrowseInput) bool {
+	if observation.ParseVersion != "oldboys-v1" || !mediaTitleMatches(observation.Title, media) {
+		return false
+	}
+	if in.Kind == catalog.KindMovie {
+		return true
+	}
+	match := oldBoysEpisodeTag.FindStringSubmatch(observation.Title)
+	if len(match) != 3 {
+		return false
+	}
+	season, seasonErr := strconv.Atoi(match[1])
+	episode, episodeErr := strconv.Atoi(match[2])
+	return seasonErr == nil && episodeErr == nil && season == int(in.Season) && episode == int(in.Episode)
+}
+
 func (s *BrowseService) client(i postgres.Integration, c indexerConfig) (*newznab.Client, error) {
 	if err := s.Search.Scheduler.Configure(i.ID.String(), indexers.NewznabBudget(c.MinimumIntervalMS, c.QueryLimit, c.GrabLimit, c.BudgetWindow)); err != nil {
 		return nil, err
@@ -366,16 +450,26 @@ func (s *BrowseService) Download(ctx context.Context, token string) ([]byte, str
 	if e := json.Unmarshal(choice.integration.Config, &cfg); e != nil {
 		return nil, "", BrowseInput{}, e
 	}
-	client, e := s.client(choice.integration, cfg)
-	if e != nil {
-		return nil, "", BrowseInput{}, e
+	var nzb newznab.NZBPackage
+	var e error
+	if choice.integration.Kind == "oldboys" {
+		client, clientErr := newOldBoysClient(ctx, s.Search.Store, s.Search.Scheduler, s.Search.OldBoysCredentials, choice.integration, s.Search.Transport)
+		if clientErr != nil {
+			return nil, "", BrowseInput{}, clientErr
+		}
+		nzb, e = client.GetNZBPackageGuarded(ctx, choice.observation.NativeGUID, guard)
+	} else {
+		client, clientErr := s.client(choice.integration, cfg)
+		if clientErr != nil {
+			return nil, "", BrowseInput{}, clientErr
+		}
+		native, idErr := newznab.RetrievalID(choice.observation.NativeGUID, cfg.BaseURL)
+		if idErr != nil {
+			return nil, "", BrowseInput{}, idErr
+		}
+		locator := newznab.DownloadLocatorReference(choice.observation.DownloadURL, choice.observation.NativeGUID)
+		nzb, e = client.GetNZBPackageFromLocatorGuarded(ctx, native, locator, guard)
 	}
-	native, e := newznab.RetrievalID(choice.observation.NativeGUID, cfg.BaseURL)
-	if e != nil {
-		return nil, "", BrowseInput{}, e
-	}
-	locator := newznab.DownloadLocatorReference(choice.observation.DownloadURL, choice.observation.NativeGUID)
-	nzb, e := client.GetNZBPackageFromLocatorGuarded(ctx, native, locator, guard)
 	if e != nil {
 		return nil, "", BrowseInput{}, e
 	}
