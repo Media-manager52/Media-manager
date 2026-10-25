@@ -225,7 +225,7 @@ func run() error {
 	commissionService := &commissioning.NewznabService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
 	oldBoysCommission := &commissioning.OldBoysService{Store: store, Scheduler: scheduler, Credentials: oldBoysCredentials}
 	liveCAPSService := &commissioning.LiveCAPSService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
-	browseService := &acquisition.BrowseService{Search: &acquisition.SearchService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret, OldBoysCredentials: oldBoysCredentials}}
+	browseService := &acquisition.BrowseService{Search: &acquisition.SearchService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret, OldBoysCredentials: oldBoysCredentials}, EnrichDetails: strings.EqualFold(os.Getenv("BROWSE_ENRICH_DETAILS"), "true")}
 	api, err := httpapi.New(httpapi.Config{Streaming: browseService, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
 	if err != nil {
 		return err

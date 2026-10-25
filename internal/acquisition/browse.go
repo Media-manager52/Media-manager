@@ -93,11 +93,12 @@ type BrowseService struct {
 	// OldBoys is queried by title only, so its rows are shared by every
 	// episode in that season/title. Cache them separately from the exact
 	// Newznab episode searches.
-	oldBoysCache map[string]oldBoysBrowseCache
-	seasonCache  map[string]seasonBrowseCache
-	detailCache  map[string]detailBrowseCache
-	flights      singleflight.Group
-	active       int
+	oldBoysCache  map[string]oldBoysBrowseCache
+	seasonCache   map[string]seasonBrowseCache
+	detailCache   map[string]detailBrowseCache
+	EnrichDetails bool
+	flights       singleflight.Group
+	active        int
 }
 
 type detailBrowseCache struct {
@@ -235,7 +236,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			// opening a title cannot fan out hundreds of API requests. A short
 			// budget keeps a slow details/NFO endpoint from delaying playback
 			// choices; the unenriched extended-search facts remain usable.
-			if e == nil && client != nil {
+			if e == nil && client != nil && s.EnrichDetails {
 				enrichCtx, cancel := context.WithTimeout(ctx, browseEnrichmentTimeout)
 				defer cancel()
 				for n, observation := range observations {
