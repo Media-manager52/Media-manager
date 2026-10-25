@@ -504,3 +504,12 @@ dependency).
   plus PostgreSQL lifecycle tests (`*_integration_test.go`).
 - Run `-race`; CI runs `go test -count=1 -race ./cmd/... ./internal/...`
   against PostgreSQL 18.
+
+### Interactive streaming browse service
+
+`internal/acquisition/browse.go` reuses SearchService's provider request planning,
+media matching, Newznab transport and durable scheduler for the private addon.
+It keeps bounded expiring choices in memory and permits retrieval only through
+an exact choice. No acquisition workflow or library publication is created.
+`internal/adapters/newznab/media.go` reads explicit media attributes and bounded
+MediaInfo-style NFO fields while keeping subtitle/audio provenance separate.

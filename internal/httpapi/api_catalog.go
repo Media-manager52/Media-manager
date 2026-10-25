@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"github.com/media-manager/media-manager/internal/acquisition"
 	"net/http"
 
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
@@ -74,6 +75,8 @@ var (
 func (server *Server) apiOperations() []apiOperation {
 	owner, s := authOwner, server
 	return []apiOperation{
+		{Method: "POST", Path: "/api/v1/streaming/search", Handler: s.streamingSearch, Auth: owner, Effect: effectProvider, Tag: "streaming", Summary: "Browse exact releases without acquiring or publishing", Body: acquisition.BrowseInput{}, Required: []string{"kind", "imdb_id", "title", "year"}, Response: acquisition.BrowseResult{}},
+		{Method: "POST", Path: "/api/v1/streaming/releases/{id}/nzb", Handler: s.streamingNZB, Auth: owner, Effect: effectProvider, Tag: "streaming", Summary: "Retrieve the viewer-selected NZB using the shared provider budget", Description: "Binary NZB response. Choice expires after six hours or a server restart. Never chooses a replacement."},
 		{Method: "GET", Path: "/health/live", Handler: s.live, Auth: authNone, Effect: effectRead, Tag: "system", Summary: "Process liveness"},
 		{Method: "GET", Path: "/health/ready", Handler: s.ready, Auth: authNone, Effect: effectRead, Tag: "system", Summary: "Readiness: database reachable and schema version current"},
 		{Method: "GET", Path: "/api/v1", Handler: s.apiIndex, Auth: owner, Effect: effectRead, Tag: "system", Summary: "API index for agents: conventions, effects, auth and where the OpenAPI document is"},

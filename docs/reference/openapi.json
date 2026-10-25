@@ -1,6 +1,85 @@
 {
   "components": {
     "schemas": {
+      "Acquisition_BrowseInput": {
+        "properties": {
+          "episode": {
+            "type": "integer"
+          },
+          "imdb_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "season": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Acquisition_BrowseProvider": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Acquisition_BrowseRelease": {
+        "properties": {
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/Releases_Fact"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "indexer": {
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Acquisition_BrowseResult": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/Acquisition_BrowseProvider"
+            },
+            "type": "array"
+          },
+          "releases": {
+            "items": {
+              "$ref": "#/components/schemas/Acquisition_BrowseRelease"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ApproveProwlarrImportInput": {
         "properties": {
           "candidates": {
@@ -1357,6 +1436,33 @@
         "properties": {
           "job_id": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Releases_Fact": {
+        "properties": {
+          "evidence_at": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -5840,6 +5946,116 @@
         "x-mm-effect": "read"
       }
     },
+    "/api/v1/streaming/releases/{id}/nzb": {
+      "post": {
+        "description": "Binary NZB response. Choice expires after six hours or a server restart. Never chooses a replacement.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "streamingNZB",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Retrieve the viewer-selected NZB using the shared provider budget",
+        "tags": [
+          "streaming"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/streaming/search": {
+      "post": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "streamingSearch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Acquisition_BrowseInput"
+                  }
+                ],
+                "required": [
+                  "kind",
+                  "imdb_id",
+                  "title",
+                  "year"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Acquisition_BrowseResult"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Browse exact releases without acquiring or publishing",
+        "tags": [
+          "streaming"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
     "/api/v1/system/health": {
       "get": {
         "description": "No state change and no provider contact. Always safe.",
@@ -7036,6 +7252,10 @@
     }
   ],
   "tags": [
+    {
+      "description": "Interactive release browsing and exact-choice NZB retrieval for private streaming clients.",
+      "name": "streaming"
+    },
     {
       "description": "Health, version, background tasks, backups and this API's own description.",
       "name": "system"
