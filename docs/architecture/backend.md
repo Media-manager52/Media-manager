@@ -515,6 +515,11 @@ dependency).
 media matching, Newznab transport and durable scheduler for the private addon.
 It keeps bounded expiring choices in memory and permits retrieval only through
 an exact choice. No acquisition workflow or library publication is created.
+Each provider search runs in its own goroutine (up to nine) so per-indexer
+pacing waits do not serialize the other providers; the scheduler still enforces
+the global and per-indexer limits. Optional details/NFO enrichment is capped at
+five seconds and falls back to the extended-search facts when it is slow or
+unavailable.
 `internal/adapters/newznab/media.go` reads explicit media attributes and bounded
 MediaInfo-style NFO fields while keeping subtitle/audio provenance separate.
 Primary browse searches use `WorkloadBrowse`; acquisition search and recovery

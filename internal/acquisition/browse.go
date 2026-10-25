@@ -28,6 +28,17 @@ var ErrBrowseExpired = errors.New("release choice expired; refresh the stream li
 var ErrBrowseInput = errors.New("invalid streaming search")
 var browseIMDb = regexp.MustCompile(`^tt[0-9]{1,10}$`)
 
+const (
+	// Every provider gets its own goroutine so a slow pacing wait on one
+	// indexer cannot serialize the remaining providers. The shared scheduler
+	// still enforces the real global and per-indexer request limits.
+	browseProviderConcurrency = 9
+	// Optional details/NFO lookups enrich a release only when the provider
+	// search omitted the fields. Keep that work off the critical path when a
+	// provider is slow.
+	browseEnrichmentTimeout = 5 * time.Second
+)
+
 type BrowseInput struct {
 	Kind    catalog.MediaKind `json:"kind"`
 	IMDb    string            `json:"imdb_id"`
@@ -138,7 +149,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 	choices := map[string]browseChoice{}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	lanes := make(chan struct{}, 3)
+	lanes := make(chan struct{}, browseProviderConcurrency)
 	for _, integration := range all {
 		var cfg indexerConfig
 		if integration.Kind != "newznab" || !integration.Enabled || json.Unmarshal(integration.Config, &cfg) != nil || !cfg.ModeVerified {
@@ -182,23 +193,27 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 
 			// Extended search already includes media attributes on many indexers.
 			// Bound optional enrichment to one matching release per provider so
-			// opening a title cannot fan out hundreds of API requests.
+			// opening a title cannot fan out hundreds of API requests. A short
+			// budget keeps a slow details/NFO endpoint from delaying playback
+			// choices; the unenriched extended-search facts remain usable.
 			if e == nil {
+				enrichCtx, cancel := context.WithTimeout(ctx, browseEnrichmentTimeout)
+				defer cancel()
 				for n, observation := range observations {
 					if hasProviderSubtitles(observation) || !browseMatches(releases.InferTitleFacts(observation, time.Now().UTC()), media, in) {
 						continue
 					}
-					enriched, inspectErr := client.InspectMedia(ctx, observation)
-					if waitBrowsePacing(ctx, inspectErr) {
-						enriched, inspectErr = client.InspectMedia(ctx, observation)
+					enriched, inspectErr := client.InspectMedia(enrichCtx, observation)
+					if waitBrowsePacing(enrichCtx, inspectErr) {
+						enriched, inspectErr = client.InspectMedia(enrichCtx, observation)
 					}
 					if inspectErr == nil {
 						observation = enriched
 					}
-					if !hasProviderSubtitles(observation) && advertisesNFO(observation) {
-						enriched, inspectErr = client.InspectNFO(ctx, observation)
-						if waitBrowsePacing(ctx, inspectErr) {
-							enriched, inspectErr = client.InspectNFO(ctx, observation)
+					if enrichCtx.Err() == nil && !hasProviderSubtitles(observation) && advertisesNFO(observation) {
+						enriched, inspectErr = client.InspectNFO(enrichCtx, observation)
+						if waitBrowsePacing(enrichCtx, inspectErr) {
+							enriched, inspectErr = client.InspectNFO(enrichCtx, observation)
 						}
 						if inspectErr == nil {
 							observation = enriched
