@@ -20,6 +20,7 @@ also create and search titles directly.
 - AltMount (required for Usenet acquisition), running on the same Docker host
   or reachable from it.
 - At least one Newznab-compatible indexer.
+- A TMDB API read access token (recommended; discovery and descriptive metadata).
 - Optional: Seerr/Overseerr/Jellyseerr for requests.
 - Optional: a domain name for automatic HTTPS.
 - Host folders for movies and TV, and the parent folder that contains
@@ -52,7 +53,8 @@ cd media-manager
 ```
 
 It asks for the library folders, the AltMount parent folder, the Docker network,
-the access mode, and the owner login. It then:
+the access mode, the owner login, and optional Plex/Newznab/TMDB credentials.
+It then:
 
 - writes `.env` and `.env.integrations` with mode `600`
 - generates the database password, owner token, backup key and OldBoys key
@@ -117,6 +119,16 @@ Open **Sources → Indexers**, add a Newznab indexer, and commission it. Put its
 API key in `.env.integrations` under a name such as
 `NEWZNAB_PRIMARY_API_KEY=` and use that name as the secret ref. Only
 commissioned indexers search.
+
+### Metadata providers
+
+TMDB is the primary source for discovery and descriptive metadata. Create a
+TMDB API read access token, put it in `.env.integrations` as
+`TMDB_ACCESS_TOKEN=...`, and recreate the API. The setup asks for it; you can
+leave it blank and add it later. TVDB and Simkl are optional supplements:
+`TVDB_API_KEY`/`TVDB_SUBSCRIBER_PIN` and `SIMKL_CLIENT_ID`. Without TMDB,
+adding a title still works for some paths but discovery and metadata are
+limited.
 
 ### Library root and profile
 
@@ -225,6 +237,7 @@ major update. Caddy certificates live in named volumes and survive restarts.
 | AltMount/API cannot resolve `plex`/`seerr` | Connect those containers to `MEDIA_NETWORK`, or use `host.docker.internal` for host services. |
 | Port already in use | Change `MEDIA_MANAGER_HTTP_PORT` (LAN), `MEDIA_MANAGER_API_PORT` (loopback; also update `COMMISSIONING_V2_OWNER_ORIGIN`), or stop the service using 80/443 (HTTPS). |
 | Build fails | Check Docker disk space and network access; run the build again with `./scripts/standalone-up.sh`. |
+| Discovery is empty or titles lack descriptions | Add `TMDB_ACCESS_TOKEN` to `.env.integrations` and recreate the API; check the API logs for a provider error. |
 | Schema mismatch after an update | The API did not finish migrations. Check its logs; restore the pre-update backup if needed. |
 
 ## Security notes

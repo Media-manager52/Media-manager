@@ -125,6 +125,7 @@ say
 say "Optional secrets. You can leave these blank and edit .env.integrations later."
 PLEX_TOKEN=$(prompt_secret "Plex token")
 NEWZNAB_KEY=$(prompt_secret "First Newznab API key")
+TMDB_TOKEN=$(prompt_secret "TMDB API read access token (recommended)")
 
 OWNER_TOKEN=$(openssl rand -hex 32)
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
@@ -181,7 +182,7 @@ ALTMOUNT_SECRET=
 PLEX_TOKEN=$PLEX_TOKEN
 NEWZNAB_PRIMARY_API_KEY=$NEWZNAB_KEY
 NEWZNAB_SECONDARY_API_KEY=
-TMDB_ACCESS_TOKEN=
+TMDB_ACCESS_TOKEN=$TMDB_TOKEN
 TVDB_API_KEY=
 TVDB_SUBSCRIBER_PIN=
 SIMKL_CLIENT_ID=
