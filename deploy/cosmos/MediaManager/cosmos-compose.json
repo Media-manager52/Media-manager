@@ -106,8 +106,12 @@
           "condition": "service_healthy"
         }
       },
-      "cap_drop": ["ALL"],
-      "security_opt": ["no-new-privileges:true"],
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
       "labels": {
         "cosmos-force-network-secured": "true",
         "cosmos-auto-update": "true",
@@ -119,40 +123,6 @@
         "{ServiceName}": {}
       },
       "routes": [
-        {
-          "name": "{ServiceName}",
-          "description": "Media Manager UI",
-          "useHost": true,
-          "target": "http://{ServiceName}:3000",
-          "mode": "SERVAPP",
-          "Timeout": 14400000,
-          "ThrottlePerMinute": 12000,
-          "BlockCommonBots": true,
-          "SmartShield": {
-            "Enabled": true
-          },
-          "AuthEnabled": true,
-          "AdminOnly": false
-        },
-        {
-          "name": "{ServiceName}-health",
-          "description": "Media Manager health and readiness endpoints",
-          "useHost": false,
-          "host": "{Hostnames.{ServiceName}.{ServiceName}.host}",
-          "usePathPrefix": true,
-          "PathPrefix": "/health",
-          "StripPathPrefix": false,
-          "target": "http://{ServiceName}-api:8080",
-          "mode": "SERVAPP",
-          "Timeout": 14400000,
-          "ThrottlePerMinute": 12000,
-          "BlockCommonBots": true,
-          "SmartShield": {
-            "Enabled": true
-          },
-          "AuthEnabled": true,
-          "AdminOnly": false
-        },
         {
           "name": "{ServiceName}-api",
           "description": "Media Manager API with server-side owner bearer injection",
@@ -174,6 +144,40 @@
           "ExtraHeaders": {
             "Authorization": "Bearer {Context.ownerToken}"
           }
+        },
+        {
+          "name": "{ServiceName}-health",
+          "description": "Media Manager health and readiness endpoints",
+          "useHost": false,
+          "host": "{Hostnames.{ServiceName}.{ServiceName}.host}",
+          "usePathPrefix": true,
+          "PathPrefix": "/health",
+          "StripPathPrefix": false,
+          "target": "http://{ServiceName}-api:8080",
+          "mode": "SERVAPP",
+          "Timeout": 14400000,
+          "ThrottlePerMinute": 12000,
+          "BlockCommonBots": true,
+          "SmartShield": {
+            "Enabled": true
+          },
+          "AuthEnabled": true,
+          "AdminOnly": false
+        },
+        {
+          "name": "{ServiceName}",
+          "description": "Media Manager UI",
+          "useHost": true,
+          "target": "http://{ServiceName}:3000",
+          "mode": "SERVAPP",
+          "Timeout": 14400000,
+          "ThrottlePerMinute": 12000,
+          "BlockCommonBots": true,
+          "SmartShield": {
+            "Enabled": true
+          },
+          "AuthEnabled": true,
+          "AdminOnly": false
         }
       ]
     },
@@ -187,9 +191,15 @@
           "condition": "service_healthy"
         }
       },
-      "extra_hosts": ["host.docker.internal:host-gateway"],
-      "cap_drop": ["ALL"],
-      "security_opt": ["no-new-privileges:true"],
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
       "sysctls": {
         "net.ipv6.conf.all.disable_ipv6": "1",
         "net.ipv6.conf.default.disable_ipv6": "1"
@@ -262,11 +272,15 @@
         "{Context.mediaNetwork}": {}
       },
       "healthcheck": {
-        "test": ["CMD", "/usr/local/bin/media-manager", "healthcheck"],
-        "interval": "15s",
-        "timeout": "4s",
+        "test": [
+          "CMD",
+          "/usr/local/bin/media-manager",
+          "healthcheck"
+        ],
+        "interval": 15,
+        "timeout": 4,
         "retries": 4,
-        "start_period": "20s"
+        "start_period": 20
       }
     },
     "{ServiceName}-postgres": {
@@ -296,9 +310,12 @@
         "{ServiceName}": {}
       },
       "healthcheck": {
-        "test": ["CMD-SHELL", "pg_isready -U media_manager -d media_manager"],
-        "interval": "5s",
-        "timeout": "5s",
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U media_manager -d media_manager"
+        ],
+        "interval": 5,
+        "timeout": 5,
         "retries": 12
       }
     }
