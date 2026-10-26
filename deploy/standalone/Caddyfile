@@ -1,0 +1,29 @@
+# Standalone edge: browser login, server-side owner bearer injection, and the
+# same-origin route shape the UI expects. Do not expose the API port directly.
+{
+	admin off
+}
+
+{$MEDIA_MANAGER_SITE} {
+	encode zstd gzip
+
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+
+	# The browser never receives OWNER_TOKEN. Caddy overwrites any inbound
+	# Authorization header before the request reaches the API.
+	handle /api/* {
+		reverse_proxy api:8080 {
+			header_up Authorization "Bearer {$OWNER_TOKEN}"
+		}
+	}
+
+	handle /health/* {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		reverse_proxy ui:3000
+	}
+}

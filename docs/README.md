@@ -7,6 +7,7 @@ behavioral truth is always the code and the SQL migrations.
 
 | Audience | Path |
 | --- | --- |
+| New owner installing on their own server | [getting-started.md](getting-started.md) — standalone setup, Caddy edge, first integrations, folder contract, updates, backups and troubleshooting |
 | New engineer or AI agent | [onboarding/README.md](onboarding/README.md) — overview, read order, hard rules |
 | AI agent operating the running server | [operations/ai-agents.md](operations/ai-agents.md) — API discovery (`GET /api/v1`, OpenAPI), effects, safe calling, common tasks |
 | Coding agent session | [onboarding/agent-briefs/claude-code.md](onboarding/agent-briefs/claude-code.md) — paste-ready finish-today execution brief |
