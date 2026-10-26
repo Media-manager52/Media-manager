@@ -1,24 +1,28 @@
 # GitHub builds, uploads and updates on the VPS
 
 GitHub coordinates the work; a dedicated VPS account performs builds and tests.
-The runner is registered only to the private Media Manager repository as
-`media-manager-vps`. It runs one job at a time, with an aggregate ceiling of
+The runner is registered only to the Media Manager repository as
+`media-manager-vps`. The repository is public for the Cosmos market listing, but
+the self-hosted verification workflow has no `pull_request` trigger, so fork
+code is never executed on the runner. It runs one job at a time, with an aggregate ceiling of
 five CPU cores and 12 GiB RAM across its runner, Docker engine and containers.
 Production has the remaining capacity. The CI user has no sudo or production
 Docker-group membership and cannot read the owner's home or production secrets.
 
 ## Normal use
 
-1. Push a feature branch and open a pull request. **Verify** runs frontend
-   lint/typecheck/unit tests, browser tests, full Go vet/race tests with its
-   disposable PostgreSQL, deployment-boundary regressions and container smoke.
-   Fork pull requests and public repositories cannot use this workflow's runner.
+1. Push a feature branch; **Verify** runs frontend lint/typecheck/unit tests,
+   browser tests, full Go vet/race tests with its disposable PostgreSQL,
+   deployment-boundary regressions and container smoke. Open a pull request for
+   review. Fork pull requests do not execute the self-hosted workflow; the owner
+   reviews them and validates a trusted push after review.
 2. Merge the passing change into `main`. Verification runs again for the actual
    merged commit, then **publish** uploads the API and UI images to GitHub
    Container Registry. Images carry full commit tags and source/revision labels:
    `ghcr.io/media-manager52/media-manager-api:sha-<commit>` and
-   `ghcr.io/media-manager52/media-manager-ui:sha-<commit>`. The `main` tags point
-   to the most recently verified upload; deployments use the full commit tags.
+   `ghcr.io/media-manager52/media-manager-ui:sha-<commit>`. The `main` and
+   `latest` tags point to the most recently verified upload; deployments use the
+   full commit tags, and the Cosmos market uses `main`.
 3. Open **Actions → Deploy → Run workflow**, select `main`, and run it. Leave
    the verification run ID blank to select the successful run for that exact
    commit. Production deployment is manual; pushes alone do not update it.
@@ -28,9 +32,10 @@ Docker-group membership and cannot read the owner's home or production secrets.
 
 No long-lived registry secret is added to GitHub. Publishing uses the job's
 short-lived `GITHUB_TOKEN` with package-write permission. Registry login data
-is kept in a temporary CI directory and removed afterward. The packages remain
-private and linked to the repository. Source code still changes through Git;
-database backups, indexer credentials, NZBs and media are never uploaded.
+is kept in a temporary CI directory and removed afterward. The API and UI
+packages are made publicly pullable for the Cosmos market and remain linked to
+the repository. Source code still changes through Git; database backups,
+indexer credentials, NZBs and media are never uploaded.
 
 ## Isolation and deployment checks
 

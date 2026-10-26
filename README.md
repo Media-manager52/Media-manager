@@ -18,7 +18,7 @@ API and every other path to the UI, and injects `OWNER_TOKEN` server-side on
 local secrets, fixes the Compose project name for the Cosmos targets, creates
 and joins the shared Docker network, builds the stack, and prints the three
 Cosmos routes to add. Media Manager is also available as a Cosmos market app:
-add `https://raw.githubusercontent.com/Media-manager52/media-manager-cosmos/main/index.json`
+add `https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/index.json`
 as a market source, or use the built-in store after the
 [official listing](https://github.com/azukaar/cosmos-servapps-official/pull/336)
 is accepted. The market wizard creates the same services and routes.

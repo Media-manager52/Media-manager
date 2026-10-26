@@ -1,20 +1,25 @@
 name: Verify
 
 on:
+  # The verification jobs use the owner's self-hosted runner. Do not add a
+  # pull_request trigger: a public repository must never execute code from a
+  # fork pull request on that runner. Same-repository pushes are trusted.
   push:
-  pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: verify-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: verify-${{ github.ref_name }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
+# All jobs use the owner's self-hosted runner. This workflow intentionally has
+# no pull_request trigger: fork code is never executed on that runner. Fork PRs
+# are reviewed by the owner and validated by a trusted push after review.
 jobs:
   frontend:
-    if: github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, media-manager-vps]
     timeout-minutes: 30
     steps:
@@ -32,7 +37,7 @@ jobs:
       - run: npm test
 
   browser:
-    if: github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, media-manager-vps]
     timeout-minutes: 30
     # Same pinned image as the GitLab browser job, so browsers match @playwright/test.
@@ -52,7 +57,7 @@ jobs:
           retention-days: 7
 
   backend:
-    if: github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, media-manager-vps]
     timeout-minutes: 30
     services:
@@ -88,7 +93,7 @@ jobs:
       - run: git diff --exit-code -- go.mod go.sum
 
   containers:
-    if: github.event.repository.private && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, media-manager-vps]
     timeout-minutes: 30
     steps:
@@ -100,7 +105,7 @@ jobs:
 
   publish:
     needs: [frontend, browser, backend, containers]
-    if: github.event.repository.private && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: [self-hosted, linux, x64, media-manager-vps]
     timeout-minutes: 30
     permissions:
