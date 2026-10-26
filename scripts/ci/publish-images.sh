@@ -31,7 +31,7 @@ done
 for component in api ui; do
   package="media-manager-${component}"
   api_args=(
-    --disable --silent --show-error --max-time 30
+    --disable --silent --show-error --fail --max-time 30
     -X PATCH
     -H "Authorization: Bearer ${GHCR_TOKEN}"
     -H "Accept: application/vnd.github+json"
