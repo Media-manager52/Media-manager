@@ -23,7 +23,7 @@ func TestOldBoysCatalogueBindingIsInferredScopedAndPreservesUnknownIDs(t *testin
 		{"Operation.X.S2026E02.DANiSH.1080p.WEB", "newznab-v1", "da", "", false},
 		{"Operation.X.S2026E02.DANiSH.1080p.WEB", "oldboys-v1", "en", "", false},
 		{"Operation.X.Unrelated.Spinoff.S2026E02.DANiSH.1080p.WEB", "oldboys-v1", "da", "", false},
-		{"Operation.X.S2026E02.NORDiC.1080p.WEB", "oldboys-v1", "da", "", false},
+		{"Operation.X.S2026E02.NORDiC.1080p.WEB", "oldboys-v1", "da", "", true},
 		{"Operation.X.S2026E02.DANiSH.1080p.WEB", "oldboys-v1", "da", "tt9999999", false},
 	} {
 		t.Run(spec.title+spec.version+spec.language+spec.id, func(t *testing.T) {

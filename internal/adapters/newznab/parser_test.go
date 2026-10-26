@@ -456,3 +456,10 @@ func TestPackageIdentityRejectsIncompleteSegmentEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestPackageIdentityAcceptsLatin1NZB(t *testing.T) {
+	body := []byte("<?xml version=\"1.0\" encoding=\"iso-8859-1\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.0//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.0.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\"><head/><file poster=\"poster\"><groups><group>alt.binaries.test</group></groups><segments><segment bytes=\"12\" number=\"1\">one@example</segment></segments></file></nzb>")
+	if _, err := PackageIdentity(body); err != nil {
+		t.Fatalf("Latin-1 NZB rejected: %v", err)
+	}
+}

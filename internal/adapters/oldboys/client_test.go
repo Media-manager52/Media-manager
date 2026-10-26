@@ -53,10 +53,13 @@ func TestNativeSearchKeepsUnknownEvidenceAndNumericIdentity(t *testing.T) {
 	}), nil)
 	request := SearchRequest{Name: "Operation X S2026 DANiSH", Category: 2, Page: 1}
 	rows, total, err := client.ProbeSearch(context.Background(), request, indexers.WorkloadInteractive, nil)
-	if err != nil || total != 3 || len(rows) != 1 {
+	if err != nil || total != 3 || len(rows) != 2 {
 		t.Fatalf("rows=%d total=%d err=%v", len(rows), total, err)
 	}
 	row := rows[0]
+	if rows[1].Title != "Other.Show.S01E01.NORDiC" {
+		t.Fatalf("Nordic release was not retained: %+v", rows[1].Title)
+	}
 	if row.NativeGUID != "198540" || row.DownloadURL != "" || row.IndexerID != client.id {
 		t.Fatal("native identity or empty locator incorrect")
 	}

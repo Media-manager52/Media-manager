@@ -17,6 +17,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
+	"github.com/media-manager/media-manager/internal/adapters/oldboys"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -89,8 +90,30 @@ type BrowseService struct {
 	mu      sync.Mutex
 	choices map[string]browseChoice
 	cache   map[BrowseInput]browseCache
-	flights singleflight.Group
-	active  int
+	// OldBoys is queried by title only, so its rows are shared by every
+	// episode in that season/title. Cache them separately from the exact
+	// Newznab episode searches.
+	oldBoysCache  map[string]oldBoysBrowseCache
+	seasonCache   map[string]seasonBrowseCache
+	detailCache   map[string]detailBrowseCache
+	EnrichDetails bool
+	flights       singleflight.Group
+	active        int
+}
+
+type detailBrowseCache struct {
+	observation releases.Observation
+	until       time.Time
+}
+
+type seasonBrowseCache struct {
+	observations []releases.Observation
+	until        time.Time
+}
+
+type oldBoysBrowseCache struct {
+	observations []releases.Observation
+	until        time.Time
 }
 
 func (s *BrowseService) Browse(ctx context.Context, in BrowseInput) (BrowseResult, error) {
@@ -157,7 +180,13 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 	lanes := make(chan struct{}, browseProviderConcurrency)
 	for _, integration := range all {
 		var cfg indexerConfig
-		if integration.Kind != "newznab" || !integration.Enabled || json.Unmarshal(integration.Config, &cfg) != nil || !cfg.ModeVerified {
+		if !integration.Enabled || json.Unmarshal(integration.Config, &cfg) != nil {
+			continue
+		}
+		if integration.Kind != "newznab" && integration.Kind != "oldboys" {
+			continue
+		}
+		if integration.Kind == "newznab" && !cfg.ModeVerified {
 			continue
 		}
 		wg.Add(1)
@@ -174,17 +203,23 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			}
 			provider := BrowseProvider{Name: i.Name, State: "unavailable"}
 			var observations []releases.Observation
-			client, e := s.client(i, c)
-			if e == nil {
-				request := buildRequest(search, c)
-				if plan, pe := s.Search.searchProfilePlan(ctx, i.ID, search, c); pe == nil {
-					request = plan.Primary.Request
-				} else if !errors.Is(pe, errNoActiveSearchProfile) {
-					e = pe
+			var client *newznab.Client
+			var e error
+			if i.Kind == "oldboys" {
+				if budgetErr := s.Search.Scheduler.Configure(i.ID.String(), indexers.NewznabBudget(c.MinimumIntervalMS, c.QueryLimit, c.GrabLimit, c.BudgetWindow)); budgetErr != nil {
+					e = budgetErr
+				} else {
+					native, clientErr := newOldBoysClient(ctx, s.Search.Store, s.Search.Scheduler, s.Search.OldBoysCredentials, i, s.Search.Transport)
+					if clientErr != nil {
+						e = clientErr
+					} else {
+						observations, e = s.oldBoysBrowseObservations(ctx, native, i.ID.String(), in)
+					}
 				}
-				request.Extended = true
+			} else {
+				client, e = s.client(i, c)
 				if e == nil {
-					observations, e = client.BrowseSearch(ctx, request)
+					observations, e = s.browseNewznab(ctx, client, i, c, search, media, in)
 				}
 			}
 			if e == nil {
@@ -201,30 +236,14 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			// opening a title cannot fan out hundreds of API requests. A short
 			// budget keeps a slow details/NFO endpoint from delaying playback
 			// choices; the unenriched extended-search facts remain usable.
-			if e == nil {
+			if e == nil && client != nil && s.EnrichDetails {
 				enrichCtx, cancel := context.WithTimeout(ctx, browseEnrichmentTimeout)
 				defer cancel()
 				for n, observation := range observations {
-					if hasProviderSubtitles(observation) || !browseMatches(releases.InferTitleFacts(observation, time.Now().UTC()), media, in) {
+					if !browseMatches(releases.InferTitleFacts(observation, time.Now().UTC()), media, in) {
 						continue
 					}
-					enriched, inspectErr := client.InspectMedia(enrichCtx, observation)
-					if waitBrowsePacing(enrichCtx, inspectErr) {
-						enriched, inspectErr = client.InspectMedia(enrichCtx, observation)
-					}
-					if inspectErr == nil {
-						observation = enriched
-					}
-					if enrichCtx.Err() == nil && !hasProviderSubtitles(observation) && advertisesNFO(observation) {
-						enriched, inspectErr = client.InspectNFO(enrichCtx, observation)
-						if waitBrowsePacing(enrichCtx, inspectErr) {
-							enriched, inspectErr = client.InspectNFO(enrichCtx, observation)
-						}
-						if inspectErr == nil {
-							observation = enriched
-						}
-					}
-					observations[n] = observation
+					observations[n] = s.enrichObservation(enrichCtx, client, i.ID.String(), observation)
 					break
 				}
 			}
@@ -241,11 +260,17 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 				}
 				seen[o.NativeGUID] = true
 				o = releases.InferTitleFacts(o, time.Now().UTC())
-				if !browseMatches(o, media, in) {
-					continue
-				}
-				if _, e := newznab.RetrievalID(o.NativeGUID, c.BaseURL); e != nil {
-					continue
+				if i.Kind == "oldboys" {
+					if !oldBoysBrowseMatches(o, media, in) {
+						continue
+					}
+				} else {
+					if !browseMatches(o, media, in) {
+						continue
+					}
+					if _, e := newznab.RetrievalID(o.NativeGUID, c.BaseURL); e != nil {
+						continue
+					}
 				}
 				o.Fields = nil // Only exact identity, locator and normalized display facts are retained.
 				token := uuid.NewV4().String()
@@ -327,6 +352,272 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 	s.cache[in] = browseCache{result: result, until: now.Add(ttl)}
 	return result, nil
 }
+
+// enrichObservation caches optional details/NFO lookups by provider release.
+// The same release is otherwise inspected again for every episode that hits
+// the provider's search result.
+func (s *BrowseService) enrichObservation(ctx context.Context, client *newznab.Client, providerID string, observation releases.Observation) releases.Observation {
+	if hasProviderSubtitles(observation) {
+		return observation
+	}
+	key := providerID + "|" + observation.NativeGUID
+	now := time.Now()
+	s.mu.Lock()
+	cached, ok := s.detailCache[key]
+	s.mu.Unlock()
+	if ok && now.Before(cached.until) {
+		return cached.observation
+	}
+	enriched, err := client.InspectMedia(ctx, observation)
+	if waitBrowsePacing(ctx, err) {
+		enriched, err = client.InspectMedia(ctx, observation)
+	}
+	if err == nil {
+		observation = enriched
+	}
+	if ctx.Err() == nil && !hasProviderSubtitles(observation) && advertisesNFO(observation) {
+		enriched, err = client.InspectNFO(ctx, observation)
+		if waitBrowsePacing(ctx, err) {
+			enriched, err = client.InspectNFO(ctx, observation)
+		}
+		if err == nil {
+			observation = enriched
+		}
+	}
+	s.mu.Lock()
+	if s.detailCache == nil {
+		s.detailCache = map[string]detailBrowseCache{}
+	}
+	if len(s.detailCache) >= 2000 {
+		for oldKey, entry := range s.detailCache {
+			if now.After(entry.until) {
+				delete(s.detailCache, oldKey)
+			}
+		}
+		if len(s.detailCache) >= 2000 {
+			for oldKey := range s.detailCache {
+				delete(s.detailCache, oldKey)
+				break
+			}
+		}
+	}
+	s.detailCache[key] = detailBrowseCache{observation: observation, until: now.Add(24 * time.Hour)}
+	s.mu.Unlock()
+	return observation
+}
+
+// browseNewznab performs a season-wide Newznab search once and reuses it for
+// later episodes. A season query is intentionally attempted first because it
+// can return the complete season or a pack; if that provider only returns
+// episode-specific results, the exact episode request is used as a fallback.
+func (s *BrowseService) browseNewznab(ctx context.Context, client *newznab.Client, i postgres.Integration, c indexerConfig, search postgres.SearchContext, media catalog.MediaItem, in BrowseInput) ([]releases.Observation, error) {
+	if in.Kind != catalog.KindSeries || in.Season < 1 {
+		return s.searchNewznab(ctx, client, i, c, search)
+	}
+	key := i.ID.String() + "|" + in.IMDb + "|" + strconv.Itoa(int(in.Season))
+	now := time.Now()
+	s.mu.Lock()
+	cached, hasCache := s.seasonCache[key]
+	s.mu.Unlock()
+	if hasCache && now.Before(cached.until) {
+		if seasonHasEpisode(cached.observations, media, in) {
+			return append([]releases.Observation(nil), cached.observations...), nil
+		}
+		// The cached season may only contain packs or a different episode.
+		// Ask for the exact episode, then merge it into the season cache.
+		exact, err := s.searchNewznab(ctx, client, i, c, search)
+		if err != nil {
+			return nil, err
+		}
+		s.mergeSeasonCache(key, exact, now)
+		return exact, nil
+	}
+	seasonSearch := search
+	seasonSearch.Variant = fmt.Sprintf("season:%02d", in.Season)
+	season, seasonErr := s.searchNewznab(ctx, client, i, c, seasonSearch)
+	if seasonErr == nil {
+		s.storeSeasonCache(key, season, now)
+		if seasonHasEpisode(season, media, in) {
+			return season, nil
+		}
+	}
+	exact, err := s.searchNewznab(ctx, client, i, c, search)
+	if err != nil {
+		return nil, err
+	}
+	if seasonErr == nil {
+		s.mergeSeasonCache(key, exact, now)
+	}
+	return exact, nil
+}
+
+func (s *BrowseService) searchNewznab(ctx context.Context, client *newznab.Client, i postgres.Integration, c indexerConfig, search postgres.SearchContext) ([]releases.Observation, error) {
+	request := buildRequest(search, c)
+	if plan, pe := s.Search.searchProfilePlan(ctx, i.ID, search, c); pe == nil {
+		request = plan.Primary.Request
+	} else if !errors.Is(pe, errNoActiveSearchProfile) {
+		return nil, pe
+	}
+	request.Extended = true
+	return client.BrowseSearch(ctx, request)
+}
+
+func seasonHasEpisode(observations []releases.Observation, media catalog.MediaItem, in BrowseInput) bool {
+	for _, observation := range observations {
+		if browseMatches(releases.InferTitleFacts(observation, time.Now().UTC()), media, in) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *BrowseService) storeSeasonCache(key string, observations []releases.Observation, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.seasonCache == nil {
+		s.seasonCache = map[string]seasonBrowseCache{}
+	}
+	if len(s.seasonCache) >= 200 {
+		for oldKey, entry := range s.seasonCache {
+			if now.After(entry.until) {
+				delete(s.seasonCache, oldKey)
+			}
+		}
+		if len(s.seasonCache) >= 200 {
+			for oldKey := range s.seasonCache {
+				delete(s.seasonCache, oldKey)
+				break
+			}
+		}
+	}
+	s.seasonCache[key] = seasonBrowseCache{observations: append([]releases.Observation(nil), observations...), until: now.Add(20 * time.Minute)}
+}
+
+func (s *BrowseService) mergeSeasonCache(key string, observations []releases.Observation, now time.Time) {
+	s.mu.Lock()
+	entry := s.seasonCache[key]
+	if entry.until.IsZero() || now.After(entry.until) {
+		entry = seasonBrowseCache{until: now.Add(20 * time.Minute)}
+	}
+	seen := map[string]bool{}
+	for _, observation := range entry.observations {
+		seen[observation.NativeGUID] = true
+	}
+	for _, observation := range observations {
+		if !seen[observation.NativeGUID] {
+			entry.observations = append(entry.observations, observation)
+		}
+	}
+	s.seasonCache[key] = entry
+	s.mu.Unlock()
+}
+
+// oldBoysBrowseObservations queries the native Danish provider. OldBoys
+// returns at most 25 rows per page and has a small fixed page count; four
+// pages cover the useful catalogue without turning an interactive open into
+// an unbounded scrape. The title-only result is cached across episodes.
+func (s *BrowseService) oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, integrationID string, in BrowseInput) ([]releases.Observation, error) {
+	request := oldBoysBrowseRequest(in)
+	key := integrationID + "|" + request.Name + "|" + strconv.Itoa(request.Category)
+	now := time.Now()
+	s.mu.Lock()
+	if cached, ok := s.oldBoysCache[key]; ok && now.Before(cached.until) {
+		observations := append([]releases.Observation(nil), cached.observations...)
+		s.mu.Unlock()
+		return observations, nil
+	}
+	s.mu.Unlock()
+	value, err, _ := s.flights.Do("oldboys|"+key, func() (any, error) {
+		observations, err := oldBoysBrowseObservations(ctx, client, in)
+		if err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		if s.oldBoysCache == nil {
+			s.oldBoysCache = map[string]oldBoysBrowseCache{}
+		}
+		if len(s.oldBoysCache) >= 200 {
+			for oldKey, entry := range s.oldBoysCache {
+				if now.After(entry.until) {
+					delete(s.oldBoysCache, oldKey)
+				}
+			}
+			if len(s.oldBoysCache) >= 200 {
+				for oldKey := range s.oldBoysCache {
+					delete(s.oldBoysCache, oldKey)
+					break
+				}
+			}
+		}
+		s.oldBoysCache[key] = oldBoysBrowseCache{observations: append([]releases.Observation(nil), observations...), until: now.Add(10 * time.Minute)}
+		s.mu.Unlock()
+		return observations, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append([]releases.Observation(nil), value.([]releases.Observation)...), nil
+}
+
+func oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, in BrowseInput) ([]releases.Observation, error) {
+	request := oldBoysBrowseRequest(in)
+	all := []releases.Observation{}
+	for page := 1; page <= 4; page++ {
+		request.Page = page
+		observations, err := client.Search(ctx, request, indexers.WorkloadBrowse, nil)
+		if err != nil {
+			if len(all) > 0 {
+				break
+			}
+			return nil, err
+		}
+		all = append(all, observations...)
+		if len(observations) == 0 {
+			break
+		}
+	}
+	return all, nil
+}
+
+func oldBoysBrowseRequest(in BrowseInput) oldboys.SearchRequest {
+	title := releases.SearchQueryTitle(in.Title)
+	category := oldboys.MovieCategory
+	if in.Kind == catalog.KindSeries {
+		category = oldboys.SeriesCategory
+	}
+	// Ask for the title, not the exact episode: OldBoys' native filter is
+	// title-oriented and the scene scope is enforced after parsing. This also
+	// finds multi-episode uploads that cover the requested episode.
+	return oldboys.SearchRequest{Name: title, Category: category, Page: 1}
+}
+
+var oldBoysEpisodeTag = regexp.MustCompile(`(?i)\bS([0-9]{1,3})E([0-9]{1,3})\b`)
+var oldBoysSeasonTag = regexp.MustCompile(`(?i)(?:^|[.\s_-])S([0-9]{1,2})(?:[.\s_-]|$)`)
+
+func oldBoysBrowseMatches(observation releases.Observation, media catalog.MediaItem, in BrowseInput) bool {
+	if observation.ParseVersion != "oldboys-v1" || !mediaTitleMatches(observation.Title, media) {
+		return false
+	}
+	if in.Kind == catalog.KindMovie {
+		return true
+	}
+	match := oldBoysEpisodeTag.FindStringSubmatch(observation.Title)
+	if len(match) == 3 {
+		season, seasonErr := strconv.Atoi(match[1])
+		episode, episodeErr := strconv.Atoi(match[2])
+		return seasonErr == nil && episodeErr == nil && season == int(in.Season) && episode == int(in.Episode)
+	}
+	// OldBoys often has a complete season pack instead of a single episode.
+	// The player can open the requested episode from the pack just as it does
+	// for a Newznab season pack.
+	pack := oldBoysSeasonTag.FindStringSubmatch(observation.Title)
+	if len(pack) != 2 {
+		return false
+	}
+	season, seasonErr := strconv.Atoi(pack[1])
+	return seasonErr == nil && season == int(in.Season)
+}
+
 func (s *BrowseService) client(i postgres.Integration, c indexerConfig) (*newznab.Client, error) {
 	if err := s.Search.Scheduler.Configure(i.ID.String(), indexers.NewznabBudget(c.MinimumIntervalMS, c.QueryLimit, c.GrabLimit, c.BudgetWindow)); err != nil {
 		return nil, err
@@ -366,16 +657,26 @@ func (s *BrowseService) Download(ctx context.Context, token string) ([]byte, str
 	if e := json.Unmarshal(choice.integration.Config, &cfg); e != nil {
 		return nil, "", BrowseInput{}, e
 	}
-	client, e := s.client(choice.integration, cfg)
-	if e != nil {
-		return nil, "", BrowseInput{}, e
+	var nzb newznab.NZBPackage
+	var e error
+	if choice.integration.Kind == "oldboys" {
+		client, clientErr := newOldBoysClient(ctx, s.Search.Store, s.Search.Scheduler, s.Search.OldBoysCredentials, choice.integration, s.Search.Transport)
+		if clientErr != nil {
+			return nil, "", BrowseInput{}, clientErr
+		}
+		nzb, e = client.GetNZBPackageGuarded(ctx, choice.observation.NativeGUID, guard)
+	} else {
+		client, clientErr := s.client(choice.integration, cfg)
+		if clientErr != nil {
+			return nil, "", BrowseInput{}, clientErr
+		}
+		native, idErr := newznab.RetrievalID(choice.observation.NativeGUID, cfg.BaseURL)
+		if idErr != nil {
+			return nil, "", BrowseInput{}, idErr
+		}
+		locator := newznab.DownloadLocatorReference(choice.observation.DownloadURL, choice.observation.NativeGUID)
+		nzb, e = client.GetNZBPackageFromLocatorGuarded(ctx, native, locator, guard)
 	}
-	native, e := newznab.RetrievalID(choice.observation.NativeGUID, cfg.BaseURL)
-	if e != nil {
-		return nil, "", BrowseInput{}, e
-	}
-	locator := newznab.DownloadLocatorReference(choice.observation.DownloadURL, choice.observation.NativeGUID)
-	nzb, e := client.GetNZBPackageFromLocatorGuarded(ctx, native, locator, guard)
 	if e != nil {
 		return nil, "", BrowseInput{}, e
 	}

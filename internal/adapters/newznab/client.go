@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/encoding/charmap"
+
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/releases"
 )
@@ -324,6 +326,16 @@ func PackageIdentity(body []byte) ([sha256.Size]byte, error) {
 	var zero [sha256.Size]byte
 	decoder := xml.NewDecoder(bytes.NewReader(body))
 	decoder.Strict = true
+	decoder.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
+		switch strings.ToLower(strings.TrimSpace(charset)) {
+		case "iso-8859-1", "iso8859-1", "latin1", "latin-1":
+			return charmap.ISO8859_1.NewDecoder().Reader(input), nil
+		case "utf-8", "utf8", "us-ascii", "ascii":
+			return input, nil
+		default:
+			return nil, fmt.Errorf("unsupported NZB XML encoding %q", charset)
+		}
+	}
 	identity := sha256.New()
 	_, _ = identity.Write([]byte("media-manager-nzb-package-v1\x00"))
 	rootSeen, rootClosed := false, false
