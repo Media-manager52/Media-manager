@@ -84,7 +84,7 @@ export function systemTiles(health: APISystemHealth, startedAt?: string): Tile[]
 export function LiveOverviewScreen() {
   const { data, error, refresh } = useLiveData(overviewLoader, { autoRefresh: true })
   const [rechecking, setRechecking] = React.useState(false)
-  const header = <PageHeader title="Overview" subtitle={`${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })} — everything below is live persisted state`} actions={<><Button variant="outline" size="sm" onClick={refresh}><RefreshCw /> Refresh</Button><Button asChild size="sm"><Link href="/discover"><Plus /> Add media</Link></Button></>} />
+  const header = <PageHeader title="Overview" subtitle={`${new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} — everything below is live persisted state`} actions={<><Button variant="outline" size="sm" onClick={refresh}><RefreshCw /> Refresh</Button><Button asChild size="sm"><Link href="/discover"><Plus /> Add media</Link></Button></>} />
   if (!data && !error) return <div className="space-y-5">{header}<LoadingPanel label="Loading the live overview…" /></div>
   if (!data) return <div className="space-y-5">{header}<ErrorNotice error={error} /></div>
 

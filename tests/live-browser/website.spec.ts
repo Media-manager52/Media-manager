@@ -56,7 +56,9 @@ function routeSlug(path: string) {
 
 async function settle(page: Page) {
   await page.waitForLoadState("domcontentloaded")
-  await page.waitForLoadState("networkidle", { timeout: 10_000 })
+  // The live app keeps polling, so networkidle is never a safe signal. Wait
+  // until the persisted-state loaders have replaced their loading placeholders.
+  await expect(page.getByText(/^Loading/)).toHaveCount(0, { timeout: 30_000 })
 }
 
 async function verifyViewport(page: Page) {
