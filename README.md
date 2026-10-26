@@ -8,21 +8,22 @@ Native [OldBoys](docs/operations/oldboys.md) adds a fixed-origin Danish-original
 
 The first production path is deliberately narrow: **Seerr + Media Manager + Newznab indexers + AltMount + Plex**. Radarr and Sonarr are not runtime dependencies. A season pack is one download job, and publication is blocked unless every frozen expected episode maps exactly once.
 
-## Run it on your own server
+## Run it with Cosmos Cloud
 
-If you are setting Media Manager up on your own machine, start with
-[**docs/getting-started.md**](docs/getting-started.md). The included
-`./scripts/setup-standalone.sh` creates the local secrets, a Caddy edge with an
-owner login and server-side bearer injection, the Docker network, and the
-application stack. You do not need Cosmos Cloud or the original owner's GitHub
-deployment for this path. Read [the standalone guide](docs/getting-started.md)
-for the required AltMount/Plex/indexer configuration and folder contract.
+If you are setting Media Manager up on your own server, start with
+[**docs/getting-started.md**](docs/getting-started.md). Cosmos Cloud is the
+public edge: it handles TLS and owner OpenID, routes `/api` and `/health` to the
+API and every other path to the UI, and injects `OWNER_TOKEN` server-side on
+`/api`. The API port stays loopback. `./scripts/setup-cosmos.sh` writes the
+local secrets, fixes the Compose project name for the Cosmos targets, creates
+and joins the shared Docker network, builds the stack, and prints the three
+Cosmos routes to add.
 
 To hand a copy to another owner, run `./scripts/make-share-bundle.sh`; the
 bundle contains tracked source only, never `.env` files or media.
 
-The Cosmos Cloud, GitHub VPS runner and owner-triggered deployment sections
-below document the original production deployment and remain optional.
+The GitHub VPS runner and owner-triggered deployment sections below document
+the original production operations and remain optional.
 
 ## Documentation
 
@@ -31,9 +32,9 @@ GitHub checks, private image uploads and owner-triggered updates run on the VPS;
 see [GitHub VPS operations](docs/operations/github-vps.md).
 Start with:
 
-- [`docs/getting-started.md`](docs/getting-started.md) — install on a new server
-  with the standalone edge, first integrations, folder contract, updates,
-  backups and troubleshooting.
+- [`docs/getting-started.md`](docs/getting-started.md) — install with Cosmos
+  Cloud, add the three routes, connect AltMount/Plex/indexers, folder contract,
+  updates, backups and troubleshooting.
 - [`docs/onboarding/README.md`](docs/onboarding/README.md) — complete codebase
   onboarding for a new engineer or AI agent: read order, architecture maps,
   backend/database/API/frontend references, domain workflows, operations

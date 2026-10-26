@@ -18,4 +18,4 @@ else
 		--transform='s,^\./,media-manager/,' -czf "$OUT" .
 fi
 printf 'Created %s\n' "$OUT"
-printf 'The recipient extracts it and runs ./scripts/setup-standalone.sh\n'
+printf 'The recipient extracts it and runs ./scripts/setup-cosmos.sh\n'
