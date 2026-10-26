@@ -17,7 +17,11 @@ API and every other path to the UI, and injects `OWNER_TOKEN` server-side on
 `/api`. The API port stays loopback. `./scripts/setup-cosmos.sh` writes the
 local secrets, fixes the Compose project name for the Cosmos targets, creates
 and joins the shared Docker network, builds the stack, and prints the three
-Cosmos routes to add.
+Cosmos routes to add. Media Manager is also available as a Cosmos market app:
+add `https://raw.githubusercontent.com/Media-manager52/media-manager-cosmos/main/index.json`
+as a market source, or use the built-in store after the
+[official listing](https://github.com/azukaar/cosmos-servapps-official/pull/336)
+is accepted. The market wizard creates the same services and routes.
 
 To hand a copy to another owner, run `./scripts/make-share-bundle.sh`; the
 bundle contains tracked source only, never `.env` files or media.
@@ -28,8 +32,8 @@ the original production operations and remain optional.
 ## Documentation
 
 All project documentation is indexed in [`docs/README.md`](docs/README.md).
-GitHub checks, private image uploads and owner-triggered updates run on the VPS;
-see [GitHub VPS operations](docs/operations/github-vps.md).
+GitHub checks, public container-image publishing and owner-triggered updates run
+on the VPS; see [GitHub VPS operations](docs/operations/github-vps.md).
 Start with:
 
 - [`docs/getting-started.md`](docs/getting-started.md) — install with Cosmos

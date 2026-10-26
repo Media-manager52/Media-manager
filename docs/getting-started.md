@@ -6,6 +6,30 @@ Cosmos OpenID, and routes one public origin to the UI and API. The `/api` route
 injects the owner bearer token server-side; the browser never receives it. This
 is the same architecture as the production deployment.
 
+## Install from the Cosmos market
+
+If your Cosmos market already shows **Media Manager**, install it there and skip
+the source setup below. The market wizard asks for the library paths, AltMount
+parent, shared media network, owner token, and optional Plex/Newznab/TMDB
+credentials. It creates the API, UI and PostgreSQL services plus the UI,
+`/api` and `/health` routes on one host, with the owner token injected
+server-side on `/api`. Then continue at **Connect the pieces**.
+
+To make it appear in your Cosmos market before the official listing is merged,
+add this source under **Market → Sources**:
+
+```text
+Name: Media Manager
+URL:  https://raw.githubusercontent.com/Media-manager52/media-manager-cosmos/main/index.json
+```
+
+The official Cosmos store submission is
+[PR #336](https://github.com/azukaar/cosmos-servapps-official/pull/336).
+The source installation below remains available for development and for hosts
+where you want to manage the Compose project directly.
+
+## Source installation
+
 Media Manager is not a downloader. It acquires through **AltMount**, publishes
 Plex-safe links, and confirms the result in **Plex**. You need AltMount running
 before the first title can be acquired. Seerr is optional; Media Manager can
