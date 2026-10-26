@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"time"
 	"uuid"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/media-manager/media-manager/internal/acquisition"
 	"github.com/media-manager/media-manager/internal/adapters/altmount"
@@ -928,7 +931,7 @@ func (server *Server) listRequests(writer http.ResponseWriter, request *http.Req
 	offset, _ := strconv.Atoi(request.URL.Query().Get("offset"))
 	items, err := server.store.ListSeerrRequests(request.Context(), "", limit, offset)
 	if err != nil {
-		writeError(writer, http.StatusInternalServerError, "database_error", "could not load requests")
+		writeDatabaseError(writer, err, "could not load requests")
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]any{
@@ -1006,7 +1009,7 @@ func (server *Server) systemInfo(writer http.ResponseWriter, request *http.Reque
 func (server *Server) dashboard(writer http.ResponseWriter, request *http.Request) {
 	snapshot, err := server.store.Dashboard(request.Context(), time.Now().UTC())
 	if err != nil {
-		writeError(writer, http.StatusInternalServerError, "database_error", "could not load dashboard")
+		writeDatabaseError(writer, err, "could not load dashboard")
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: snapshot})
@@ -1054,7 +1057,7 @@ func (server *Server) listReleaseCandidates(writer http.ResponseWriter, request 
 	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
 	items, err := server.store.ListReleaseCandidates(request.Context(), limit)
 	if err != nil {
-		writeError(writer, http.StatusInternalServerError, "database_error", "could not load release intelligence")
+		writeDatabaseError(writer, err, "could not load release intelligence")
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
@@ -2072,6 +2075,40 @@ func decodeJSON(request *http.Request, output any, limit int64) error {
 
 func writeError(writer http.ResponseWriter, status int, code, message string) {
 	writeErrorHint(writer, status, code, message, "")
+}
+
+// writeDatabaseError distinguishes a dependency outage from a genuine server
+// defect. Owner screens retry on 503; a 500 would make a stopped database look
+// like corrupt application state.
+func writeDatabaseError(writer http.ResponseWriter, err error, message string) {
+	if databaseUnavailable(err) {
+		writeError(writer, http.StatusServiceUnavailable, "database_unavailable", "Database is unavailable")
+		return
+	}
+	writeError(writer, http.StatusInternalServerError, "database_error", message)
+}
+
+func databaseUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var connectErr *pgconn.ConnectError
+	if errors.As(err, &connectErr) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return strings.HasPrefix(pgErr.Code, "08") || strings.HasPrefix(pgErr.Code, "57")
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	detail := strings.ToLower(err.Error())
+	return strings.Contains(detail, "failed to connect") ||
+		strings.Contains(detail, "connection refused") ||
+		strings.Contains(detail, "no such host") ||
+		strings.Contains(detail, "terminating connection")
 }
 
 func writeErrorHint(writer http.ResponseWriter, status int, code, message, hint string) {
