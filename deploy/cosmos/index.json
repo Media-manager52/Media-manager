@@ -1,0 +1,35 @@
+{
+  "source": "https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/index.json",
+  "showcase": [
+    {
+      "id": "MediaManager",
+      "name": "Media Manager",
+      "description": "Owner-operated Usenet movie and TV manager with evidence-based indexer selection, one AltMount job per title, Plex-safe symlinks, and exact Plex confirmation.",
+      "longDescription": "<p>Media Manager owns the workflow from a Seerr or manual request through evidence-based Newznab indexer selection, one AltMount download job, read-only output verification, Plex-safe managed symlinks, and exact Plex confirmation.</p><p><strong>Requirements:</strong> AltMount, Plex, at least one Newznab-compatible indexer, and a TMDB API read access token. Seerr is optional.</p><p>The Cosmos app installs the API, UI and PostgreSQL, creates the UI, <code>/api</code> and <code>/health</code> routes on one host, and injects the owner token server-side on <code>/api</code>.</p>",
+      "url": "https://github.com/Media-manager52/Media-manager",
+      "repository": "https://github.com/Media-manager52/Media-manager",
+      "image": "ghcr.io/media-manager52/media-manager-ui:main",
+      "icon": "https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/MediaManager/icon.png",
+      "screenshots": ["https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/MediaManager/screenshots/1.png"],
+      "tags": ["media", "movies", "tv", "usenet", "plex", "altmount", "seerr", "newznab", "automation", "danish", "media manager"],
+      "supported_architectures": ["amd64"],
+      "compose": "https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/MediaManager/cosmos-compose.json"
+    }
+  ],
+  "all": [
+    {
+      "id": "MediaManager",
+      "name": "Media Manager",
+      "description": "Owner-operated Usenet movie and TV manager with evidence-based indexer selection, one AltMount job per title, Plex-safe symlinks, and exact Plex confirmation.",
+      "longDescription": "<p>Media Manager owns the workflow from a Seerr or manual request through evidence-based Newznab indexer selection, one AltMount download job, read-only output verification, Plex-safe managed symlinks, and exact Plex confirmation.</p><p><strong>Requirements:</strong> AltMount, Plex, at least one Newznab-compatible indexer, and a TMDB API read access token. Seerr is optional.</p><p>The Cosmos app installs the API, UI and PostgreSQL, creates the UI, <code>/api</code> and <code>/health</code> routes on one host, and injects the owner token server-side on <code>/api</code>.</p>",
+      "url": "https://github.com/Media-manager52/Media-manager",
+      "repository": "https://github.com/Media-manager52/Media-manager",
+      "image": "ghcr.io/media-manager52/media-manager-ui:main",
+      "icon": "https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/MediaManager/icon.png",
+      "screenshots": ["https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/MediaManager/screenshots/1.png"],
+      "tags": ["media", "movies", "tv", "usenet", "plex", "altmount", "seerr", "newznab", "automation", "danish", "media manager"],
+      "supported_architectures": ["amd64"],
+      "compose": "https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/MediaManager/cosmos-compose.json"
+    }
+  ]
+}

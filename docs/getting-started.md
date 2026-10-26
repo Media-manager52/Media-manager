@@ -20,7 +20,7 @@ add this source under **Market → Sources**:
 
 ```text
 Name: Media Manager
-URL:  https://raw.githubusercontent.com/Media-manager52/media-manager-cosmos/main/index.json
+URL:  https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/index.json
 ```
 
 The official Cosmos store submission is
