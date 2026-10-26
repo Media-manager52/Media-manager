@@ -35,7 +35,11 @@ need curl
 
 prompt() {
 	local label="$1" default="$2" value
-	read -r -p "$label [$default]: " value
+	if [[ -n "$default" ]]; then
+		read -r -p "$label [$default]: " value
+	else
+		read -r -p "$label: " value
+	fi
 	printf '%s' "${value:-$default}"
 }
 prompt_secret() {
@@ -62,9 +66,9 @@ MOVIES=$(prompt "Movie library folder on this host" "$MEDIA_ROOT/movies")
 TV=$(prompt "TV library folder on this host" "$MEDIA_ROOT/tv")
 ALT_PARENT=$(prompt "Host folder that contains AltMount's FUSE mount" "/mnt")
 NETWORK=$(prompt "Docker network shared with AltMount, Plex and Seerr" "media-manager")
-ALT_CONTAINER=$(prompt "AltMount container name (blank if not installed yet)" "altmount")
-PLEX_CONTAINER=$(prompt "Plex container name (blank if Plex is not a container)" "plex")
-SEERR_CONTAINER=$(prompt "Seerr/Overseerr container name (blank if none)" "seerr")
+ALT_CONTAINER=$(prompt "AltMount container name (blank if not installed yet)" "")
+PLEX_CONTAINER=$(prompt "Plex container name (blank if Plex is not a container)" "")
+SEERR_CONTAINER=$(prompt "Seerr/Overseerr container name (blank if none)" "")
 
 require_absolute "$MEDIA_ROOT" "The media parent"
 require_absolute "$MOVIES" "The movie folder"
