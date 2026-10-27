@@ -81,6 +81,7 @@ async function installAddMediaAPI(page: Page, scenario: Scenario) {
     } else if (request.method() === "GET" && path === "/api/v1/workflows?limit=300&active=false") data = []
     // The shell loads owner attention on every page.
     else if (request.method() === "GET" && path === "/api/v1/workflows?limit=300&active=true") data = []
+    else if (request.method() === "GET" && path === "/api/v1/workflows?attention=true&limit=500&offset=0") data = []
     else if (request.method() === "GET" && path === "/api/v1/wanted?limit=300") data = []
     // The workflow table loads catalog artwork once.
     else if (request.method() === "GET" && path === "/api/v1/media?limit=200&offset=0") data = []

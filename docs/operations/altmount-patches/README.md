@@ -1,11 +1,12 @@
-# Deployed AltMount source patches (2026-09-30, 2026-10-06, 2026-10-17)
+# Deployed AltMount source patches (2026-09-30, 2026-10-06, 2026-10-17, 2026-10-27)
 
-This bundle preserves the eight companion fixes deployed with Media Manager.
+This bundle preserves the nine companion fixes deployed with Media Manager.
 They apply to [kipsilabs/altmount](https://github.com/kipsilabs/altmount) at
 `630cad9a845e88018dc521554d8e2f3bd86bc436`. The deployed source is
-`91ed7d7`, built as `altmount-local:91ed7d7` (previous builds
-`altmount-local:73b7e0e`, patches 1–5, and `altmount-local:321b3ba`, patches 1–3). These patches are maintained here for reproducibility;
-they are not represented as merged upstream.
+`91ed7d7` plus patch 9 (previous builds `altmount-local:91ed7d7`, patches 1–8,
+`altmount-local:73b7e0e`, patches 1–5, and `altmount-local:321b3ba`, patches 1–3).
+These patches are maintained here for reproducibility; they are not represented
+as merged upstream.
 
 | Order | Original source commit | Change and regression coverage |
 | --- | --- | --- |
@@ -18,6 +19,7 @@ they are not represented as merged upstream.
 | [6](0006-fix-aes-make-Close-safe-while-a-Read-is-creating-or-.patch) | `6784d3a` | Guard the AES decrypt reader's source and closed state with a mutex that is never held across a blocking read. `readFullContext` force-closes readers from another goroutine on a FUSE read timeout; the unsynchronized field could be seen torn and `(*UsenetReader).Close` ran on a nil receiver, crashing the FUSE server on 2026-10-06. A source finishing initialization after Close is closed, not leaked. Both regression tests fail under `-race` before the change. |
 | [7](0007-feat-fuse-optional-read-only-kernel-mount-fuse.read_.patch) | `7d4d25d` | Optional `fuse.read_only`: mount the FUSE filesystem read-only at the kernel level, so every view of it, including binds that follow a remount through `rslave` propagation, refuses writes, deletes and renames. Deployed with `read_only: true`. |
 | [8](0008-fix-fuse-fail-only-the-request-when-a-FUSE-operation.patch) | `91ed7d7` | Read-side FUSE operations (lookup, readdir, getattr, statfs, open, read, release) recover a panic, log it with its stack and return EIO for that one request. go-fuse runs each request on its own goroutine without recovery, so any unknown bug in a read path used to kill the process and take the mount away from every consumer. The regression test crashes the test binary before the change. |
+| [9](0009-fix-treat-an-already-removed-source-as-successful.patch) | `91ed7d7` | Treat a missing source after a successful cross-device copy and fsync as success. Two workers can move the same queue item; one removes the upload after writing the persistent copy, and the other then failed with `failed to remove source file after successful copy: ... no such file`, leaving the import stuck. The destination is complete in that case. |
 
 Patches 4 and 5 recovered 47 of 49 releases that had failed as truncated or
 incomplete on 2026-10-06; the other two are real NNTP 430 gaps.
@@ -37,7 +39,7 @@ the tree identity verifies the source content.
 
 Verify the [patch checksums](SHA256SUMS) from this directory with
 `sha256sum -c SHA256SUMS`. Clone AltMount separately, check out the pinned base,
-then apply the eight patches in order:
+then apply the nine patches in order:
 
 ```sh
 git checkout --detach 630cad9a845e88018dc521554d8e2f3bd86bc436
@@ -45,7 +47,8 @@ git am /absolute/path/to/media-manager/docs/operations/altmount-patches/000*.pat
 git rev-parse 'HEAD^{tree}'
 ```
 
-The resulting tree must equal the value above. Validate and build this source
+The resulting tree must equal the value above after the ninth patch is added to
+the inventory. Validate and build this source
 using AltMount's own contributor instructions and Debian CI Dockerfile before
 any future deployment. The deployed image retained the original frontend build;
 this bundle contains backend source changes only.

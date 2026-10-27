@@ -15,8 +15,18 @@ import (
 // unreliable season/episode filters finds year/date releases without guessing
 // provider season numbers or increasing requests per scan. Full snapshot-based
 // mapping and the normal identity/scope/policy checks still decide eligibility.
-func numberedSearchRequest(search postgres.SearchContext, request newznab.SearchRequest) newznab.SearchRequest {
+const numberedIDOnlyMaxAge = 180 * 24 * time.Hour
+
+// The ID-only alternate deliberately drops season/episode filters so date- and
+// year-named releases can be found even when an indexer's scoped search hides
+// them. It returns the newest results, so it is only useful while the target
+// date is recent. On an old season it doubles the query count while observing
+// only modern episodes and storing hundreds of irrelevant candidates.
+func numberedSearchRequest(search postgres.SearchContext, request newznab.SearchRequest, now time.Time) newznab.SearchRequest {
 	if search.EpisodeNumbering.Year == 0 || search.CompleteSearches%2 == 0 || request.Mode != "tvsearch" {
+		return request
+	}
+	if !recentNumberedTarget(search, now) {
 		return request
 	}
 	var ids []newznab.Param
@@ -31,6 +41,35 @@ func numberedSearchRequest(search postgres.SearchContext, request newznab.Search
 	}
 	request.Params = ids
 	return request
+}
+
+func recentNumberedTarget(search postgres.SearchContext, now time.Time) bool {
+	numbering := search.EpisodeNumbering
+	if len(numbering.Dates) == 0 {
+		return false
+	}
+	selected := uint16(0)
+	parts := strings.Split(search.Variant, ":")
+	for index := 0; index+1 < len(parts); index++ {
+		if parts[index] != "episode" {
+			continue
+		}
+		value, err := strconv.Atoi(parts[index+1])
+		if err == nil && value > 0 && value <= 65535 {
+			selected = uint16(value)
+		}
+	}
+	var latest time.Time
+	for date, episode := range numbering.Dates {
+		if selected > 0 && episode != selected {
+			continue
+		}
+		parsed, err := time.Parse("2006-01-02", date)
+		if err == nil && parsed.After(latest) {
+			latest = parsed
+		}
+	}
+	return !latest.IsZero() && !latest.Before(now.UTC().Add(-numberedIDOnlyMaxAge))
 }
 
 func applyEpisodeNumbering(observation releases.Observation, search postgres.SearchContext, now time.Time) releases.Observation {

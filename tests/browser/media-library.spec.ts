@@ -158,6 +158,7 @@ async function installLocalAPI(page: Page) {
     else if (path === "/api/v1/wanted?limit=300") data = wanted
     else if (path === "/api/v1/workflows?limit=300&active=false") data = workflows
     else if (path === "/api/v1/workflows?limit=300&active=true") data = workflows
+    else if (path === "/api/v1/workflows?attention=true&limit=500&offset=0") data = workflows
     else if (path === "/api/v1/system/health") data = { database_state: "ready", schema_version: 30, expected_schema: 30 }
     else if (path === "/api/v1/system/info") data = { version: "browser-test" }
     else {

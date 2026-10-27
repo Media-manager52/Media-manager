@@ -101,10 +101,22 @@ func (store *Store) FailOutbox(ctx context.Context, id uuid.UUID, owner, detail 
 }
 
 func (store *Store) DeferOutbox(ctx context.Context, id uuid.UUID, owner, detail string, retryAt time.Time) error {
+	return store.deferOutbox(ctx, id, owner, detail, retryAt, false)
+}
+
+// DeferOutboxPreservingAttempts is for deferrals that need a durable retry
+// ceiling. Ordinary pacing defers reset the attempt counter; an unresponsive
+// file must keep counting so the reconciler can raise attention after 24 hours
+// instead of retrying forever invisibly.
+func (store *Store) DeferOutboxPreservingAttempts(ctx context.Context, id uuid.UUID, owner, detail string, retryAt time.Time) error {
+	return store.deferOutbox(ctx, id, owner, detail, retryAt, true)
+}
+
+func (store *Store) deferOutbox(ctx context.Context, id uuid.UUID, owner, detail string, retryAt time.Time, preserveAttempts bool) error {
 	if len(detail) > 1000 {
 		detail = detail[:1000]
 	}
-	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,attempts=GREATEST(attempts-1,0),lease_owner=NULL,lease_until=NULL,last_error=$4 WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail)
+	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,attempts=CASE WHEN $5 THEN attempts ELSE GREATEST(attempts-1,0) END,lease_owner=NULL,lease_until=NULL,last_error=$4 WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail, preserveAttempts)
 	if err != nil {
 		return err
 	}

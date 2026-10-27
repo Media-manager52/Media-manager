@@ -185,7 +185,18 @@ func (worker *Worker) runBatch(ctx context.Context) error {
 			retryAt := nextRetryAt(handlerErr, event.Attempts, time.Now())
 			var deferred interface{ RetryAt() time.Time }
 			if errors.As(handlerErr, &deferred) {
-				if deferErr := worker.Store.DeferOutbox(ctx, event.ID, worker.Owner, safeError(handlerErr), retryAt); deferErr != nil {
+				preserve := false
+				var preserveDeferral interface{ PreserveDeferralAttempts() bool }
+				if errors.As(handlerErr, &preserveDeferral) {
+					preserve = preserveDeferral.PreserveDeferralAttempts()
+				}
+				var deferErr error
+				if preserve {
+					deferErr = worker.Store.DeferOutboxPreservingAttempts(ctx, event.ID, worker.Owner, safeError(handlerErr), retryAt)
+				} else {
+					deferErr = worker.Store.DeferOutbox(ctx, event.ID, worker.Owner, safeError(handlerErr), retryAt)
+				}
+				if deferErr != nil {
 					return deferErr
 				}
 				continue

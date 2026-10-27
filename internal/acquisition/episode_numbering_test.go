@@ -18,24 +18,36 @@ func numberingSearch() postgres.SearchContext {
 func TestAnnualSearchAlternatesWithoutAdditionalProviderCalls(t *testing.T) {
 	s := numberingSearch()
 	req := newznab.SearchRequest{Mode: "tvsearch", Limit: 100, Extended: true, Categories: []int{5000}, Params: []newznab.Param{{Name: "q", Value: "Operation X"}, {Name: "imdbid", Value: "0451553"}, {Name: "season", Value: "23"}, {Name: "ep", Value: "2"}}}
-	if got := numberedSearchRequest(s, req); len(got.Params) != 4 {
+	if got := numberedSearchRequest(s, req, time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)); len(got.Params) != 4 {
 		t.Fatal("primary changed")
 	}
 	s.CompleteSearches = 1
-	got := numberedSearchRequest(s, req)
+	got := numberedSearchRequest(s, req, time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC))
 	if len(got.Params) != 1 || got.Params[0].Name != "imdbid" || got.Limit != 100 || !got.Extended || got.Categories[0] != 5000 {
 		t.Fatalf("alternate=%+v", got)
 	}
 	s.CompleteSearches = 2
-	if got = numberedSearchRequest(s, req); len(got.Params) != 4 {
+	if got = numberedSearchRequest(s, req, time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)); len(got.Params) != 4 {
 		t.Fatal("primary did not rotate back")
 	}
 	s.CompleteSearches = 1
 	req.Params = []newznab.Param{{Name: "q", Value: "Operation X"}, {Name: "season", Value: "23"}}
-	if got = numberedSearchRequest(s, req); len(got.Params) != 2 {
+	if got = numberedSearchRequest(s, req, time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)); len(got.Params) != 2 {
 		t.Fatal("unidentified broad query enabled")
 	}
 }
+func TestAnnualSearchAlternateSkipsOldTargets(t *testing.T) {
+	s := numberingSearch()
+	s.Variant = "season:33:episode:29"
+	s.EpisodeNumbering = packs.AnnualEpisodeNumbering(33, []packs.ExpectedEpisode{{Key: packs.EpisodeKey{Season: 33, Episode: 29}, AirDate: "2025-07-21"}})
+	s.CompleteSearches = 1
+	req := newznab.SearchRequest{Mode: "tvsearch", Limit: 100, Extended: true, Categories: []int{5000}, Params: []newznab.Param{{Name: "q", Value: "Raw"}, {Name: "tvdbid", Value: "76779"}, {Name: "season", Value: "33"}, {Name: "ep", Value: "29"}}}
+	got := numberedSearchRequest(s, req, time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC))
+	if len(got.Params) != 4 {
+		t.Fatalf("old target used the ID-only alternate: %+v", got.Params)
+	}
+}
+
 func TestAnnualReleaseMappingRequiresIdentityAndFrozenScope(t *testing.T) {
 	s := numberingSearch()
 	now := time.Now().UTC()
