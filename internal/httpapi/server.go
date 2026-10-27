@@ -917,13 +917,30 @@ func (server *Server) getMediaDetail(writer http.ResponseWriter, request *http.R
 }
 
 func (server *Server) listWanted(writer http.ResponseWriter, request *http.Request) {
-	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
-	items, err := server.store.ListWanted(request.Context(), limit)
+	limit := 300
+	if raw := strings.TrimSpace(request.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 500 {
+			writeError(writer, http.StatusUnprocessableEntity, "invalid_limit", "limit must be between 1 and 500")
+			return
+		}
+		limit = parsed
+	}
+	offset := 0
+	if raw := strings.TrimSpace(request.URL.Query().Get("offset")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeError(writer, http.StatusUnprocessableEntity, "invalid_offset", "offset must be zero or greater")
+			return
+		}
+		offset = parsed
+	}
+	items, err := server.store.ListWantedPage(request.Context(), limit, offset)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load wanted media")
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]any{"count": len(items), "limit": limit, "offset": offset}})
 }
 
 func (server *Server) listRequests(writer http.ResponseWriter, request *http.Request) {

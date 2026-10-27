@@ -6217,6 +6217,15 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "description": "Number of rows to skip, for paging.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {

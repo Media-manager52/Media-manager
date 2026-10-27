@@ -493,8 +493,12 @@ func (store *Store) ListCalendar(ctx context.Context, from, to time.Time, limit 
 }
 
 func (store *Store) ListWanted(ctx context.Context, limit int) ([]WantedItem, error) {
-	if limit < 1 || limit > 500 {
-		limit = 300
+	return store.ListWantedPage(ctx, limit, 0)
+}
+
+func (store *Store) ListWantedPage(ctx context.Context, limit, offset int) ([]WantedItem, error) {
+	if offset < 0 {
+		offset = 0
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,media.id::text,media.kind,media.title,media.year,workflow.variant,
 		CASE WHEN current_link.present THEN 'upgrade' ELSE 'missing' END,workflow.state,profile.name,profile.upgrades_enabled,
@@ -518,7 +522,7 @@ func (store *Store) ListWanted(ctx context.Context, limit int) ([]WantedItem, er
 		) current_link ON true
 		WHERE workflow.terminal_at IS NULL AND media.deleted_at IS NULL
 		ORDER BY CASE workflow.state WHEN 'needs_attention' THEN 0 WHEN 'held' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END,workflow.updated_at DESC
-		LIMIT $1`, limit)
+		LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
