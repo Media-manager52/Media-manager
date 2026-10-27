@@ -6,11 +6,14 @@ import (
 	"uuid"
 )
 
-// WorkflowEpisodeNumbering is available only when every regular catalogue
-// season has a frozen snapshot and annual numbering is unambiguous across all
-// those seasons. A child must still match its parent's frozen episode facts.
-// Missing metadata, split years, overlapping seasons and snapshot drift keep
-// the existing canonical-only path. No live metadata lookup is performed.
+// WorkflowEpisodeNumbering maps a date/year-named release only from the
+// selected season's frozen snapshot. It no longer requires every catalog
+// season to have a workflow: shows such as long-running daily programmes often
+// have only a handful of frozen seasons. Every available frozen season must
+// still have a distinct calendar year, so two overlapping snapshots cannot
+// make a date ambiguous. A child must still match its parent's frozen episode
+// facts, and a partial or drifting selected snapshot keeps the canonical-only
+// path. No live metadata lookup is performed.
 func (store *Store) WorkflowEpisodeNumbering(ctx context.Context, workflowID uuid.UUID) (packs.EpisodeNumbering, error) {
 	expectation, series, season, selected, err := store.PackExpectation(ctx, workflowID)
 	if err == ErrNotFound {
@@ -29,7 +32,7 @@ func (store *Store) WorkflowEpisodeNumbering(ctx context.Context, workflowID uui
 	if err != nil {
 		return packs.EpisodeNumbering{}, err
 	}
-	if metadata == nil || metadata.SeasonCount == nil || *metadata.SeasonCount == 0 {
+	if metadata == nil {
 		return packs.EpisodeNumbering{}, nil
 	}
 	rows, err := store.Pool.Query(ctx, `WITH latest AS (
@@ -65,20 +68,24 @@ func (store *Store) WorkflowEpisodeNumbering(ctx context.Context, workflowID uui
 	if err = rows.Err(); err != nil {
 		return packs.EpisodeNumbering{}, err
 	}
-	if len(snapshots) != int(*metadata.SeasonCount) || selectedRevision != revision {
+	if selectedRevision != revision {
+		return packs.EpisodeNumbering{}, nil
+	}
+	selectedSnapshot, ok := snapshots[season]
+	if !ok {
 		return packs.EpisodeNumbering{}, nil
 	}
 	years := map[uint16]bool{}
-	var result packs.EpisodeNumbering
-	for s := uint16(1); s <= *metadata.SeasonCount; s++ {
-		year := packs.SeasonAirYear(snapshots[s])
+	for _, snapshot := range snapshots {
+		year := packs.SeasonAirYear(snapshot)
 		if year == 0 || years[year] {
 			return packs.EpisodeNumbering{}, nil
 		}
 		years[year] = true
-		if s == season {
-			result = packs.AnnualEpisodeNumbering(s, snapshots[s])
-		}
+	}
+	result := packs.AnnualEpisodeNumbering(season, selectedSnapshot)
+	if result.Year == 0 {
+		return packs.EpisodeNumbering{}, nil
 	}
 	for _, e := range selected {
 		found := false

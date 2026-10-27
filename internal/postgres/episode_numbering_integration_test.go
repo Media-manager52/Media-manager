@@ -10,7 +10,7 @@ import (
 	"github.com/media-manager/media-manager/internal/catalog"
 )
 
-func TestFrozenAnnualMappingRequiresAllSeasonsAndExactChild(t *testing.T) {
+func TestFrozenAnnualMappingUsesAvailableSeasonSnapshotsAndExactChild(t *testing.T) {
 	store, root, profile, client := openAiringTestStore(t)
 	ctx := context.Background()
 	now := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
@@ -19,8 +19,8 @@ func TestFrozenAnnualMappingRequiresAllSeasonsAndExactChild(t *testing.T) {
 	if _, err := store.RefreshMediaMetadata(ctx, series.ID, &catalog.MediaMetadata{SeasonCount: &count}, nil, "test", now); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := store.WorkflowEpisodeNumbering(ctx, workflow); err != nil || n.Year != 0 {
-		t.Fatalf("partial catalogue mapping=%+v err=%v", n, err)
+	if n, err := store.WorkflowEpisodeNumbering(ctx, workflow); err != nil || n.Year != 2024 {
+		t.Fatalf("available season snapshot mapping=%+v err=%v", n, err)
 	}
 	season := &ManualSeason{Number: 2, Monitored: true, PreferSeasonPack: true, Episodes: []ManualEpisode{{Number: 1, ProviderID: "tmdb:3", Title: "Three", AirDate: "2025-04-01"}}}
 	if _, err := store.CreateManualWorkflowForExisting(ctx, series, root, profile, client, season, false, "", "test", now); err != nil {

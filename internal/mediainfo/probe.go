@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -218,7 +219,10 @@ func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.F
 			return Evidence{}, ErrOutputLimit
 		}
 		if errors.Is(probeContext.Err(), context.DeadlineExceeded) {
-			return Evidence{}, errors.New("media-info probe timed out")
+			// A slow ffprobe is not evidence that the release is defective.
+			// Treat it like an unresponsive source so the reconciler retries
+			// the same job later instead of parking the workflow as attention.
+			return Evidence{}, fmt.Errorf("%w: ffprobe timed out", ErrSourceUnresponsive)
 		}
 		return Evidence{}, errors.New("media-info probe failed")
 	}

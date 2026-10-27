@@ -1,0 +1,20 @@
+[Unit]
+Description=Media Manager read-only AI inspector
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=vps
+Group=vps
+WorkingDirectory=/home/vps/media-manager
+Environment=MEDIA_MANAGER_API_CONTAINER=media-manager-api-1
+Environment=MEDIA_MANAGER_AI_PORT=28082
+ExecStart=/home/vps/.local/bin/node /home/vps/media-manager/scripts/readonly-api-proxy.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

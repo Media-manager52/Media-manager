@@ -96,7 +96,7 @@ Notes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/v1/workflows` | Bounded list (`limit`, `active`). In-flight attempts carry `download_percent`/`download_stage`/`download_observed_at` exactly as AltMount reported them. |
+| GET | `/api/v1/workflows` | Bounded, paged list (`limit` 1–500, `offset`, `active`, `state`, `attention`). `attention=true` uses the same owner-decision predicate as the Dashboard count; `state=needs_attention` narrows to one durable state. Limit values above 500 are rejected instead of silently returning 100. In-flight attempts carry `download_percent`/`download_stage`/`download_observed_at` exactly as AltMount reported them. |
 | GET | `/api/v1/workflows/{id}` | One workflow + transitions. |
 | POST | `/api/v1/workflows/{id}/search` | Queue a targeted search; may require `adopted_replacement_confirmation`. An open current-policy round retires stale discovery from an older exhausted round. |
 | POST | `/api/v1/workflows/{id}/discover` | Owner advances the existing exhausted-round discovery schedule; evidence only, no new round or download slots. Idempotent while the current scan is due or running; unfinished-provider scope and pacing remain intact. |

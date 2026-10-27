@@ -24,6 +24,9 @@ services:
       args:
         VERSION: ${MEDIA_MANAGER_VERSION:-development}
         COMMIT: ${MEDIA_MANAGER_COMMIT:-local}
+      labels:
+        org.opencontainers.image.version: ${MEDIA_MANAGER_VERSION:-development}
+        org.opencontainers.image.revision: ${MEDIA_MANAGER_COMMIT:-local}
     restart: unless-stopped
     user: ${MEDIA_MANAGER_UID:-65532}:${MEDIA_MANAGER_GID:-65532}
     # Supplementary group for the optional Plex-library parent mounted below
@@ -97,6 +100,9 @@ services:
       target: ui
       args:
         NEXT_PUBLIC_MEDIA_MANAGER_MODE: live
+      labels:
+        org.opencontainers.image.version: ${MEDIA_MANAGER_VERSION:-development}
+        org.opencontainers.image.revision: ${MEDIA_MANAGER_COMMIT:-local}
     restart: unless-stopped
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
