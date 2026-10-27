@@ -6,6 +6,10 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ## Unreleased
 
+### Fixed
+
+- **Re-scored held candidates no longer collide on the observation primary key.** A held observation is re-evaluated when a frozen episode mapping becomes available. If its inferred facts changed, persistence tried to insert the existing observation UUID again and PostgreSQL rejected the search transaction. A changed observation now becomes a new immutable `release_observations` version while the candidate keeps its stable identity and the old evidence remains intact; repeating the same search reuses the candidate's current observation. This fixes the production `release_observations_pkey` retry loop without changing eligibility, language, quality, attempt or publication rules.
+
 ### Added
 
 - **Read-model indexes (schema 48).** Production-sized `/api/v1/requests` and `/api/v1/intelligence/releases` reads fell from about 15 seconds and 36 seconds to about 0.3 seconds and 0.08 seconds. Schema 48 adds indexes for the newest search run per workflow and for recent release observations/candidates; no API or data semantics change. The existing live acceptance suite now passes all 135 checks against the production data model.
