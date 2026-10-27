@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
@@ -297,35 +298,9 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		outcome.State, outcome.Detail = "succeeded", ""
 		outcomes = append(outcomes, outcome)
 		for _, observation := range observations {
-			observation = releases.InferTitleFacts(observation, time.Now().UTC())
-			if integration.Kind == "oldboys" {
-				observation = bindOldBoysCatalogue(observation, search, time.Now().UTC())
-			}
-			observation = applyEpisodeNumbering(observation, search, time.Now().UTC())
-			observationRules := rules
-			if integration.Kind == "oldboys" {
-				observation, observationRules = oldBoysRangeScope(observation, search, scopeRules, qualityRules)
-			}
-			evaluation, evaluateErr := releases.Evaluate(observation, observationRules)
+			observation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, integration.Kind == "oldboys", time.Now().UTC())
 			if evaluateErr != nil {
 				return evaluateErr
-			}
-			if len(rules) == 0 {
-				evaluation.Verdict = releases.VerdictHeld
-				evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "quality profile", Decision: releases.DecisionUnknown, Reason: "no release rules are configured"})
-			}
-			if strings.HasPrefix(observation.NativeGUID, "weak:") {
-				evaluation.Verdict = releases.VerdictHeld
-				evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native release identity", Decision: releases.DecisionUnknown, Reason: "provider supplied no retrievable native GUID"})
-			}
-			evaluation = constrainMediaMatch(observation, evaluation, search.Media)
-			evaluation = applyReleaseBlocks(observation, evaluation, search)
-			evaluation = applyWorkflowExclusions(observation, evaluation, search)
-			evaluation = applyRepairExclusions(observation, evaluation, search.RepairBrokenTitles)
-			if len(search.RepairBrokenTitles) == 0 {
-				// A repair replaces a broken publication: any eligible release is
-				// an improvement, so the upgrade baseline does not apply.
-				evaluation = applyUpgradeBaseline(observation, evaluation, search.CurrentRelease, currentEvaluation)
 			}
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
 		}
@@ -335,6 +310,32 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			return earliestDeferral
 		}
 		return fmt.Errorf("all %d configured indexers failed before returning a valid search response", len(search.Indexers))
+	}
+	// A new frozen episode mapping can make stored held candidates eligible.
+	// Re-score their existing observations with the same policy and scope rules;
+	// no provider call or new candidate row is needed. Without this, the first
+	// search after a mapping change would keep showing the historical held
+	// decision forever because indexers no longer return the old release.
+	if !recovery && search.Media.Kind == catalog.KindSeries && search.EpisodeNumbering.Year != 0 {
+		indexerKinds := make(map[uuid.UUID]bool, len(search.Indexers))
+		for _, integration := range search.Indexers {
+			indexerKinds[integration.ID] = integration.Kind == "oldboys"
+		}
+		held, heldErr := service.Store.HeldCandidateObservations(ctx, search.Workflow.ID)
+		if heldErr != nil {
+			return heldErr
+		}
+		for _, observation := range held {
+			oldboys, planned := indexerKinds[observation.IndexerID]
+			if !planned {
+				continue
+			}
+			observation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, oldboys, time.Now().UTC())
+			if evaluateErr != nil {
+				return evaluateErr
+			}
+			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
+		}
 	}
 	fingerprintInput := search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)
 	if recovery {
@@ -355,6 +356,40 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		}
 	}
 	return err
+}
+
+func evaluateCandidateObservation(observation releases.Observation, search postgres.SearchContext, rules, scopeRules, qualityRules []releases.Rule, currentEvaluation *releases.Evaluation, oldboys bool, now time.Time) (releases.Observation, releases.Evaluation, error) {
+	observation = releases.InferTitleFacts(observation, now)
+	if oldboys {
+		observation = bindOldBoysCatalogue(observation, search, now)
+	}
+	observation = applyEpisodeNumbering(observation, search, now)
+	observationRules := rules
+	if oldboys {
+		observation, observationRules = oldBoysRangeScope(observation, search, scopeRules, qualityRules)
+	}
+	evaluation, err := releases.Evaluate(observation, observationRules)
+	if err != nil {
+		return observation, releases.Evaluation{}, err
+	}
+	if len(rules) == 0 {
+		evaluation.Verdict = releases.VerdictHeld
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "quality profile", Decision: releases.DecisionUnknown, Reason: "no release rules are configured"})
+	}
+	if strings.HasPrefix(observation.NativeGUID, "weak:") {
+		evaluation.Verdict = releases.VerdictHeld
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native release identity", Decision: releases.DecisionUnknown, Reason: "provider supplied no retrievable native GUID"})
+	}
+	evaluation = constrainMediaMatch(observation, evaluation, search.Media)
+	evaluation = applyReleaseBlocks(observation, evaluation, search)
+	evaluation = applyWorkflowExclusions(observation, evaluation, search)
+	evaluation = applyRepairExclusions(observation, evaluation, search.RepairBrokenTitles)
+	if len(search.RepairBrokenTitles) == 0 {
+		// A repair replaces a broken publication: any eligible release is an
+		// improvement, so the upgrade baseline does not apply.
+		evaluation = applyUpgradeBaseline(observation, evaluation, search.CurrentRelease, currentEvaluation)
+	}
+	return observation, evaluation, nil
 }
 
 func safeIndexerOutcomeCode(err error) string {
