@@ -373,16 +373,24 @@ func seasonCapabilityProfileDocument(t *testing.T) json.RawMessage {
 func TestAnnualDiscoveryDispatchesEpisodesAfterOneAlternateScan(t *testing.T) {
 	store := openMovieSearchTestStore(t)
 	ctx := context.Background()
+	// The ID-only alternate is intentionally limited to recent targets. Use a
+	// recent synthetic season so this test exercises the alternate scan rather
+	// than the old-season path covered by TestAnnualSearchAlternateSkipsOldTargets.
+	now := time.Now().UTC()
+	seasonYear := now.Year()
+	airDate1 := now.AddDate(0, 0, -14).Format("2006-01-02")
+	airDate2 := now.AddDate(0, 0, -7).Format("2006-01-02")
+	releaseTitle := fmt.Sprintf("Example.Series.S%dE01.1080p.WEB-DL", seasonYear)
 	server, captured := newMovieSearchServer(t, func(query url.Values) string {
 		if query.Get("tvdbid") == "378992" && query.Get("season") == "" {
-			return strings.ReplaceAll(seasonPackSearchReleaseXML("Example.Series.S2020E01.1080p.WEB-DL"), `<newznab:attr name="resolution"`, `<newznab:attr name="tvdbid" value="378992"/><newznab:attr name="season" value="20"/><newznab:attr name="episode" value="E00"/><newznab:attr name="resolution"`)
+			return strings.ReplaceAll(seasonPackSearchReleaseXML(releaseTitle), `<newznab:attr name="resolution"`, `<newznab:attr name="tvdbid" value="378992"/><newznab:attr name="season" value="20"/><newznab:attr name="episode" value="E00"/><newznab:attr name="resolution"`)
 		}
 		return emptySearchXML()
 	})
 	defer server.Close()
 	configureSeasonSearchIndexer(t, store, server.URL, false)
 	workflow := createSeasonSearchWorkflow(t, store, true)
-	if _, err := store.Pool.Exec(ctx, `UPDATE pack_expected_episodes SET air_date=CASE WHEN episode=1 THEN '2020-04-01'::date ELSE '2020-04-08'::date END WHERE expectation_id IN (SELECT id FROM pack_expectation_sets WHERE workflow_id=$1)`, workflow.ID.String()); err != nil {
+	if _, err := store.Pool.Exec(ctx, `UPDATE pack_expected_episodes SET air_date=CASE WHEN episode=1 THEN $2::date ELSE $3::date END WHERE expectation_id IN (SELECT id FROM pack_expectation_sets WHERE workflow_id=$1)`, workflow.ID.String(), airDate1, airDate2); err != nil {
 		t.Fatal(err)
 	}
 	count := uint16(1)
