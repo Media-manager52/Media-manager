@@ -9,7 +9,7 @@ behavioral truth is always the code and the SQL migrations.
 | --- | --- |
 | New owner installing with Cosmos Cloud | [getting-started.md](getting-started.md) — Cosmos routes, setup script, first integrations, folder contract, updates, backups and troubleshooting |
 | New engineer or AI agent | [onboarding/README.md](onboarding/README.md) — overview, read order, hard rules |
-| AI agent operating the running server | [operations/ai-agents.md](operations/ai-agents.md) — API discovery (`GET /api/v1`, OpenAPI), effects, safe calling, common tasks |
+| AI agent operating or reviewing the running server | [operations/ai-agents.md](operations/ai-agents.md) — API discovery (`GET /api/v1`, OpenAPI), effects, safe calling, the loopback read-only inspector, and common tasks |
 | Coding agent session | [onboarding/agent-briefs/claude-code.md](onboarding/agent-briefs/claude-code.md) — paste-ready finish-today execution brief |
 | Hard-problem review | [onboarding/agent-briefs/claude-review-hard-parts.md](onboarding/agent-briefs/claude-review-hard-parts.md) — the eight open hard problems with live state, tried approaches, constraints, and acceptance criteria |
 | Availability audit | [onboarding/agent-briefs/claude-availability-audit.md](onboarding/agent-briefs/claude-availability-audit.md) — prove per title whether missing content is truly unavailable or blocked by a pipeline defect |

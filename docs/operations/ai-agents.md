@@ -8,6 +8,52 @@ The rule of thumb: **use the API, not the database.** Every supported owner
 action has a route with the same guards the UI uses (state, revision, pacing,
 budgets, audit). Writing SQL bypasses those guards and is not supported.
 
+## Read-only inspector for another AI on this host
+
+For a review that must not change anything, use the loopback-only read-only
+bridge instead of the owner token or the MCP server:
+
+```text
+http://127.0.0.1:28082
+```
+
+It accepts only `GET` and `HEAD`, injects the owner bearer token server-side,
+and never exposes that token. Writes return `405`; backup downloads/off-site
+copies and the Seerr webhook are blocked. It is not exposed through Cosmos or
+the public origin.
+
+```bash
+curl -s http://127.0.0.1:28082/health/ready
+curl -s http://127.0.0.1:28082/api/v1/system/info
+curl -s http://127.0.0.1:28082/api/v1/system/health
+curl -s http://127.0.0.1:28082/api/v1/dashboard
+curl -s http://127.0.0.1:28082/api/v1/problems
+curl -s http://127.0.0.1:28082/api/v1/openapi.json
+```
+
+The service is `media-manager-ai-inspector`:
+
+```bash
+sudo systemctl status media-manager-ai-inspector
+sudo journalctl -u media-manager-ai-inspector -n 50
+```
+
+The implementation and unit are `scripts/readonly-api-proxy.mjs` and
+`deploy/systemd/media-manager-ai-inspector.service`. It reads the owner token
+from the running `media-manager-api-1` container; if the API container is
+renamed, set `MEDIA_MANAGER_API_CONTAINER` and restart the service.
+
+### Paste-ready prompt for the reviewing AI
+
+```text
+Review the running Media Manager on this host. Use only the read-only
+inspector at http://127.0.0.1:28082 and only GET/HEAD requests. Do not read
+.env, secret files, provider tokens, or the owner token, and do not print any
+secret. Start with /health/ready, /api/v1/system/info, /api/v1/system/health,
+/api/v1/dashboard, /api/v1/problems and /api/v1/openapi.json. Read the source
+under /home/vps/media-manager and report concrete findings with the endpoint
+or file and evidence. Do not change files or call any write endpoint.
+```
 ## 1. Find the API
 
 | Where you run | Base URL | Authentication |
