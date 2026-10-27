@@ -1,0 +1,68 @@
+diff --git a/internal/utils/file.go b/internal/utils/file.go
+index bcbfb9c..da56993 100644
+--- a/internal/utils/file.go
++++ b/internal/utils/file.go
+@@ -57,14 +57,23 @@ func MoveFile(src, dst string) error {
+ 		return fmt.Errorf("failed to close destination file: %w", err)
+ 	}
+ 
+-	// Remove source file
+-	if err := os.Remove(src); err != nil {
+-		return fmt.Errorf("failed to remove source file after successful copy: %w", err)
++	if err := removeSourceAfterCopy(src); err != nil {
++		return err
+ 	}
+ 
+ 	return nil
+ }
+ 
++// removeSourceAfterCopy treats an absent source as success: after the copy
++// and fsync, another worker may already have removed it. A real permission
++// or I/O failure is still returned.
++func removeSourceAfterCopy(src string) error {
++	if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
++		return fmt.Errorf("failed to remove source file after successful copy: %w", err)
++	}
++	return nil
++}
++
+ // isCrossDeviceError checks if an error is a cross-device link error (EXDEV).
+ func isCrossDeviceError(err error) bool {
+ 	if err == nil {
+diff --git a/internal/utils/file_test.go b/internal/utils/file_test.go
+index 47a217c..bf1561a 100644
+--- a/internal/utils/file_test.go
++++ b/internal/utils/file_test.go
+@@ -42,6 +42,32 @@ func TestMoveFile_Normal(t *testing.T) {
+ 	}
+ }
+ 
++func TestMoveFileMissingSourceAfterCopyIsSuccess(t *testing.T) {
++	tmpDir, err := os.MkdirTemp("", "altmount-move-missing-source")
++	if err != nil {
++		t.Fatalf("failed to create temp dir: %v", err)
++	}
++	defer os.RemoveAll(tmpDir)
++	src := filepath.Join(tmpDir, "missing.nzb")
++	dst := filepath.Join(tmpDir, "persistent.nzb")
++	if err := os.WriteFile(dst, []byte("complete persistent copy"), 0644); err != nil {
++		t.Fatal(err)
++	}
++	// This is the race that produced "failed to remove source file after
++	// successful copy": the copy is complete, but another worker won the
++	// source deletion. It must not fail the import.
++	if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
++		t.Fatal(err)
++	}
++	if err := removeSourceAfterCopy(src); err != nil {
++		t.Fatalf("absent source was not treated as success: %v", err)
++	}
++	got, err := os.ReadFile(dst)
++	if err != nil || string(got) != "complete persistent copy" {
++		t.Fatalf("persistent copy=%q err=%v", got, err)
++	}
++}
++
+ func TestIsCrossDeviceError(t *testing.T) {
+ 	tests := []struct {
+ 		err  error

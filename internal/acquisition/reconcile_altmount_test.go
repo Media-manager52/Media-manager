@@ -141,8 +141,14 @@ func TestMountOutageDefersInsteadOfFailing(t *testing.T) {
 	// A file that does not answer reads (a blocked FUSE read) defers too, with
 	// its own code; any other inspection failure is not deferred.
 	unresponsive := healthy.inspectionDeferral("/mnt/altmount", fmt.Errorf("probe: %w", mediainfo.ErrSourceUnresponsive))
-	if !errors.As(unresponsive, &deferred) || deferred.SafeCode() != "altmount_output_unresponsive" || deferred.RetryAt().Before(time.Now().Add(5*time.Minute)) {
-		t.Fatalf("inspectionDeferral = %#v, want an altmount_output_unresponsive deferral", unresponsive)
+	var unresponsiveDeferralValue interface {
+		SafeCode() string
+		RetryAt() time.Time
+		PreserveDeferralAttempts() bool
+		UnresponsiveTimeout() bool
+	}
+	if !errors.As(unresponsive, &unresponsiveDeferralValue) || unresponsiveDeferralValue.SafeCode() != "altmount_output_unresponsive" || unresponsiveDeferralValue.RetryAt().Before(time.Now().Add(5*time.Minute)) || !unresponsiveDeferralValue.PreserveDeferralAttempts() || !unresponsiveDeferralValue.UnresponsiveTimeout() {
+		t.Fatalf("inspectionDeferral = %#v, want a preserved altmount_output_unresponsive deferral", unresponsive)
 	}
 	if err := healthy.inspectionDeferral("/mnt/altmount", mediainfo.ErrNoVideoTrack); err != nil {
 		t.Fatalf("a real inspection failure must not be deferred: %v", err)

@@ -273,7 +273,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			}
 		}
 		var observations []releases.Observation
-		request = numberedSearchRequest(search, request)
+		request = numberedSearchRequest(search, request, time.Now().UTC())
 		observations, err = executeSearch(request)
 		if err != nil {
 			if recovery && errors.Is(err, postgres.ErrConcurrentModification) {

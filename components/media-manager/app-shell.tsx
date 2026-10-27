@@ -86,7 +86,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 import { cn } from "@/lib/utils"
-import { loadSystemHealth, loadSystemInfo, loadWanted, loadWorkflows, type APISystemHealth, type APIWantedItem, type APIWorkflow } from "@/lib/media-manager-api"
+import { loadAttentionWorkflows, loadSystemHealth, loadSystemInfo, loadWanted, loadWorkflows, type APISystemHealth, type APIWantedItem, type APIWorkflow } from "@/lib/media-manager-api"
 import { collectOwnerAttention, isActivelyAcquiring, type OwnerAttentionEntry } from "@/lib/workflow-states"
 import { normalizeRoute, routeTitles } from "@/lib/media-manager-routes"
 import { parseThemePreference, resolveDarkTheme, themeStorageKey, type ThemePreference } from "@/lib/theme"
@@ -231,23 +231,24 @@ const OwnerAttentionContext = React.createContext<OwnerAttentionState>({ attenti
 function OwnerAttentionProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = React.useState<APIWantedItem[]>([])
   const [workflows, setWorkflows] = React.useState<APIWorkflow[]>([])
+  const [attentionWorkflows, setAttentionWorkflows] = React.useState<APIWorkflow[]>([])
   const [loaded, setLoaded] = React.useState(false)
   const [error, setError] = React.useState("")
   const [generation, setGeneration] = React.useState(0)
   React.useEffect(() => {
     const controller = new AbortController()
-    Promise.all([loadWanted(controller.signal), loadWorkflows(true, controller.signal)])
-      .then(([nextItems, nextWorkflows]) => { setItems(nextItems); setWorkflows(nextWorkflows); setError(""); setLoaded(true) })
+    Promise.all([loadWanted(controller.signal), loadWorkflows(true, controller.signal), loadAttentionWorkflows(controller.signal)])
+      .then(([nextItems, nextWorkflows, nextAttention]) => { setItems(nextItems); setWorkflows(nextWorkflows); setAttentionWorkflows(nextAttention); setError(""); setLoaded(true) })
       .catch((reason: unknown) => { if (!controller.signal.aborted) { setError(reason instanceof Error ? reason.message : "Could not load owner attention"); setLoaded(true) } })
     return () => controller.abort()
   }, [generation])
   const value = React.useMemo<OwnerAttentionState>(() => ({
-    attention: collectOwnerAttention(items, workflows),
+    attention: collectOwnerAttention(items, attentionWorkflows),
     activeCount: workflows.filter((workflow) => isActivelyAcquiring(workflow.state)).length,
     loaded,
     error,
     refresh: () => setGeneration((current) => current + 1),
-  }), [items, workflows, loaded, error])
+  }), [items, workflows, attentionWorkflows, loaded, error])
   return <OwnerAttentionContext.Provider value={value}>{children}</OwnerAttentionContext.Provider>
 }
 

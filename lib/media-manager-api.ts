@@ -125,6 +125,20 @@ export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]
 }
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []
+
+/** All owner-decision workflows, independent of the active-list window. */
+export async function loadAttentionWorkflows(signal?: AbortSignal): Promise<APIWorkflow[]> {
+  const pageSize = 500
+  const maxPages = 20
+  const workflows: APIWorkflow[] = []
+  for (let page = 0; page < maxPages; page += 1) {
+    const offset = page * pageSize
+    const batch = await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?attention=true&limit=${pageSize}&offset=${offset}`, { signal }) ?? []
+    workflows.push(...batch)
+    if (batch.length < pageSize) return workflows
+  }
+  throw new Error(`Owner attention exceeded the safe ${pageSize * maxPages}-workflow load limit`)
+}
 export const loadWorkflowSearches = async (id: string, signal?: AbortSignal) => await requestJSON<APISearchRun[] | null>(`/api/v1/workflows/${encodeURIComponent(id)}/searches?limit=10`, { signal }) ?? []
 export const loadIntegrations = async (signal?: AbortSignal) => await requestJSON<APIIntegration[] | null>("/api/v1/settings/integrations", { signal }) ?? []
 export const loadLibraryRoots = async (signal?: AbortSignal) => await requestJSON<APILibraryRoot[] | null>("/api/v1/settings/library-roots", { signal }) ?? []

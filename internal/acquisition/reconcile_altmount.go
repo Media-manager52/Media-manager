@@ -40,6 +40,9 @@ const (
 	altMountCompletedOutputGrace       = 5 * time.Minute
 	altMountMountRetryInterval         = time.Minute
 	altMountUnresponsiveRetryInterval  = 10 * time.Minute
+	// 144 ten-minute deferrals is 24 hours. A file that never answers must
+	// become visible attention instead of consuming the single worker forever.
+	altMountUnresponsiveMaxAttempts = 144
 )
 
 // altMountMountUnavailableError defers an AltMount event while the shared
@@ -50,6 +53,11 @@ type altMountMountUnavailableError struct {
 	cause error
 	// code overrides the safe code, for example for one unresponsive file.
 	code string
+	// preserveAttempts keeps the durable outbox attempt count growing for
+	// unresponsive-file deferrals, so they can eventually become attention.
+	preserveAttempts bool
+	// unresponsive marks a timeout that says nothing about the release.
+	unresponsive bool
 }
 
 func (err altMountMountUnavailableError) Error() string { return err.cause.Error() }
@@ -61,6 +69,10 @@ func (err altMountMountUnavailableError) SafeCode() string {
 	return "altmount_mount_unavailable"
 }
 func (err altMountMountUnavailableError) RetryAt() time.Time { return err.until.UTC() }
+func (err altMountMountUnavailableError) PreserveDeferralAttempts() bool {
+	return err.preserveAttempts
+}
+func (err altMountMountUnavailableError) UnresponsiveTimeout() bool { return err.unresponsive }
 
 // mountOutage returns a deferral when the read-only root itself cannot be
 // read. Callers consult it before recording any output or inspection failure,
@@ -85,7 +97,13 @@ func (service *AltMountReconcileService) inspectionDeferral(root string, inspect
 		return outage
 	}
 	if errors.Is(inspectionErr, mediainfo.ErrSourceUnresponsive) {
-		return altMountMountUnavailableError{until: time.Now().Add(altMountUnresponsiveRetryInterval), cause: inspectionErr, code: "altmount_output_unresponsive"}
+		return altMountMountUnavailableError{
+			until:            time.Now().Add(altMountUnresponsiveRetryInterval),
+			cause:            inspectionErr,
+			code:             "altmount_output_unresponsive",
+			preserveAttempts: true,
+			unresponsive:     true,
+		}
 	}
 	return nil
 }
@@ -242,6 +260,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, policy, service.MediaInfoProbe, rootErr)
 		if inspectionErr != nil {
 			if deferral := service.inspectionDeferral(config.LocalReadOnlyRoot, inspectionErr); deferral != nil {
+				if unresponsiveDeferral(deferral) && event.Attempts >= altMountUnresponsiveMaxAttempts {
+					return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", "output inspection timed out for 24 hours; the file is still unreadable and needs owner review", time.Now().UTC())
+				}
 				return deferral
 			}
 			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) || errors.Is(inspectionErr, mediainfo.ErrEncryptedVideo) {
@@ -317,6 +338,9 @@ func (service *AltMountReconcileService) HandleRetainedOutputReverification(ctx 
 	verification, inspectionErr := inspectSubtitleRequirements(ctx, authorizedRoot, selected, allAssets, retained.Policy, service.MediaInfoProbe, rootErr)
 	if inspectionErr != nil {
 		if deferral := service.inspectionDeferral(config.LocalReadOnlyRoot, inspectionErr); deferral != nil {
+			if unresponsiveDeferral(deferral) && event.Attempts >= altMountUnresponsiveMaxAttempts {
+				return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", "output inspection timed out for 24 hours; the file is still unreadable and needs owner review", time.Now().UTC())
+			}
 			return deferral
 		}
 		return inspectionErr
@@ -336,6 +360,11 @@ func inspectSubtitleRequirements(ctx context.Context, authorizedRoot string, sel
 		return subtitles.Verification{}, inspectionErr
 	}
 	return subtitles.Verification{}, errors.New("completed AltMount output could not be inspected safely")
+}
+
+func unresponsiveDeferral(err error) bool {
+	var deferral interface{ UnresponsiveTimeout() bool }
+	return errors.As(err, &deferral) && deferral.UnresponsiveTimeout()
 }
 
 func terminalAltMountJob(state string) bool {
