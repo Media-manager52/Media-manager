@@ -431,7 +431,10 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			AND previous.operation_key=$4 AND previous.title=$5 AND previous.raw_fields=$6::jsonb
 			AND previous.normalized_facts=$7::jsonb AND previous.parse_version=$8 AND previous.problems=$9::jsonb`, search.Workflow.ID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Operation, observation.Title, string(rawFields), string(facts), observation.ParseVersion, string(problems)).Scan(&unchangedObservationText)
 		if reuseErr == nil {
-			persistedObservationID, _ = uuid.Parse(unchangedObservationText)
+			persistedObservationID, err = uuid.Parse(unchangedObservationText)
+			if err != nil {
+				return workflows.Workflow{}, err
+			}
 		} else if errors.Is(reuseErr, pgx.ErrNoRows) {
 			persistedObservationID, err = insertReleaseObservation(ctx, transaction, observation, bodyHash, rawFields, facts, problems)
 			if err != nil {

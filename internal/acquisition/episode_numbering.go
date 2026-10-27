@@ -72,7 +72,7 @@ func recentNumberedTarget(search postgres.SearchContext, now time.Time) bool {
 	return !latest.IsZero() && !latest.Before(now.UTC().Add(-numberedIDOnlyMaxAge))
 }
 
-func applyEpisodeNumbering(observation releases.Observation, search postgres.SearchContext, now time.Time) releases.Observation {
+func applyEpisodeNumbering(observation releases.Observation, search postgres.SearchContext, _ time.Time) releases.Observation {
 	if search.Media.Kind != catalog.KindSeries {
 		return observation
 	}
@@ -95,16 +95,35 @@ func applyEpisodeNumbering(observation releases.Observation, search postgres.Sea
 	}
 	identity := constrainMediaMatch(observation, releases.Evaluation{Verdict: releases.VerdictEligible}, search.Media)
 	resolved := positive && identity.Verdict == releases.VerdictEligible && (episode > 0 || pack)
-	// Preserve every previous scope fact under an explicit provenance name; raw
-	// provider fields also remain unchanged in the persisted observation.
+	// Reconstruct evaluator-owned facts on every run. Existing unmapped_ facts
+	// are the original provider evidence preserved by the first application;
+	// never rename those again. Removing the previous derived facts before
+	// appending the deterministic replacement keeps repeated evaluations stable
+	// and also normalizes observations written by the earlier non-idempotent
+	// implementation.
+	hasDerivedNumbering := false
+	for _, f := range observation.Facts {
+		if strings.EqualFold(strings.TrimSpace(f.Name), "episode_numbering") {
+			hasDerivedNumbering = true
+			break
+		}
+	}
 	facts := make([]releases.Fact, 0, len(observation.Facts)+4)
 	for _, f := range observation.Facts {
-		switch strings.ToLower(f.Name) {
+		switch strings.ToLower(strings.TrimSpace(f.Name)) {
+		case "episode_numbering":
+			if hasDerivedNumbering {
+				continue
+			}
 		case "season_number", "episode_number", "episode", "release_scope":
+			if hasDerivedNumbering {
+				continue
+			}
 			f.Name = "unmapped_" + f.Name
 		}
 		facts = append(facts, f)
 	}
+	facts = dedupeUnmappedFacts(facts)
 	state := releases.FactUnknown
 	seasonValues, episodeValues := []string(nil), []string(nil)
 	if resolved {
@@ -118,12 +137,13 @@ func applyEpisodeNumbering(observation releases.Observation, search postgres.Sea
 	if pack {
 		scope = "season_pack"
 	}
-	facts = append(facts, releases.Fact{Name: "season_number", Values: seasonValues, State: state, ObservedAt: now}, releases.Fact{Name: "episode_number", Values: episodeValues, State: state, ObservedAt: now}, releases.Fact{Name: "release_scope", Values: []string{scope}, State: state, ObservedAt: now})
+	derivedAt := derivedFactTime(observation)
+	facts = append(facts, releases.Fact{Name: "season_number", Values: seasonValues, State: state, ObservedAt: derivedAt}, releases.Fact{Name: "episode_number", Values: episodeValues, State: state, ObservedAt: derivedAt}, releases.Fact{Name: "release_scope", Values: []string{scope}, State: state, ObservedAt: derivedAt})
 	provenance := "unresolved broadcast numbering"
 	if resolved {
 		provenance = "frozen annual season snapshot"
 	}
-	facts = append(facts, releases.Fact{Name: "episode_numbering", Values: []string{provenance}, State: state, ObservedAt: now})
+	facts = append(facts, releases.Fact{Name: "episode_numbering", Values: []string{provenance}, State: state, ObservedAt: derivedAt})
 	observation.Facts = facts
 	return observation
 }
