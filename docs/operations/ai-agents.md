@@ -17,10 +17,15 @@ bridge instead of the owner token or the MCP server:
 http://127.0.0.1:28082
 ```
 
-It accepts only `GET` and `HEAD`, injects the owner bearer token server-side,
-and never exposes that token. Writes return `405`; backup downloads/off-site
-copies and the Seerr webhook are blocked. It is not exposed through Cosmos or
-the public origin.
+It loads the live OpenAPI document and accepts only operations marked
+`x-mm-effect: read`; writes and provider-effect GETs return `403`/`405`.
+Doubled slashes, encoded separators, dot segments and upstream redirects are
+refused. Backup binaries/off-site copies, notification destinations and the
+Seerr webhook are excluded. It injects the owner bearer token server-side and
+never exposes that token; the token is re-read after a `401` (and cached for at
+most 30 seconds), so rotating it does not require a restart. It is loopback-only
+and is not exposed through Cosmos or the public origin. Access is limited to
+processes/accounts that can reach `127.0.0.1` on this host.
 
 ```bash
 curl -s http://127.0.0.1:28082/health/ready
@@ -31,7 +36,9 @@ curl -s http://127.0.0.1:28082/api/v1/problems
 curl -s http://127.0.0.1:28082/api/v1/openapi.json
 ```
 
-The service is `media-manager-ai-inspector`:
+The service is `media-manager-ai-inspector`; request paths and statuses go to
+the journal (no headers, tokens or query strings). Set
+`MEDIA_MANAGER_AI_LOG` to also write the same JSON lines to a mode-600 file.
 
 ```bash
 sudo systemctl status media-manager-ai-inspector
