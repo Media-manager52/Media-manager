@@ -399,7 +399,12 @@ func releaseAttributableQueueFailure(detail string) (string, bool) {
 	case strings.Contains(normalized, "compressed files are not supported"),
 		strings.Contains(normalized, "compressed media files are not supported"),
 		strings.Contains(normalized, "failed to iterate rar archive"),
+		strings.Contains(normalized, "no valid files found in rar archive"),
+		strings.Contains(normalized, "compressed or encrypted rars"),
 		strings.Contains(normalized, "password protected"),
+		strings.Contains(normalized, "password-protected 7zip"),
+		strings.Contains(normalized, "failed to list files in 7zip archive"),
+		strings.Contains(normalized, "no valid files found in 7zip archive after filtering"),
 		strings.Contains(normalized, "rar2") && strings.Contains(normalized, "compression"):
 		return releases.PackageFailureArchiveUnsupported, true
 	case strings.Contains(normalized, "no files with allowed extensions"),
@@ -410,6 +415,8 @@ func releaseAttributableQueueFailure(detail string) (string, bool) {
 	case strings.Contains(normalized, "incomplete or missing parts"),
 		strings.Contains(normalized, "nzb file contains only par2 files. this indicates that there are missing segments in your providers"),
 		strings.Contains(normalized, "no valid first rar part found in archive"),
+		strings.Contains(normalized, "no valid first 7zip part found in archive"),
+		strings.Contains(normalized, "failed to convert iterator results to rarcontent: incomplete nzb data"),
 		strings.Contains(normalized, "invalid nzb: total size is zero"),
 		strings.Contains(normalized, "fast-fail segment check failed: no regular files were successfully processed (all files failed validation)"),
 		// Every RAR/7z group was skipped for a missing volume.
