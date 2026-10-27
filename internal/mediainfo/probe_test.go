@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseDerivesBoundedQualityFacts(t *testing.T) {
@@ -75,6 +76,23 @@ func TestBoundedBufferStopsAtLimit(t *testing.T) {
 	}
 	if _, err := buffer.Write([]byte(strings.Repeat("x", 2))); !errors.Is(err, ErrOutputLimit) {
 		t.Fatalf("second bounded write err=%v", err)
+	}
+}
+
+func TestInspectWithinDefersAnFFprobeTimeout(t *testing.T) {
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "Movie.mkv")
+	signature := append([]byte{0x1a, 0x45, 0xdf, 0xa3}, make([]byte, 4096)...)
+	if err := os.WriteFile(mediaPath, signature, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(t.TempDir(), "slow-ffprobe")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nsleep 5\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Executable: executable, Timeout: 50 * time.Millisecond}
+	if _, err := probe.InspectWithin(t.Context(), root, "Movie.mkv"); !errors.Is(err, ErrSourceUnresponsive) {
+		t.Fatalf("timeout error=%v, want ErrSourceUnresponsive", err)
 	}
 }
 

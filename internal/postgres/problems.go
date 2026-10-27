@@ -34,24 +34,38 @@ type ProblemFeed struct {
 func (store *Store) Problems(ctx context.Context, now time.Time) (ProblemFeed, error) {
 	feed := ProblemFeed{Problems: []Problem{}, CheckedAt: now.UTC()}
 
-	workflowRows, err := store.Pool.Query(ctx, `SELECT COALESCE(NULLIF(attention_code,''),'needs_attention'),count(*),min(updated_at),max(updated_at),
-		(array_agg(COALESCE(NULLIF(attention_detail,''),'') ORDER BY updated_at DESC))[1]
-		FROM workflows WHERE terminal_at IS NULL AND state='needs_attention'
-		GROUP BY 1 ORDER BY 2 DESC`)
+	// Use the exact predicate that Dashboard's needs_attention count uses:
+	// every owner-blocked state plus a waiting workflow whose paced discovery
+	// found a release that only the owner can approve. Keeping one query means
+	// the Problems count cannot silently disagree with the Dashboard count.
+	workflowRows, err := store.Pool.Query(ctx, `SELECT workflow.state,
+		COALESCE(NULLIF(workflow.attention_code,''),workflow.state),count(*),min(workflow.updated_at),max(workflow.updated_at),
+		(array_agg(COALESCE(NULLIF(workflow.attention_detail,''),'') ORDER BY workflow.updated_at DESC))[1]
+		FROM workflows workflow WHERE workflow.terminal_at IS NULL AND (
+			workflow.state IN ('needs_attention','blocked','quarantined','transport_unknown')
+			OR (workflow.state='waiting' AND EXISTS(
+				SELECT 1 FROM workflow_retry_discovery discovery
+				WHERE discovery.workflow_id=workflow.id AND discovery.state='ready'))
+		)
+		GROUP BY workflow.state, COALESCE(NULLIF(workflow.attention_code,''),workflow.state) ORDER BY 3 DESC`)
 	if err != nil {
 		return ProblemFeed{}, err
 	}
 	for workflowRows.Next() {
-		var code, detail string
+		var state, code, detail string
 		var count int64
 		var oldest, latest time.Time
-		if err := workflowRows.Scan(&code, &count, &oldest, &latest, &detail); err != nil {
+		if err := workflowRows.Scan(&state, &code, &count, &oldest, &latest, &detail); err != nil {
 			workflowRows.Close()
 			return ProblemFeed{}, err
 		}
+		title := "Workflow: " + HumanizeCode(code)
+		if state == "waiting" {
+			title = "Workflow: New release ready"
+		}
 		feed.Problems = append(feed.Problems, Problem{
-			Code: "workflow.needs_attention", Area: "workflows", Level: "error",
-			Title: "Workflow: " + HumanizeCode(code), Detail: clipDetail(detail),
+			Code: "workflow." + state, Area: "workflows", Level: "error",
+			Title: title, Detail: clipDetail(detail),
 			Count: count, OldestAt: &oldest, LatestAt: &latest, Href: "/activity/queue",
 		})
 	}

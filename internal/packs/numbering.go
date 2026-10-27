@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
-// EpisodeNumbering binds annual scene numbering to one immutable, complete
-// calendar-year season snapshot. It never changes the canonical episode keys.
+// EpisodeNumbering binds annual scene numbering to one immutable
+// calendar-year season snapshot. A snapshot may have gaps where an episode was
+// preempted; each present episode is still mapped exactly. It never changes the
+// canonical episode keys.
 type EpisodeNumbering struct {
 	Season   uint16
 	Year     uint16
@@ -62,11 +64,6 @@ func AnnualEpisodeNumbering(season uint16, expected []ExpectedEpisode) EpisodeNu
 		} else {
 			n.Dates[e.AirDate] = e.Key.Episode
 			dates[e.AirDate] = true
-		}
-	}
-	for e := 1; e <= len(expected); e++ {
-		if !n.Episodes[uint16(e)] {
-			return EpisodeNumbering{}
 		}
 	}
 	return n

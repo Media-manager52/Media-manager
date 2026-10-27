@@ -1216,9 +1216,40 @@ func (server *Server) getMedia(writer http.ResponseWriter, request *http.Request
 }
 
 func (server *Server) listWorkflows(writer http.ResponseWriter, request *http.Request) {
-	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	limit := 100
+	if raw := strings.TrimSpace(request.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 500 {
+			writeError(writer, http.StatusUnprocessableEntity, "invalid_limit", "limit must be between 1 and 500")
+			return
+		}
+		limit = parsed
+	}
+	offset := 0
+	if raw := strings.TrimSpace(request.URL.Query().Get("offset")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeError(writer, http.StatusUnprocessableEntity, "invalid_offset", "offset must be zero or greater")
+			return
+		}
+		offset = parsed
+	}
+	state := strings.TrimSpace(request.URL.Query().Get("state"))
+	if state != "" && !validWorkflowState(state) {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_state", "state must be a known workflow state")
+		return
+	}
+	attention := false
+	if raw := strings.TrimSpace(request.URL.Query().Get("attention")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeError(writer, http.StatusUnprocessableEntity, "invalid_attention", "attention must be true or false")
+			return
+		}
+		attention = parsed
+	}
 	activeOnly := request.URL.Query().Get("active") != "false"
-	items, err := server.store.ListWorkflowSummaries(request.Context(), limit, activeOnly)
+	items, err := server.store.ListWorkflowSummariesPage(request.Context(), limit, offset, activeOnly, state, attention)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load workflows")
 		return
@@ -1227,7 +1258,21 @@ func (server *Server) listWorkflows(writer http.ResponseWriter, request *http.Re
 	for _, item := range items {
 		views = append(views, newWorkflowView(item))
 	}
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: views, Meta: map[string]any{"count": len(items), "active_only": activeOnly}})
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: views, Meta: map[string]any{"count": len(items), "limit": limit, "offset": offset, "state": state, "attention": attention, "active_only": activeOnly}})
+}
+
+func validWorkflowState(value string) bool {
+	switch workflows.State(value) {
+	case workflows.StateMonitored, workflows.StateWaiting, workflows.StateSearching,
+		workflows.StateCandidateSelected, workflows.StateSubmitting, workflows.StateTransportUnknown,
+		workflows.StateQueued, workflows.StateStreamingReady, workflows.StateImportComplete,
+		workflows.StateVerifying, workflows.StatePublishing, workflows.StatePlexScanning,
+		workflows.StatePlexConfirmed, workflows.StateNeedsAttention, workflows.StateHeld,
+		workflows.StateBlocked, workflows.StateQuarantined, workflows.StateCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 func (server *Server) createMediaWorkflow(writer http.ResponseWriter, request *http.Request) {

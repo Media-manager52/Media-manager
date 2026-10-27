@@ -6264,9 +6264,36 @@
             }
           },
           {
+            "description": "Only workflows in this durable state (for example needs_attention, blocked, waiting or plex_confirmed).",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only workflows that need an owner decision, using the same predicate as the Dashboard count.",
+            "in": "query",
+            "name": "attention",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "description": "Maximum number of rows to return.",
             "in": "query",
             "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of rows to skip, for paging.",
+            "in": "query",
+            "name": "offset",
             "required": false,
             "schema": {
               "type": "integer"

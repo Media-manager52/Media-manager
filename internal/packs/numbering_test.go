@@ -32,12 +32,24 @@ func TestAnnualNumberingMatchesFrozenEpisodes(t *testing.T) {
 		})
 	}
 }
-func TestAnnualNumberingRejectsIncompleteOrSplitSnapshots(t *testing.T) {
+func TestAnnualNumberingAllowsGapsButRejectsAmbiguity(t *testing.T) {
+	gapped := annualTestEpisodes()
+	gapped[1].Key.Episode = 4
+	gapped[1].AirDate = "2026-06-17"
+	n := AnnualEpisodeNumbering(23, gapped)
+	if n.Year != 2026 || n.Dates["2026-04-15"] != 1 || n.Dates["2026-06-17"] != 4 || n.Episodes[3] {
+		t.Fatalf("gapped snapshot was not mapped exactly: %+v", n)
+	}
+	if got, broadcast := n.BroadcastEpisode("Operation.X.S2026E04.mkv"); !broadcast || got != 4 {
+		t.Fatalf("present gapped episode did not map: %d/%v", got, broadcast)
+	}
+	if got, broadcast := n.BroadcastEpisode("Operation.X.S2026E03.mkv"); !broadcast || got != 0 {
+		t.Fatalf("missing gapped episode mapped: %d/%v", got, broadcast)
+	}
 	for _, mutate := range []func([]ExpectedEpisode) []ExpectedEpisode{
 		func(e []ExpectedEpisode) []ExpectedEpisode { e[1].AirDate = ""; return e },
 		func(e []ExpectedEpisode) []ExpectedEpisode { e[1].AirDate = "2025-06-10"; return e },
-		func(e []ExpectedEpisode) []ExpectedEpisode { e[1].Key.Episode = 3; return e },
-		func(e []ExpectedEpisode) []ExpectedEpisode { return e[1:] },
+		func(e []ExpectedEpisode) []ExpectedEpisode { e[1].Key.Episode = 1; return e },
 		func(e []ExpectedEpisode) []ExpectedEpisode { e[1].Key.Season = 22; return e },
 	} {
 		if n := AnnualEpisodeNumbering(23, mutate(annualTestEpisodes())); n.Year != 0 {
@@ -46,7 +58,7 @@ func TestAnnualNumberingRejectsIncompleteOrSplitSnapshots(t *testing.T) {
 	}
 	e := annualTestEpisodes()
 	e[1].AirDate = e[0].AirDate
-	n := AnnualEpisodeNumbering(23, e)
+	n = AnnualEpisodeNumbering(23, e)
 	if got, _ := n.BroadcastEpisode("Operation.X.2026.04.15.mkv"); got != 0 {
 		t.Fatal("duplicate air date was mapped")
 	}

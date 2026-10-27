@@ -104,6 +104,14 @@ func (store *Store) ListWorkflowSummaries(ctx context.Context, limit int, active
 	return store.workflowSummaries(ctx, limit, activeOnly, nil, nil)
 }
 
+// ListWorkflowSummariesPage lets an owner page through every workflow and
+// filter by durable state. The HTTP handler validates the limit and state; the
+// offset makes attention lists recoverable even when there are thousands of
+// active workflows.
+func (store *Store) ListWorkflowSummariesPage(ctx context.Context, limit, offset int, activeOnly bool, state string, attention bool) ([]WorkflowSummary, error) {
+	return store.workflowSummariesFiltered(ctx, limit, offset, activeOnly, nil, nil, state, attention)
+}
+
 // WorkflowSummary is the owner read model of one workflow, including archived
 // media, terminal workflows and the same readiness facts the list shows.
 func (store *Store) WorkflowSummary(ctx context.Context, id uuid.UUID) (WorkflowSummary, error) {
@@ -118,10 +126,20 @@ func (store *Store) WorkflowSummary(ctx context.Context, id uuid.UUID) (Workflow
 }
 
 func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly bool, mediaID, workflowID *uuid.UUID) ([]WorkflowSummary, error) {
+	return store.workflowSummariesFiltered(ctx, limit, 0, activeOnly, mediaID, workflowID, "", false)
+}
+
+func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset int, activeOnly bool, mediaID, workflowID *uuid.UUID, state string, attention bool) ([]WorkflowSummary, error) {
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
-	var mediaIDValue, workflowIDValue any
+	if offset < 0 {
+		offset = 0
+	}
+	var mediaIDValue, workflowIDValue, stateValue any
+	if state != "" {
+		stateValue = state
+	}
 	if mediaID != nil {
 		mediaIDValue = mediaID.String()
 	}
@@ -160,7 +178,12 @@ func (store *Store) workflowSummaries(ctx context.Context, limit int, activeOnly
 		LEFT JOIN LATERAL (SELECT c.id::text,c.title,i.name AS indexer_name `+store.accessRejectedRetryQuery()+` AND w.id=workflow.id) access_retry ON true
 		WHERE ($4::uuid IS NOT NULL OR media.deleted_at IS NULL) AND (NOT $2 OR workflow.terminal_at IS NULL)
 			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid) AND ($4::uuid IS NULL OR workflow.id=$4::uuid)
-		ORDER BY workflow.updated_at DESC,workflow.id LIMIT $1`, limit, activeOnly, mediaIDValue, workflowIDValue)
+			AND ($5::text IS NULL OR workflow.state=$5)
+			AND (NOT $6 OR workflow.state IN ('needs_attention','blocked','quarantined','transport_unknown')
+				OR (workflow.state='waiting' AND EXISTS(
+					SELECT 1 FROM workflow_retry_discovery discovery
+					WHERE discovery.workflow_id=workflow.id AND discovery.state='ready')))
+		ORDER BY workflow.updated_at DESC,workflow.id LIMIT $1 OFFSET $7`, limit, activeOnly, mediaIDValue, workflowIDValue, stateValue, attention, offset)
 	if err != nil {
 		return nil, err
 	}
