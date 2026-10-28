@@ -416,7 +416,6 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		observation := newznab.SanitizeObservation(entry.Observation)
 		evaluation := newznab.SanitizeEvaluation(entry.Evaluation)
 		sourceObservationID := observation.ID
-		persistedObservationID := observation.ID
 		rawFields, _ := json.Marshal(observation.Fields)
 		facts, _ := json.Marshal(observation.Facts)
 		problems, _ := json.Marshal(observation.Problems)
@@ -424,24 +423,18 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		if decodeErr != nil {
 			bodyHash = sha256Bytes([]byte(observation.BodyHash))
 		}
-		var unchangedObservationText string
-		reuseErr := transaction.QueryRow(ctx, `SELECT previous.id::text
-			FROM release_candidates candidate JOIN release_observations previous ON previous.id=candidate.observation_id
-			WHERE candidate.workflow_id=$1 AND candidate.indexer_instance_id=$2 AND candidate.native_key=$3
-			AND previous.operation_key=$4 AND previous.title=$5 AND previous.raw_fields=$6::jsonb
-			AND previous.normalized_facts=$7::jsonb AND previous.parse_version=$8 AND previous.problems=$9::jsonb`, search.Workflow.ID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Operation, observation.Title, string(rawFields), string(facts), observation.ParseVersion, string(problems)).Scan(&unchangedObservationText)
-		if reuseErr == nil {
-			persistedObservationID, err = uuid.Parse(unchangedObservationText)
-			if err != nil {
-				return workflows.Workflow{}, err
-			}
-		} else if errors.Is(reuseErr, pgx.ErrNoRows) {
+		var persistedObservationID uuid.UUID
+		reusedID, reused, reuseErr := store.reusableObservation(ctx, transaction, search.Workflow.ID, observation.IndexerID, observation.NativeGUID, observation)
+		if reuseErr != nil {
+			return workflows.Workflow{}, reuseErr
+		}
+		if reused {
+			persistedObservationID = reusedID
+		} else {
 			persistedObservationID, err = insertReleaseObservation(ctx, transaction, observation, bodyHash, rawFields, facts, problems)
 			if err != nil {
 				return workflows.Workflow{}, err
 			}
-		} else {
-			return workflows.Workflow{}, reuseErr
 		}
 		candidateID := uuid.NewV7()
 		var returned string
