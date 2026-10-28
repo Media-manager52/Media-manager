@@ -441,7 +441,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		var firstSeenSequence int64
 		locatorReference := newznab.DownloadLocatorReference(observation.DownloadURL, observation.NativeGUID)
 		err = transaction.QueryRow(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at,first_observed_at,last_observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)
-			ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET search_run_id=EXCLUDED.search_run_id,observation_id=EXCLUDED.observation_id,title=EXCLUDED.title,download_locator_ref=EXCLUDED.download_locator_ref,last_observed_at=EXCLUDED.last_observed_at,observation_count=release_candidates.observation_count+1
+			ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET search_run_id=EXCLUDED.search_run_id,observation_id=EXCLUDED.observation_id,title=EXCLUDED.title,download_locator_ref=EXCLUDED.download_locator_ref,last_observed_at=GREATEST(release_candidates.last_observed_at,EXCLUDED.last_observed_at),observation_count=release_candidates.observation_count+1
 			RETURNING id::text,first_seen_sequence`, candidateID.String(), search.Workflow.ID.String(), runID.String(), persistedObservationID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Title, locatorReference, now.UTC()).Scan(&returned, &firstSeenSequence)
 		if err != nil {
 			return workflows.Workflow{}, err
