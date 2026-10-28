@@ -99,7 +99,7 @@ func oldBoysRangeScope(observation releases.Observation, search postgres.SearchC
 			values = append(values, strconv.Itoa(int(season)))
 		}
 	}
-	observation.Facts = append(observation.Facts, releases.Fact{Name: "declared_pack_seasons", Values: values, State: state, ObservedAt: observation.ObservedAt})
+	observation.Facts = replaceDerivedFact(observation.Facts, releases.Fact{Name: "declared_pack_seasons", Values: values, State: state, ObservedAt: derivedFactTime(observation)})
 	// Preserve the generic title facts (including its first season) as evidence.
 	// Native range admission uses membership rather than rewriting those facts.
 	rules := []releases.Rule{{Name: "Requested season in declared collection", Fact: "declared_pack_seasons", AllowedValues: []string{strconv.Itoa(int(variant.Season))}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold}}
@@ -113,7 +113,7 @@ var oldBoysScopePrefix = regexp.MustCompile(`^(?:s[0-9]{1,4}(?:e[0-9]{1,3})?|(?:
 // catalogue evidence. Bind only Danish-original series with an exact saved
 // original/canonical title immediately followed by a scene scope/year token.
 // This is never recorded as a provider-supplied TMDB/TVDB/IMDb identity.
-func bindOldBoysCatalogue(observation releases.Observation, search postgres.SearchContext, now time.Time) releases.Observation {
+func bindOldBoysCatalogue(observation releases.Observation, search postgres.SearchContext, _ time.Time) releases.Observation {
 	media := search.Media
 	if !oldBoysVerifiedCatalogue(media) {
 		return observation
@@ -129,7 +129,7 @@ func bindOldBoysCatalogue(observation releases.Observation, search postgres.Sear
 			}
 		}
 	}
-	observation.Facts = append(observation.Facts, releases.Fact{Name: "oldboys_catalogue_binding", Values: []string{media.ID.String()}, State: releases.FactInferred, ObservedAt: now})
+	observation.Facts = replaceDerivedFact(observation.Facts, releases.Fact{Name: "oldboys_catalogue_binding", Values: []string{media.ID.String()}, State: releases.FactInferred, ObservedAt: derivedFactTime(observation)})
 	return observation
 }
 func oldBoysExactSeriesPrefix(title string, media catalog.MediaItem) bool {

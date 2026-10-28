@@ -72,7 +72,7 @@ func recentNumberedTarget(search postgres.SearchContext, now time.Time) bool {
 	return !latest.IsZero() && !latest.Before(now.UTC().Add(-numberedIDOnlyMaxAge))
 }
 
-func applyEpisodeNumbering(observation releases.Observation, search postgres.SearchContext, now time.Time) releases.Observation {
+func applyEpisodeNumbering(observation releases.Observation, search postgres.SearchContext, _ time.Time) releases.Observation {
 	if search.Media.Kind != catalog.KindSeries {
 		return observation
 	}
@@ -95,15 +95,17 @@ func applyEpisodeNumbering(observation releases.Observation, search postgres.Sea
 	}
 	identity := constrainMediaMatch(observation, releases.Evaluation{Verdict: releases.VerdictEligible}, search.Media)
 	resolved := positive && identity.Verdict == releases.VerdictEligible && (episode > 0 || pack)
-	// Preserve every previous scope fact under an explicit provenance name; raw
-	// provider fields also remain unchanged in the persisted observation.
-	facts := make([]releases.Fact, 0, len(observation.Facts)+4)
+	// Reconstruct evaluator-owned facts from the original evidence on every run.
+	// Existing unmapped_ facts are the provider aliases preserved by the first
+	// application; never rename those again. On later runs, replace the derived
+	// group at its original position so unrelated evidence (for example an
+	// OldBoys range fact) does not move and change the persisted JSON.
+	hasDerivedNumbering := false
 	for _, f := range observation.Facts {
-		switch strings.ToLower(f.Name) {
-		case "season_number", "episode_number", "episode", "release_scope":
-			f.Name = "unmapped_" + f.Name
+		if strings.EqualFold(strings.TrimSpace(f.Name), "episode_numbering") {
+			hasDerivedNumbering = true
+			break
 		}
-		facts = append(facts, f)
 	}
 	state := releases.FactUnknown
 	seasonValues, episodeValues := []string(nil), []string(nil)
@@ -118,12 +120,40 @@ func applyEpisodeNumbering(observation releases.Observation, search postgres.Sea
 	if pack {
 		scope = "season_pack"
 	}
-	facts = append(facts, releases.Fact{Name: "season_number", Values: seasonValues, State: state, ObservedAt: now}, releases.Fact{Name: "episode_number", Values: episodeValues, State: state, ObservedAt: now}, releases.Fact{Name: "release_scope", Values: []string{scope}, State: state, ObservedAt: now})
+	derivedAt := derivedFactTime(observation)
 	provenance := "unresolved broadcast numbering"
 	if resolved {
 		provenance = "frozen annual season snapshot"
 	}
-	facts = append(facts, releases.Fact{Name: "episode_numbering", Values: []string{provenance}, State: state, ObservedAt: now})
+	derived := []releases.Fact{
+		{Name: "season_number", Values: seasonValues, State: state, ObservedAt: derivedAt},
+		{Name: "episode_number", Values: episodeValues, State: state, ObservedAt: derivedAt},
+		{Name: "release_scope", Values: []string{scope}, State: state, ObservedAt: derivedAt},
+		{Name: "episode_numbering", Values: []string{provenance}, State: state, ObservedAt: derivedAt},
+	}
+	facts := make([]releases.Fact, 0, len(observation.Facts)+4)
+	insertedDerived := false
+	for _, f := range observation.Facts {
+		name := strings.ToLower(strings.TrimSpace(f.Name))
+		switch name {
+		case "episode_numbering", "season_number", "episode_number", "episode", "release_scope":
+			if hasDerivedNumbering {
+				if !insertedDerived {
+					facts = append(facts, derived...)
+					insertedDerived = true
+				}
+				continue
+			}
+			if name != "episode_numbering" {
+				f.Name = "unmapped_" + f.Name
+			}
+		}
+		facts = append(facts, f)
+	}
+	if !insertedDerived {
+		facts = append(facts, derived...)
+	}
+	facts = dedupeUnmappedFacts(facts)
 	observation.Facts = facts
 	return observation
 }

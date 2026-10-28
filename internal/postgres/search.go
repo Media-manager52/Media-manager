@@ -276,6 +276,31 @@ func upsertReleaseFact(facts []releases.Fact, replacement releases.Fact) []relea
 	return append(result, replacement)
 }
 
+// insertReleaseObservation stores one immutable observation snapshot. The
+// caller normally supplies a fresh UUID, but a held candidate can be re-scored
+// after its frozen episode mapping changes: its existing observation ID then
+// belongs to the previous facts. Never overwrite that evidence and never retry
+// the same primary key. If the supplied ID is taken, allocate a new version and
+// let the candidate point at it. The unchanged-content path above already
+// reuses the candidate's current observation, so repeating a search with the
+// same facts stays idempotent.
+func insertReleaseObservation(ctx context.Context, transaction pgx.Tx, observation releases.Observation, bodyHash, rawFields, facts, problems []byte) (uuid.UUID, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		id := observation.ID
+		if attempt > 0 {
+			id = uuid.NewV7()
+		}
+		command, err := transaction.Exec(ctx, `INSERT INTO release_observations(id,indexer_instance_id,operation_key,native_guid,title,body_sha256,raw_fields,normalized_facts,parse_version,problems,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO NOTHING`, id.String(), observation.IndexerID.String(), observation.Operation, observation.NativeGUID, observation.Title, bodyHash, string(rawFields), string(facts), observation.ParseVersion, string(problems), observation.ObservedAt)
+		if err != nil {
+			return uuid.UUID{}, err
+		}
+		if command.RowsAffected() == 1 {
+			return id, nil
+		}
+	}
+	return uuid.UUID{}, errors.New("could not allocate a new release observation version")
+}
+
 func (store *Store) PersistSearch(ctx context.Context, search SearchContext, queryFingerprint []byte, evaluated []EvaluatedObservation, options SearchPersistenceOptions, now time.Time) (workflows.Workflow, error) {
 	if !validSearchIndexerOutcomes(search.Indexers, options.IndexerOutcomes) {
 		return workflows.Workflow{}, errors.New("search result does not cover its exact planned indexer set")
@@ -406,9 +431,13 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			AND previous.operation_key=$4 AND previous.title=$5 AND previous.raw_fields=$6::jsonb
 			AND previous.normalized_facts=$7::jsonb AND previous.parse_version=$8 AND previous.problems=$9::jsonb`, search.Workflow.ID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Operation, observation.Title, string(rawFields), string(facts), observation.ParseVersion, string(problems)).Scan(&unchangedObservationText)
 		if reuseErr == nil {
-			persistedObservationID, _ = uuid.Parse(unchangedObservationText)
+			persistedObservationID, err = uuid.Parse(unchangedObservationText)
+			if err != nil {
+				return workflows.Workflow{}, err
+			}
 		} else if errors.Is(reuseErr, pgx.ErrNoRows) {
-			if _, err := transaction.Exec(ctx, `INSERT INTO release_observations(id,indexer_instance_id,operation_key,native_guid,title,body_sha256,raw_fields,normalized_facts,parse_version,problems,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, observation.ID.String(), observation.IndexerID.String(), observation.Operation, observation.NativeGUID, observation.Title, bodyHash, string(rawFields), string(facts), observation.ParseVersion, string(problems), observation.ObservedAt); err != nil {
+			persistedObservationID, err = insertReleaseObservation(ctx, transaction, observation, bodyHash, rawFields, facts, problems)
+			if err != nil {
 				return workflows.Workflow{}, err
 			}
 		} else {
