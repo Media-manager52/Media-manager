@@ -624,7 +624,7 @@ func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]Rel
 			ORDER BY policy_version DESC LIMIT 1
 		) decision ON true
 		LEFT JOIN candidate_selections selection ON selection.workflow_id=candidate.workflow_id AND selection.candidate_id=candidate.id
-		ORDER BY candidate.last_observed_at DESC,candidate.id LIMIT $1`, limit)
+		ORDER BY candidate.last_observed_at DESC,candidate.id ASC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}

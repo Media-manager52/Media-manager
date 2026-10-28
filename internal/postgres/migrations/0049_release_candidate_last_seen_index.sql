@@ -7,4 +7,4 @@
 -- that transaction. The index build takes a write-blocking lock on
 -- release_candidates while it runs.
 CREATE INDEX IF NOT EXISTS release_candidates_last_observed_id_idx
-  ON release_candidates(last_observed_at DESC, id DESC);
+  ON release_candidates(last_observed_at DESC, id ASC);
