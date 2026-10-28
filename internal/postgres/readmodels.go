@@ -602,6 +602,7 @@ type ReleaseCandidateSummary struct {
 	Problems        json.RawMessage   `json:"problems"`
 	Selected        bool              `json:"selected"`
 	ObservedAt      time.Time         `json:"observed_at"`
+	LastObservedAt  time.Time         `json:"last_observed_at"`
 }
 
 func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]ReleaseCandidateSummary, error) {
@@ -611,7 +612,7 @@ func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]Rel
 	rows, err := store.Pool.Query(ctx, `SELECT candidate.id::text,candidate.workflow_id::text,media.id::text,media.kind,media.title,media.year,workflow.variant,
 		candidate.title,indexer.id::text,indexer.name,candidate.size_bytes,candidate.published_at,
 		COALESCE(decision.verdict,''),decision.score,COALESCE(decision.reasons,'[]'::jsonb),observation.normalized_facts,observation.problems,
-		(selection.candidate_id IS NOT NULL),observation.observed_at
+		(selection.candidate_id IS NOT NULL),observation.observed_at,candidate.last_observed_at
 		FROM release_candidates candidate
 		JOIN workflows workflow ON workflow.id=candidate.workflow_id
 		JOIN media_items media ON media.id=workflow.media_id
@@ -623,7 +624,7 @@ func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]Rel
 			ORDER BY policy_version DESC LIMIT 1
 		) decision ON true
 		LEFT JOIN candidate_selections selection ON selection.workflow_id=candidate.workflow_id AND selection.candidate_id=candidate.id
-		ORDER BY observation.observed_at DESC,candidate.id LIMIT $1`, limit)
+		ORDER BY candidate.last_observed_at DESC,candidate.id ASC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +635,7 @@ func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]Rel
 		var idText, workflowText, mediaText, indexerText string
 		var year *int16
 		var reasons, facts, problems []byte
-		if err := rows.Scan(&idText, &workflowText, &mediaText, &item.MediaKind, &item.MediaTitle, &year, &item.Variant, &item.Title, &indexerText, &item.IndexerName, &item.SizeBytes, &item.PublishedAt, &item.Verdict, &item.Score, &reasons, &facts, &problems, &item.Selected, &item.ObservedAt); err != nil {
+		if err := rows.Scan(&idText, &workflowText, &mediaText, &item.MediaKind, &item.MediaTitle, &year, &item.Variant, &item.Title, &indexerText, &item.IndexerName, &item.SizeBytes, &item.PublishedAt, &item.Verdict, &item.Score, &reasons, &facts, &problems, &item.Selected, &item.ObservedAt, &item.LastObservedAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

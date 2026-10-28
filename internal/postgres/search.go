@@ -416,7 +416,6 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		observation := newznab.SanitizeObservation(entry.Observation)
 		evaluation := newznab.SanitizeEvaluation(entry.Evaluation)
 		sourceObservationID := observation.ID
-		persistedObservationID := observation.ID
 		rawFields, _ := json.Marshal(observation.Fields)
 		facts, _ := json.Marshal(observation.Facts)
 		problems, _ := json.Marshal(observation.Problems)
@@ -424,31 +423,25 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		if decodeErr != nil {
 			bodyHash = sha256Bytes([]byte(observation.BodyHash))
 		}
-		var unchangedObservationText string
-		reuseErr := transaction.QueryRow(ctx, `SELECT previous.id::text
-			FROM release_candidates candidate JOIN release_observations previous ON previous.id=candidate.observation_id
-			WHERE candidate.workflow_id=$1 AND candidate.indexer_instance_id=$2 AND candidate.native_key=$3
-			AND previous.operation_key=$4 AND previous.title=$5 AND previous.raw_fields=$6::jsonb
-			AND previous.normalized_facts=$7::jsonb AND previous.parse_version=$8 AND previous.problems=$9::jsonb`, search.Workflow.ID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Operation, observation.Title, string(rawFields), string(facts), observation.ParseVersion, string(problems)).Scan(&unchangedObservationText)
-		if reuseErr == nil {
-			persistedObservationID, err = uuid.Parse(unchangedObservationText)
-			if err != nil {
-				return workflows.Workflow{}, err
-			}
-		} else if errors.Is(reuseErr, pgx.ErrNoRows) {
+		var persistedObservationID uuid.UUID
+		reusedID, reused, reuseErr := store.reusableObservation(ctx, transaction, search.Workflow.ID, observation.IndexerID, observation.NativeGUID, observation)
+		if reuseErr != nil {
+			return workflows.Workflow{}, reuseErr
+		}
+		if reused {
+			persistedObservationID = reusedID
+		} else {
 			persistedObservationID, err = insertReleaseObservation(ctx, transaction, observation, bodyHash, rawFields, facts, problems)
 			if err != nil {
 				return workflows.Workflow{}, err
 			}
-		} else {
-			return workflows.Workflow{}, reuseErr
 		}
 		candidateID := uuid.NewV7()
 		var returned string
 		var firstSeenSequence int64
 		locatorReference := newznab.DownloadLocatorReference(observation.DownloadURL, observation.NativeGUID)
 		err = transaction.QueryRow(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at,first_observed_at,last_observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)
-			ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET search_run_id=EXCLUDED.search_run_id,observation_id=EXCLUDED.observation_id,title=EXCLUDED.title,download_locator_ref=EXCLUDED.download_locator_ref,last_observed_at=EXCLUDED.last_observed_at,observation_count=release_candidates.observation_count+1
+			ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET search_run_id=EXCLUDED.search_run_id,observation_id=EXCLUDED.observation_id,title=EXCLUDED.title,download_locator_ref=EXCLUDED.download_locator_ref,last_observed_at=GREATEST(release_candidates.last_observed_at,EXCLUDED.last_observed_at),observation_count=release_candidates.observation_count+1
 			RETURNING id::text,first_seen_sequence`, candidateID.String(), search.Workflow.ID.String(), runID.String(), persistedObservationID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Title, locatorReference, now.UTC()).Scan(&returned, &firstSeenSequence)
 		if err != nil {
 			return workflows.Workflow{}, err

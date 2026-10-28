@@ -1157,6 +1157,78 @@
         },
         "type": "object"
       },
+      "Postgres_ReleaseCandidateSummary": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "indexer_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "indexer_name": {
+            "type": "string"
+          },
+          "last_observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "media_title": {
+            "type": "string"
+          },
+          "media_year": {
+            "type": "integer"
+          },
+          "normalized_facts": {
+            "description": "Arbitrary JSON."
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "problems": {
+            "description": "Arbitrary JSON."
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "reasons": {
+            "description": "Arbitrary JSON."
+          },
+          "score": {
+            "type": "integer"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "size_bytes": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "variant": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_SearchRunIndexerOutcome": {
         "properties": {
           "completed_at": {
@@ -3353,7 +3425,22 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_ReleaseCandidateSummary"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -3370,7 +3457,7 @@
             "description": "Error with a stable code."
           }
         },
-        "summary": "Recently observed release candidates and their decisions",
+        "summary": "Recently observed release candidates with their decisions, evidence time and last-seen time",
         "tags": [
           "releases"
         ],

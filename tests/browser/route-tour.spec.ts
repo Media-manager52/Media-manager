@@ -44,6 +44,11 @@ for (const viewport of viewports) {
         await settle(page)
 
         await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible()
+        if (route === "/intelligence/releases") {
+          await expect(page.getByRole("columnheader", { name: "Last seen" })).toBeVisible()
+          await expect(page.getByRole("columnheader", { name: "Evidence" })).toBeVisible()
+          await expect(page.getByRole("columnheader", { name: "Observed" })).toHaveCount(0)
+        }
         const overflow = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }))
         expect(overflow.document, "page must not scroll horizontally").toBeLessThanOrEqual(overflow.viewport)
 
