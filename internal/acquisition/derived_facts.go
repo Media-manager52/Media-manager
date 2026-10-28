@@ -14,13 +14,24 @@ import (
 // facts.
 func replaceDerivedFact(facts []releases.Fact, replacement releases.Fact) []releases.Fact {
 	result := make([]releases.Fact, 0, len(facts)+1)
+	replaced := false
 	for _, fact := range facts {
 		if strings.EqualFold(strings.TrimSpace(fact.Name), replacement.Name) {
+			if !replaced {
+				// Keep the original position. The evaluator may add other
+				// derived facts after this one; moving it would change the
+				// persisted fact array on an otherwise identical evaluation.
+				result = append(result, replacement)
+				replaced = true
+			}
 			continue
 		}
 		result = append(result, fact)
 	}
-	return append(result, replacement)
+	if !replaced {
+		result = append(result, replacement)
+	}
+	return result
 }
 
 // dedupeUnmappedFacts collapses exact duplicate provenance aliases created by

@@ -7,7 +7,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/catalog"
-	"github.com/media-manager/media-manager/internal/postgres"
+	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/releases"
 )
 
@@ -86,15 +86,20 @@ func TestOldBoysDerivedFactsAreStableAndChangesRemainDetectable(t *testing.T) {
 		Identities: []catalog.ExternalIdentity{{Namespace: "tvdb", Value: "378992", State: catalog.IdentityVerified}},
 		Metadata:   &catalog.MediaMetadata{OriginalLanguage: "da", SeasonCount: &seasons},
 	}
-	search := postgres.SearchContext{Media: media, Variant: "season:16"}
+	search := numberingSearch()
+	search.Media = media
+	search.Variant = "season:16"
+	search.EpisodeNumbering = packs.AnnualEpisodeNumbering(16, []packs.ExpectedEpisode{{Key: packs.EpisodeKey{Season: 16, Episode: 6}, AirDate: "2026-06-10"}})
 	observation := releases.Observation{
-		Title:        "Example.Series.S01-S16.DANiSH.1080p.WEB",
+		Title:        "Example.Series.S2026.DANiSH.S01-S16.1080p.WEB",
 		ObservedAt:   now,
 		ParseVersion: "oldboys-v1",
 	}
 	first := bindOldBoysCatalogue(observation, search, now)
+	first = applyEpisodeNumbering(first, search, now)
 	first, _ = oldBoysRangeScope(first, search, nil, nil)
 	second := bindOldBoysCatalogue(first, search, now.Add(time.Hour))
+	second = applyEpisodeNumbering(second, search, now.Add(time.Hour))
 	second, _ = oldBoysRangeScope(second, search, nil, nil)
 	if !reflect.DeepEqual(first.Facts, second.Facts) {
 		t.Fatalf("unchanged OldBoys evidence changed facts\nfirst=%+v\nsecond=%+v", first.Facts, second.Facts)
@@ -109,6 +114,7 @@ func TestOldBoysDerivedFactsAreStableAndChangesRemainDetectable(t *testing.T) {
 	changedSeasons := uint16(15)
 	changed.Media.Metadata = &catalog.MediaMetadata{OriginalLanguage: "da", SeasonCount: &changedSeasons}
 	third := bindOldBoysCatalogue(first, changed, now.Add(2*time.Hour))
+	third = applyEpisodeNumbering(third, changed, now.Add(2*time.Hour))
 	third, _ = oldBoysRangeScope(third, changed, nil, nil)
 	if reflect.DeepEqual(second.Facts, third.Facts) {
 		t.Fatalf("a changed OldBoys range was not detected: %+v", second.Facts)
