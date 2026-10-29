@@ -185,7 +185,10 @@ publish it.
 ## 4. Connect the pieces
 
 The application is running but intentionally starts without integrations.
-Work through this checklist in the UI.
+Media Manager opens on its everyday app (Home, Library, Requests, Add). The
+setup forms below live in the expert console: open **Settings** and use a
+card's **Change** button, or **Open expert console**. Work through this
+checklist there.
 
 ### AltMount
 

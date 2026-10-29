@@ -25,7 +25,10 @@ export type APIWorkflow = {
   quality_profile?: string; download_percent?: number; download_stage?: string; download_observed_at?: string
   owner_action_required?: boolean
   terminal_at?: string; created_at: string; updated_at: string
+  /** Owner actions the server says apply now (or why not); always re-checked when called. */
+  available_actions?: APIWorkflowAction[]
 }
+export type APIWorkflowAction = { action: string; operation_id: string; method: string; path: string; effect: "read" | "write" | "provider" | "destructive"; available: boolean; reason?: string; note?: string; body?: Record<string, unknown>; confirmation?: string }
 export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string; created_at: string; updated_at: string }
 export type APISeerrRoute = { id: string; seerr_instance_id: string; media_kind: "movie" | "series"; root_folder: string; library_root_id: string; quality_profile_id?: string; enabled: boolean; created_at: string; updated_at: string }
 export type APISeerrObservedFolder = { media_kind: "movie" | "series"; root_folder: string; request_count: number; latest_at: string; route_id?: string; library_root_id?: string; quality_profile_id?: string; routed: boolean }
@@ -218,6 +221,11 @@ export const reverifyRetainedOutput = (workflowID: string, jobID: string) => req
 export const decideRequest = (id: string, decision: "approve" | "decline") => requestJSON<{ status: "approved" | "declined"; request_id: string; seerr_status: number }>(`/api/v1/requests/${encodeURIComponent(id)}/${decision}`, { method: "POST" })
 /** Re-queues exact-path Plex confirmation for every timed-out publication; never a library-wide scan. */
 export const reconfirmTimedOutPlex = () => requestJSON<{ queued: string[]; skipped: Array<{ workflow_id: string; reason: string }> }>("/api/v1/plex/reconfirm-timed-out", { method: "POST" })
+/** Calls one server-listed workflow action exactly as available_actions describes it. */
+export const runWorkflowAction = (action: Pick<APIWorkflowAction, "method" | "path" | "body">) => {
+  if (!action.path.startsWith("/api/v1/workflows/")) throw new Error("Not a workflow action")
+  return requestJSON<Record<string, unknown>>(action.path, { method: action.method, ...(action.body ? { body: JSON.stringify(action.body) } : {}) })
+}
 export const cancelWorkflow = (id: string) => requestJSON<Record<string, unknown>>(`/api/v1/workflows/${encodeURIComponent(id)}/cancel`, { method: "POST" })
 export const createReleaseBlock = (input: { candidate_id: string; scope: "native_release" | "pack_release"; reason: string; retention_days?: 30 | 90 }) => requestJSON<APIReleaseBlock>("/api/v1/blocklist", { method: "POST", body: JSON.stringify(input) })
 export const deleteReleaseBlock = (id: string) => requestJSON<void>(`/api/v1/blocklist/${encodeURIComponent(id)}`, { method: "DELETE" })

@@ -14,7 +14,7 @@ type BrowserAudit = {
 
 const baseOrigin = new URL(`http://127.0.0.1:${process.env.MEDIA_MANAGER_LIVE_PORT}`).origin
 const audits = new WeakMap<Page, BrowserAudit>()
-const screenshotRoutes = new Set(["/", "/v2", "/v2/library", "/v2/requests", "/v2/attention", "/media", "/media/series", "/activity/queue", "/system/health"])
+const screenshotRoutes = new Set(["/", "/library", "/requests", "/needs-you", "/settings", "/console", "/media", "/media/series", "/activity/queue", "/system/health"])
 
 test("OldBoys owner setup exposes only credential status and empty password fields", async ({ page }) => {
   await visit(page, "/settings/connections")
@@ -36,13 +36,14 @@ test("OldBoys owner setup exposes only credential status and empty password fiel
   }
 })
 
-// V2 keeps short navigation labels but uses editorial page headings. Assert
-// those exact headings without weakening the existing console's title checks.
-const previewHeadings: Record<string, string> = {
-  "/v2": "Your library, in motion.",
-  "/v2/library": "A home for every story.",
-  "/v2/requests": "Every request. A clear next step.",
-  "/v2/attention": "Let’s get these moving.",
+// The everyday app's routes and their headings. Home greets by the local hour.
+const appHeadings: Record<string, RegExp> = {
+  "/": /^(Good (morning|afternoon|evening|night)|Welcome back)$/,
+  "/library": /^Library$/,
+  "/requests": /^Requests$/,
+  "/needs-you": /^Needs you$/,
+  "/add": /^Add a movie or show$/,
+  "/settings": /^Settings$/,
 }
 
 function safeRequestLabel(method: string, rawURL: string) {
@@ -170,7 +171,7 @@ test.afterEach(async ({ page }, testInfo) => {
 for (const [path, metadata] of Object.entries(routeTitles)) {
   test(`renders the live read-only route ${path}`, async ({ page }, testInfo) => {
     await visit(page, path)
-    await expect(page.getByRole("heading", { level: 1, name: previewHeadings[path] ?? metadata.title, exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { level: 1, name: metadata.title, exact: true })).toBeVisible()
     await verifyViewport(page)
 
     if (testInfo.project.name === "desktop" || screenshotRoutes.has(path)) {
@@ -181,6 +182,18 @@ for (const [path, metadata] of Object.entries(routeTitles)) {
       expect(serious, `${path} must have no serious accessibility violations`).toEqual([])
     }
 
+    await captureCoreScreenshot(page, testInfo, path)
+  })
+}
+
+for (const [path, heading] of Object.entries(appHeadings)) {
+  test(`renders the everyday app route ${path}`, async ({ page }, testInfo) => {
+    await visit(page, path)
+    await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible()
+    await verifyViewport(page)
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()
+    const serious = results.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical")
+    expect(serious, `${path} must have no serious accessibility violations`).toEqual([])
     await captureCoreScreenshot(page, testInfo, path)
   })
 }
@@ -229,7 +242,7 @@ for (const library of [
 }
 
 test("exercises safe Requests interactions", async ({ page }) => {
-  await visit(page, "/requests")
+  await visit(page, "/console/requests")
   const section = page.locator("section").filter({ hasText: "Seerr requests" }).first()
   await expect(section.getByRole("button", { name: /^All \d+$/ })).toHaveAttribute("aria-pressed", "true")
 
@@ -253,7 +266,7 @@ test("exercises safe Requests interactions", async ({ page }) => {
 })
 
 test("opens navigation controls without changing server state", async ({ page }, testInfo) => {
-  await visit(page, "/")
+  await visit(page, "/console")
   await page.keyboard.press("Control+K")
   await expect(page.getByRole("dialog", { name: "Go to page" })).toBeVisible()
   await page.keyboard.press("Escape")

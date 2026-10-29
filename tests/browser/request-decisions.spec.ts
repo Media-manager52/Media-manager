@@ -32,7 +32,7 @@ test("waiting requests show admission and only their recorded next search", asyn
     }
     await route.fallback()
   })
-  await page.goto("/requests")
+  await page.goto("/console/requests")
   const row = page.getByRole("row").filter({ hasText: "Added waiting movie" })
   await expect(row.getByText("Added to Media Manager. No eligible release matched the latest search.", { exact: true })).toBeVisible()
   await expect(row.getByText(/Auto-retry in 2h/)).toBeVisible()
@@ -66,7 +66,7 @@ test("request messages follow the actual lifecycle instead of always warning", a
     }
     await route.fallback()
   })
-  await page.goto("/requests")
+  await page.goto("/console/requests")
   const inspector = page.locator("section").filter({ has: page.getByRole("heading", { name: "Request detail", exact: true }) })
   await page.getByRole("button", { name: "Completed status message", exact: true }).click()
   await expect(inspector.getByText("Seerr reports the request completed", { exact: true })).toBeVisible()
@@ -104,7 +104,7 @@ test("owner approves a pending Seerr request and declining asks first", async ({
     await route.fallback()
   })
 
-  await page.goto("/requests")
+  await page.goto("/console/requests")
   const row = page.getByRole("row").filter({ hasText: "Pending Browser Movie" })
   await row.getByRole("button", { name: "Approve Pending Browser Movie" }).click()
   await expect.poll(() => decisions).toEqual([`${seerrInstance}:777 approved`])
@@ -140,16 +140,16 @@ test("deciding a request from the Overview stays on the Overview", async ({ page
     await route.fallback()
   })
 
-  await page.goto("/")
+  await page.goto("/console")
   await page.getByRole("button", { name: "Decline Pending Browser Movie" }).click()
   const dialog = page.getByRole("alertdialog", { name: "Decline Pending Browser Movie?" })
   await expect(dialog).toBeVisible()
   await dialog.getByRole("button", { name: "Keep pending" }).click()
-  await expect(page).toHaveURL(`${baseURL}/`)
+  await expect(page).toHaveURL(`${baseURL}/console`)
 
   await page.getByRole("button", { name: "Approve Pending Browser Movie" }).click()
   await expect.poll(() => decisions).toEqual(["approved"])
-  await expect(page).toHaveURL(`${baseURL}/`)
-  await expect(page.getByRole("link", { name: "Pending Browser Movie" })).toHaveAttribute("href", "/requests")
+  await expect(page).toHaveURL(`${baseURL}/console`)
+  await expect(page.getByRole("link", { name: "Pending Browser Movie" })).toHaveAttribute("href", "/console/requests")
   expect(recorder.unexpected).toEqual([])
 })

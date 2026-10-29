@@ -19,7 +19,7 @@ test("read-only screens re-read persisted state while visible and pause in a bac
     if (request.method() === "GET" && new URL(request.url()).pathname === "/api/v1/requests") reads += 1
   })
 
-  await page.goto("/requests")
+  await page.goto("/console/requests")
   await expect(page.getByRole("heading", { name: "Requests", level: 1 })).toBeVisible()
   await expect.poll(() => reads).toBe(1)
 

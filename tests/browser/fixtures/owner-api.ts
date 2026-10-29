@@ -196,8 +196,11 @@ function detailResponse(path: string): unknown {
 
 export type OwnerAPIRecorder = { unexpected: string[] }
 
+/** Lets one test adjust a fixture GET response (by path) without copying the fixture. */
+export type OwnerAPIOptions = { transform?: (path: string, data: unknown) => unknown }
+
 /** Installs the local owner API and blocks every other origin. */
-export async function installOwnerAPI(page: Page, baseURL: string): Promise<OwnerAPIRecorder> {
+export async function installOwnerAPI(page: Page, baseURL: string, options: OwnerAPIOptions = {}): Promise<OwnerAPIRecorder> {
   const recorder: OwnerAPIRecorder = { unexpected: [] }
   await page.route("**/*", async (route) => {
     const request = route.request()
@@ -224,6 +227,7 @@ export async function installOwnerAPI(page: Page, baseURL: string): Promise<Owne
       await route.fulfill({ status: 501, json: { error: { message: "Unexpected local test request" } } })
       return
     }
+    if (options.transform) data = options.transform(url.pathname, data)
     await route.fulfill({ status: 200, json: { data } })
   })
   return recorder

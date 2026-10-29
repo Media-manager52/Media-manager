@@ -161,14 +161,14 @@ export function LiveOverviewScreen() {
           <div className="mx-4 mb-3.5 mt-2.5 flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-[11.5px] text-fg-subtle"><CheckCircle2 className="size-3.5 shrink-0 text-good" aria-hidden />{monitored} item{monitored === 1 ? "" : "s"} monitored — waiting is normal operation, not an error.</div>
         </Panel>
 
-        <Panel flush title="Recent requests" subtitle="From Seerr" action={<Button asChild variant="ghost" size="sm"><Link href="/requests">View all →</Link></Button>}>
+        <Panel flush title="Recent requests" subtitle="From Seerr" action={<Button asChild variant="ghost" size="sm"><Link href="/console/requests">View all →</Link></Button>}>
           {requests.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">No Seerr requests are persisted yet.</div>
             : requests.map((request) => {
               // A row with decision buttons must not itself be a link: a click
               // on Approve, Decline, or the confirmation dialog would navigate.
               const pending = requestAwaitingApproval(request)
               const title = request.title || `Request ${request.request_id}`
-              return <ConsoleRow key={request.id} href={pending ? undefined : "/requests"} leading={<MiniPoster src={request.poster_url ?? (request.media_id ? posters.get(request.media_id) : undefined)} title={request.title || "Request"} />} title={pending ? <Link href="/requests" className="rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{title}</Link> : title} caption={`${request.media_kind === "series" ? "TV" : "Movie"} · ${request.requester || "Unknown requester"} · ${timeAgo(request.updated_at)}`}>
+              return <ConsoleRow key={request.id} href={pending ? undefined : "/console/requests"} leading={<MiniPoster src={request.poster_url ?? (request.media_id ? posters.get(request.media_id) : undefined)} title={request.title || "Request"} />} title={pending ? <Link href="/console/requests" className="rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{title}</Link> : title} caption={`${request.media_kind === "series" ? "TV" : "Movie"} · ${request.requester || "Unknown requester"} · ${timeAgo(request.updated_at)}`}>
                 {pending ? <RequestDecisionButtons request={request} onDone={refresh} /> : <StateBadge state={request.lifecycle} />}
               </ConsoleRow>
             })}

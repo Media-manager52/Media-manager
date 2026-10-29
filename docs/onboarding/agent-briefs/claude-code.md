@@ -117,7 +117,7 @@ docs. The first three are the highest-value remaining owner-facing gaps.
    - Derive missing vs upgrade plus quality/language/audio/subtitle deltas from
      the persisted target profile, current publications, and adopted files.
    - Add bounded server-side pagination.
-3. **`/requests`: server-side filtering, search, and pagination.**
+3. **`/console/requests`: server-side filtering, search, and pagination.**
    - Move filters/search/paging behind `GET /api/v1/requests` query parameters;
      keep the UI behavior and tests.
 4. **`/activity/queue`: deep work detail and safe recovery.**

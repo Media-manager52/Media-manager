@@ -955,4 +955,4 @@ export function LiveProwlarrImportScreen() {
 
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { return <div className="flex items-center justify-between rounded-lg border border-line bg-surface-2 px-3 py-2.5"><span className="text-[13px] font-medium text-fg-secondary">{label}</span><Switch checked={checked} onCheckedChange={onChange} aria-label={label} /></div> }
 
-export function LiveUnavailableScreen() { return <EmptyPanel title="This surface is not connected yet" copy="The live owner build exposes catalog, add, workflows, recycle, roots, profiles, connections, Prowlarr backup review, and health. Development-only concept data is never shown here." href="/" action="Return to overview" /> }
+export function LiveUnavailableScreen() { return <EmptyPanel title="This surface is not connected yet" copy="The live owner build exposes catalog, add, workflows, recycle, roots, profiles, connections, Prowlarr backup review, and health. Development-only concept data is never shown here." href="/console" action="Return to overview" /> }

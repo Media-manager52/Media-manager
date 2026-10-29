@@ -123,7 +123,7 @@ test("maps persisted operational read models into the live route switch", async 
     "/calendar",
     "/import",
     "/wanted",
-    "/requests",
+    "/console/requests",
     "/activity/history",
     "/activity/blocklist",
     "/intelligence/releases",

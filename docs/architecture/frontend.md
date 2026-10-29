@@ -74,25 +74,42 @@ no token handling in browser code.
 
 ## 3. Routing and screens
 
-### V2 test UI
+### Everyday app
 
-`/v2` is an opt-in design preview with its own scoped palette and shell in
-`components/media-manager/v2-app.tsx` and `app/v2/v2.css`. It includes Overview,
-Library, Requests and Needs attention (`/v2/library`, `/v2/requests`,
-`/v2/attention`). The existing sidebar offers **Try V2**; the preview links back
-to the current console. Existing routes keep their current presentation.
+The default interface is a poster-first app for everyday use. It has its own
+scoped palette and type in `components/media-manager/app/` (`app.css`, with the
+bundled Bricolage Grotesque display font) and these routes:
 
-The preview reads the existing bounded catalog, files, wanted, workflow,
-request and health models, refreshing only while visible. Search, filters,
-pagination and the saved theme operate locally. Library availability requires
-a current Plex-confirmed file. Seerr approval, workflow admission and request
-completion remain distinct; search times appear only when recorded. Failure,
-loading, empty and stale-refresh states are explicit. Recovery and detailed
-owner actions link to existing routes; the preview itself issues no mutations.
+| Route | Screen |
+| --- | --- |
+| `/` | Home: what needs the owner, work on the way, recently added, movie and TV rows |
+| `/library` | Library: Movies/TV, search, and plain status filters (`?type=series`, `?show=…`) |
+| `/library/:id` | Title page: status, five-step progress, seasons, what the owner has, folded expert details |
+| `/requests` | Seerr requests with approve/decline for pending ones |
+| `/needs-you` | Every owner decision (stopped workflows and pending approvals) |
+| `/add` | TMDB search through Seerr; adds with the default root and quality profile |
+| `/settings` | Plain status cards that link to the existing forms |
 
-Browser coverage includes all four routes in both themes/mobile, blocked
-external/mutating requests, admission/schedule truthfulness, filters, artwork
-fallbacks, failures, recovery links and theme persistence.
+`AppShell` (`app/shell.tsx`) loads one shared snapshot (`app/app-data.tsx`):
+the catalog, files, wanted, active and attention workflows, and requests,
+refreshed every 15 s while visible. Titles get one headline status from
+`lib/app-presentation.ts`. Owner actions are only those the server lists as
+available in a workflow's `available_actions`, posted exactly as listed
+(`runWorkflowAction`); actions that need a confirmation phrase stay in the
+expert console, and Stop asks first. Approve/decline uses the existing request
+decision routes. Add repeats the expert Discover flow: verified identities, an
+exact episode snapshot per chosen season, and the default root/profile/client.
+
+The expert console keeps every other route. Its overview moved to `/console`
+and its request table to `/console/requests`; the sidebar's **Back to the new
+app** returns to `/`. Title pages and stopped items link to the matching
+console page for options the everyday app does not offer.
+
+`tests/browser/app.spec.ts` tours every everyday route at desktop and phone
+size (axe, no sideways scroll, no console errors, no unexpected requests) and
+covers filters, folded expert details, server-listed actions with the Stop
+confirmation, request approval, and the exact add payloads. Set
+`MM_APP_SCREENSHOTS=<dir>` to save full-page screenshots.
 
 Route metadata lives in `lib/media-manager-routes.ts`:
 
@@ -102,7 +119,7 @@ Route metadata lives in `lib/media-manager-routes.ts`:
   and indexers.
 - `isKnownRoute` accepts only the known static routes plus UUID detail routes.
 
-`components/media-manager/app-shell.tsx` is the single app shell:
+`components/media-manager/app-shell.tsx` is the expert console's shell:
 
 - Owner-console sidebar (`liveNavigation`): Overview, then Library, Intake,
   Operations, Sources, Settings, System, and Advanced. Every route stays
@@ -161,9 +178,9 @@ near the relevant screen and extract pure logic into `lib/`):
 
 | Component | Route(s) |
 | --- | --- |
-| `LiveOverviewScreen` (`overview-screen.tsx`) | `/` |
+| `LiveOverviewScreen` (`overview-screen.tsx`) | `/console` |
 | `LiveLibraryScreen` (`mediaKind`) | `/media`, `/media/series` |
-| `LiveRequestsScreen` | `/requests` |
+| `LiveRequestsScreen` | `/console/requests` |
 | `LiveWantedScreen` | `/wanted` |
 | `LiveCalendarScreen` | `/calendar` |
 | `LiveActivityHistoryScreen` (`logs` prop) | `/activity/history`, `/system/logs` |
@@ -213,6 +230,7 @@ Keep classification/filtering/formatting logic here so screens stay testable.
 | `media-library.ts` | `buildMediaLibraryRecords` (join media + workflows + files), filters, summaries, initial filter state. Pure; benchmarked by `npm run bench:library`. |
 | `series-variants.ts` | Parse/format `season:NN[:episode:NN]`, `rollupSeriesSeasons` for season coverage UI. |
 | `media-manager-requests.ts` | Request lifecycle tone/labels, filter sets, `filterRequests`, counts. |
+| `app-presentation.ts` | Everyday-app wording: workflow → plain stage and five-step progress, one headline status per title, attention headlines, which server-listed actions to offer, request status, coarse relative time. |
 | `media-manager-data.ts` | `StatusTone` type + shared display constants. |
 | `media-manager-routes.ts` | Route titles/normalization/validation. |
 | `utils.ts` | `cn` (clsx + tailwind-merge). |

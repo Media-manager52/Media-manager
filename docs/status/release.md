@@ -1,5 +1,17 @@
 # Media Manager core release status
 
+## Everyday app (2026-10-29, source)
+
+A new poster-first interface replaces the V2 preview and becomes the default
+at `/`: Home, Library, title pages, Requests, Needs you, Add and Settings, in
+plain language and with a phone layout. Owner actions are only the server's
+available workflow actions and the existing Seerr decisions; Add uses the same
+verified-identity and exact-season payload as Discover. The expert console is
+unchanged apart from its overview moving to `/console` and its request table
+to `/console/requests`. No API, schema, acquisition or publication change.
+Local lint, typecheck, docs, unit and browser gates passed; this note is source
+evidence, not deployment evidence.
+
 ## Native collection-pack discovery (2026-10-05, source)
 
 The OldBoys query cycle now includes title-only searches, alongside ordinal and

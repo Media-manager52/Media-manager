@@ -6,6 +6,10 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ## Unreleased
 
+### Changed
+
+- **A new everyday interface is the default.** Media Manager now opens on a poster-first app built for daily use: **Home** (what needs you, what is on the way, what was just added, movie and TV rows), **Library** (movies and TV with plain filters: In Plex, On the way, Needs you, Not yet), a **title page** (status, five-step progress, seasons, what you have, and folded details for experts), **Requests** (approve or decline pending Seerr requests), **Needs you**, **Add** and **Settings**. It uses plain words ("Finding a copy", "Checking the files") and has a phone layout with a bottom tab bar. Buttons appear only for actions the server lists as available for that workflow; anything needing a confirmation phrase stays in the expert console, and Stop asks first. Add uses the same verified identities and exact per-season episode snapshots as the console's Discover form. The expert console keeps every screen; its overview moved from `/` to `/console` and its request table from `/requests` to `/console/requests`, and its sidebar links back to the new app. The V2 preview (`/v2`) is removed. The display font (Bricolage Grotesque, OFL) is bundled like the existing fonts.
+
 ### Fixed
 
 - **Release Intelligence uses candidate last-seen time.** Semantic observation reuse keeps the immutable evidence timestamp at the original poll while `release_candidates.last_observed_at` advances. The release feed now orders by `last_observed_at` (with candidate ID as the tie-breaker), returns both `observed_at` and `last_observed_at`, and labels the UI columns **Last seen** and **Evidence**. Schema 49 adds the matching `release_candidates(last_observed_at DESC,id ASC)` read-model index. The migration runner executes migrations in transactions, so this is a normal transactional index build rather than `CREATE INDEX CONCURRENTLY`; it can briefly block writes during a future deployment.

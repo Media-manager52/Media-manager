@@ -246,8 +246,7 @@ test("library controls preserve routes and expose working view and tab state", a
     vite.ssrLoadModule("/lib/media-manager-routes.ts"),
   ]);
 
-  const v2Shell = await readFile(path.join(root, "components/media-manager/v2-app.tsx"), "utf8");
-  for (const route of Object.keys(routesModule.routeTitles)) assert.match(route.startsWith("/v2") ? v2Shell : shell, new RegExp(`href: ["']${route.replaceAll("/", "\\/")}["']|path === ["']${route.replaceAll("/", "\\/")}["']`));
+  for (const route of Object.keys(routesModule.routeTitles)) assert.match(shell, new RegExp(`href: ["']${route.replaceAll("/", "\\/")}["']|path === ["']${route.replaceAll("/", "\\/")}["']`));
   assert.match(shell, /\/media\/movies\/\$mediaId/);
   assert.match(shell, /\/media\/series\/\$mediaId/);
   assert.match(screen, /aria-label="Grid view"[\s\S]*setView\("grid"\)/);

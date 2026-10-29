@@ -139,8 +139,8 @@ type NavGroup = { label: string; items: NavItem[]; advanced?: boolean; collapsed
  */
 const liveNavigation: NavGroup[] = [
   { label: "Home", items: [
-    { label: "Overview", href: "/", icon: LayoutGrid },
-    { label: "Try V2", href: "/v2", icon: Sparkles },
+    { label: "Overview", href: "/console", icon: LayoutGrid },
+    { label: "Back to the new app", href: "/", icon: Sparkles },
   ] },
   { label: "Library", description: "Everyday library work", items: [
     { label: "Movies", href: "/media", icon: Library },
@@ -150,7 +150,7 @@ const liveNavigation: NavGroup[] = [
     { label: "Collections", href: "/collections", icon: BookOpenCheck },
   ] },
   { label: "Intake", description: "How media arrives", items: [
-    { label: "Requests", href: "/requests", icon: Inbox },
+    { label: "Requests", href: "/console/requests", icon: Inbox },
     { label: "Add media", href: "/discover", icon: Plus },
     { label: "Adoption", href: "/import", icon: DatabaseBackup },
     { label: "Import lists", href: "/sources/import-lists", icon: ListChecks },
@@ -193,10 +193,10 @@ const liveNavigation: NavGroup[] = [
 
 /** The four destinations an owner reaches for most, pinned on phones. */
 const mobileTabs: NavItem[] = [
-  { label: "Overview", href: "/", icon: LayoutGrid },
+  { label: "Overview", href: "/console", icon: LayoutGrid },
   { label: "Movies", href: "/media", icon: Library },
   { label: "TV Shows", href: "/media/series", icon: Tv },
-  { label: "Requests", href: "/requests", icon: Inbox },
+  { label: "Requests", href: "/console/requests", icon: Inbox },
 ]
 
 const detailTitles: Record<string, { area: string; title: string; subtitle: string }> = {
@@ -269,7 +269,7 @@ function ShellLayout({ path }: { path: string }) {
   const [commandOpen, setCommandOpen] = React.useState(false)
   const libraryLayout = path === "/media" || path === "/media/series"
   // These screens render their own header (actions, hero, or live date line).
-  const mediaDetailLayout = path === "/" || normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId"
+  const mediaDetailLayout = path === "/console" || normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId"
 
   React.useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -365,7 +365,7 @@ function AppSidebar({ path, onSearch }: { path: string; onSearch: () => void }) 
   return (
     <Sidebar collapsible="icon" className="border-r border-line">
       <SidebarHeader className="gap-3 px-3 pb-2 pt-3.5 group-data-[collapsible=icon]:px-2">
-        <Link href="/" onClick={closeOnMobile} className="flex min-w-0 items-center gap-2.5 rounded-lg px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href="/console" onClick={closeOnMobile} className="flex min-w-0 items-center gap-2.5 rounded-lg px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <BrandMark />
           <div className="min-w-0 group-data-[collapsible=icon]:hidden"><div className="truncate text-[13.5px] font-bold tracking-[-0.01em] text-fg">Media Manager</div><div className="truncate text-[9.5px] font-semibold tracking-[0.14em] text-fg-subtle">OWNER CONSOLE</div></div>
         </Link>
@@ -532,13 +532,13 @@ function OwnerAttentionBell() {
 
 function RouteContent({ path }: { path: string }) {
   const normalized = normalizeRoute(path)
-  if (path === "/") return <LiveOverviewScreen />
+  if (path === "/console") return <LiveOverviewScreen />
   if (path === "/media") return <LiveLibraryScreen />
   if (path === "/media/series") return <LiveLibraryScreen mediaKind="series" />
   if (path === "/collections") return <LiveCollectionsScreen />
   if (path === "/calendar") return <LiveCalendarScreen />
   if (path === "/wanted") return <LiveWantedScreen />
-  if (path === "/requests") return <LiveRequestsScreen />
+  if (path === "/console/requests") return <LiveRequestsScreen />
   if (normalized === "/media/movies/$mediaId" || normalized === "/media/series/$mediaId") return <LiveMediaDetailScreen mediaId={path.split("/").at(-1) ?? ""} />
   if (path === "/files") return <LiveFilesScreen />
   if (path === "/import") return <LiveAdoptionScreen />
@@ -573,7 +573,7 @@ function RouteContent({ path }: { path: string }) {
 }
 
 function isRouteActive(path: string, href: string) {
-  if (href === "/") return path === "/"
+  if (href === "/console") return path === "/console"
   if (href === "/media") return path === "/media" || path.startsWith("/media/movies/")
   if (href === "/media/series") return path === href || path.startsWith("/media/series/")
   if (href === "/files") return path === "/files" || path.startsWith("/files/")
@@ -582,5 +582,5 @@ function isRouteActive(path: string, href: string) {
 }
 
 function isAddContext(path: string) {
-  return path === "/" || path === "/media" || path.startsWith("/media/")
+  return path === "/console" || path === "/media" || path.startsWith("/media/")
 }
