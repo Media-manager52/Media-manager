@@ -228,3 +228,52 @@ func TestSearchPartialRetryRejectsMovedObservation(t *testing.T) {
 		t.Fatalf("moved observation load err=%v, want invalid", err)
 	}
 }
+
+func TestPartialRetryWithoutCarriedEvidenceCannotSelectCarriedCandidate(t *testing.T) {
+	fixture := newFailureRecoveryFixture(t)
+	now := time.Date(2026, 10, 29, 17, 0, 0, 0, time.UTC)
+	workflow := fixture.newMovieWorkflow(t, "Carried Negative", "901404")
+	workflow, err := fixture.store.TransitionWorkflow(fixture.ctx, workflow.ID, workflow.Revision, workflows.StateSearching, "test", "test", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err := fixture.store.LoadSearchContext(fixture.ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := sha256.Sum256([]byte("carried-negative-intent"))
+	retry := partialRetryStateForTest(search, fingerprint[:], "targeted")
+	aObservation := partialRetryTestObservation(fixture.indexer.ID, now)
+	aObservation.Facts = []releases.Fact{{Name: "resolution", Values: []string{"1080p"}, State: releases.FactObserved}}
+	aEvaluated := []EvaluatedObservation{{Observation: aObservation, Evaluation: releases.Evaluation{ObservationID: aObservation.ID, Verdict: releases.VerdictEligible, Explanations: []releases.Explanation{}}, ProviderResult: true}}
+	outcomes := []SearchIndexerOutcome{{IndexerInstanceID: fixture.indexer.ID, State: "succeeded"}, {IndexerInstanceID: fixture.indexerTwo.ID, State: "deferred", Detail: "indexer_pacing_deferred"}}
+	first, err := fixture.store.PersistSearch(fixture.ctx, search, fingerprint[:], aEvaluated, SearchPersistenceOptions{IndexerOutcomes: outcomes, PartialRetry: &retry}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.State == workflows.StateCandidateSelected {
+		t.Fatal("complete-candidate evidence selected before deferred provider; state would be lost")
+	}
+	state, err := fixture.store.LoadSearchPartialRetry(fixture.ctx, workflow.ID, search.SearchRoundID, "targeted", fingerprint[:], now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow, err = fixture.store.TransitionWorkflow(fixture.ctx, workflow.ID, first.Revision, workflows.StateSearching, "test", "test", now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err = fixture.store.LoadSearchContext(fixture.ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bObservation := releases.Observation{ID: uuid.NewV7(), IndexerID: fixture.indexerTwo.ID, Operation: "test", NativeGUID: "carried-negative-b", Title: "Carried.Negative.2026.720p.WEB-DL", Facts: []releases.Fact{{Name: "resolution", Values: []string{"720p"}, State: releases.FactObserved}}, BodyHash: "carried-negative-b", ObservedAt: now.Add(time.Minute), ParseVersion: "test", Problems: []string{}}
+	bEvaluated := []EvaluatedObservation{{Observation: bObservation, Evaluation: releases.Evaluation{ObservationID: bObservation.ID, Verdict: releases.VerdictRejected, Explanations: []releases.Explanation{}}, ProviderResult: true}}
+	completion := []SearchIndexerOutcome{{IndexerInstanceID: fixture.indexer.ID, State: "succeeded"}, {IndexerInstanceID: fixture.indexerTwo.ID, State: "succeeded"}}
+	persisted, err := fixture.store.PersistSearch(fixture.ctx, search, fingerprint[:], bEvaluated, SearchPersistenceOptions{IndexerOutcomes: completion, PartialRetry: &state, ReusedIndexerIDs: map[uuid.UUID]bool{fixture.indexer.ID: true}}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.State == workflows.StateCandidateSelected || persisted.SelectedRelease != nil {
+		t.Fatalf("negative control selected a candidate without carried A evidence: %+v", persisted)
+	}
+}

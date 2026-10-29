@@ -2,6 +2,7 @@ package acquisition
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/postgres"
+	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
 	"uuid"
 )
@@ -493,4 +495,218 @@ func TestNewSearchEventDoesNotReusePartialCompletion(t *testing.T) {
 	if got := len(bCaptured()); got != 1 {
 		t.Fatalf("new search provider B calls=%d, want 1", got)
 	}
+}
+
+// TestPartialSearchRetryCarriedEligibleEvidenceWins proves that a successful
+// provider's eligible candidate is held for the continuation ranking rather
+// than selected before the deferred provider has completed.
+func TestPartialSearchRetryCarriedEligibleEvidenceWins(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	aServer, aCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
+	})
+	defer aServer.Close()
+	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.720p.WEB-DL", "1280x720")
+	})
+	defer bServer.Close()
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	workflow := createMovieSearchWorkflow(t, store)
+	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
+
+	service := newTwoProviderSearchService(store)
+	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+		t.Fatalf("initial partial search: %v", err)
+	}
+	initial, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.State == workflows.StateCandidateSelected {
+		t.Fatal("partial search selected an eligible candidate before the deferred provider completed")
+	}
+	var candidateText, observationText string
+	if err := store.Pool.QueryRow(ctx, `SELECT candidate.id::text,candidate.observation_id::text
+		FROM release_candidates candidate WHERE candidate.workflow_id=$1 AND candidate.indexer_instance_id IN
+		(SELECT id FROM integration_instances WHERE name='Provider A')`, workflow.ID.String()).Scan(&candidateText, &observationText); err != nil {
+		t.Fatalf("load carried candidate: %v", err)
+	}
+	var beforeCount int64
+	var beforeLast time.Time
+	var beforeRun string
+	if err := store.Pool.QueryRow(ctx, `SELECT observation_count,last_observed_at,search_run_id::text FROM release_candidates WHERE id=$1`, candidateText).Scan(&beforeCount, &beforeLast, &beforeRun); err != nil {
+		t.Fatal(err)
+	}
+	if len(aCaptured()) != 1 || len(bCaptured()) != 0 {
+		t.Fatalf("initial calls A=%d B=%d", len(aCaptured()), len(bCaptured()))
+	}
+	clearIndexerBudget(t, store, b.ID)
+	service = newTwoProviderSearchService(store)
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
+		t.Fatalf("continuation: %v", err)
+	}
+	if len(aCaptured()) != 1 {
+		t.Fatalf("carried provider A was called again: %d", len(aCaptured()))
+	}
+	if len(bCaptured()) != 1 {
+		t.Fatalf("deferred provider B calls=%d, want 1", len(bCaptured()))
+	}
+	selected, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || selected.State != workflows.StateCandidateSelected || selected.SelectedRelease == nil || selected.SelectedRelease.String() != candidateText {
+		t.Fatalf("selected workflow=%+v want carried candidate %s err=%v", selected, candidateText, err)
+	}
+	var afterCount int64
+	var afterLast time.Time
+	var afterRun string
+	if err := store.Pool.QueryRow(ctx, `SELECT observation_count,last_observed_at,search_run_id::text FROM release_candidates WHERE id=$1`, candidateText).Scan(&afterCount, &afterLast, &afterRun); err != nil {
+		t.Fatal(err)
+	}
+	if afterCount != beforeCount || !afterLast.Equal(beforeLast) || afterRun != beforeRun {
+		t.Fatalf("reused candidate mutated freshness/provenance: count %d/%d last %s/%s run %s/%s", beforeCount, afterCount, beforeLast, afterLast, beforeRun, afterRun)
+	}
+	var decision string
+	if err := store.Pool.QueryRow(ctx, `SELECT verdict FROM candidate_decisions WHERE workflow_id=$1 AND candidate_id=$2 ORDER BY decided_at DESC LIMIT 1`, workflow.ID.String(), candidateText).Scan(&decision); err != nil || decision != string(releases.VerdictEligible) {
+		t.Fatalf("carried candidate decision=%q err=%v, want eligible", decision, err)
+	}
+	if got := countSearchPartialRetries(t, store, workflow.ID); got != 0 {
+		t.Fatalf("completed retry left %d states", got)
+	}
+}
+
+func TestPartialSearchRetrySurvivesSuccessiveDeferrals(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	aServer, aCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
+	})
+	defer aServer.Close()
+	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.720p.WEB-DL", "1280x720")
+	})
+	defer bServer.Close()
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	workflow := createMovieSearchWorkflow(t, store)
+	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
+
+	var previousRevision uint64
+	expectedStates := []int{1, 1}
+	for attempt := 0; attempt < 2; attempt++ {
+		service := newTwoProviderSearchService(store)
+		if attempt == 0 {
+			if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+				t.Fatalf("attempt %d: %v", attempt+1, err)
+			}
+		} else if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
+			t.Fatalf("attempt %d: %v", attempt+1, err)
+		}
+		current, err := store.GetWorkflow(ctx, workflow.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.State == workflows.StateCandidateSelected {
+			t.Fatalf("attempt %d selected before deferred coverage completed", attempt+1)
+		}
+		if previousRevision != 0 && current.Revision <= previousRevision {
+			t.Fatalf("attempt %d revision %d did not advance from %d", attempt+1, current.Revision, previousRevision)
+		}
+		previousRevision = current.Revision
+		if got := countSearchPartialRetries(t, store, workflow.ID); got != expectedStates[attempt] {
+			t.Fatalf("attempt %d states=%d, want %d", attempt+1, got, expectedStates[attempt])
+		}
+		var completed map[string]json.RawMessage
+		if err := store.Pool.QueryRow(ctx, `SELECT completed_indexers FROM search_partial_retries WHERE workflow_id=$1`, workflow.ID.String()).Scan(&completed); err != nil {
+			t.Fatal(err)
+		}
+		if len(completed) != 1 {
+			t.Fatalf("attempt %d completed providers=%v, want only A", attempt+1, completed)
+		}
+	}
+	if len(aCaptured()) != 1 || len(bCaptured()) != 0 {
+		t.Fatalf("provider calls across deferrals A=%d B=%d, want 1/0", len(aCaptured()), len(bCaptured()))
+	}
+
+	clearIndexerBudget(t, store, b.ID)
+	service := newTwoProviderSearchService(store)
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
+		t.Fatalf("final continuation: %v", err)
+	}
+	if len(aCaptured()) != 1 || len(bCaptured()) != 1 {
+		t.Fatalf("final calls A=%d B=%d, want 1/1", len(aCaptured()), len(bCaptured()))
+	}
+	current, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || current.State != workflows.StateCandidateSelected || current.SelectedRelease == nil {
+		t.Fatalf("final workflow=%+v err=%v", current, err)
+	}
+	if got := countSearchPartialRetries(t, store, workflow.ID); got != 0 {
+		t.Fatalf("final states=%d, want 0", got)
+	}
+	var candidateCount int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM release_candidates WHERE workflow_id=$1 AND native_key LIKE 'Klaus.2019.%'`, workflow.ID.String()).Scan(&candidateCount); err != nil || candidateCount != 2 {
+		t.Fatalf("final candidates=%d err=%v, want A and B evidence", candidateCount, err)
+	}
+}
+
+func TestPartialSearchRetrySurvivesSuccessiveEmptyDeferrals(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	aServer, aCaptured := newMovieSearchServer(t, func(url.Values) string { return emptySearchXML() })
+	defer aServer.Close()
+	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
+	})
+	defer bServer.Close()
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	workflow := createMovieSearchWorkflow(t, store)
+	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
+	for attempt := 0; attempt < 2; attempt++ {
+		service := newTwoProviderSearchService(store)
+		if attempt == 0 {
+			if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+				t.Fatalf("attempt %d: %v", attempt+1, err)
+			}
+		} else if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
+			t.Fatalf("attempt %d: %v", attempt+1, err)
+		}
+		if got := countSearchPartialRetries(t, store, workflow.ID); got != 1 {
+			t.Fatalf("attempt %d states=%d, want 1", attempt+1, got)
+		}
+		var completed map[string][]json.RawMessage
+		if err := store.Pool.QueryRow(ctx, `SELECT completed_indexers FROM search_partial_retries WHERE workflow_id=$1`, workflow.ID.String()).Scan(&completed); err != nil {
+			t.Fatal(err)
+		}
+		if len(completed) != 1 || len(completed[aCapturedIndexerID(t, store, "Provider A")]) != 0 {
+			t.Fatalf("attempt %d empty A evidence=%v", attempt+1, completed)
+		}
+	}
+	if len(aCaptured()) != 1 || len(bCaptured()) != 0 {
+		t.Fatalf("deferred empty calls A=%d B=%d, want 1/0", len(aCaptured()), len(bCaptured()))
+	}
+	clearIndexerBudget(t, store, b.ID)
+	service := newTwoProviderSearchService(store)
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
+		t.Fatalf("final continuation: %v", err)
+	}
+	if len(aCaptured()) != 1 || len(bCaptured()) != 1 {
+		t.Fatalf("final calls A=%d B=%d, want 1/1", len(aCaptured()), len(bCaptured()))
+	}
+	current, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || current.State != workflows.StateCandidateSelected || current.SelectedRelease == nil {
+		t.Fatalf("final workflow=%+v err=%v", current, err)
+	}
+	if got := countSearchPartialRetries(t, store, workflow.ID); got != 0 {
+		t.Fatalf("final states=%d, want 0", got)
+	}
+}
+
+func aCapturedIndexerID(t *testing.T, store *postgres.Store, name string) string {
+	t.Helper()
+	var id string
+	if err := store.Pool.QueryRow(context.Background(), `SELECT id::text FROM integration_instances WHERE name=$1`, name).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

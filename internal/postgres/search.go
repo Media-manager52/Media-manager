@@ -572,6 +572,15 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	if selectionErr != nil {
 		return workflows.Workflow{}, selectionErr
 	}
+	// A deferred provider may still return a better release. Keep eligible
+	// evidence for the continuation ranking instead of committing a selection
+	// that could be beaten when that provider is retried. Failed providers do
+	// not hold a ready candidate indefinitely; their failure remains recorded
+	// and retryable, while the current eligible evidence can still be selected.
+	if selectedEvaluation != nil && hasDeferredIndexerOutcome(options.IndexerOutcomes) {
+		selectedEvaluation = nil
+		to = workflows.StateWaiting
+	}
 	var selected *uuid.UUID
 	if selectedEvaluation != nil {
 		candidate := candidateByObservation[selectedEvaluation.ObservationID]
@@ -796,6 +805,15 @@ func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pg
 	_, err = transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested',$4,$5,$6) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), nextGeneration, payload, now.UTC(), next.UTC())
 	return !complete, err
+}
+
+func hasDeferredIndexerOutcome(outcomes []SearchIndexerOutcome) bool {
+	for _, outcome := range outcomes {
+		if outcome.State == "deferred" {
+			return true
+		}
+	}
+	return false
 }
 
 func searchRunComplete(outcomes []SearchIndexerOutcome) bool {
