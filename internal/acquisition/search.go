@@ -2,7 +2,6 @@ package acquisition
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,22 +80,12 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			}
 			return err
 		}
-		indexerFilter, filterErr := service.Store.RecoveryIndexerFilter(ctx, event.AggregateID, int64(event.AggregateRevision))
-		if filterErr != nil {
-			if errors.Is(filterErr, postgres.ErrConcurrentModification) {
-				return nil
-			}
-			return filterErr
-		}
-		if indexerFilter != nil {
-			filtered := search.Indexers[:0]
-			for _, integration := range search.Indexers {
-				if indexerFilter[integration.ID.String()] {
-					filtered = append(filtered, integration)
-				}
-			}
-			search.Indexers = filtered
-		}
+		// Recovery discovery used to narrow this attempt to pending_indexer_ids
+		// from the previous generation. Durable partial completion now carries
+		// the successful evidence forward and executes only the remaining
+		// providers, so a full-indexer plan is safe: an invalid or expired chain
+		// intentionally performs a complete evidence-only rescan instead of
+		// inheriting stale progress.
 	} else if search.Workflow.State == workflows.StateCandidateSelected || search.Workflow.State == workflows.StateQueued || search.Workflow.State == workflows.StateSubmitting {
 		return nil
 	}
@@ -157,6 +146,23 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			return err
 		}
 	}
+	searchNow := time.Now().UTC()
+	planned, err := service.planSearchIndexers(ctx, search, searchNow)
+	if err != nil {
+		return err
+	}
+	mode := "targeted"
+	if recovery {
+		mode = "recovery"
+	}
+	intentFingerprint, err := searchIntentFingerprint(search, mode, planned)
+	if err != nil {
+		return err
+	}
+	partialRetry, carriedObservations, reusedIndexers, err := service.loadPartialSearch(ctx, search, planned, mode, intentFingerprint, searchNow)
+	if err != nil {
+		return err
+	}
 	rules, err := parseRules(search.Policy)
 	if err != nil {
 		return err
@@ -188,13 +194,36 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		currentEvaluation = &evaluatedCurrent
 	}
 	var evaluated []postgres.EvaluatedObservation
-	successfulIndexers := 0
+	indexerKinds := make(map[uuid.UUID]bool, len(search.Indexers))
+	for _, integration := range search.Indexers {
+		indexerKinds[integration.ID] = integration.Kind == "oldboys"
+	}
+	reusedObservationIDs := map[uuid.UUID]bool{}
+	for _, observation := range carriedObservations {
+		oldboys := indexerKinds[observation.IndexerID]
+		evaluatedObservation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, oldboys, searchNow)
+		if evaluateErr != nil {
+			return evaluateErr
+		}
+		evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: evaluatedObservation, Evaluation: evaluation, Reused: true})
+		reusedObservationIDs[observation.ID] = true
+	}
+	// Carried evidence is provider evidence from an earlier successful
+	// attempt. It is not a fresh provider response and must not inflate
+	// candidate freshness or observation counts.
+	successfulIndexers := len(reusedIndexers)
 	var earliestDeferral error
 	outcomes := make([]postgres.SearchIndexerOutcome, 0, len(search.Indexers))
-	for _, integration := range search.Indexers {
+	for _, plan := range planned {
+		integration := plan.Integration
+		if reusedIndexers[integration.ID] {
+			outcomes = append(outcomes, postgres.SearchIndexerOutcome{IndexerInstanceID: integration.ID, State: "succeeded", Detail: "reused partial search evidence"})
+			continue
+		}
 		outcome := postgres.SearchIndexerOutcome{IndexerInstanceID: integration.ID, State: "failed", Detail: "indexer_configuration_unavailable"}
-		var config indexerConfig
-		if err := json.Unmarshal(integration.Config, &config); err != nil {
+		config := plan.Config
+		if plan.PlanError != "" {
+			outcome.Detail = plan.PlanError
 			outcomes = append(outcomes, outcome)
 			continue
 		}
@@ -217,10 +246,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				continue
 			}
 			nativeSearch := search
-			nativeSearch.CompleteSearches, err = service.Store.OldBoysSearchPhase(ctx, search.Workflow.ID, integration)
-			if err != nil {
-				return err
-			}
+			nativeSearch.CompleteSearches = plan.OldBoysPhase
 			executeSearch = func(newznab.SearchRequest) ([]releases.Observation, error) {
 				workload := indexers.WorkloadInteractive
 				if recovery {
@@ -256,25 +282,10 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				return err
 			}
 		}
-		// Prefer the immutable active capability profile. When it is unavailable
-		// or cannot satisfy this item, keep the legacy commissioned dialect so an
-		// indexer that has not completed profile-backed commissioning still works.
-		// Only the primary recipe is executed here: the scheduler enforces the
-		// per-indexer minimum interval, so a second same-call fallback would be
-		// deferred back to the same zero-result state forever. A future milestone
-		// may schedule the fallback as its own paced attempt.
-		request := buildRequest(search, config)
-		if integration.Kind == "newznab" {
-			if plan, planErr := service.searchProfilePlan(ctx, integration.ID, search, config); planErr == nil {
-				request = plan.Primary.Request
-			} else if !errors.Is(planErr, errNoActiveSearchProfile) {
-				outcome.Detail = safeIndexerOutcomeCode(planErr)
-				outcomes = append(outcomes, outcome)
-				continue
-			}
-		}
+		// The exact provider plan was frozen before the retry state was loaded,
+		// so a capability/plan change cannot silently reuse incompatible evidence.
+		request := plan.Request
 		var observations []releases.Observation
-		request = numberedSearchRequest(search, request, time.Now().UTC())
 		observations, err = executeSearch(request)
 		if err != nil {
 			if recovery && errors.Is(err, postgres.ErrConcurrentModification) {
@@ -298,11 +309,11 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		outcome.State, outcome.Detail = "succeeded", ""
 		outcomes = append(outcomes, outcome)
 		for _, observation := range observations {
-			observation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, integration.Kind == "oldboys", time.Now().UTC())
+			observation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, integration.Kind == "oldboys", searchNow)
 			if evaluateErr != nil {
 				return evaluateErr
 			}
-			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
+			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation, ProviderResult: true})
 		}
 	}
 	if successfulIndexers == 0 && !recovery {
@@ -317,32 +328,43 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	// search after a mapping change would keep showing the historical held
 	// decision forever because indexers no longer return the old release.
 	if !recovery && search.Media.Kind == catalog.KindSeries && search.EpisodeNumbering.Year != 0 {
-		indexerKinds := make(map[uuid.UUID]bool, len(search.Indexers))
-		for _, integration := range search.Indexers {
-			indexerKinds[integration.ID] = integration.Kind == "oldboys"
-		}
 		held, heldErr := service.Store.HeldCandidateObservations(ctx, search.Workflow.ID)
 		if heldErr != nil {
 			return heldErr
 		}
 		for _, observation := range held {
+			if reusedObservationIDs[observation.ID] {
+				continue
+			}
 			oldboys, planned := indexerKinds[observation.IndexerID]
 			if !planned {
 				continue
 			}
-			observation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, oldboys, time.Now().UTC())
+			observation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, oldboys, searchNow)
 			if evaluateErr != nil {
 				return evaluateErr
 			}
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
 		}
 	}
-	fingerprintInput := search.Workflow.ID.String() + "\x00" + search.Variant + "\x00" + strconv.FormatUint(search.PolicyVersion, 10)
-	if recovery {
-		fingerprintInput += "\x00recovery\x00" + strconv.FormatUint(event.AggregateRevision, 10)
+	var state *postgres.SearchPartialRetry
+	if search.SearchRoundID != (uuid.UUID{}) {
+		state = &postgres.SearchPartialRetry{
+			WorkflowID:        search.Workflow.ID,
+			RoundID:           search.SearchRoundID,
+			Mode:              mode,
+			IntentFingerprint: intentFingerprint,
+			PlannedIndexerIDs: plannedIndexerIDs(planned),
+			CompletedIndexers: partialRetry.CompletedIndexers,
+		}
 	}
-	fingerprint := sha256.Sum256([]byte(fingerprintInput))
-	persisted, persistErr := service.Store.PersistSearch(ctx, search, fingerprint[:], evaluated, postgres.SearchPersistenceOptions{RecoveryRescan: recovery, RescanGeneration: int64(event.AggregateRevision), IndexerOutcomes: outcomes}, time.Now().UTC())
+	persisted, persistErr := service.Store.PersistSearch(ctx, search, intentFingerprint, evaluated, postgres.SearchPersistenceOptions{
+		RecoveryRescan:   recovery,
+		RescanGeneration: int64(event.AggregateRevision),
+		IndexerOutcomes:  outcomes,
+		PartialRetry:     state,
+		ReusedIndexerIDs: reusedIndexers,
+	}, time.Now().UTC())
 	err = persistErr
 	if recovery && errors.Is(err, postgres.ErrConcurrentModification) {
 		return nil

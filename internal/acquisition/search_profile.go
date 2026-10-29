@@ -22,23 +22,31 @@ var errNoActiveSearchProfile = errors.New("no usable active Newznab capability p
 // characterized. The returned plan is executed by the shared paced Newznab
 // client; this function performs no network I/O and no scheduler work.
 func (service *SearchService) searchProfilePlan(ctx context.Context, indexerID uuid.UUID, search postgres.SearchContext, config indexerConfig) (SearchPlan, error) {
+	plan, _, _, err := service.searchProfilePlanWithIdentity(ctx, indexerID, search, config)
+	return plan, err
+}
+
+// searchProfilePlanWithIdentity also returns the immutable active profile
+// identity. Search uses it in the retry intent fingerprint; the planner output
+// alone is not a complete capability/configuration revision.
+func (service *SearchService) searchProfilePlanWithIdentity(ctx context.Context, indexerID uuid.UUID, search postgres.SearchContext, config indexerConfig) (SearchPlan, uuid.UUID, uint64, error) {
 	profile, err := service.Store.ActiveIndexerCapabilityProfile(ctx, indexerID)
 	if err != nil {
 		if isUnusableSearchProfileError(err) {
-			return SearchPlan{}, errNoActiveSearchProfile
+			return SearchPlan{}, uuid.UUID{}, 0, errNoActiveSearchProfile
 		}
-		return SearchPlan{}, err
+		return SearchPlan{}, uuid.UUID{}, 0, err
 	}
 	document, err := newznab.DecodeCapabilityProfile(profile.Document)
 	if err != nil {
-		return SearchPlan{}, errNoActiveSearchProfile
+		return SearchPlan{}, uuid.UUID{}, 0, errNoActiveSearchProfile
 	}
 	input := SearchPlanInput{Media: search.Media}
 	input.Media.Title = searchTitle(search)
 	if search.Media.Kind == catalog.KindSeries {
 		season := seasonNumber(search.Variant)
 		if season < 0 || season > maximumPlannedSeason {
-			return SearchPlan{}, errNoActiveSearchProfile
+			return SearchPlan{}, uuid.UUID{}, 0, errNoActiveSearchProfile
 		}
 		value := uint16(season)
 		input.Season = &value
@@ -51,11 +59,11 @@ func (service *SearchService) searchProfilePlan(ctx context.Context, indexerID u
 	plan, err := PlanSearch(document, input, categories)
 	if err != nil {
 		if errors.Is(err, ErrNoSatisfiablePrimary) || errors.Is(err, ErrInvalidCategorySelection) || errors.Is(err, ErrInvalidSearchPlanInput) {
-			return SearchPlan{}, errNoActiveSearchProfile
+			return SearchPlan{}, uuid.UUID{}, 0, errNoActiveSearchProfile
 		}
-		return SearchPlan{}, err
+		return SearchPlan{}, uuid.UUID{}, 0, err
 	}
-	return plan, nil
+	return plan, profile.ID, profile.Revision, nil
 }
 
 // isUnusableSearchProfileError reports repository conditions that mean "this
