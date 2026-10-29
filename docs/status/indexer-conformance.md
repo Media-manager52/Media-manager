@@ -135,8 +135,11 @@ its own path. The live check made one search, one `t=get` without following the
 redirect, one keyless file-host request (403) and one NZB retrieval (200), and
 one search plus one retrieval for Nzb.life after its key was replaced.
 
-OldBoys remains disabled and was not contacted. Its bearer/filter interface is
-not standard Newznab and must not be enabled through the generic adapter.
+OldBoys was disabled and was not contacted during this Newznab locator check.
+Its bearer/filter interface is not standard Newznab and must not be enabled
+through the generic adapter. Native OldBoys was commissioned separately on
+2026-10-05; see
+[Native runtime commissioning and collection investigation](#native-runtime-commissioning-and-collection-investigation).
 
 ## Safety evidence
 
@@ -173,6 +176,10 @@ not standard Newznab and must not be enabled through the generic adapter.
 The owner UI can accept the OldBoys API Token, Pass Key (PID), and RSS Key (RID)
 into encrypted server-side storage. This is credential preparation only: no
 OldBoys HTTP request is made by saving, and the disabled legacy Newznab proxy
-is not commissioned or enabled. Native provider validation remains pending;
-the existing provider conformance evidence above is unchanged.
+is not commissioned or enabled by the save itself. Native provider validation
+was still pending when this note was written. The section above,
+[Native runtime commissioning and collection investigation](#native-runtime-commissioning-and-collection-investigation),
+records that the supported owner commission later enabled OldBoys on 2026-10-05
+after all five controls passed. The Newznab conformance evidence above is
+unchanged.
 See [OldBoys setup](../operations/oldboys.md).

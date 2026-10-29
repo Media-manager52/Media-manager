@@ -16,9 +16,10 @@ reasoning effort**: front-loaded context, a concrete queue, no broad audits.
    it before touching it; never discard work you did not create.
 2. Read `AGENTS.md`, then `docs/onboarding/README.md`, then
    `docs/architecture/overview.md`.
-3. Skim `docs/status/implementation.md` — it is the authoritative backlog of
-   what is Real vs Partial, with the exact "Required work" per screen. It is
-   dated, so verify each item you pick with a quick grep before building.
+3. Skim `docs/status/implementation.md` as a dated, newest-first backlog of
+   what was Real vs Partial, with the exact "Required work" per screen. A newer
+   section supersedes an older one in the same file. It is not current truth by
+   itself, so verify each item you pick with a quick grep before building.
 4. For anything you touch, open the matching map:
    `docs/architecture/{backend,database,api,frontend,workflows}.md`.
 5. Do **not** read everything. No broad audits. Start on item 1.

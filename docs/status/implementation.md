@@ -8,6 +8,17 @@ The audit covers the Go route registry, PostgreSQL migrations/store methods
 and the React route switch. This document describes implemented behavior,
 not the development fixture's claims.
 
+## How to read this file
+
+Sections are newest-first. Each section is only the checkpoint named in its
+heading. When a newer section above contradicts an older one, the newer
+section is current. OldBoys native commissioning passed on 2026-10-05 and the
+source was enabled; see
+[Native OldBoys provider](#native-oldboys-provider-2026-10-05-source). The
+[credential setup note](#oldboys-credential-setup-2026-10-05) still describes
+the earlier checkpoint, before that commission ran. Completed-pack output and
+Plex evidence for native collection discovery are still pending.
+
 ## Native collection-pack discovery (2026-10-05, source)
 
 The OldBoys query cycle now includes title-only searches, alongside ordinal and
@@ -58,11 +69,13 @@ Settings → Connections accepts the API Token, Pass Key (PID), and RSS Key (RID
 through owner-only, bounded GET/PUT routes. Schema 44 stores the complete set
 with AES-256-GCM encryption under a separate server key. Status responses expose
 only availability, saved state and update time; successful saving clears the
-password inputs. Native provider search/download support and commissioning
-remain pending. Saving credentials does not enable the disabled legacy proxy.
+password inputs. Saving credentials does not enable the disabled legacy proxy
+and did not, at this checkpoint, run native commissioning. That commissioning
+later passed and enabled the source; see
+[Native OldBoys provider](#native-oldboys-provider-2026-10-05-source).
 See [setup and key recovery](../operations/oldboys.md).
 
-This source note describes code, not deployment evidence.
+This source note describes the credential form, not the later deployment evidence.
 
 ## Annual TV episode acquisition (2026-10-05)
 
@@ -332,7 +345,8 @@ for smoke testing without explicit approval.
   race tests, PostgreSQL lifecycle tests, and Compose validation. All nine
   enabled Newznab endpoints passed live CAPS, one paced random negative TV query,
   and a separate bounded semantic check of Media Manager's real extended movie
-  and complete-season request shapes. OldBoys remained disabled and uncontacted.
+  and complete-season request shapes. OldBoys remained disabled and uncontacted
+  during that baseline; native commissioning later enabled it, as recorded above.
 - The live UI artifact is dependency-separated from the development concept
   fixtures; an automated artifact scan verifies that fixture records are absent.
 

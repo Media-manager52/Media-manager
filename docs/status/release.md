@@ -49,10 +49,11 @@ provider integration, not acquisition of every waiting request.
 An owner-only form under Settings → Connections accepts the OldBoys API Token,
 Pass Key (PID), and RSS Key (RID). Schema 44 adds encrypted credential storage;
 the API requires a separate server sealing key. Read responses contain status
-only, and password fields clear after a successful save. This prepares native
-provider work without enabling the retired proxy or claiming provider validation.
-See [setup and recovery](../operations/oldboys.md). Deployment evidence remains
-pending at this source checkpoint.
+only, and password fields clear after a successful save. Saving does not enable
+the retired proxy. Native commissioning was still pending when this note was
+written. [Native OldBoys provider](#native-oldboys-provider-2026-10-05-source)
+records the later result: PR #43 deployed, all five controls passed, and the
+source was enabled. See [setup and recovery](../operations/oldboys.md).
 
 ## Completed-output recovery and duplicate prevention (2026-10-04)
 
