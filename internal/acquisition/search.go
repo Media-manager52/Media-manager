@@ -159,9 +159,12 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	if err != nil {
 		return err
 	}
-	partialRetry, carriedObservations, reusedIndexers, err := service.loadPartialSearch(ctx, search, planned, mode, intentFingerprint, searchNow)
-	if err != nil {
-		return err
+	partialRetry, carriedObservations, reusedIndexers := postgres.SearchPartialRetry{}, []releases.Observation(nil), map[uuid.UUID]bool{}
+	if partialRetryEvent(event) {
+		partialRetry, carriedObservations, reusedIndexers, err = service.loadPartialSearch(ctx, search, planned, mode, intentFingerprint, searchNow)
+		if err != nil {
+			return err
+		}
 	}
 	rules, err := parseRules(search.Policy)
 	if err != nil {

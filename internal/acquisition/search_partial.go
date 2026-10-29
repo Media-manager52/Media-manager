@@ -182,6 +182,21 @@ func samePlannedIndexerSet(left, right []uuid.UUID) bool {
 	return true
 }
 
+type searchEventPayload struct {
+	WorkflowID       string `json:"workflow_id"`
+	Reason           string `json:"reason"`
+	RescanGeneration int64  `json:"rescan_generation"`
+	PartialRetry     bool   `json:"partial_retry"`
+}
+
+// partialRetryEvent is true only for the automatic continuation written after
+// an incomplete search. An owner-triggered or otherwise new search uses the
+// same round/intent in some cases but must still query every provider.
+func partialRetryEvent(event postgres.OutboxEvent) bool {
+	var payload searchEventPayload
+	return json.Unmarshal(event.Payload, &payload) == nil && payload.PartialRetry
+}
+
 func (service *SearchService) loadPartialSearch(ctx context.Context, search postgres.SearchContext, planned []plannedSearchIndexer, mode string, fingerprint []byte, now time.Time) (postgres.SearchPartialRetry, []releases.Observation, map[uuid.UUID]bool, error) {
 	empty := func() (postgres.SearchPartialRetry, []releases.Observation, map[uuid.UUID]bool, error) {
 		return postgres.SearchPartialRetry{}, nil, map[uuid.UUID]bool{}, nil

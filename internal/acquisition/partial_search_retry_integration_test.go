@@ -58,6 +58,26 @@ func countSearchPartialRetries(t *testing.T, store *postgres.Store, workflowID u
 	return count
 }
 
+func pendingSearchEvent(t *testing.T, store *postgres.Store, workflowID uuid.UUID) postgres.OutboxEvent {
+	t.Helper()
+	var revision int64
+	var payload []byte
+	if err := store.Pool.QueryRow(context.Background(), `SELECT aggregate_revision,payload FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.search_requested' AND completed_at IS NULL ORDER BY occurred_at DESC LIMIT 1`, workflowID.String()).Scan(&revision, &payload); err != nil {
+		t.Fatal(err)
+	}
+	return postgres.OutboxEvent{AggregateID: workflowID, AggregateRevision: uint64(revision), Payload: payload, Type: "workflow.search_requested"}
+}
+
+func pendingRecoveryEvent(t *testing.T, store *postgres.Store, workflowID uuid.UUID) postgres.OutboxEvent {
+	t.Helper()
+	var revision int64
+	var payload []byte
+	if err := store.Pool.QueryRow(context.Background(), `SELECT aggregate_revision,payload FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.discovery_rescan_requested' AND completed_at IS NULL ORDER BY occurred_at DESC LIMIT 1`, workflowID.String()).Scan(&revision, &payload); err != nil {
+		t.Fatal(err)
+	}
+	return postgres.OutboxEvent{AggregateID: workflowID, AggregateRevision: uint64(revision), Payload: payload, Type: "workflow.discovery_rescan_requested"}
+}
+
 func TestPartialSearchRetryCallsOnlyDeferredProvider(t *testing.T) {
 	store := openMovieSearchTestStore(t)
 	ctx := context.Background()
@@ -110,7 +130,7 @@ func TestPartialSearchRetryCallsOnlyDeferredProvider(t *testing.T) {
 
 	clearIndexerBudget(t, store, b.ID)
 	service = newTwoProviderSearchService(store)
-	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: current.Revision}); err != nil {
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
 		t.Fatalf("retry partial search: %v", err)
 	}
 	if got := len(aCaptured()); got != 1 {
@@ -160,13 +180,9 @@ func TestPartialSearchRetrySkipsSuccessfulEmptyProvider(t *testing.T) {
 	if string(completed) == "{}" {
 		t.Fatalf("empty provider A success was not recorded: %s", completed)
 	}
-	current, err := store.GetWorkflow(ctx, workflow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	clearIndexerBudget(t, store, b.ID)
 	service = newTwoProviderSearchService(store)
-	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: current.Revision}); err != nil {
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
 		t.Fatalf("retry partial search: %v", err)
 	}
 	if got := len(aCaptured()); got != 1 {
@@ -208,14 +224,10 @@ func TestPartialSearchRetryInvalidatesWhenCandidateObservationMoves(t *testing.T
 	if _, err := store.Pool.Exec(ctx, `UPDATE release_candidates SET observation_id=$2 WHERE id=$1`, candidateID.String(), newObservationID.String()); err != nil {
 		t.Fatal(err)
 	}
-	current, err := store.GetWorkflow(ctx, workflow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	clearIndexerBudget(t, store, a.ID)
 	clearIndexerBudget(t, store, b.ID)
 	service = newTwoProviderSearchService(store)
-	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: current.Revision}); err != nil {
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
 		t.Fatalf("retry after moved evidence: %v", err)
 	}
 	if got := len(aCaptured()); got != 2 {
@@ -246,17 +258,13 @@ func TestPartialSearchRetryDoesNotInheritCompletionAfterMetadataChange(t *testin
 	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
 		t.Fatalf("first partial search: %v", err)
 	}
-	current, err := store.GetWorkflow(ctx, workflow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.RefreshMediaMetadata(ctx, workflow.MediaID, &catalog.MediaMetadata{Overview: "changed metadata invalidates retry intent"}, nil, "test", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	clearIndexerBudget(t, store, a.ID)
 	clearIndexerBudget(t, store, b.ID)
 	service = newTwoProviderSearchService(store)
-	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: current.Revision}); err != nil {
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
 		t.Fatalf("retry after metadata change: %v", err)
 	}
 	if got := len(aCaptured()); got != 2 {
@@ -391,7 +399,7 @@ func TestPartialRecoveryReusesCompletedProviderAndKeepsIdentity(t *testing.T) {
 	}
 	clearIndexerBudget(t, store, b.ID)
 	service = newTwoProviderSearchService(store)
-	if err := service.HandleDiscovery(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: uint64(generation)}); err != nil {
+	if err := service.HandleDiscovery(ctx, pendingRecoveryEvent(t, store, workflow.ID)); err != nil {
 		t.Fatalf("retry recovery scan: %v", err)
 	}
 	if got := len(aCaptured()); got != 1 {
@@ -431,17 +439,13 @@ func TestPartialSearchRetryExpiredStateFallsBackToFullSearch(t *testing.T) {
 	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
 		t.Fatalf("first partial search: %v", err)
 	}
-	current, err := store.GetWorkflow(ctx, workflow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.Pool.Exec(ctx, `UPDATE search_partial_retries SET created_at=now()-interval '8 days',expires_at=now()-interval '1 day' WHERE workflow_id=$1`, workflow.ID.String()); err != nil {
 		t.Fatal(err)
 	}
 	clearIndexerBudget(t, store, a.ID)
 	clearIndexerBudget(t, store, b.ID)
 	service = newTwoProviderSearchService(store)
-	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: current.Revision}); err != nil {
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
 		t.Fatalf("retry after state expiry: %v", err)
 	}
 	if got := len(aCaptured()); got != 2 {
@@ -449,5 +453,44 @@ func TestPartialSearchRetryExpiredStateFallsBackToFullSearch(t *testing.T) {
 	}
 	if got := len(bCaptured()); got != 1 {
 		t.Fatalf("expired state queried provider B %d times, want 1", got)
+	}
+}
+
+func TestNewSearchEventDoesNotReusePartialCompletion(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	aServer, aCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.720p.WEB-DL", "1280x720")
+	})
+	defer aServer.Close()
+	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
+	})
+	defer bServer.Close()
+	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	workflow := createMovieSearchWorkflow(t, store)
+	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
+	service := newTwoProviderSearchService(store)
+	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+		t.Fatalf("first partial search: %v", err)
+	}
+	current, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clearIndexerBudget(t, store, a.ID)
+	clearIndexerBudget(t, store, b.ID)
+	service = newTwoProviderSearchService(store)
+	// No partial_retry marker: this models an owner/new search event, not the
+	// automatic continuation written by the incomplete-run scheduler.
+	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: current.Revision}); err != nil {
+		t.Fatalf("new search event: %v", err)
+	}
+	if got := len(aCaptured()); got != 2 {
+		t.Fatalf("new search reused provider A: calls=%d, want full search 2", got)
+	}
+	if got := len(bCaptured()); got != 1 {
+		t.Fatalf("new search provider B calls=%d, want 1", got)
 	}
 }

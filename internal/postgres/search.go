@@ -637,7 +637,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		if !searchRunComplete(options.IndexerOutcomes) {
 			retryReason = "Search incomplete: some indexers were deferred or failed; retrying."
 			nextSearchAt = incompleteSearchRetryAt(options.IndexerOutcomes, now)
-			payload, _ = json.Marshal(map[string]string{"workflow_id": search.Workflow.ID.String(), "reason": retryReason})
+			payload, _ = json.Marshal(map[string]any{"workflow_id": search.Workflow.ID.String(), "reason": retryReason, "partial_retry": true})
 		}
 		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$6) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), newRevision, string(payload), now.UTC(), nextSearchAt); err != nil {
 			return workflows.Workflow{}, err
@@ -792,7 +792,7 @@ func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pg
 	if command.RowsAffected() != 1 {
 		return false, ErrConcurrentModification
 	}
-	payload, _ := json.Marshal(map[string]any{"workflow_id": search.Workflow.ID.String(), "rescan_generation": nextGeneration})
+	payload, _ := json.Marshal(map[string]any{"workflow_id": search.Workflow.ID.String(), "rescan_generation": nextGeneration, "partial_retry": !complete})
 	_, err = transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested',$4,$5,$6) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), nextGeneration, payload, now.UTC(), next.UTC())
 	return !complete, err
