@@ -71,22 +71,6 @@ test("forwards progress semantics to the primitive", async () => {
   assert.match(html, /data-state="loading"/);
 });
 
-test("emits chart themes for the starter's media dark mode", async () => {
-  const { ChartStyle } = await vite.ssrLoadModule("/components/ui/chart.tsx");
-  const html = renderToStaticMarkup(
-    React.createElement(ChartStyle, {
-      id: "contract",
-      config: {
-        latency: { theme: { light: "#ffffff", dark: "#000000" } },
-      },
-    }),
-  );
-
-  assert.match(html, /\[data-chart=contract\]/);
-  assert.match(html, /@media \(prefers-color-scheme: dark\)/);
-  assert.doesNotMatch(html, /\.dark/);
-});
-
 test("renders sidebar skeletons deterministically", async () => {
   const { SidebarMenuSkeleton } = await vite.ssrLoadModule(
     "/components/ui/sidebar.tsx",

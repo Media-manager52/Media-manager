@@ -100,6 +100,11 @@ Do not redo these; verify with a quick grep if a queue item touches them.
 
 ## Today's queue (default priority — the owner may edit this section)
 
+This queue was written on 2026-09-28 at schema 40. Later work already shipped
+wanted paging, encrypted off-site backups, the problems feed, search evidence,
+native OldBoys commissioning, and schema 49. Before starting an item, confirm
+it is still missing in the code. Do not reimplement a shipped path.
+
 Build in this order. Each item is "finish it properly": backend + UI + tests +
 docs. The first three are the highest-value remaining owner-facing gaps.
 
