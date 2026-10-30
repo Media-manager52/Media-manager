@@ -32,6 +32,8 @@ available.
    ```sh
    MEDIA_MANAGER_API_IMAGE=ghcr.io/media-manager52/media-manager-api@sha256:<index-digest>
    MEDIA_MANAGER_UI_IMAGE=ghcr.io/media-manager52/media-manager-ui@sha256:<index-digest>
+   MEDIA_MANAGER_VERSION=0.1.0-beta.1
+   MEDIA_MANAGER_COMMIT=<full-git-commit>
    ```
 
    Do not use `:main` or `:latest` for a release installation.
