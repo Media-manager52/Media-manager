@@ -167,6 +167,16 @@ was revoked after the run.
 Raw host logs for the run are in `/var/lib/cosmos/cosmos.log` and
 `journalctl -u CosmosCloud` around 2026-10-26 20:18–20:20 UTC.
 
+## 2026-10-30 template correction
+
+The canonical market template now uses the Docker API volume shape and explicitly
+requests `ReadOnly: true` with `BindOptions.Propagation: rslave` for the AltMount
+parent. The earlier Compose-style lowercase keys (`type`, `source`, `target`,
+`readOnly`) could be ignored by the Cosmos Docker API. The store PR branch already
+used the API shape; this correction aligns the canonical template and adds a
+static regression test. It was not installed against the live Cosmos instance
+during this review.
+
 ## Current state
 
 - Market source is live and configured in Cosmos.
