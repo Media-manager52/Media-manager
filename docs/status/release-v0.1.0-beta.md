@@ -3,10 +3,10 @@
 Status: **BLOCKED — not release-ready and not published.**
 
 This is the release-candidate evidence ledger, not a claim of completion. It is
-based on the release branch reconciled with PR #90's merge
-`300c76c74f869bac6a1adb6bc4c6205cc067f174`; PR #91 and the release-preparation
-branch are merged before publication. Production remains on `31789f7`/schema 49
-and was not part of the release work.
+based on `main` after PR #91's merge
+`fd53eb62dcd5abdc3140beafbf463e2842678510`; the release-preparation branch is
+merged before publication. Production remains on `31789f7`/schema 49 and was
+not part of the release work.
 
 ## Completed and merged
 
@@ -17,6 +17,7 @@ and was not part of the release work.
 | Cosmos installation volumes (PR #88) | `39a250cd6d3bf6f09fc3b058ad60780c92b4c293` |
 | Partial search retry, schema 50 in source (PR #86) | `c82d44ab08afe24b34d3f8c4105d61d22e45a5ec` |
 | Cosmos route host/owner authorization (PR #90) | `300c76c74f869bac6a1adb6bc4c6205cc067f174` |
+| CI parallelization/non-blocking policy (PR #91) | `fd53eb62dcd5abdc3140beafbf463e2842678510` |
 
 Main CI for each merge passed, including image publication. The immutable image
 digests are recorded in [versioning](../releases/versioning.md).
@@ -25,7 +26,6 @@ digests are recorded in [versioning](../releases/versioning.md).
 
 | PR | Status | Remaining blocker |
 | --- | --- | --- |
-| #91 CI parallelization/non-blocking policy | Open; final CI pending | Merge only after green exact-HEAD CI |
 | #92 Release preparation | Open; final CI pending | Merge only after green exact-HEAD CI and final review |
 
 Do not merge these from this work. They require the grouped owner approval below.
@@ -147,8 +147,8 @@ Do not merge these from this work. They require the grouped owner approval below
 
 ## Required before release
 
-1. Merge PR #91 and #92 only after exact-HEAD CI/review; the owner authorized
-   these merges.
+1. Merge PR #92 only after exact-HEAD CI/review; the owner authorized the
+   merge.
 2. Repeat a disposable Cosmos cross-host/non-admin route check or record the
    manual gate.
 3. Configure an off-site backup destination and exercise a restore.
