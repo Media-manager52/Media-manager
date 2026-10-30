@@ -204,3 +204,37 @@ remain untested.
   OpenID gating.
 - The official built-in store listing is pending maintainer review:
   https://github.com/azukaar/cosmos-servapps-official/pull/336
+
+## 2026-10-30 route host and owner-auth correction
+
+The API, health and UI routes now all declare `useHost: true`, the same explicit
+`host`, `AuthEnabled: true` and `AdminOnly: true`. Cosmos 0.23.4 only adds a
+host matcher when `UseHost` is true (`src/proxy/routerGen.go`); with the previous
+`useHost: false`, `/api` and `/health` could match on another Cosmos app host.
+`AdminOnly: true` uses Cosmos's admin permission gate (`PERM_ADMIN_READ`), so a
+signed-in non-admin Cosmos user cannot receive the injected Media Manager owner
+token.
+
+Manual disposable validation still required:
+
+1. On the intended Media Manager host, `/api/v1/dashboard` with a valid owner
+   session returns 200 and `/health/ready` is reachable; the UI catch-all does
+   not capture either path.
+2. On a different Cosmos app host, the same `/api` and `/health` paths do not
+   proxy to Media Manager.
+3. A signed-in non-admin Cosmos user is refused by all three routes; the owner
+   (Cosmos admin) succeeds.
+4. A reverse proxy in front of Cosmos preserves the configured Host header; an
+   IP-only or alternate-host request is not expected to match.
+
+These checks have **not** been run against the live Cosmos instance. This PR
+changes only the install template; existing Cosmos installs need their three
+routes corrected manually and rechecked.
+
+Cosmos 0.23.4 creates a separate editable hostname field for every route with
+`useHost: true` (API, health and UI), and applies those fields after rendering
+the template. Set **all three** hostname fields to exactly the same Media
+Manager host; the template placeholder alone does not protect against a
+per-field mismatch. After installation, inspect the three stored routes and
+confirm they have the same `host`. A mismatch fails closed but sends `/api` to
+the UI catch-all without the owner bearer injection.

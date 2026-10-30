@@ -126,7 +126,7 @@
         {
           "name": "{ServiceName}-api",
           "description": "Media Manager API with server-side owner bearer injection",
-          "useHost": false,
+          "useHost": true,
           "host": "{Hostnames.{ServiceName}.{ServiceName}.host}",
           "usePathPrefix": true,
           "PathPrefix": "/api",
@@ -140,7 +140,7 @@
             "Enabled": true
           },
           "AuthEnabled": true,
-          "AdminOnly": false,
+          "AdminOnly": true,
           "ExtraHeaders": {
             "Authorization": "Bearer {Context.ownerToken}"
           }
@@ -148,7 +148,7 @@
         {
           "name": "{ServiceName}-health",
           "description": "Media Manager health and readiness endpoints",
-          "useHost": false,
+          "useHost": true,
           "host": "{Hostnames.{ServiceName}.{ServiceName}.host}",
           "usePathPrefix": true,
           "PathPrefix": "/health",
@@ -162,12 +162,13 @@
             "Enabled": true
           },
           "AuthEnabled": true,
-          "AdminOnly": false
+          "AdminOnly": true
         },
         {
           "name": "{ServiceName}",
           "description": "Media Manager UI",
           "useHost": true,
+          "host": "{Hostnames.{ServiceName}.{ServiceName}.host}",
           "target": "http://{ServiceName}:3000",
           "mode": "SERVAPP",
           "Timeout": 14400000,
@@ -177,7 +178,7 @@
             "Enabled": true
           },
           "AuthEnabled": true,
-          "AdminOnly": false
+          "AdminOnly": true
         }
       ]
     },
