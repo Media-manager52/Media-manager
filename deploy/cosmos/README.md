@@ -1,8 +1,8 @@
 # Media Manager — Cosmos Cloud market listing
 
-This public repository is the Cosmos Cloud marketplace listing for **Media Manager**.
-The application source is maintained separately; this repository exists so Cosmos can
-resolve the public listing, install template and icon.
+This repository is the canonical source for **Media Manager** and hosts the Cosmos
+Cloud marketplace listing, install template and icon. The application source is
+not a separate private tree.
 
 ## Install from the custom source
 

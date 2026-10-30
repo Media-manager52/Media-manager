@@ -1,8 +1,9 @@
 # Install a released Media Manager image pair
 
 This is the normal installation path for a release. It starts the published API
-and UI images without compiling source. The current v0.1.0 Beta release is not
-tagged yet; use the owner-approved immutable image references when available.
+and UI images without compiling source. The `v0.1.0-beta.1` candidate is not
+tagged or published yet; use the owner-approved immutable image references when
+available.
 
 ## Prerequisites
 

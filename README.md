@@ -55,6 +55,7 @@ Start with:
 - [`docs/status/release.md`](docs/status/release.md) — dated release evidence.
 - [`docs/status/release-v0.1.0-beta.md`](docs/status/release-v0.1.0-beta.md) — v0.1.0 Beta readiness checklist and remaining gates.
 - [`docs/operations/install-release.md`](docs/operations/install-release.md) — immutable-image installation, first-run checklist, update and restore.
+- [`docs/releases/v0.1.0-beta.1.md`](docs/releases/v0.1.0-beta.1.md) — prepared v0.1.0-beta.1 release note and publication gates; not tagged.
 - [`docs/status/license-decision.md`](docs/status/license-decision.md) — AGPL-3.0-only licensing decision, compatibility notes, and verification record.
 - [`docs/status/indexer-conformance.md`](docs/status/indexer-conformance.md) —
   developer-only Newznab provider conformance evidence; not a runtime
