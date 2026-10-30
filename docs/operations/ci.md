@@ -47,14 +47,16 @@ controlled experiment; the workflow default is 4.
 
 ## Cancellation and main safety
 
-The concurrency group is per Git ref:
+The concurrency group is per Git ref for feature branches and per commit for
+`main`:
 
 - a superseded feature-branch push may cancel its own earlier Verify run;
-- an in-progress `main` Verify run is never cancelled by a newer push or merge;
-  GitHub may still drop a superseded *pending* main run when several main
-  pushes arrive without a worker slot. The newer commit contains the older
-  work, but the dropped commit itself has no Verify result and no `sha-<commit>`
-  image; this is an intentional main-serialization trade-off;
+- every `main` commit gets its own group, so a newer push cannot replace a
+  queued verification for an earlier merge; queued main commits run in order;
+- `cancel-in-progress` stays false for `main`, so an active main verification is
+  never cancelled by a newer push or merge;
+- this deliberately queues more self-hosted work on a busy main branch in
+  exchange for preserving per-commit evidence and `sha-<commit>` publication;
 - `publish` is a separate job that requires frontend, browser, backend and
   containers; it never starts from a cancelled or incomplete verification;
 - production deployment remains a separate manual workflow and is not triggered
@@ -93,12 +95,14 @@ For public-beta operation the owner should enable branch protection requiring:
 - dismissal of stale approvals after new commits;
 - no force pushes or deletions.
 
-Then enable GitHub's native merge queue for `main`, with the same required
-checks. The merge queue creates a new merge candidate commit and runs Verify on
-that candidate before merging, which is the correct place to validate PRs after
-earlier merges. Auto-merge may be enabled only with that protection; an approval
-must never be transferred to a newer HEAD. Publish and production deployment
-remain separate from merge authorization.
+GitHub's native merge queue is **not enabled**, and Verify does not currently
+have a `merge_group` trigger. Do not claim that the queue runs this workflow:
+without a separate `merge_group` trigger it would wait forever for the required
+checks. Enabling the queue requires a separate security review of the
+self-hosted runner exposure and a workflow change; until then, merge sequentially
+and verify the exact resulting commit. An approval must never be transferred to a
+newer HEAD. Publish and production deployment remain separate from merge
+authorization.
 
 ## Measured baseline
 

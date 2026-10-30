@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: verify-${{ github.ref }}
-  # Superseded feature-branch pushes may be cancelled. Never cancel an active
-  # main verification: a later merge must not erase the evidence for an
-  # earlier main commit.
+  # Main verification is grouped per commit so a newer main push cannot replace
+  # a queued verification for an earlier merge. Feature branches keep one group
+  # per ref so a superseded push can cancel its own earlier run.
+  group: verify-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
