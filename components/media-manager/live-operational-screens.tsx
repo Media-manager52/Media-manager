@@ -750,6 +750,7 @@ export function LiveWantedScreen() {
         </TabsList>
         <RefreshButton onClick={refresh} />
       </div>
+      <p className="text-[12px] leading-5 text-fg-subtle"><strong className="text-fg-secondary">Needs attention</strong> requires an owner decision; <strong className="text-fg-secondary">Missing</strong> and <strong className="text-fg-secondary">Upgrades</strong> include normal waiting and paced discovery; <strong className="text-fg-secondary">In progress</strong> is automatic work. Only the first group is an urgent owner action.</p>
       <TabsContent value="attention">
         <Panel flush title="Needs attention" subtitle="What happened, what Media Manager will do next, and what you can do." className={cn(attention.length && "border-warn-line")}>
           {attention.length === 0 ? <div className="flex items-center gap-2.5 px-4 py-4 text-[12.5px] text-good"><CheckCircle2 className="size-4" aria-hidden />Nothing needs your attention. Waiting and searching continue automatically.</div>
