@@ -64,6 +64,10 @@ injected only by the Cosmos `/api` route; do not expose the API port.
 
 ## Licensing
 
-The Media Manager application source is private. This listing repository and the
-published container images are provided for installing and using Media Manager with
-Cosmos Cloud. All rights reserved.
+Media Manager is licensed under the **GNU Affero General Public License, version 3
+only** (`AGPL-3.0-only`). The full license text is in the canonical repository at
+`https://github.com/Media-manager52/Media-manager/blob/main/LICENSE`; the
+corresponding source is `https://github.com/Media-manager52/Media-manager`.
+Third-party components remain under their own licenses and notices. The Cosmos
+listing, install template, and published images do not grant rights beyond
+AGPL-3.0-only.

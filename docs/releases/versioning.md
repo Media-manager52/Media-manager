@@ -28,6 +28,15 @@ must use the `sha-...` tag or a registry digest, never `main`/`latest`. The
 release record must include both index digests and both platform manifest
 digests.
 
+## License
+
+The product is `AGPL-3.0-only`. Every published image contains the unmodified
+[`LICENSE`](../../LICENSE) and [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md)
+under `/usr/share/doc/media-manager/`, and carries the
+`org.opencontainers.image.licenses="AGPL-3.0-only"` label. The corresponding
+source is <https://github.com/Media-manager52/Media-manager>. Release checks must
+verify the label and both files in the published image.
+
 Current published baseline (main merge `c82d44ab08afe24b34d3f8c4105d61d22e45a5ec`,
 from source, not a release tag):
 

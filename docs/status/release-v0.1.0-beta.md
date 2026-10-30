@@ -50,8 +50,8 @@ Do not merge these from this work. They require the grouped owner approval below
   verified in an isolated database, downloaded with an authenticated request,
   and the new `media-manager backup-decrypt` command produced a valid custom
   dump. The backup artifacts and test stack were removed.
-- **NOT VERIFIED:** installing on a clean public host and restoring that backup
-  into a fresh stack with production-like external services.
+- **NOT VERIFIED:** installing on a genuinely clean public host with real
+  external services; the disposable Compose test is clean but runs on this host.
 - **NOT VERIFIED:** actual Cosmos 0.23.4 wizard installation and a real AltMount
   FUSE child remount. The manual acceptance steps are in
   `deploy/cosmos/VERIFICATION.md`.
@@ -80,9 +80,14 @@ Do not merge these from this work. They require the grouped owner approval below
 - **PASS (disposable):** encrypted backup creation, isolated restore
   verification, authenticated download, and `backup-decrypt` were exercised in
   the release image stack; the decrypt command is covered by a Go test.
-- **NOT VERIFIED:** restoring into a fresh production-like stack and off-site
-  copy/restore using the owner's real S3/WebDAV destination; no credentials or
-  destination were supplied. Local backups are not sufficient disaster recovery.
+- **PASS (disposable):** the encrypted backup was downloaded, decrypted, restored
+  into a fresh PostgreSQL instance in a second Compose project, and the restored
+  API reached `ready` with its UI available. A synthetic persisted marker was
+  present after restore. A deliberately truncated backup was rejected without
+  creating a plaintext dump.
+- **NOT VERIFIED:** off-site copy/restore using the owner's real S3/WebDAV
+  destination; no credentials or destination were supplied. Local backups are
+  not sufficient disaster recovery.
 - **PLAN ONLY:** schema 49→50 is not applied in production. The exact deployment,
   backup, rollback, and post-checks are in
   [schema-50-deployment](../operations/schema-50-deployment.md). Schema 50 images run the migration automatically at API startup; they must not
@@ -93,9 +98,12 @@ Do not merge these from this work. They require the grouped owner approval below
 
 - **PASS:** immutable `sha-<commit>` image publication exists and the digests are
   recorded.
-- **FAIL:** no `LICENSE`; `deploy/cosmos/README.md` still says “private / all
-  rights reserved.” Public beta cannot ship with contradictory terms. See the
-  [license decision](../status/license-decision.md).
+- **PASS:** `AGPL-3.0-only`, with the unmodified GNU AGPL v3 text in `LICENSE`,
+  the SPDX identifier in `package.json`, image labels, README, Cosmos listing,
+  and third-party notices. See the [license decision](../status/license-decision.md).
+- **OWNER/LEGAL NOTE:** no CLA or copyright-assignment document exists in the
+  repository. The owner authorized the license; an independent chain-of-title
+  review remains a legal check, not a blocker silently waived here.
 - **FAIL:** no v0.1.0 tag/release, no release changelog publication, and only
   `linux/amd64` images. ARM64 may follow beta if amd64 is documented.
 - **PARTIAL:** the release image install path and versioning contract are
@@ -116,9 +124,9 @@ Do not merge these from this work. They require the grouped owner approval below
 | Workflows/Wanted/Files/Requests usable | PASS in browser/unit coverage; release image UI served |
 | Request → search → verify → publish | PARTIAL (component/integration; real-system E2E NOT VERIFIED) |
 | Restart/persistence | PASS in disposable Compose stack |
-| Backup/restore | PARTIAL: encrypted create/verify/decrypt PASS in disposable stack; fresh-stack restore and off-site NOT VERIFIED |
+| Backup/restore | PARTIAL: create/verify/decrypt and fresh-stack restore PASS in disposable stacks; off-site NOT VERIFIED |
 | Schema 50 production deployment | NOT APPLIED (plan prepared) |
-| License/public-distribution wording | FAIL (owner decision required) |
+| License/public-distribution wording | PASS (AGPL-3.0-only); legal ownership review remains owner/legal |
 | Release tag/version/architecture | NOT PUBLISHED (owner decision required) |
 
 ## Required before release
@@ -126,12 +134,12 @@ Do not merge these from this work. They require the grouped owner approval below
 1. Merge PR #90 after owner approval and repeat a disposable Cross-host/non-admin
    route check.
 2. Merge or explicitly defer PR #91; do not merge it with pending final checks.
-3. Choose a license and correct all distribution wording.
-4. Configure an off-site backup destination and exercise a restore.
-5. Run the real or faithfully simulated end-to-end acceptance journey and record
+3. Configure an off-site backup destination and exercise a restore.
+4. Run the real or faithfully simulated end-to-end acceptance journey and record
    it as real-system or mocked.
-6. Obtain owner approval for a schema-50 deployment window if production is to
+5. Obtain owner approval for a schema-50 deployment window if production is to
    move; this is separate from the public beta release.
+6. Complete the owner/legal chain-of-title review for AGPL distribution.
 7. Create the release candidate/tag and publish images only after explicit owner
    authorization.
 

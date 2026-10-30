@@ -13,6 +13,9 @@ tagged yet; use the owner-approved immutable image references when available.
   and a shared Docker network for AltMount/Plex/Seerr.
 - Plex, AltMount, and at least one Newznab indexer for a working acquisition
   system. Seerr and metadata providers are optional.
+- The software is licensed under `AGPL-3.0-only`; the image contains the license
+  and third-party notices at `/usr/share/doc/media-manager/`. The corresponding
+  source is <https://github.com/Media-manager52/Media-manager>.
 
 ## Install
 

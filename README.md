@@ -8,6 +8,12 @@ Native [OldBoys](docs/operations/oldboys.md) adds a fixed-origin Danish-original
 
 The first production path is deliberately narrow: **Seerr + Media Manager + Newznab indexers + AltMount + Plex**. Radarr and Sonarr are not runtime dependencies. A season pack is one download job, and publication is blocked unless every frozen expected episode maps exactly once.
 
+## License
+
+Media Manager is licensed under the **GNU Affero General Public License, version 3 only** (`AGPL-3.0-only`). The complete license text is in [`LICENSE`](LICENSE). The corresponding source is the canonical repository at <https://github.com/Media-manager52/Media-manager>. Third-party components remain under their own licenses and notices; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+If you run a modified version as a network service, AGPL-3.0 requires you to offer its corresponding source to users interacting with it. The published unmodified images point to the canonical source above.
+
 ## Run it with Cosmos Cloud
 
 If you are setting Media Manager up on your own server, start with
@@ -49,7 +55,7 @@ Start with:
 - [`docs/status/release.md`](docs/status/release.md) — dated release evidence.
 - [`docs/status/release-v0.1.0-beta.md`](docs/status/release-v0.1.0-beta.md) — v0.1.0 Beta readiness checklist and remaining gates.
 - [`docs/operations/install-release.md`](docs/operations/install-release.md) — immutable-image installation, first-run checklist, update and restore.
-- [`docs/status/license-decision.md`](docs/status/license-decision.md) — owner license decision; no license is selected here.
+- [`docs/status/license-decision.md`](docs/status/license-decision.md) — AGPL-3.0-only licensing decision, compatibility notes, and verification record.
 - [`docs/status/indexer-conformance.md`](docs/status/indexer-conformance.md) —
   developer-only Newznab provider conformance evidence; not a runtime
   dependency.
