@@ -264,3 +264,39 @@ test("Wanted does not fan out detail reads behind a failed workflow window", asy
   await expect(page.getByText("window unavailable")).toHaveCount(0)
   await expect.poll(() => detailReads).toBeGreaterThan(0)
 })
+
+test("library degrades with a visible partial notice above its bounded window", async ({ page }) => {
+  await installOwnerAPI(page, baseURL)
+  await page.route("**/api/v1/files*", async (route) => {
+    const url = new URL(route.request().url())
+    const offset = Number(url.searchParams.get("offset") ?? "0")
+    const limit = Number(url.searchParams.get("limit") ?? "500")
+    const items = Array.from({ length: limit }, (_, index) => {
+      const number = offset + index + 1
+      return {
+        id: `96000000-0000-4000-8000-${String(number).padStart(12, "0")}`,
+        media_id: "11111111-1111-4111-8111-111111111111",
+        media_kind: "movie",
+        title: "Bounded Library Movie",
+        root_name: "Movies",
+        destination_relative: `Bounded/${number}.mkv`,
+        source_relative: `Bounded/${number}.mkv`,
+        plex_visible_target: `/movies/Bounded/${number}.mkv`,
+        state: "current",
+        generation: 1,
+        plex_confirmed: true,
+        variant: "default",
+        origin: "altmount",
+        quality_profile: "1080p",
+        quality_evidence_state: "release_evidence",
+        quality_evidence: { resolution: "1080p" },
+      }
+    })
+    await route.fulfill({ status: 200, json: { data: items } })
+  })
+
+  await page.goto(`${baseURL}/media`)
+  await expect(page.getByText("Library view is partial")).toBeVisible()
+  await expect(page.getByText(/safe 10,000-record window/)).toBeVisible()
+  await expect(page.getByRole("button", { name: /First Browser Movie/ })).toBeVisible()
+})

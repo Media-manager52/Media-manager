@@ -274,16 +274,18 @@ export function overviewQueueItems(workflows: APIWorkflow[], wanted: APIWantedIt
   return items
 }
 
-async function loadAllLibraryPages<T>(loadPage: (offset: number, limit: number, signal: AbortSignal) => Promise<import("@/lib/media-manager-api").Page<T>>, signal: AbortSignal): Promise<T[]> {
+async function loadAllLibraryPages<T>(loadPage: (offset: number, limit: number, signal: AbortSignal) => Promise<import("@/lib/media-manager-api").Page<T>>, signal: AbortSignal): Promise<{ items: T[]; truncated: boolean }> {
   const pageSize = 500
   const maxPages = 20
   const items: T[] = []
   for (let page = 0; page < maxPages; page += 1) {
     const result = await loadPage(page * pageSize, pageSize, signal)
     items.push(...result.items)
-    if (!result.hasMore) return items
+    if (!result.hasMore) return { items, truncated: false }
   }
-  throw new Error(`Library associations exceeded the safe ${pageSize * maxPages}-record load limit`)
+  // The cap is a bounded degradation, not a hard error: render the safe window
+  // and state that it is partial instead of making the whole library unusable.
+  return { items, truncated: true }
 }
 
 async function loadMediaLibrary(kind: "movie" | "series", signal: AbortSignal) {
@@ -293,7 +295,11 @@ async function loadMediaLibrary(kind: "movie" | "series", signal: AbortSignal) {
     loadAllLibraryPages<APIWantedItem>((offset, limit, pageSignal) => loadWantedPage({ offset, limit, signal: pageSignal }), signal),
     loadAllLibraryPages<APIWorkflow>((offset, limit, pageSignal) => loadWorkflowsPage({ active: false, offset, limit, signal: pageSignal }), signal),
   ])
-  return buildMediaLibraryRecords(kind, media, files, wanted, workflows)
+  return {
+    records: buildMediaLibraryRecords(kind, media, files.items, wanted.items, workflows.items),
+    truncated: files.truncated || wanted.truncated || workflows.truncated,
+    loaded: Math.max(files.items.length, wanted.items.length, workflows.items.length),
+  }
 }
 
 export const movieLibraryLoader = (signal: AbortSignal) => loadMediaLibrary("movie", signal)
@@ -351,7 +357,9 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
     window.addEventListener("resize", update)
     return () => window.removeEventListener("resize", update)
   }, [])
-  const records = React.useMemo(() => data ?? [], [data])
+  const records = React.useMemo(() => data?.records ?? [], [data])
+  const truncated = data?.truncated ?? false
+  const loadedAssociations = data?.loaded ?? records.length
   const filtered = React.useMemo(() => filterMediaLibraryRecords(records, filters), [records, filters])
   const facets = React.useMemo(() => ({
     quality: uniqueValues(records.flatMap((item) => item.profiles)),
@@ -416,6 +424,7 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
 
   return <div className={cn("mm-library-root grid h-full min-h-0 bg-canvas", selected && "xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_380px]")}>
     <section className="flex min-h-0 min-w-0 flex-col px-4 pb-3 pt-3 sm:px-5 lg:px-9" aria-labelledby={`${mediaKind}-library-title`}>
+      {truncated ? <InlineNotice tone="warn" title="Library view is partial">Media Manager loaded the safe {loadedAssociations.toLocaleString()}-record window. Use filters or open a title directly; the full library was not truncated silently.</InlineNotice> : null}
       <div className="mb-4 flex min-h-9 items-end gap-3">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">

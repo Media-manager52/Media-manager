@@ -379,8 +379,10 @@ test("movie and series library loaders make only the expected same-origin API re
 
   try {
     const { movieLibraryLoader, seriesLibraryLoader } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
-    const movieRecords = await movieLibraryLoader(new AbortController().signal);
+    const movieLibrary = await movieLibraryLoader(new AbortController().signal);
+    const movieRecords = movieLibrary.records;
     assert.equal(movieRecords.length, 2);
+    assert.equal(movieLibrary.truncated, false);
     assert.deepEqual(requested.sort(), [
       "/api/v1/files?limit=500&offset=0",
       "/api/v1/media?limit=200&offset=0",
@@ -388,7 +390,8 @@ test("movie and series library loaders make only the expected same-origin API re
       "/api/v1/workflows?limit=500&offset=0&active=false",
     ]);
     requested.length = 0;
-    const seriesRecords = await seriesLibraryLoader(new AbortController().signal);
+    const seriesLibrary = await seriesLibraryLoader(new AbortController().signal);
+    const seriesRecords = seriesLibrary.records;
     assert.equal(seriesRecords.length, 1);
     assert.equal(seriesRecords[0].id, seriesID);
     assert.deepEqual(requested.sort(), [
