@@ -136,6 +136,11 @@ test("Wanted loads workflow context for rows outside the first 300 workflows", a
     created_at: "2026-09-01T00:00:00Z",
     updated_at: "2026-09-01T00:00:00Z",
   }
+  const detailCounts = new Map<string, number>()
+  let detailActive = 0
+  let detailMaxActive = 0
+  let supportWindowLoaded = false
+  let detailBeforeWindow = 0
   await page.route("**/api/v1/wanted*", async (route) => {
     const url = new URL(route.request().url())
     const offset = Number(url.searchParams.get("offset") ?? "0")
@@ -148,10 +153,17 @@ test("Wanted loads workflow context for rows outside the first 300 workflows", a
     if (url.searchParams.get("attention") === "true") return route.fulfill({ status: 200, json: { data: [detail] } })
     const offset = Number(url.searchParams.get("offset") ?? "0")
     const limit = Number(url.searchParams.get("limit") ?? "300")
+    if (url.searchParams.get("active") === "false") supportWindowLoaded = true
     await route.fulfill({ status: 200, json: { data: terminal.slice(offset, offset + limit) } })
   })
   await page.route("**/api/v1/workflows/*", async (route) => {
-    const id = new URL(route.request().url()).pathname.split("/").at(-1)
+    const id = new URL(route.request().url()).pathname.split("/").at(-1) ?? ""
+    if (!supportWindowLoaded) detailBeforeWindow += 1
+    detailCounts.set(id, (detailCounts.get(id) ?? 0) + 1)
+    detailActive += 1
+    detailMaxActive = Math.max(detailMaxActive, detailActive)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    detailActive -= 1
     await route.fulfill({ status: 200, json: { data: id === attentionID ? detail : { ...detail, id, state: "waiting", owner_action_required: false, ready_release_title: undefined, attention_code: "", attention_detail: "" } } })
   })
 
@@ -159,6 +171,13 @@ test("Wanted loads workflow context for rows outside the first 300 workflows", a
   await expect(page.getByRole("heading", { name: /Old Attention Movie/ })).toBeVisible()
   await expect(page.getByText("Candidate:")).toContainText("Old.Attention.Movie.2024.1080p.WEB-DL")
   await expect(page.getByText("Waiting Movie 100", { exact: true })).toHaveCount(0)
+  expect(detailBeforeWindow).toBe(0)
+  expect(Math.max(...detailCounts.values())).toBe(1)
+  expect(detailMaxActive).toBeLessThanOrEqual(6)
+  const initialDetailRequests = Array.from(detailCounts.values()).reduce((total, count) => total + count, 0)
+  await page.getByRole("button", { name: "Refresh", exact: true }).click()
+  await page.waitForTimeout(500)
+  expect(Array.from(detailCounts.values()).reduce((total, count) => total + count, 0)).toBe(initialDetailRequests)
   await page.getByRole("button", { name: "Load more" }).click()
   await page.getByRole("tab", { name: /Missing/ }).click()
   await expect(page.getByRole("row", { name: /Waiting Movie 150/ })).toBeVisible()

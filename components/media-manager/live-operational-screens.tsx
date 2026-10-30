@@ -721,7 +721,10 @@ export function LiveWantedScreen() {
   const page = usePagedList(wantedPageLoader, 100, { autoRefresh: true, keyOf: (item) => item.workflow_id, onRefresh: refreshSupport })
   const [workflows, setWorkflows] = React.useState<APIWorkflow[]>([])
   const [pageWorkflows, setPageWorkflows] = React.useState<APIWorkflow[]>([])
+  const [supportReady, setSupportReady] = React.useState(false)
   const [supportError, setSupportError] = React.useState("")
+  const [pageContextError, setPageContextError] = React.useState("")
+  const workflowCacheRef = React.useRef<Map<string, APIWorkflow>>(new Map())
   const [posters, setPosters] = React.useState<Map<string, string | undefined>>(() => new Map())
   React.useEffect(() => {
     const controller = new AbortController()
@@ -735,34 +738,70 @@ export function LiveWantedScreen() {
     loadWorkflows(false, controller.signal)
       .then((next) => { setWorkflows(next); setSupportError("") })
       .catch((reason: unknown) => { if (!controller.signal.aborted) setSupportError(reason instanceof Error ? reason.message : "Could not load wanted workflow context") })
+      .finally(() => { if (!controller.signal.aborted) setSupportReady(true) })
     return () => controller.abort()
   }, [supportRevision])
   const items = page.items
   // The first workflow window is a cheap hint, not a completeness claim. Fetch
   // exact context for wanted rows that fall outside it so an old attention row
   // never loses its actions merely because newer workflows filled the window.
+  // The cache makes the per-row reads one-time per row/version, and the worker
+  // pool keeps a large Load more page from opening hundreds of parallel reads.
   React.useEffect(() => {
+    if (!supportReady) return
+    const itemByID = new Map(items.map((item) => [item.workflow_id, item]))
+    const wantedAt = (id: string) => new Date(itemByID.get(id)?.updated_at ?? 0).getTime()
     const known = new Set(workflows.map((workflow) => workflow.id))
-    const missing = Array.from(new Set(items.map((item) => item.workflow_id).filter((id) => !known.has(id))))
-    if (missing.length === 0) return
+    const missing = Array.from(itemByID.keys()).filter((id) => {
+      if (known.has(id)) return false
+      const cached = workflowCacheRef.current.get(id)
+      return cached === undefined || new Date(cached.updated_at).getTime() < wantedAt(id)
+    })
+    const bounded = missing.slice(0, 500)
+    if (bounded.length === 0) {
+      setPageContextError("")
+      return
+    }
     const controller = new AbortController()
-    Promise.allSettled(missing.slice(0, 500).map((id) => loadWorkflow(id, controller.signal)))
-      .then((results) => {
+    const failed: string[] = []
+    let cursor = 0
+    const worker = async () => {
+      while (cursor < bounded.length && !controller.signal.aborted) {
+        const id = bounded[cursor]
+        cursor += 1
+        try {
+          const workflow = await loadWorkflow(id, controller.signal)
+          if (!controller.signal.aborted) workflowCacheRef.current.set(id, workflow)
+        } catch {
+          if (!controller.signal.aborted) failed.push(id)
+        }
+      }
+    }
+    Promise.all(Array.from({ length: Math.min(6, bounded.length) }, worker))
+      .then(() => {
         if (controller.signal.aborted) return
-        const fetched = results.flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : [])
-        setPageWorkflows(fetched)
-        if (fetched.length === missing.length) setSupportError("")
-        else setSupportError("Could not load workflow context for some wanted rows")
+        const wantedIDs = new Set(itemByID.keys())
+        for (const id of workflowCacheRef.current.keys()) if (!wantedIDs.has(id)) workflowCacheRef.current.delete(id)
+        setPageWorkflows(Array.from(workflowCacheRef.current.values()))
+        if (failed.length || missing.length > bounded.length) {
+          setPageContextError(`Workflow context is incomplete for ${failed.length + Math.max(0, missing.length - bounded.length)} wanted row${failed.length + Math.max(0, missing.length - bounded.length) === 1 ? "" : "s"}`)
+        } else {
+          setPageContextError("")
+        }
       })
-      .catch(() => { if (!controller.signal.aborted) setSupportError("Could not load wanted workflow context") })
     return () => controller.abort()
-  }, [items, workflows])
-  const error = page.error || supportError
+  }, [items, supportReady, workflows])
+  const error = page.error || supportError || pageContextError
   const refresh = page.refresh
   // Only use workflow context for rows in the current wanted page, and never
   // let an older workflow snapshot override a newer wanted row.
   const wantedByID = new Map(items.map((item) => [item.workflow_id, item]))
-  const relevantWorkflows = [...workflows, ...pageWorkflows].filter((workflow) => {
+  const newestByID = new Map<string, APIWorkflow>()
+  for (const workflow of [...workflows, ...pageWorkflows]) {
+    const current = newestByID.get(workflow.id)
+    if (!current || new Date(workflow.updated_at).getTime() >= new Date(current.updated_at).getTime()) newestByID.set(workflow.id, workflow)
+  }
+  const relevantWorkflows = Array.from(newestByID.values()).filter((workflow) => {
     const item = wantedByID.get(workflow.id)
     return item !== undefined && new Date(workflow.updated_at).getTime() >= new Date(item.updated_at).getTime()
   })
