@@ -42,7 +42,8 @@ frontend:
     - npm run typecheck
     - npm run docs:check
     - npm test
-    - npm audit --omit=dev
+    - npm audit --audit-level=high
+    - npm audit --omit=dev --audit-level=high
 
 browser:
   stage: verify

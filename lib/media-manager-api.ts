@@ -89,9 +89,11 @@ export type APIBackupRecord = { id: string; state: "queued" | "running" | "verif
 export type APIBackupOverview = { configured: boolean; format: string; restore_verification: string; automatic_deletion: boolean; production_restore: boolean; offsite: { configured: boolean; kind: string; prefix: string }; records: APIBackupRecord[] }
 export type APIProblem = { code: string; area: string; level: "error" | "warning"; title: string; detail?: string; count: number; oldest_at?: string; latest_at?: string; href?: string }
 export type APIProblemFeed = { problems: APIProblem[]; checked_at: string }
-type Envelope<T> = { data: T }
+type Envelope<T> = { data: T; meta?: { count?: number; limit?: number; offset?: number } }
 
-async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
+export type Page<T> = { items: T[]; limit: number; offset: number; hasMore: boolean }
+
+async function requestEnvelope<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
   const response = await fetch(path, {
     credentials: "same-origin",
     ...init,
@@ -105,26 +107,47 @@ async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
     } catch { /* Keep the bounded HTTP error. */ }
     throw new Error(message)
   }
-  if (response.status === 204) return undefined as T
-  const envelope = await response.json() as Envelope<T>
-  return envelope.data
+  if (response.status === 204) return { data: undefined as T }
+  return await response.json() as Envelope<T>
+}
+
+async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await requestEnvelope<T>(path, init)).data
+}
+
+async function requestPage<T>(path: string, limit: number, offset: number, signal?: AbortSignal): Promise<Page<T>> {
+  const envelope = await requestEnvelope<T[] | null>(path, { signal })
+  const items = envelope.data ?? []
+  return { items, limit, offset, hasMore: items.length >= limit }
 }
 
 const catalogPageSize = 200
 const catalogMaxPages = 50
 
-export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]> {
+async function loadCatalogMediaPage(signal?: AbortSignal): Promise<{ items: APIMedia[]; truncated: boolean }> {
   const catalog: APIMedia[] = []
   for (let page = 0; page < catalogMaxPages; page += 1) {
     const offset = page * catalogPageSize
     const batch = await requestJSON<APIMedia[] | null>(`/api/v1/media?limit=${catalogPageSize}&offset=${offset}`, { signal }) ?? []
     catalog.push(...batch)
-    if (batch.length < catalogPageSize) return catalog
+    if (batch.length < catalogPageSize) return { items: catalog, truncated: false }
   }
-  throw new Error(`Media catalog exceeded the safe ${catalogPageSize * catalogMaxPages}-record load limit`)
+  return { items: catalog, truncated: true }
+}
+
+export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]> {
+  const result = await loadCatalogMediaPage(signal)
+  if (result.truncated) throw new Error(`Media catalog exceeded the safe ${catalogPageSize * catalogMaxPages}-record load limit`)
+  return result.items
+}
+
+/** Bounded library variant: render the safe window and state that it is partial. */
+export async function loadCatalogMediaBounded(signal?: AbortSignal): Promise<{ items: APIMedia[]; truncated: boolean }> {
+  return loadCatalogMediaPage(signal)
 }
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []
+export const loadWorkflowsPage = async ({ active = true, attention = false, limit = 300, offset = 0, signal }: { active?: boolean; attention?: boolean; limit?: number; offset?: number; signal?: AbortSignal } = {}): Promise<Page<APIWorkflow>> => requestPage<APIWorkflow>(`/api/v1/workflows?limit=${limit}&offset=${offset}&active=${active}${attention ? "&attention=true" : ""}`, limit, offset, signal)
 
 /** All owner-decision workflows, independent of the active-list window. */
 export async function loadAttentionWorkflows(signal?: AbortSignal): Promise<APIWorkflow[]> {
@@ -139,6 +162,7 @@ export async function loadAttentionWorkflows(signal?: AbortSignal): Promise<APIW
   }
   throw new Error(`Owner attention exceeded the safe ${pageSize * maxPages}-workflow load limit`)
 }
+export const loadWorkflow = (id: string, signal?: AbortSignal) => requestJSON<APIWorkflow>(`/api/v1/workflows/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflowSearches = async (id: string, signal?: AbortSignal) => await requestJSON<APISearchRun[] | null>(`/api/v1/workflows/${encodeURIComponent(id)}/searches?limit=10`, { signal }) ?? []
 export const loadIntegrations = async (signal?: AbortSignal) => await requestJSON<APIIntegration[] | null>("/api/v1/settings/integrations", { signal }) ?? []
 export const loadLibraryRoots = async (signal?: AbortSignal) => await requestJSON<APILibraryRoot[] | null>("/api/v1/settings/library-roots", { signal }) ?? []
@@ -148,13 +172,16 @@ export const loadRecycle = async (signal?: AbortSignal) => await requestJSON<API
 export const loadDashboard = (signal?: AbortSignal) => requestJSON<APIDashboard>("/api/v1/dashboard", { signal })
 export const loadActivity = async (signal?: AbortSignal) => await requestJSON<APIActivity[] | null>("/api/v1/activity?limit=300", { signal }) ?? []
 export const loadManagedFiles = async (signal?: AbortSignal) => await requestJSON<APIManagedFile[] | null>("/api/v1/files?limit=300", { signal }) ?? []
+export const loadManagedFilesPage = async ({ limit = 300, offset = 0, signal }: { limit?: number; offset?: number; signal?: AbortSignal } = {}): Promise<Page<APIManagedFile>> => requestPage<APIManagedFile>(`/api/v1/files?limit=${limit}&offset=${offset}`, limit, offset, signal)
 export const loadManagedFile = (id: string, signal?: AbortSignal) => requestJSON<APIManagedFile>(`/api/v1/files/${encodeURIComponent(id)}`, { signal })
 export const loadReleaseCandidates = async (signal?: AbortSignal) => await requestJSON<APIReleaseCandidate[] | null>("/api/v1/intelligence/releases?limit=300", { signal }) ?? []
 export const loadSources = async (signal?: AbortSignal) => await requestJSON<APISourceStatus[] | null>("/api/v1/sources", { signal }) ?? []
 export const loadSystemHealth = (signal?: AbortSignal) => requestJSON<APISystemHealth>("/api/v1/system/health", { signal })
 export const loadMediaDetail = (id: string, signal?: AbortSignal) => requestJSON<APIMediaDetail>(`/api/v1/media/${encodeURIComponent(id)}/detail`, { signal })
 export const loadWanted = async (signal?: AbortSignal) => await requestJSON<APIWantedItem[] | null>("/api/v1/wanted?limit=300", { signal }) ?? []
+export const loadWantedPage = async ({ limit = 300, offset = 0, signal }: { limit?: number; offset?: number; signal?: AbortSignal } = {}): Promise<Page<APIWantedItem>> => requestPage<APIWantedItem>(`/api/v1/wanted?limit=${limit}&offset=${offset}`, limit, offset, signal)
 export const loadRequests = async (signal?: AbortSignal) => await requestJSON<APIRequest[] | null>("/api/v1/requests?limit=300", { signal }) ?? []
+export const loadRequestsPage = async ({ limit = 300, offset = 0, signal }: { limit?: number; offset?: number; signal?: AbortSignal } = {}): Promise<Page<APIRequest>> => requestPage<APIRequest>(`/api/v1/requests?limit=${limit}&offset=${offset}`, limit, offset, signal)
 export const loadRequest = (id: string, signal?: AbortSignal) => requestJSON<APIRequestDetail>(`/api/v1/requests/${encodeURIComponent(id)}`, { signal })
 export const loadTasks = (signal?: AbortSignal) => requestJSON<APITasks>("/api/v1/system/tasks", { signal })
 export const loadSystemInfo = (signal?: AbortSignal) => requestJSON<APISystemInfo>("/api/v1/system/info", { signal })

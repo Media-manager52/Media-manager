@@ -238,30 +238,33 @@
       },
       "volumes": [
         {
+          "type": "bind",
           "source": "{Context.altmountParentPath}",
           "target": "/mnt",
+          "readOnly": true,
+          "bindOptions": {
+            "propagation": "rslave"
+          }
+        },
+        {
           "type": "bind",
-          "readOnly": true
-        },
-        {
           "source": "{Context.moviesPath}",
-          "target": "/libraries/movies",
-          "type": "bind"
+          "target": "/libraries/movies"
         },
         {
+          "type": "bind",
           "source": "{Context.tvPath}",
-          "target": "/libraries/tv",
-          "type": "bind"
+          "target": "/libraries/tv"
         },
         {
+          "type": "bind",
           "source": "{Context.mediaLibraryPath}",
-          "target": "/srv/media",
-          "type": "bind"
+          "target": "/srv/media"
         },
         {
+          "type": "bind",
           "source": "{Context.backupPath}",
-          "target": "/var/lib/media-manager/backups",
-          "type": "bind"
+          "target": "/var/lib/media-manager/backups"
         }
       ],
       "networks": {

@@ -167,6 +167,34 @@ was revoked after the run.
 Raw host logs for the run are in `/var/lib/cosmos/cosmos.log` and
 `journalctl -u CosmosCloud` around 2026-10-26 20:18–20:20 UTC.
 
+## 2026-10-30 template correction
+
+The canonical market template keeps the Cosmos-wizard-compatible lowercase
+Compose keys (`type`, `source`, `target`, `readOnly`) and adds
+`bindOptions.propagation: rslave` plus `readOnly: true` for the AltMount parent.
+The uppercase Docker API spelling crashes the supported Cosmos market wizard,
+which calls `volume.source.startsWith(...)`; Docker's API decoder accepts the
+lowercase keys case-insensitively. The template therefore fixes wizard
+compatibility without dropping propagation.
+
+This static review did **not** install the changed template against a live
+Cosmos instance. The previous verification submitted a rendered payload directly
+to the service API, which bypasses the wizard. Before claiming a safe market
+install, perform a disposable wizard install and verify:
+
+1. AltMount is configured with `fuse.read_only: true` and its host parent is a
+   shared mount; the API's `/mnt` bind is read-only with `rslave`.
+2. `findmnt` shows the FUSE mount read-only, and a write from the API container
+   fails before and after replacing the FUSE child mount without recreating the
+   API container.
+3. `/api` and `/health` route to the API, the UI route does not capture `/api`,
+   and the injected bearer token works without exposing it in the browser.
+4. The PostgreSQL data volume survives API/UI container recreation, and a fresh
+   install reaches healthy only after migrations complete.
+
+Until that disposable run is recorded, the FUSE-remount and wizard assumptions
+remain untested.
+
 ## Current state
 
 - Market source is live and configured in Cosmos.
