@@ -68,6 +68,9 @@ func run() error {
 		}
 		return nil
 	}
+	if command == "backup-decrypt" {
+		return decryptBackup(os.Args[2:])
+	}
 	if command == "mcp" {
 		// Model Context Protocol over stdio for AI clients. It is an HTTP
 		// client of the local API, so every server-side guard still applies.
@@ -352,6 +355,42 @@ func requiredSecret(name string) (string, error) {
 		return "", fmt.Errorf("%s is required", name)
 	}
 	return strings.TrimSpace(value), nil
+}
+
+func decryptBackup(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: media-manager backup-decrypt <encrypted.mmbak> <output.dump>")
+	}
+	keyText := optionalSecret(backups.KeyReference)
+	if keyText == "" {
+		return errors.New("BACKUP_ENCRYPTION_KEY is required")
+	}
+	key, err := backups.ParseKey(keyText)
+	if err != nil {
+		return err
+	}
+	source, err := os.Open(args[0])
+	if err != nil {
+		return fmt.Errorf("open encrypted backup: %w", err)
+	}
+	defer source.Close()
+	destination, err := os.OpenFile(args[1], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("create decrypted dump: %w", err)
+	}
+	decryptErr := backups.Decrypt(destination, source, key)
+	syncErr := destination.Sync()
+	closeErr := destination.Close()
+	if decryptErr != nil {
+		return fmt.Errorf("decrypt backup: %w", decryptErr)
+	}
+	if syncErr != nil {
+		return fmt.Errorf("sync decrypted dump: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close decrypted dump: %w", closeErr)
+	}
+	return nil
 }
 
 func optionalSecret(name string) string {

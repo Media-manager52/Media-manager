@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	metadataproviders "github.com/media-manager/media-manager/internal/adapters/metadataproviders"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
+	"github.com/media-manager/media-manager/internal/backups"
 	"github.com/media-manager/media-manager/internal/catalog"
 )
 
@@ -34,5 +39,32 @@ func TestNewMetadataServiceKeepsConfiguredProviders(t *testing.T) {
 	service := newMetadataService(tmdb, nil, nil)
 	if service.TMDB == nil || service.TVDB != nil || service.Simkl != nil {
 		t.Fatalf("only the configured provider should be wired: %#v", service)
+	}
+}
+
+func TestDecryptBackupWritesAuthenticatedDump(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("BACKUP_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(key))
+	encryptedPath := filepath.Join(t.TempDir(), "input.mmbak")
+	outputPath := filepath.Join(t.TempDir(), "output.dump")
+	encrypted, err := os.Create(encryptedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backups.Encrypt(encrypted, strings.NewReader("postgres custom dump"), key); err != nil {
+		t.Fatal(err)
+	}
+	if err := encrypted.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := decryptBackup([]string{encryptedPath, outputPath}); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "postgres custom dump" {
+		t.Fatalf("decrypted content=%q", content)
 	}
 }

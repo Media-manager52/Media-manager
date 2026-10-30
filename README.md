@@ -47,6 +47,9 @@ Start with:
 - [`docs/status/implementation.md`](docs/status/implementation.md) — dated
   feature-by-feature audit (may lag `main`).
 - [`docs/status/release.md`](docs/status/release.md) — dated release evidence.
+- [`docs/status/release-v0.1.0-beta.md`](docs/status/release-v0.1.0-beta.md) — v0.1.0 Beta readiness checklist and remaining gates.
+- [`docs/operations/install-release.md`](docs/operations/install-release.md) — immutable-image installation, first-run checklist, update and restore.
+- [`docs/status/license-decision.md`](docs/status/license-decision.md) — owner license decision; no license is selected here.
 - [`docs/status/indexer-conformance.md`](docs/status/indexer-conformance.md) —
   developer-only Newznab provider conformance evidence; not a runtime
   dependency.

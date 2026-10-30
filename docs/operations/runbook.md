@@ -214,10 +214,18 @@ Two independent backup mechanisms:
 Restore procedure (manual):
 
 1. Stop the API/UI (`docker compose stop api ui`).
-2. Restore the dump into a fresh database.
-3. Run `docker compose run --rm api migrate`.
-4. Verify `/health/ready` schema version.
-5. Complete two live workflow checks before serving traffic.
+2. For an encrypted `.mmbak`, copy it into the API container and decrypt it:
+   ```sh
+   docker compose cp media-manager.mmbak api:/tmp/media-manager.mmbak
+   docker compose exec -T api media-manager backup-decrypt      /tmp/media-manager.mmbak /tmp/media-manager.dump
+   docker compose cp api:/tmp/media-manager.dump ./media-manager.dump
+   ```
+   `BACKUP_ENCRYPTION_KEY` must be present in the API environment. The command
+   validates the format and AES-GCM authentication before writing the dump.
+3. Restore the dump into a fresh database.
+4. Run `docker compose run --rm api migrate`.
+5. Verify `/health/ready` schema version.
+6. Complete two live workflow checks before serving traffic.
 
 **Always back up `.env` and `.env.integrations` together with the database**;
 without them the DB cannot reach integrations. Protect all three as secrets.
