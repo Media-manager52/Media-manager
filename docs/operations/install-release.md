@@ -36,9 +36,11 @@ available.
 
    Do not use `:main` or `:latest` for a release installation.
 
-3. Pull and start without a local build:
+3. Reject mutable tags and pull/start without a local build:
 
    ```sh
+   set -a; . ./.env; set +a
+   ./scripts/validate-release-images.sh
    docker compose -f compose.release.yaml --env-file .env pull
    docker compose -f compose.release.yaml --env-file .env up -d --wait
    ```

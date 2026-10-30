@@ -41,15 +41,20 @@ Do not merge these from this work. They require the grouped owner approval below
 
 ## Installation and onboarding
 
-- **PASS (disposable):** `compose.release.yaml` with the published
-  `sha-c82d44a...` API/UI images started against a fresh PostgreSQL, rejected an
-  API call without the owner token, accepted it with the token, served the UI,
-  showed AltMount's parent mount read-only, allowed writes to Movies/TV, and
-  preserved a database marker after a PostgreSQL/API/UI restart.
-- **PASS (disposable):** an encrypted backup was created through the API,
-  verified in an isolated database, downloaded with an authenticated request,
-  and the new `media-manager backup-decrypt` command produced a valid custom
-  dump. The backup artifacts and test stack were removed.
+- **PASS (published images):** the published `sha-c82d44a...` API/UI pair was
+  previously exercised in a clean disposable stack: API/UI start, owner-token
+  rejection/acceptance, the UI, the read-only AltMount parent, and Movies/TV
+  writes. That pair predates the release Compose file and the backup decrypt
+  command.
+- **PASS (candidate image, not published):** a locally built candidate API/UI
+  from the release branch started through `compose.release.yaml`, created and
+  verified an encrypted backup, downloaded and atomically decrypted it, and
+  preserved a database marker across a PostgreSQL/API/UI restart.
+- **PASS (candidate image, not published):** an encrypted backup was created
+  through the API, verified in an isolated database, downloaded with an
+  authenticated request, and `media-manager backup-decrypt` produced a valid
+  custom dump. A truncated artifact was rejected without a plaintext output.
+  The backup artifacts and test stacks were removed.
 - **NOT VERIFIED:** installing on a genuinely clean public host with real
   external services; the disposable Compose test is clean but runs on this host.
 - **NOT VERIFIED:** actual Cosmos 0.23.4 wizard installation and a real AltMount

@@ -27,6 +27,12 @@ This record is not legal advice.
   CC-BY-4.0, Python-2.0, BlueOak-1.0.0 or 0BSD. sharp/libvips remains
   LGPL-3.0-or-later with its own notices; AGPL-3.0-only does not replace it.
 - The Go module graph uses permissive MIT/BSD/Apache-style modules.
+- The API image aggregates Alpine's `ffmpeg` 8.0.1
+  (`GPL-2.0-or-later AND LGPL-2.1-or-later`), `postgresql18-client`
+  (`PostgreSQL`) and `ca-certificates` (`MPL-2.0 AND MIT`). Their texts and
+  exact source links are recorded in [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md);
+  they are separate programs, not relicensed project code. This aggregation
+  should be included in the owner/legal review.
 - The repository history identifies the owner account `Media-manager52` and
   automation identities. No CLA, copyright-assignment file, or separate
   contributor agreement is present in the repository. The owner authorized this

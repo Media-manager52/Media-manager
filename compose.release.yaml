@@ -5,8 +5,9 @@
 #   MEDIA_MANAGER_UI_IMAGE=ghcr.io/media-manager52/media-manager-ui@sha256:... \
 #   docker compose -f compose.release.yaml --env-file .env up -d
 #
-# Do not use a mutable :main/:latest tag for a release deployment. The image
-# variables are required so a missing or accidental floating tag fails closed.
+# Do not use a mutable :main/:latest tag for a release deployment. Missing or
+# empty image variables fail closed here; run scripts/validate-release-images.sh
+# after loading .env to reject mutable tags before starting.
 name: media-manager
 include:
   - path: compose.yaml

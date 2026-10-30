@@ -23,6 +23,7 @@ LABEL org.opencontainers.image.title="Media Manager API" \
 RUN apk add --no-cache ca-certificates ffmpeg postgresql18-client tzdata
 COPY --from=api-build /out/media-manager /usr/local/bin/media-manager
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/media-manager/
+COPY third_party /usr/share/doc/media-manager/third_party
 USER 65532:65532
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=4s --start-period=15s --retries=4 CMD ["/usr/local/bin/media-manager", "healthcheck"]
@@ -79,6 +80,7 @@ COPY --from=ui-build /app/.openai ./.openai
 COPY --from=ui-build /app/build ./build
 COPY --from=ui-build /app/vite.config.ts /app/next.config.ts /app/tsconfig.json ./
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/media-manager/
+COPY third_party /usr/share/doc/media-manager/third_party
 RUN mkdir -p /app/.wrangler && chown node:node /app/.wrangler
 USER node
 EXPOSE 3000
