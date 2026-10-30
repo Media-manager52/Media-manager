@@ -19,8 +19,11 @@ not part of the release work.
 | Cosmos route host/owner authorization (PR #90) | `300c76c74f869bac6a1adb6bc4c6205cc067f174` |
 | CI parallelization/non-blocking policy (PR #91) | `fd53eb62dcd5abdc3140beafbf463e2842678510` |
 
-Main CI for each merge passed, including image publication. The immutable image
-digests are recorded in [versioning](../releases/versioning.md).
+The PR checks for these merges passed. Main Verify and image publication for
+PR #91 were still pending when this ledger was last edited; its main run must be
+green before the merge is treated as fully evidenced. The baseline `c82d44a`
+image digests are recorded in [versioning](../releases/versioning.md); the final
+candidate digests are added only after publication.
 
 ## Open release-relevant PRs
 
