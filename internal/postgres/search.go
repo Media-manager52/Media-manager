@@ -67,9 +67,9 @@ type SearchPersistenceOptions struct {
 	// ReusedIndexerIDs marks completed providers whose evidence was loaded
 	// instead of queried during this attempt.
 	ReusedIndexerIDs map[uuid.UUID]bool
-	// Continuation is true only for the automatic incomplete-run event. It
-	// lets persistence reject a continuation that raced past an explicit owner
-	// search request.
+	// Continuation is true only for a targeted automatic incomplete-run event.
+	// Recovery discovery uses RescanGeneration instead; it must not treat a
+	// waiting workflow's paced search event as an owner supersede.
 	Continuation bool
 }
 

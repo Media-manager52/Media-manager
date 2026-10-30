@@ -380,7 +380,10 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		IndexerOutcomes:  outcomes,
 		PartialRetry:     state,
 		ReusedIndexerIDs: reusedIndexers,
-		Continuation:     partialRetryEvent(event),
+		// Recovery discovery has its own generation guard and does not advance
+		// the workflow revision. A pending paced search event at the waiting
+		// revision must not be mistaken for an owner supersede.
+		Continuation: !recovery && partialRetryEvent(event),
 	}, time.Now().UTC())
 	err = persistErr
 	if recovery && errors.Is(err, postgres.ErrConcurrentModification) {

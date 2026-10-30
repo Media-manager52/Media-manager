@@ -742,3 +742,72 @@ func TestPartialSearchRetryCarriedHeldEvidenceIsReevaluated(t *testing.T) {
 		t.Fatalf("final states=%d, want 0", got)
 	}
 }
+
+func TestRecoveryContinuationSurvivesPendingPacedSearchAndRejectsStaleGeneration(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	aServer, aCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.720p.WEB-DL", "1280x720")
+	})
+	defer aServer.Close()
+	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
+	})
+	defer bServer.Close()
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Recovery Paced A", true)
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Recovery Paced B", true)
+	workflow := createMovieSearchWorkflow(t, store)
+	current, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != workflows.StateWaiting {
+		current, err = store.TransitionWorkflow(ctx, current.ID, current.Revision, workflows.StateWaiting, "test recovery", "test", time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var roundID string
+	if err := store.Pool.QueryRow(ctx, `UPDATE acquisition_rounds SET state='exhausted',exhausted_at=now(),closed_at=now(),close_reason='test recovery' WHERE workflow_id=$1 AND state='open' RETURNING id::text`, workflow.ID.String()).Scan(&roundID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO workflow_retry_discovery(workflow_id,exhausted_round_id,state,rescan_generation,next_rescan_at,complete_no_new_scans,pending_indexer_ids,created_at,updated_at)
+		VALUES($1,$2,'waiting',4,now(),0,NULL,now(),now())`, workflow.ID.String(), roundID); err != nil {
+		t.Fatal(err)
+	}
+	// A waiting workflow can retain its own unmarked paced search event at the
+	// same workflow revision. Recovery must not treat that as an owner supersede.
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'workflow.search_requested','{"workflow_id":"paced"}',now(),now())`, uuid.NewV7().String(), workflow.ID.String(), int64(current.Revision)); err != nil {
+		t.Fatal(err)
+	}
+	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
+	service := newTwoProviderSearchService(store)
+	event := postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: 4, Payload: []byte(`{"partial_retry":true}`), Type: "workflow.discovery_rescan_requested"}
+	if err := service.HandleDiscovery(ctx, event); err != nil {
+		t.Fatalf("recovery continuation: %v", err)
+	}
+	if got := len(aCaptured()); got != 1 {
+		t.Fatalf("recovery A calls=%d, want 1", got)
+	}
+	if got := len(bCaptured()); got != 0 {
+		t.Fatalf("recovery B calls=%d, want 0", got)
+	}
+	var generation int64
+	if err := store.Pool.QueryRow(ctx, `SELECT rescan_generation FROM workflow_retry_discovery WHERE workflow_id=$1`, workflow.ID.String()).Scan(&generation); err != nil {
+		t.Fatal(err)
+	}
+	if generation != 5 {
+		t.Fatalf("recovery generation=%d, want 5 after continuation", generation)
+	}
+	// A stale recovery event for the old generation remains a no-op.
+	if err := service.HandleDiscovery(ctx, event); err != nil {
+		t.Fatalf("stale recovery event: %v", err)
+	}
+	var after int64
+	if err := store.Pool.QueryRow(ctx, `SELECT rescan_generation FROM workflow_retry_discovery WHERE workflow_id=$1`, workflow.ID.String()).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != generation || len(aCaptured()) != 1 || len(bCaptured()) != 0 {
+		t.Fatalf("stale recovery advanced generation=%d calls A=%d B=%d", after, len(aCaptured()), len(bCaptured()))
+	}
+}
