@@ -70,11 +70,11 @@ func TestPartialRetryProductionOutboxCrashAndContinuation(t *testing.T) {
 	store := openMovieSearchTestStore(t)
 	ctx := context.Background()
 	aServer, aCaptured := newMovieSearchServer(t, func(url.Values) string {
-		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
+		return movieSearchXMLWithResolution("Klaus.2019.720p.WEB-DL", "1280x720")
 	})
 	defer aServer.Close()
 	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string {
-		return movieSearchXMLWithResolution("Klaus.2019.720p.WEB-DL", "1280x720")
+		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
 	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
