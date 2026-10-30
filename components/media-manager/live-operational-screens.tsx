@@ -715,28 +715,44 @@ export function LiveRequestsScreen() {
  * is already moving. Waiting is never styled as failure.
  */
 export function LiveWantedScreen() {
-  const page = usePagedList(wantedPageLoader, 100, { autoRefresh: true, keyOf: (item) => item.workflow_id })
-  const [support, setSupport] = React.useState<{ workflows: APIWorkflow[]; posters: Map<string, string | undefined> }>({ workflows: [], posters: new Map() })
+  const [supportRevision, setSupportRevision] = React.useState(0)
+  const refreshSupport = React.useCallback(() => setSupportRevision((current) => current + 1), [])
+  const page = usePagedList(wantedPageLoader, 100, { autoRefresh: true, keyOf: (item) => item.workflow_id, onRefresh: refreshSupport })
+  const [workflows, setWorkflows] = React.useState<APIWorkflow[]>([])
   const [supportError, setSupportError] = React.useState("")
+  const [posters, setPosters] = React.useState<Map<string, string | undefined>>(() => new Map())
   React.useEffect(() => {
     const controller = new AbortController()
-    Promise.all([loadWorkflows(false, controller.signal), loadCatalogMedia(controller.signal)])
-      .then(([workflows, media]) => { setSupport({ workflows, posters: new Map(media.map((item) => [item.id, item.metadata?.poster_url])) }); setSupportError("") })
-      .catch((reason: unknown) => { if (!controller.signal.aborted) setSupportError(reason instanceof Error ? reason.message : "Could not load wanted context") })
+    loadCatalogMedia(controller.signal)
+      .then((media) => setPosters(new Map(media.map((item) => [item.id, item.metadata?.poster_url]))))
+      .catch(() => undefined)
     return () => controller.abort()
   }, [])
+  React.useEffect(() => {
+    const controller = new AbortController()
+    loadWorkflows(false, controller.signal)
+      .then((next) => { setWorkflows(next); setSupportError("") })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setSupportError(reason instanceof Error ? reason.message : "Could not load wanted workflow context") })
+    return () => controller.abort()
+  }, [supportRevision])
   const items = page.items
-  const workflows = support.workflows
   const error = page.error || supportError
   const refresh = page.refresh
-  const byID = new Map(workflows.map((workflow) => [workflow.id, workflow]))
-  const attention = attentionEntries(items, workflows)
+  // Only use workflow context for rows in the current wanted page, and never
+  // let an older workflow snapshot override a newer wanted row.
+  const wantedByID = new Map(items.map((item) => [item.workflow_id, item]))
+  const relevantWorkflows = workflows.filter((workflow) => {
+    const item = wantedByID.get(workflow.id)
+    return item !== undefined && new Date(workflow.updated_at).getTime() >= new Date(item.updated_at).getTime()
+  })
+  const byID = new Map(relevantWorkflows.map((workflow) => [workflow.id, workflow]))
+  const attention = attentionEntries(items, relevantWorkflows)
   const attentionIDs = new Set(attention.map((entry) => entry.key))
   const inProgress = items.filter((item) => !attentionIDs.has(item.workflow_id) && isActivelyAcquiring(byID.get(item.workflow_id)?.state ?? item.current_state))
   const progressIDs = new Set(inProgress.map((item) => item.workflow_id))
   const missing = items.filter((item) => item.gap === "missing" && !attentionIDs.has(item.workflow_id) && !progressIDs.has(item.workflow_id))
   const upgrades = items.filter((item) => item.gap === "upgrade" && !attentionIDs.has(item.workflow_id) && !progressIDs.has(item.workflow_id))
-  const posterFor = (id: string) => support.posters.get(id)
+  const posterFor = (id: string) => posters.get(id)
   const itemCell = (item: APIWantedItem) => <div className="flex min-w-[220px] items-center gap-2.5"><MiniPoster src={posterFor(item.media_id)} title={item.title} /><div className="min-w-0"><Link className="block truncate text-[12.5px] font-semibold text-fg hover:underline" href={mediaHref(item.media_kind, item.media_id)}>{item.title}{item.year ? ` (${item.year})` : ""}</Link><small className="text-[10.5px] text-fg-subtle">{item.media_kind === "series" ? "TV" : "Movie"} · {item.variant}</small></div></div>
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
@@ -750,29 +766,29 @@ export function LiveWantedScreen() {
         </TabsList>
         <RefreshButton onClick={refresh} />
       </div>
-      <p className="text-[12px] leading-5 text-fg-subtle"><strong className="text-fg-secondary">Needs attention</strong> requires an owner decision; <strong className="text-fg-secondary">Missing</strong> and <strong className="text-fg-secondary">Upgrades</strong> include normal waiting and paced discovery; <strong className="text-fg-secondary">In progress</strong> is automatic work. Only the first group is an urgent owner action.</p>
+      <p className="text-[12px] leading-5 text-fg-subtle"><strong className="text-fg-secondary">Needs attention</strong> requires an owner decision; <strong className="text-fg-secondary">Missing</strong> and <strong className="text-fg-secondary">Upgrades</strong> include normal waiting and paced discovery; <strong className="text-fg-secondary">In progress</strong> is automatic work. Counts and filters cover loaded rows; use <strong className="text-fg-secondary">Load more</strong> before treating an empty group as global.</p>
       <TabsContent value="attention">
         <Panel flush title="Needs attention" subtitle="What happened, what Media Manager will do next, and what you can do." className={cn(attention.length && "border-warn-line")}>
-          {attention.length === 0 ? <div className="flex items-center gap-2.5 px-4 py-4 text-[12.5px] text-good"><CheckCircle2 className="size-4" aria-hidden />Nothing needs your attention. Waiting and searching continue automatically.</div>
+          {attention.length === 0 ? <div className={cn("flex items-center gap-2.5 px-4 py-4 text-[12.5px]", page.hasMore ? "text-fg-subtle" : "text-good")}><CheckCircle2 className="size-4" aria-hidden />{page.hasMore ? "No loaded row needs attention; load more to check the remaining rows." : "Nothing needs your attention. Waiting and searching continue automatically."}</div>
             : attention.map((entry) => <AttentionCard key={entry.key} item={entry.item} workflow={entry.workflow} poster={posterFor(entry.item.mediaId)} />)}
         </Panel>
       </TabsContent>
       <TabsContent value="missing">
         <Panel flush title="Missing" subtitle="Monitored items without a current publication, and when Media Manager looks again.">
           <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Why missing</TableHead><TableHead>Next attempt</TableHead><TableHead>Profile</TableHead><TableHead /></TableRow></TableHeader><TableBody>{missing.map((item) => { const workflow = byID.get(item.workflow_id); return <TableRow key={item.workflow_id}><TableCell>{itemCell(item)}</TableCell><TableCell><StateBadge state={item.current_state || "waiting"} />{workflow?.search_blocked_reason ? <div className="mt-1 max-w-xs text-[11.5px] leading-4 text-fg-subtle">{workflow.search_blocked_reason}</div> : null}</TableCell><TableCell className="whitespace-nowrap text-[12px]">{retryPlan(workflow)}</TableCell><TableCell className="text-[12px]">{item.target_profile}</TableCell><TableCell className="text-right"><Button asChild size="sm" variant="outline"><Link href={mediaHref(item.media_kind, item.media_id)}>Open</Link></Button></TableCell></TableRow> })}</TableBody></Table></div>
-          {missing.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">Nothing is missing outside attention and active work.</div> : null}
+          {missing.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">{page.hasMore ? "No missing items in the loaded rows; load more to check the remaining rows." : "Nothing is missing outside attention and active work."}</div> : null}
         </Panel>
       </TabsContent>
       <TabsContent value="upgrades">
         <Panel flush title="Upgrades" subtitle="Current copies stay until the replacement passes verification and Plex confirms it.">
           <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead><TableHead /></TableRow></TableHeader><TableBody>{upgrades.map((item) => <TableRow key={item.workflow_id}><TableCell>{itemCell(item)}</TableCell><TableCell><StateBadge state={item.current_state || "waiting"} /></TableCell><TableCell className="text-[12px]">{item.target_profile}<div className="text-[11px] text-fg-subtle">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell className="text-[12px]">{timeAgo(item.updated_at)}</TableCell><TableCell className="text-right"><Button asChild size="sm" variant="outline"><Link href={mediaHref(item.media_kind, item.media_id)}>Open</Link></Button></TableCell></TableRow>)}</TableBody></Table></div>
-          {upgrades.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">No upgrades are wanted right now.</div> : null}
+          {upgrades.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">{page.hasMore ? "No upgrades in the loaded rows; load more to check the remaining rows." : "No upgrades are wanted right now."}</div> : null}
           <div className="border-t border-line px-4 py-2.5 text-[11.5px] text-fg-subtle">A failed verification leaves your current file untouched.</div>
         </Panel>
       </TabsContent>
       <TabsContent value="progress">
         <Panel flush title="In progress" subtitle="Searching, downloading, verifying, or publishing right now.">
-          {inProgress.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">Nothing is actively acquiring right now.</div>
+          {inProgress.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">{page.hasMore ? "Nothing in the loaded rows is actively acquiring; load more to check the remaining rows." : "Nothing is actively acquiring right now."}</div>
             : inProgress.map((item) => { const state = byID.get(item.workflow_id)?.state ?? item.current_state; return <ConsoleRow key={item.workflow_id} href={mediaHref(item.media_kind, item.media_id)} leading={<MiniPoster src={posterFor(item.media_id)} title={item.title} />} title={`${item.title}${item.year ? ` (${item.year})` : ""}`} caption={`${item.gap === "upgrade" ? "Upgrade" : "Acquisition"} · ${item.variant}`}>{byID.get(item.workflow_id)?.download_percent !== undefined ? <DownloadProgress workflow={byID.get(item.workflow_id)!} className="hidden w-[150px] sm:inline-flex" /> : <StageStepper state={state} className="hidden w-[150px] sm:flex" />}<StateBadge state={state} /><span className="w-12 shrink-0 text-right text-[11px] text-fg-subtle">{timeAgo(item.updated_at)}</span></ConsoleRow> })}
         </Panel>
       </TabsContent>

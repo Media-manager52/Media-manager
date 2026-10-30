@@ -535,7 +535,7 @@ func (store *Store) ListWantedPage(ctx context.Context, limit, offset int) ([]Wa
 			LIMIT 1
 		) current_link ON true
 		WHERE workflow.terminal_at IS NULL AND media.deleted_at IS NULL
-		ORDER BY CASE workflow.state WHEN 'needs_attention' THEN 0 WHEN 'held' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END,workflow.updated_at DESC
+		ORDER BY CASE workflow.state WHEN 'needs_attention' THEN 0 WHEN 'held' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END,workflow.updated_at DESC,workflow.id
 		LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, err

@@ -61,8 +61,10 @@ All data comes from the Go API through `lib/media-manager-api.ts`:
   bounded error beyond that.
 - The Workflows, Wanted, managed-files and Requests screens use
   `usePagedList`: a bounded first page plus explicit server-offset **Load more**
-  pages, deduplicated by stable identity. Auto-refresh only reloads the
-  single-page state; once the owner has loaded more pages, a background tick is
+  pages, deduplicated by stable identity. A refresh aborts an in-flight append
+  and ignores its stale response, and the loader tracks the consumed server
+  offset separately from the deduplicated row count. Auto-refresh only reloads
+  the single-page state; once the owner has loaded more pages, a background tick is
   paused rather than silently replacing the loaded range. Filters and sorting
   operate on the records currently loaded and the footer states what is loaded.
 - The Library join needs every related record to decide per-title availability,
