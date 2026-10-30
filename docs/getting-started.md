@@ -117,8 +117,10 @@ docker compose logs -f --tail=200
 ## 3. Add the Cosmos routes
 
 In Cosmos Cloud, open **Proxy → Routes** and create three routes on the same
-host. Use the host Cosmos assigned to the UI route, or a custom hostname you
-pointed at Cosmos.
+host. Cosmos 0.23.4 shows a separate hostname field for each route that has
+`UseHost=true`; set the API, health and UI fields to exactly the same hostname.
+Use the host Cosmos assigned to the UI route, or a custom hostname you pointed
+at Cosmos.
 
 | Path prefix | Target | Cosmos auth | Extra header |
 | --- | --- | --- | --- |
@@ -145,6 +147,11 @@ Important details:
   not receive the Media Manager owner token. The API and health routes must also
   use `UseHost=true` with the same host as the UI, otherwise `/api` can match on
   another Cosmos app's hostname.
+- After saving, confirm all three stored routes show the same `host`. The
+  wizard overwrites each template route's host from its own hostname field, so
+  changing only the UI field can leave `/api` and `/health` on a different
+  host; `/api` would then fall through to the UI catch-all and fail closed
+  without bearer injection.
 - The `/api` route's `ExtraHeaders` entry is what authenticates the browser to
   the API. Get the token value from `.env` on the server:
 

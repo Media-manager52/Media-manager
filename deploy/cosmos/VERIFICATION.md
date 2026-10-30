@@ -229,7 +229,12 @@ Manual disposable validation still required:
 
 These checks have **not** been run against the live Cosmos instance. This PR
 changes only the install template; existing Cosmos installs need their three
-routes corrected manually and rechecked. Cosmos may show separate hostname
-fields for the API and health routes, but because all three routes use the same
-`{Hostnames...}` placeholder, the intended value is the Media Manager host
-shown for the UI route; verify the stored routes after installation.
+routes corrected manually and rechecked.
+
+Cosmos 0.23.4 creates a separate editable hostname field for every route with
+`useHost: true` (API, health and UI), and applies those fields after rendering
+the template. Set **all three** hostname fields to exactly the same Media
+Manager host; the template placeholder alone does not protect against a
+per-field mismatch. After installation, inspect the three stored routes and
+confirm they have the same `host`. A mismatch fails closed but sends `/api` to
+the UI catch-all without the owner bearer injection.
