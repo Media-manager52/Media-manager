@@ -15,7 +15,8 @@ text shipped with each dependency.
 - **sharp / libvips** — the `sharp` JavaScript package is Apache-2.0; the
   platform `@img/sharp-libvips-*` binaries are LGPL-3.0-or-later. The prebuilt
   npm packages do not ship a license file, so the LGPL-3.0 text is preserved in
-  [`third_party/LGPL-3.0.txt`](third_party/LGPL-3.0.txt); libvips source is at
+  [`third_party/LGPL-3.0.txt`](third_party/LGPL-3.0.txt) (with
+  [`GPL-3.0.txt`](third_party/GPL-3.0.txt) by reference); libvips source is at
   <https://github.com/libvips/libvips> and the prebuilt source at
   <https://github.com/lovell/sharp-libvips>. Media Manager does not modify
   libvips; the library remains dynamically loaded.

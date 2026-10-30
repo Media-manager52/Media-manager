@@ -46,12 +46,15 @@ Do not merge these from this work. They require the grouped owner approval below
   rejection/acceptance, the UI, the read-only AltMount parent, and Movies/TV
   writes. That pair predates the release Compose file and the backup decrypt
   command.
-- **PASS (candidate image, not published):** a locally built candidate API/UI
-  from the release branch started through `compose.release.yaml`, created and
-  verified an encrypted backup, downloaded and atomically decrypted it, and
-  preserved a database marker across a PostgreSQL/API/UI restart.
-- **PASS (candidate image, not published):** an encrypted backup was created
-  through the API, verified in an isolated database, downloaded with an
+- **PASS (candidate image, not published):** local candidate images built from
+  commit `b6d68f1fee442b440e537bd0df34c2622abfda8c`
+  (`mm-release-api` ID `sha256:3c75550349fea98ab1f308ec81293d3eae28269a2471475c87d919fcbdc6a0ac`,
+  `mm-release-ui` ID `sha256:ea206cc0895869bd43b7a0860a5090b50e66fd2c09a906cb8392e2c9c14e2111`)
+  started through `compose.release.yaml` and completed the encrypted
+  backup/decrypt/fresh-stack restore test. The published `sha-c82d44a` pair
+  separately passed restart persistence.
+- **PASS (candidate image `b6d68f1`, not published):** an encrypted backup was
+  created through the API, verified in an isolated database, downloaded with an
   authenticated request, and `media-manager backup-decrypt` produced a valid
   custom dump. A truncated artifact was rejected without a plaintext output.
   The backup artifacts and test stacks were removed.
