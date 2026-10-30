@@ -717,15 +717,20 @@ export function LiveRequestsScreen() {
  */
 export function LiveWantedScreen() {
   const [supportRevision, setSupportRevision] = React.useState(0)
-  const refreshSupport = React.useCallback(() => setSupportRevision((current) => current + 1), [])
-  const page = usePagedList(wantedPageLoader, 100, { autoRefresh: true, keyOf: (item) => item.workflow_id, onRefresh: refreshSupport })
   const [workflows, setWorkflows] = React.useState<APIWorkflow[]>([])
   const [pageWorkflows, setPageWorkflows] = React.useState<APIWorkflow[]>([])
   const [supportReady, setSupportReady] = React.useState(false)
   const [supportError, setSupportError] = React.useState("")
   const [pageContextError, setPageContextError] = React.useState("")
   const workflowCacheRef = React.useRef<Map<string, APIWorkflow>>(new Map())
+  const failedContextRef = React.useRef<Set<string>>(new Set())
   const [posters, setPosters] = React.useState<Map<string, string | undefined>>(() => new Map())
+  const refreshSupport = React.useCallback(() => {
+    setSupportReady(false)
+    failedContextRef.current.clear()
+    setSupportRevision((current) => current + 1)
+  }, [])
+  const page = usePagedList(wantedPageLoader, 100, { autoRefresh: true, keyOf: (item) => item.workflow_id, onRefresh: refreshSupport })
   React.useEffect(() => {
     const controller = new AbortController()
     loadCatalogMedia(controller.signal)
@@ -736,9 +741,19 @@ export function LiveWantedScreen() {
   React.useEffect(() => {
     const controller = new AbortController()
     loadWorkflows(false, controller.signal)
-      .then((next) => { setWorkflows(next); setSupportError("") })
-      .catch((reason: unknown) => { if (!controller.signal.aborted) setSupportError(reason instanceof Error ? reason.message : "Could not load wanted workflow context") })
-      .finally(() => { if (!controller.signal.aborted) setSupportReady(true) })
+      .then((next) => {
+        if (controller.signal.aborted) return
+        setWorkflows(next)
+        setSupportError("")
+        setSupportReady(true)
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return
+        setSupportError(reason instanceof Error ? reason.message : "Could not load wanted workflow context")
+        // A failed window is not a complete empty window: do not fan out one
+        // detail request per wanted row behind it.
+        setSupportReady(false)
+      })
     return () => controller.abort()
   }, [supportRevision])
   const items = page.items
@@ -753,17 +768,17 @@ export function LiveWantedScreen() {
     const wantedAt = (id: string) => new Date(itemByID.get(id)?.updated_at ?? 0).getTime()
     const known = new Set(workflows.map((workflow) => workflow.id))
     const missing = Array.from(itemByID.keys()).filter((id) => {
-      if (known.has(id)) return false
+      if (known.has(id) || failedContextRef.current.has(id)) return false
       const cached = workflowCacheRef.current.get(id)
       return cached === undefined || new Date(cached.updated_at).getTime() < wantedAt(id)
     })
     const bounded = missing.slice(0, 500)
     if (bounded.length === 0) {
-      setPageContextError("")
+      const skipped = failedContextRef.current.size
+      setPageContextError(skipped ? `Workflow context is incomplete for ${skipped} wanted row${skipped === 1 ? "" : "s"}; Refresh to retry` : "")
       return
     }
     const controller = new AbortController()
-    const failed: string[] = []
     let cursor = 0
     const worker = async () => {
       while (cursor < bounded.length && !controller.signal.aborted) {
@@ -773,7 +788,7 @@ export function LiveWantedScreen() {
           const workflow = await loadWorkflow(id, controller.signal)
           if (!controller.signal.aborted) workflowCacheRef.current.set(id, workflow)
         } catch {
-          if (!controller.signal.aborted) failed.push(id)
+          if (!controller.signal.aborted) failedContextRef.current.add(id)
         }
       }
     }
@@ -783,11 +798,8 @@ export function LiveWantedScreen() {
         const wantedIDs = new Set(itemByID.keys())
         for (const id of workflowCacheRef.current.keys()) if (!wantedIDs.has(id)) workflowCacheRef.current.delete(id)
         setPageWorkflows(Array.from(workflowCacheRef.current.values()))
-        if (failed.length || missing.length > bounded.length) {
-          setPageContextError(`Workflow context is incomplete for ${failed.length + Math.max(0, missing.length - bounded.length)} wanted row${failed.length + Math.max(0, missing.length - bounded.length) === 1 ? "" : "s"}`)
-        } else {
-          setPageContextError("")
-        }
+        const incomplete = failedContextRef.current.size + Math.max(0, missing.length - bounded.length)
+        setPageContextError(incomplete ? `Workflow context is incomplete for ${incomplete} wanted row${incomplete === 1 ? "" : "s"}; Refresh to retry` : "")
       })
     return () => controller.abort()
   }, [items, supportReady, workflows])

@@ -217,3 +217,50 @@ test("failed first-page refresh discards the old page and refuses load more", as
   await expect(page.getByText("Refresh Failure 001", { exact: true })).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Load more" })).toHaveCount(0)
 })
+
+test("Wanted does not fan out detail reads behind a failed workflow window", async ({ page }) => {
+  await installOwnerAPI(page, baseURL)
+  let supportFails = true
+  let detailReads = 0
+  const wanted = Array.from({ length: 5 }, (_, index) => ({
+    workflow_id: `95000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    media_id: `85000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    media_kind: "movie",
+    title: `Context Failure Movie ${index + 1}`,
+    year: 2024,
+    variant: "default",
+    gap: "missing",
+    current_state: "waiting",
+    target_profile: "1080p",
+    upgrades_enabled: true,
+    owner_action_required: false,
+    updated_at: "2026-09-01T00:00:00Z",
+  }))
+  await page.route("**/api/v1/wanted*", async (route) => {
+    const url = new URL(route.request().url())
+    const offset = Number(url.searchParams.get("offset") ?? "0")
+    const limit = Number(url.searchParams.get("limit") ?? "100")
+    await route.fulfill({ status: 200, json: { data: wanted.slice(offset, offset + limit) } })
+  })
+  await page.route("**/api/v1/workflows*", async (route) => {
+    const url = new URL(route.request().url())
+    if (/^\/api\/v1\/workflows\/[0-9a-f-]{36}$/.test(url.pathname)) return
+    if (url.searchParams.get("attention") === "true") return route.fulfill({ status: 200, json: { data: [] } })
+    if (supportFails) return route.fulfill({ status: 500, json: { error: { message: "window unavailable" } } })
+    await route.fulfill({ status: 200, json: { data: [] } })
+  })
+  await page.route("**/api/v1/workflows/*", async (route) => {
+    detailReads += 1
+    const id = new URL(route.request().url()).pathname.split("/").at(-1)
+    await route.fulfill({ status: 200, json: { data: { id, media_id: wanted[0].media_id, media_kind: "movie", title: "Context Failure Movie", year: 2024, variant: "default", state: "waiting", revision: 1, owner_action_required: false, created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" } } })
+  })
+
+  await page.goto(`${baseURL}/wanted`)
+  await expect(page.getByText("window unavailable")).toBeVisible()
+  expect(detailReads).toBe(0)
+  supportFails = false
+  await page.getByRole("button", { name: "Refresh", exact: true }).click()
+  await expect(page.getByText("Context Failure Movie 1 (2024)")).toBeVisible()
+  await expect(page.getByText("window unavailable")).toHaveCount(0)
+  await expect.poll(() => detailReads).toBeGreaterThan(0)
+})
