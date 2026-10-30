@@ -107,9 +107,9 @@ The 20 most recent Verify runs before this change (2026-10-30) showed:
 - every job was queued behind the single self-hosted worker in several runs.
 
 A local four-group PostgreSQL run completed in about **285 s** instead of about
-598 s, while all 247 PostgreSQL tests passed under `-race`. The first optimized
-GitHub run (`41063007937`, an idle-runner sample) completed in **471 s**; its
-longest PostgreSQL shard was **345 s**. This is a single sample, not a
-like-for-like median claim. The GitHub-hosted frontend/browser split removes
-their serialized queue time; backend and containers remain serialized on the
-single self-hosted worker.
+598 s, while all 247 PostgreSQL tests passed under `-race`. Two optimized
+GitHub runs on an idle runner (`41063007937` and `41064445136`) completed in
+**471 s** and **465 s**; their longest PostgreSQL shards were **345 s** and
+**343 s**. These are two samples, not a like-for-like median claim. The
+GitHub-hosted frontend/browser split removes their serialized queue time;
+backend and containers remain serialized on the single self-hosted worker.
