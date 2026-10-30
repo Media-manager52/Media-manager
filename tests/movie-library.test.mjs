@@ -379,23 +379,26 @@ test("movie and series library loaders make only the expected same-origin API re
 
   try {
     const { movieLibraryLoader, seriesLibraryLoader } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
-    const movieRecords = await movieLibraryLoader(new AbortController().signal);
+    const movieLibrary = await movieLibraryLoader(new AbortController().signal);
+    const movieRecords = movieLibrary.records;
     assert.equal(movieRecords.length, 2);
+    assert.equal(movieLibrary.truncated, false);
     assert.deepEqual(requested.sort(), [
-      "/api/v1/files?limit=300",
+      "/api/v1/files?limit=500&offset=0",
       "/api/v1/media?limit=200&offset=0",
-      "/api/v1/wanted?limit=300",
-      "/api/v1/workflows?limit=300&active=false",
+      "/api/v1/wanted?limit=500&offset=0",
+      "/api/v1/workflows?limit=500&offset=0&active=false",
     ]);
     requested.length = 0;
-    const seriesRecords = await seriesLibraryLoader(new AbortController().signal);
+    const seriesLibrary = await seriesLibraryLoader(new AbortController().signal);
+    const seriesRecords = seriesLibrary.records;
     assert.equal(seriesRecords.length, 1);
     assert.equal(seriesRecords[0].id, seriesID);
     assert.deepEqual(requested.sort(), [
-      "/api/v1/files?limit=300",
+      "/api/v1/files?limit=500&offset=0",
       "/api/v1/media?limit=200&offset=0",
-      "/api/v1/wanted?limit=300",
-      "/api/v1/workflows?limit=300&active=false",
+      "/api/v1/wanted?limit=500&offset=0",
+      "/api/v1/workflows?limit=500&offset=0&active=false",
     ]);
   } finally {
     globalThis.fetch = originalFetch;
@@ -429,4 +432,69 @@ test("bounded owner attention summarizes the remainder instead of flooding the p
   const full = renderToStaticMarkup(React.createElement(OwnerAttention, { items, workflows: [] }));
   assert.match(full, /Attention Movie 8/);
   assert.doesNotMatch(full, /Showing 3 of 9/);
+});
+
+test("paged owner list loaders carry exact server offsets and stable page metadata", async () => {
+  const { loadManagedFilesPage, loadRequestsPage, loadWantedPage, loadWorkflowsPage } = await vite.ssrLoadModule("/lib/media-manager-api.ts");
+  const response = (data, meta) => new Response(JSON.stringify({ data, meta }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input), "http://media-manager.test");
+    requested.push(url.pathname + url.search);
+    if (url.pathname === "/api/v1/workflows") return response([{ id: "wf-3" }], { count: 1, limit: 2, offset: 2 });
+    if (url.pathname === "/api/v1/wanted") return response([], { count: 0, limit: 2, offset: 2 });
+    if (url.pathname === "/api/v1/files") return response([{ id: "file-3" }], { count: 1, limit: 2, offset: 2 });
+    if (url.pathname === "/api/v1/requests") return response([{ id: "request-3" }], { count: 1, limit: 2, offset: 2 });
+    throw new Error(`unexpected ${url.pathname}`);
+  };
+  try {
+    const workflows = await loadWorkflowsPage({ active: false, limit: 2, offset: 2 });
+    const wanted = await loadWantedPage({ limit: 2, offset: 2 });
+    const files = await loadManagedFilesPage({ limit: 2, offset: 2 });
+    const requests = await loadRequestsPage({ limit: 2, offset: 2 });
+    assert.deepEqual(requested, [
+      "/api/v1/workflows?limit=2&offset=2&active=false",
+      "/api/v1/wanted?limit=2&offset=2",
+      "/api/v1/files?limit=2&offset=2",
+      "/api/v1/requests?limit=2&offset=2",
+    ]);
+    assert.equal(workflows.items[0].id, "wf-3");
+    assert.equal(wanted.hasMore, false);
+    assert.equal(files.items[0].id, "file-3");
+    assert.equal(requests.items[0].id, "request-3");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("library loader returns a bounded catalog window with an explicit truncation result", async () => {
+  const originalFetch = globalThis.fetch;
+  const makeMedia = (offset, limit) => Array.from({ length: limit }, (_, index) => {
+    const number = offset + index + 1;
+    return { id: `catalog-${number}`, kind: "movie", title: `Catalog ${number}`, identities: [] };
+  });
+  globalThis.fetch = async (url) => {
+    const requestURL = String(url);
+    if (requestURL.startsWith("/api/v1/media?")) {
+      const parsed = new URL(requestURL, "http://local");
+      const offset = Number(parsed.searchParams.get("offset") ?? "0");
+      const limit = Number(parsed.searchParams.get("limit") ?? "200");
+      return new Response(JSON.stringify({ data: makeMedia(offset, limit) }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (requestURL.startsWith("/api/v1/files?") || requestURL.startsWith("/api/v1/wanted?") || requestURL.startsWith("/api/v1/workflows?")) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error(`Unexpected API request: ${requestURL}`);
+  };
+  try {
+    const { movieLibraryLoader } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+    const library = await movieLibraryLoader(new AbortController().signal);
+    assert.equal(library.truncated, true);
+    assert.equal(library.truncatedSource, "catalog");
+    assert.equal(library.loaded, 10000);
+    assert.equal(library.records.length, 10000);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

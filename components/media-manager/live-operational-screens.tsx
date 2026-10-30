@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { LIVE_REFRESH_MS, useAutoRefresh } from "@/hooks/use-auto-refresh"
+import { usePagedList } from "@/hooks/use-paged-list"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
@@ -47,8 +48,11 @@ import {
   loadActivity,
   loadCalendar,
   loadCatalogMedia,
+  loadCatalogMediaBounded,
   loadManagedFile,
-  loadManagedFiles,
+  loadManagedFilesPage,
+  loadRequestsPage,
+  loadWantedPage,
   loadNotificationDeliveries,
   loadNotificationDestinations,
   loadImportList,
@@ -61,9 +65,9 @@ import {
   loadSystemHealth,
   loadSystemInfo,
   loadTasks,
-  loadWanted,
-  loadRequests,
+  loadWorkflow,
   loadWorkflows,
+  loadWorkflowsPage,
   refreshMediaMetadata,
   retryBackupOffsite,
   setNotificationDestinationEnabled,
@@ -76,6 +80,7 @@ import {
   type APISystemInfo,
   type APITasks,
   type APIImportList,
+  type APIManagedFile,
   type APIRequest,
   type APIRequestDetail,
   type APIWantedItem,
@@ -182,7 +187,9 @@ function qualityFact(evidence: Record<string, unknown>, key: string) {
 
 const activityLoader = (signal: AbortSignal) => loadActivity(signal)
 const calendarLoader = (signal: AbortSignal) => loadCalendar(signal)
-const filesLoader = (signal: AbortSignal) => loadManagedFiles(signal)
+const filesPageLoader = (offset: number, limit: number, signal: AbortSignal) => loadManagedFilesPage({ offset, limit, signal })
+const wantedPageLoader = (offset: number, limit: number, signal: AbortSignal) => loadWantedPage({ offset, limit, signal })
+const requestsPageLoader = (offset: number, limit: number, signal: AbortSignal) => loadRequestsPage({ offset, limit, signal })
 const releasesLoader = (signal: AbortSignal) => loadReleaseCandidates(signal)
 const blocksLoader = (signal: AbortSignal) => loadReleaseBlocks(signal)
 const sourcesLoader = (signal: AbortSignal) => loadSources(signal)
@@ -193,7 +200,6 @@ const notificationDestinationsLoader = (signal: AbortSignal) => loadNotification
 const notificationDeliveriesLoader = (signal: AbortSignal) => loadNotificationDeliveries(signal)
 const importListsLoader = (signal: AbortSignal) => loadImportLists(signal)
 const backupsLoader = (signal: AbortSignal) => loadBackups(signal)
-const requestsLoader = (signal: AbortSignal) => loadRequests(signal)
 
 // The overview groups persisted workflow states truthfully. Real acquisition
 // work is "actively acquiring"; normal monitoring, pacing, and future air dates
@@ -269,14 +275,34 @@ export function overviewQueueItems(workflows: APIWorkflow[], wanted: APIWantedIt
   return items
 }
 
+async function loadAllLibraryPages<T>(loadPage: (offset: number, limit: number, signal: AbortSignal) => Promise<import("@/lib/media-manager-api").Page<T>>, signal: AbortSignal): Promise<{ items: T[]; truncated: boolean }> {
+  const pageSize = 500
+  const maxPages = 20
+  const items: T[] = []
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await loadPage(page * pageSize, pageSize, signal)
+    items.push(...result.items)
+    if (!result.hasMore) return { items, truncated: false }
+  }
+  // The cap is a bounded degradation, not a hard error: render the safe window
+  // and state that it is partial instead of making the whole library unusable.
+  return { items, truncated: true }
+}
+
 async function loadMediaLibrary(kind: "movie" | "series", signal: AbortSignal) {
-  const [media, files, wanted, workflows] = await Promise.all([
-    loadCatalogMedia(signal),
-    loadManagedFiles(signal),
-    loadWanted(signal),
-    loadWorkflows(false, signal),
+  const [catalog, files, wanted, workflows] = await Promise.all([
+    loadCatalogMediaBounded(signal),
+    loadAllLibraryPages<APIManagedFile>((offset, limit, pageSignal) => loadManagedFilesPage({ offset, limit, signal: pageSignal }), signal),
+    loadAllLibraryPages<APIWantedItem>((offset, limit, pageSignal) => loadWantedPage({ offset, limit, signal: pageSignal }), signal),
+    loadAllLibraryPages<APIWorkflow>((offset, limit, pageSignal) => loadWorkflowsPage({ active: false, offset, limit, signal: pageSignal }), signal),
   ])
-  return buildMediaLibraryRecords(kind, media, files, wanted, workflows)
+  const truncatedSource = catalog.truncated ? "catalog" : files.truncated ? "files" : wanted.truncated ? "wanted" : workflows.truncated ? "workflows" : ""
+  return {
+    records: buildMediaLibraryRecords(kind, catalog.items, files.items, wanted.items, workflows.items),
+    truncated: Boolean(truncatedSource),
+    truncatedSource,
+    loaded: catalog.truncated ? catalog.items.length : files.truncated ? files.items.length : wanted.truncated ? wanted.items.length : workflows.items.length,
+  }
 }
 
 export const movieLibraryLoader = (signal: AbortSignal) => loadMediaLibrary("movie", signal)
@@ -334,7 +360,9 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
     window.addEventListener("resize", update)
     return () => window.removeEventListener("resize", update)
   }, [])
-  const records = React.useMemo(() => data ?? [], [data])
+  const records = React.useMemo(() => data?.records ?? [], [data])
+  const truncated = data?.truncated ?? false
+  const loadedAssociations = data?.loaded ?? records.length
   const filtered = React.useMemo(() => filterMediaLibraryRecords(records, filters), [records, filters])
   const facets = React.useMemo(() => ({
     quality: uniqueValues(records.flatMap((item) => item.profiles)),
@@ -399,6 +427,7 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
 
   return <div className={cn("mm-library-root grid h-full min-h-0 bg-canvas", selected && "xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_380px]")}>
     <section className="flex min-h-0 min-w-0 flex-col px-4 pb-3 pt-3 sm:px-5 lg:px-9" aria-labelledby={`${mediaKind}-library-title`}>
+      {truncated ? <InlineNotice tone="warn" title="Library view is partial">Media Manager loaded the safe {loadedAssociations.toLocaleString()}-record {data?.truncatedSource ?? "association"} window. Use filters or open a title directly; the full library was not truncated silently.</InlineNotice> : null}
       <div className="mb-4 flex min-h-9 items-end gap-3">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
@@ -640,8 +669,9 @@ export function RequestInspector({ request, detail, loading, error, onDecided }:
 }
 
 export function LiveRequestsScreen() {
-  const { data, error, refresh } = useLiveData(requestsLoader, { autoRefresh: true })
-  const items = React.useMemo(() => data ?? [], [data])
+  const page = usePagedList(requestsPageLoader, 100, { autoRefresh: true })
+  const { error, refresh } = page
+  const items = page.items
   const [filter, setFilter] = React.useState<RequestFilter>("all")
   const [query, setQuery] = React.useState("")
   const [selectedID, setSelectedID] = React.useState<string | null>(null)
@@ -674,8 +704,8 @@ export function LiveRequestsScreen() {
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, requester, ID" className="h-8 border-line bg-surface-2 pl-8 text-[12px] shadow-none" />
           </label>
         </div>
-        {!data && !error ? <div className="p-10 text-center text-[12px] text-fg-subtle">Loading persisted requests…</div>
-          : filtered.length === 0 ? <div className="p-10 text-center text-[12px] text-fg-subtle">{items.length === 0 ? "No Seerr-originated requests are persisted yet." : "No requests match the active filter."}</div>
+        {page.loading && items.length === 0 && !error ? <div className="p-10 text-center text-[12px] text-fg-subtle">Loading persisted requests…</div>
+          : filtered.length === 0 ? <div className="p-10 text-center text-[12px] text-fg-subtle">{items.length === 0 ? "No Seerr-originated requests are persisted yet." : "No requests match the active filter on the loaded pages."}</div>
           : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Status</TableHead><TableHead>Profile</TableHead><TableHead>Requester</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>
             {filtered.map((item) => <TableRow key={item.id} onClick={() => setSelectedID(item.id)} className={cn("cursor-pointer", selectedID === item.id && "bg-brand-soft")}>
               <TableCell><div className="flex min-w-[220px] items-center gap-3"><MiniPoster src={item.poster_url} title={item.title || "Request"} /><div className="min-w-0"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedID(item.id) }} aria-pressed={selectedID === item.id} className="block max-w-[260px] truncate text-left text-[13px] font-semibold text-fg outline-none hover:underline hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring">{item.title || `Request ${item.request_id}`}</button><div className="text-[12px] text-fg-muted">{item.media_kind === "series" ? "TV" : "Movie"} · {item.year ?? "Year unknown"} · Seerr #{item.request_id}{item.seerr_instance_name ? ` · ${item.seerr_instance_name}` : ""}</div>{item.media_kind === "series" && item.season_count ? <div className="text-[12px] text-fg-subtle">{item.available_seasons}/{item.season_count} seasons available</div> : null}</div></div></TableCell>
@@ -687,13 +717,9 @@ export function LiveRequestsScreen() {
           </TableBody></Table></div>}
       </Panel>
       {selected ? <RequestInspector request={selected} detail={detail.data} loading={detail.data === null && !detail.error} error={detail.error} onDecided={refresh} /> : <Panel title="Request detail" subtitle="Select a request to inspect its exact intake and lifecycle state."><div className="rounded-lg border border-dashed border-line-strong px-3 py-10 text-center text-[13px] text-fg-muted">No request is selected.</div></Panel>}
+      <ListFooter loaded={page.loaded} hasMore={page.hasMore} loading={page.loadingMore} onLoadMore={page.loadMore} />
     </div>
   </div>
-}
-
-const wantedScreenLoader = async (signal: AbortSignal) => {
-  const [wanted, workflows, media] = await Promise.all([loadWanted(signal), loadWorkflows(false, signal), loadCatalogMedia(signal)])
-  return { wanted, workflows, posters: new Map(media.map((item) => [item.id, item.metadata?.poster_url])) }
 }
 
 /**
@@ -702,21 +728,119 @@ const wantedScreenLoader = async (signal: AbortSignal) => {
  * is already moving. Waiting is never styled as failure.
  */
 export function LiveWantedScreen() {
-  const { data, error, refresh } = useLiveData(wantedScreenLoader, { autoRefresh: true })
-  const items = data?.wanted ?? []
-  const workflows = data?.workflows ?? []
-  const byID = new Map(workflows.map((workflow) => [workflow.id, workflow]))
-  const attention = attentionEntries(items, workflows)
+  const [supportRevision, setSupportRevision] = React.useState(0)
+  const [workflows, setWorkflows] = React.useState<APIWorkflow[]>([])
+  const [pageWorkflows, setPageWorkflows] = React.useState<APIWorkflow[]>([])
+  const [supportReady, setSupportReady] = React.useState(false)
+  const [supportError, setSupportError] = React.useState("")
+  const [pageContextError, setPageContextError] = React.useState("")
+  const workflowCacheRef = React.useRef<Map<string, APIWorkflow>>(new Map())
+  const failedContextRef = React.useRef<Set<string>>(new Set())
+  const [posters, setPosters] = React.useState<Map<string, string | undefined>>(() => new Map())
+  const refreshSupport = React.useCallback(() => {
+    setSupportReady(false)
+    failedContextRef.current.clear()
+    setSupportRevision((current) => current + 1)
+  }, [])
+  const page = usePagedList(wantedPageLoader, 100, { autoRefresh: true, keyOf: (item) => item.workflow_id, onRefresh: refreshSupport })
+  React.useEffect(() => {
+    const controller = new AbortController()
+    loadCatalogMedia(controller.signal)
+      .then((media) => setPosters(new Map(media.map((item) => [item.id, item.metadata?.poster_url]))))
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [])
+  React.useEffect(() => {
+    const controller = new AbortController()
+    loadWorkflows(false, controller.signal)
+      .then((next) => {
+        if (controller.signal.aborted) return
+        setWorkflows(next)
+        setSupportError("")
+        setSupportReady(true)
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return
+        setSupportError(reason instanceof Error ? reason.message : "Could not load wanted workflow context")
+        // A failed window is not a complete empty window: do not fan out one
+        // detail request per wanted row behind it.
+        setSupportReady(false)
+      })
+    return () => controller.abort()
+  }, [supportRevision])
+  const items = page.items
+  // The first workflow window is a cheap hint, not a completeness claim. Fetch
+  // exact context for wanted rows that fall outside it so an old attention row
+  // never loses its actions merely because newer workflows filled the window.
+  // The cache makes the per-row reads one-time per row/version, and the worker
+  // pool keeps a large Load more page from opening hundreds of parallel reads.
+  React.useEffect(() => {
+    if (!supportReady) return
+    const itemByID = new Map(items.map((item) => [item.workflow_id, item]))
+    const wantedAt = (id: string) => new Date(itemByID.get(id)?.updated_at ?? 0).getTime()
+    const known = new Set(workflows.map((workflow) => workflow.id))
+    const missing = Array.from(itemByID.keys()).filter((id) => {
+      if (known.has(id) || failedContextRef.current.has(id)) return false
+      const cached = workflowCacheRef.current.get(id)
+      return cached === undefined || new Date(cached.updated_at).getTime() < wantedAt(id)
+    })
+    const bounded = missing.slice(0, 500)
+    if (bounded.length === 0) {
+      const skipped = failedContextRef.current.size
+      setPageContextError(skipped ? `Workflow context is incomplete for ${skipped} wanted row${skipped === 1 ? "" : "s"}; Refresh to retry` : "")
+      return
+    }
+    const controller = new AbortController()
+    let cursor = 0
+    const worker = async () => {
+      while (cursor < bounded.length && !controller.signal.aborted) {
+        const id = bounded[cursor]
+        cursor += 1
+        try {
+          const workflow = await loadWorkflow(id, controller.signal)
+          if (!controller.signal.aborted) workflowCacheRef.current.set(id, workflow)
+        } catch {
+          if (!controller.signal.aborted) failedContextRef.current.add(id)
+        }
+      }
+    }
+    Promise.all(Array.from({ length: Math.min(6, bounded.length) }, worker))
+      .then(() => {
+        if (controller.signal.aborted) return
+        const wantedIDs = new Set(itemByID.keys())
+        for (const id of workflowCacheRef.current.keys()) if (!wantedIDs.has(id)) workflowCacheRef.current.delete(id)
+        setPageWorkflows(Array.from(workflowCacheRef.current.values()))
+        const incomplete = failedContextRef.current.size + Math.max(0, missing.length - bounded.length)
+        setPageContextError(incomplete ? `Workflow context is incomplete for ${incomplete} wanted row${incomplete === 1 ? "" : "s"}; Refresh to retry` : "")
+      })
+    return () => controller.abort()
+  }, [items, supportReady, workflows])
+  const error = page.error || supportError || pageContextError
+  const refresh = page.refresh
+  // Only use workflow context for rows in the current wanted page, and never
+  // let an older workflow snapshot override a newer wanted row.
+  const wantedByID = new Map(items.map((item) => [item.workflow_id, item]))
+  const newestByID = new Map<string, APIWorkflow>()
+  for (const workflow of [...workflows, ...pageWorkflows]) {
+    const current = newestByID.get(workflow.id)
+    if (!current || new Date(workflow.updated_at).getTime() >= new Date(current.updated_at).getTime()) newestByID.set(workflow.id, workflow)
+  }
+  const relevantWorkflows = Array.from(newestByID.values()).filter((workflow) => {
+    const item = wantedByID.get(workflow.id)
+    return item !== undefined && new Date(workflow.updated_at).getTime() >= new Date(item.updated_at).getTime()
+  })
+  const byID = new Map(relevantWorkflows.map((workflow) => [workflow.id, workflow]))
+  const attention = attentionEntries(items, relevantWorkflows)
   const attentionIDs = new Set(attention.map((entry) => entry.key))
   const inProgress = items.filter((item) => !attentionIDs.has(item.workflow_id) && isActivelyAcquiring(byID.get(item.workflow_id)?.state ?? item.current_state))
   const progressIDs = new Set(inProgress.map((item) => item.workflow_id))
   const missing = items.filter((item) => item.gap === "missing" && !attentionIDs.has(item.workflow_id) && !progressIDs.has(item.workflow_id))
   const upgrades = items.filter((item) => item.gap === "upgrade" && !attentionIDs.has(item.workflow_id) && !progressIDs.has(item.workflow_id))
-  const posterFor = (id: string) => data?.posters.get(id)
+  const posterFor = (id: string) => posters.get(id)
   const itemCell = (item: APIWantedItem) => <div className="flex min-w-[220px] items-center gap-2.5"><MiniPoster src={posterFor(item.media_id)} title={item.title} /><div className="min-w-0"><Link className="block truncate text-[12.5px] font-semibold text-fg hover:underline" href={mediaHref(item.media_kind, item.media_id)}>{item.title}{item.year ? ` (${item.year})` : ""}</Link><small className="text-[10.5px] text-fg-subtle">{item.media_kind === "series" ? "TV" : "Movie"} · {item.variant}</small></div></div>
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
-    {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Tabs defaultValue={attention.length ? "attention" : missing.length ? "missing" : upgrades.length ? "upgrades" : "progress"} className="gap-4">
+    {page.loading && items.length === 0 && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Tabs defaultValue={attention.length ? "attention" : missing.length ? "missing" : upgrades.length ? "upgrades" : "progress"} className="gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <TabsList className="mm-seg" aria-label="Wanted sections">
           <TabsTrigger value="attention">Needs attention <em className={cn("ml-1 not-italic", attention.length && "text-warn")}>{attention.length}</em></TabsTrigger>
@@ -726,32 +850,34 @@ export function LiveWantedScreen() {
         </TabsList>
         <RefreshButton onClick={refresh} />
       </div>
+      <p className="text-[12px] leading-5 text-fg-subtle"><strong className="text-fg-secondary">Needs attention</strong> requires an owner decision; <strong className="text-fg-secondary">Missing</strong> and <strong className="text-fg-secondary">Upgrades</strong> include normal waiting and paced discovery; <strong className="text-fg-secondary">In progress</strong> is automatic work. Counts and filters cover loaded rows; use <strong className="text-fg-secondary">Load more</strong> before treating an empty group as global.</p>
       <TabsContent value="attention">
         <Panel flush title="Needs attention" subtitle="What happened, what Media Manager will do next, and what you can do." className={cn(attention.length && "border-warn-line")}>
-          {attention.length === 0 ? <div className="flex items-center gap-2.5 px-4 py-4 text-[12.5px] text-good"><CheckCircle2 className="size-4" aria-hidden />Nothing needs your attention. Waiting and searching continue automatically.</div>
+          {attention.length === 0 ? <div className={cn("flex items-center gap-2.5 px-4 py-4 text-[12.5px]", page.hasMore ? "text-fg-subtle" : "text-good")}><CheckCircle2 className="size-4" aria-hidden />{page.hasMore ? "No loaded row needs attention; load more to check the remaining rows." : "Nothing needs your attention. Waiting and searching continue automatically."}</div>
             : attention.map((entry) => <AttentionCard key={entry.key} item={entry.item} workflow={entry.workflow} poster={posterFor(entry.item.mediaId)} />)}
         </Panel>
       </TabsContent>
       <TabsContent value="missing">
         <Panel flush title="Missing" subtitle="Monitored items without a current publication, and when Media Manager looks again.">
           <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Why missing</TableHead><TableHead>Next attempt</TableHead><TableHead>Profile</TableHead><TableHead /></TableRow></TableHeader><TableBody>{missing.map((item) => { const workflow = byID.get(item.workflow_id); return <TableRow key={item.workflow_id}><TableCell>{itemCell(item)}</TableCell><TableCell><StateBadge state={item.current_state || "waiting"} />{workflow?.search_blocked_reason ? <div className="mt-1 max-w-xs text-[11.5px] leading-4 text-fg-subtle">{workflow.search_blocked_reason}</div> : null}</TableCell><TableCell className="whitespace-nowrap text-[12px]">{retryPlan(workflow)}</TableCell><TableCell className="text-[12px]">{item.target_profile}</TableCell><TableCell className="text-right"><Button asChild size="sm" variant="outline"><Link href={mediaHref(item.media_kind, item.media_id)}>Open</Link></Button></TableCell></TableRow> })}</TableBody></Table></div>
-          {missing.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">Nothing is missing outside attention and active work.</div> : null}
+          {missing.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">{page.hasMore ? "No missing items in the loaded rows; load more to check the remaining rows." : "Nothing is missing outside attention and active work."}</div> : null}
         </Panel>
       </TabsContent>
       <TabsContent value="upgrades">
         <Panel flush title="Upgrades" subtitle="Current copies stay until the replacement passes verification and Plex confirms it.">
           <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Workflow</TableHead><TableHead>Target profile</TableHead><TableHead>Updated</TableHead><TableHead /></TableRow></TableHeader><TableBody>{upgrades.map((item) => <TableRow key={item.workflow_id}><TableCell>{itemCell(item)}</TableCell><TableCell><StateBadge state={item.current_state || "waiting"} /></TableCell><TableCell className="text-[12px]">{item.target_profile}<div className="text-[11px] text-fg-subtle">Upgrades {item.upgrades_enabled ? "enabled" : "disabled"}</div></TableCell><TableCell className="text-[12px]">{timeAgo(item.updated_at)}</TableCell><TableCell className="text-right"><Button asChild size="sm" variant="outline"><Link href={mediaHref(item.media_kind, item.media_id)}>Open</Link></Button></TableCell></TableRow>)}</TableBody></Table></div>
-          {upgrades.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">No upgrades are wanted right now.</div> : null}
+          {upgrades.length === 0 ? <div className="p-6 text-center text-[12px] text-fg-subtle">{page.hasMore ? "No upgrades in the loaded rows; load more to check the remaining rows." : "No upgrades are wanted right now."}</div> : null}
           <div className="border-t border-line px-4 py-2.5 text-[11.5px] text-fg-subtle">A failed verification leaves your current file untouched.</div>
         </Panel>
       </TabsContent>
       <TabsContent value="progress">
         <Panel flush title="In progress" subtitle="Searching, downloading, verifying, or publishing right now.">
-          {inProgress.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">Nothing is actively acquiring right now.</div>
+          {inProgress.length === 0 ? <div className="px-4 py-5 text-[12.5px] text-fg-subtle">{page.hasMore ? "Nothing in the loaded rows is actively acquiring; load more to check the remaining rows." : "Nothing is actively acquiring right now."}</div>
             : inProgress.map((item) => { const state = byID.get(item.workflow_id)?.state ?? item.current_state; return <ConsoleRow key={item.workflow_id} href={mediaHref(item.media_kind, item.media_id)} leading={<MiniPoster src={posterFor(item.media_id)} title={item.title} />} title={`${item.title}${item.year ? ` (${item.year})` : ""}`} caption={`${item.gap === "upgrade" ? "Upgrade" : "Acquisition"} · ${item.variant}`}>{byID.get(item.workflow_id)?.download_percent !== undefined ? <DownloadProgress workflow={byID.get(item.workflow_id)!} className="hidden w-[150px] sm:inline-flex" /> : <StageStepper state={state} className="hidden w-[150px] sm:flex" />}<StateBadge state={state} /><span className="w-12 shrink-0 text-right text-[11px] text-fg-subtle">{timeAgo(item.updated_at)}</span></ConsoleRow> })}
         </Panel>
       </TabsContent>
     </Tabs>}
+    <ListFooter loaded={page.loaded} hasMore={page.hasMore} loading={page.loadingMore} onLoadMore={page.loadMore} />
   </div>
 }
 
@@ -804,16 +930,21 @@ export function LiveActivityHistoryScreen({ logs = false }: { logs?: boolean }) 
 }
 
 export function LiveFilesScreen() {
-  const { data, error, refresh } = useLiveData(filesLoader)
-  const items = data ?? []
+  const page = usePagedList(filesPageLoader, 100)
+  const items = page.items
   const current = items.filter((item) => item.state === "current").length
   const confirmed = items.filter((item) => item.plex_confirmed).length
   const attention = items.filter((item) => item.state === "quarantined").length
   return <div className="space-y-4">
-    {error ? <ErrorNotice error={error} /> : null}
-    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Current" value={String(current)} note="Active managed library files" tone="good" icon={Files} /><MetricCard label="Plex confirmed" value={String(confirmed)} note="Exact observed path and identity" tone="info" icon={CheckCircle2} /><MetricCard label="Quarantined" value={String(attention)} note="Publication needs review" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
-    {!data && !error ? <LoadingPanel /> : <Panel flush title="Managed files" subtitle="Plex-safe AltMount symlinks and reviewed adopted real files with persisted provenance." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Destination</TableHead><TableHead>Origin</TableHead><TableHead>Quality evidence</TableHead><TableHead>State</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell><Link className="font-semibold text-fg hover:text-info" href={`/files/${item.id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link><div className="mt-1 text-[12px] text-fg-subtle">{item.root_name} · {item.variant}</div></TableCell><TableCell className="max-w-xs break-all font-mono text-[12px]">{item.destination_relative}</TableCell><TableCell>{item.origin === "adoption" ? "Adopted real file" : "AltMount symlink"}<div className="mt-1 max-w-xs break-all font-mono text-[12px] text-fg-subtle">{item.source_relative}</div></TableCell><TableCell><StateBadge state={item.quality_evidence_state} /><div className="mt-1 text-[12px] text-fg-subtle">{[qualityFact(item.quality_evidence, "resolution"), qualityFact(item.quality_evidence, "video_codec")].filter(Boolean).join(" · ") || item.quality_profile}</div></TableCell><TableCell><StateBadge state={item.state} /></TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No managed files exist. AltMount source remains read-only.</div> : null}</Panel>}
+    {page.error ? <ErrorNotice error={page.error} /> : null}
+    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Current" value={String(current)} note={`${page.loaded} loaded; active managed library files`} tone="good" icon={Files} /><MetricCard label="Plex confirmed" value={String(confirmed)} note="Exact observed path and identity" tone="info" icon={CheckCircle2} /><MetricCard label="Quarantined" value={String(attention)} note="Publication needs review" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
+    {page.loading && items.length === 0 ? <LoadingPanel /> : <Panel flush title="Managed files" subtitle="Plex-safe AltMount symlinks and reviewed adopted real files with persisted provenance. Pages load on demand." action={<RefreshButton onClick={page.refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Destination</TableHead><TableHead>Origin</TableHead><TableHead>Quality evidence</TableHead><TableHead>State</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell><Link className="font-semibold text-fg hover:text-info" href={`/files/${item.id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link><div className="mt-1 text-[12px] text-fg-subtle">{item.root_name} · {item.variant}</div></TableCell><TableCell className="max-w-xs break-all font-mono text-[12px]">{item.destination_relative}</TableCell><TableCell>{item.origin === "adoption" ? "Adopted real file" : "AltMount symlink"}<div className="mt-1 max-w-xs break-all font-mono text-[12px] text-fg-subtle">{item.source_relative}</div></TableCell><TableCell><StateBadge state={item.quality_evidence_state} /><div className="mt-1 text-[12px] text-fg-subtle">{[qualityFact(item.quality_evidence, "resolution"), qualityFact(item.quality_evidence, "video_codec")].filter(Boolean).join(" · ") || item.quality_profile}</div></TableCell><TableCell><StateBadge state={item.state} /></TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No managed files exist. AltMount source remains read-only.</div> : null}<ListFooter loaded={page.loaded} hasMore={page.hasMore} loading={page.loadingMore} onLoadMore={page.loadMore} /></Panel>}
   </div>
+}
+
+function ListFooter({ loaded, hasMore, loading, onLoadMore }: { loaded: number; hasMore: boolean; loading: boolean; onLoadMore: () => void }) {
+  if (!hasMore && loaded === 0) return null
+  return <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 text-[12px] text-fg-subtle"><span>{loaded.toLocaleString()} loaded{hasMore ? " · more available" : " · end of list"}</span>{hasMore ? <Button size="sm" variant="outline" disabled={loading} onClick={onLoadMore}>{loading ? "Loading…" : "Load more"}</Button> : null}</div>
 }
 
 export function LiveFileDetailScreen({ fileId }: { fileId: string }) {

@@ -172,7 +172,9 @@ const getResponses: Record<string, unknown> = {
 }
 
 function detailResponse(path: string): unknown {
-  let match = path.match(/^\/api\/v1\/workflows\/([0-9a-f-]{36})\/searches$/)
+  let match = path.match(/^\/api\/v1\/workflows\/([0-9a-f-]{36})$/)
+  if (match) return workflows.find((workflow) => workflow.id === match![1]) ?? workflows[0]
+  match = path.match(/^\/api\/v1\/workflows\/([0-9a-f-]{36})\/searches$/)
   if (match) return [{ id: "se000001-0000-4000-8000-000000000001", mode: "targeted", state: "complete", started_at: observed, completed_at: observed, new_candidates: 2, indexers: [{ indexer_id: ids.indexer, indexer_name: "NZB Example", indexer_kind: "newznab", state: "succeeded", completed_at: observed }, { indexer_id: ids.indexer, indexer_name: "Second Example", indexer_kind: "newznab", state: "deferred", detail: "indexer_pacing_deferred", retry_at: "2026-09-02T00:10:00Z", completed_at: observed }] }]
   match = path.match(/^\/api\/v1\/media\/([0-9a-f-]{36})\/detail$/)
   if (match) return detailFor(match[1])
