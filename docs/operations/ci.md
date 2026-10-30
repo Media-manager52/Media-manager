@@ -50,7 +50,11 @@ controlled experiment; the workflow default is 4.
 The concurrency group is per Git ref:
 
 - a superseded feature-branch push may cancel its own earlier Verify run;
-- a `main` Verify run is never cancelled by a newer push or merge;
+- an in-progress `main` Verify run is never cancelled by a newer push or merge;
+  GitHub may still drop a superseded *pending* main run when several main
+  pushes arrive without a worker slot. The newer commit contains the older
+  work, but the dropped commit itself has no Verify result and no `sha-<commit>`
+  image; this is an intentional main-serialization trade-off;
 - `publish` is a separate job that requires frontend, browser, backend and
   containers; it never starts from a cancelled or incomplete verification;
 - production deployment remains a separate manual workflow and is not triggered
@@ -103,7 +107,9 @@ The 20 most recent Verify runs before this change (2026-10-30) showed:
 - every job was queued behind the single self-hosted worker in several runs.
 
 A local four-group PostgreSQL run completed in about **285 s** instead of about
-598 s, while all 247 PostgreSQL tests passed under `-race`. The GitHub-hosted
-frontend/browser split is expected to remove their serialized queue time; the
-actual post-change GitHub timing is recorded in the CI optimization PR rather
-than assumed here.
+598 s, while all 247 PostgreSQL tests passed under `-race`. The first optimized
+GitHub run (`41063007937`, an idle-runner sample) completed in **471 s**; its
+longest PostgreSQL shard was **345 s**. This is a single sample, not a
+like-for-like median claim. The GitHub-hosted frontend/browser split removes
+their serialized queue time; backend and containers remain serialized on the
+single self-hosted worker.
