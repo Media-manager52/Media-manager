@@ -3,8 +3,10 @@
 This guide is for a new owner running Media Manager behind **Cosmos Cloud**.
 Cosmos is the public edge: it terminates TLS, authenticates the owner with
 Cosmos OpenID, and routes one public origin to the UI and API. The `/api` route
-injects the owner bearer token server-side; the browser never receives it. This
-is the same architecture as the production deployment.
+injects the owner bearer token server-side; the browser never receives it. All
+three routes are host-bound and require a Cosmos admin/owner, so another Cosmos
+app host or a non-admin Cosmos user cannot reach the owner API. This is the same
+architecture as the production deployment.
 
 ## Install from the Cosmos market
 
@@ -115,8 +117,10 @@ docker compose logs -f --tail=200
 ## 3. Add the Cosmos routes
 
 In Cosmos Cloud, open **Proxy → Routes** and create three routes on the same
-host. Use the host Cosmos assigned to the UI route, or a custom hostname you
-pointed at Cosmos.
+host. Cosmos 0.23.4 shows a separate hostname field for each route that has
+`UseHost=true`; set the API, health and UI fields to exactly the same hostname.
+Use the host Cosmos assigned to the UI route, or a custom hostname you pointed
+at Cosmos.
 
 | Path prefix | Target | Cosmos auth | Extra header |
 | --- | --- | --- | --- |
@@ -124,9 +128,10 @@ pointed at Cosmos.
 | `/health` | `http://media-manager-api-1:8080` | owner login | none |
 | `/` (catch-all) | `http://media-manager-ui-1:3000` | owner login | none |
 
-Production uses `Mode=SERVAPP`, `UseHost=true`, `UsePathPrefix=true` for
-`/api` and `/health`, an empty path prefix for the UI, `StripPathPrefix=false`,
-`Timeout=14400000` (4 hours) and `AdminOnly=false`.
+Production uses `Mode=SERVAPP`, `UseHost=true`, the same explicit host for all
+three routes, `UsePathPrefix=true` for `/api` and `/health`, an empty path prefix
+for the UI, `StripPathPrefix=false`, `Timeout=14400000` (4 hours) and
+`AdminOnly=true` for all three routes.
 
 Important details:
 
@@ -137,9 +142,16 @@ Important details:
 - Do not strip the path prefix. The API expects the `/api/...` path.
 - Set the route timeout high enough for long downloads and backups; production
   uses 4 hours.
-- `AuthEnabled` must be on for all three routes. `AdminOnly` is optional:
-  production leaves it off and lets any signed-in Cosmos user in; enable it if
-  you want to restrict Media Manager to Cosmos admins.
+- `AuthEnabled` and `AdminOnly` must be on for all three routes. This makes the
+  API, health and UI owner/admin-only; a signed-in non-admin Cosmos user must
+  not receive the Media Manager owner token. The API and health routes must also
+  use `UseHost=true` with the same host as the UI, otherwise `/api` can match on
+  another Cosmos app's hostname.
+- After saving, confirm all three stored routes show the same `host`. The
+  wizard overwrites each template route's host from its own hostname field, so
+  changing only the UI field can leave `/api` and `/health` on a different
+  host; `/api` would then fall through to the UI catch-all and fail closed
+  without bearer injection.
 - The `/api` route's `ExtraHeaders` entry is what authenticates the browser to
   the API. Get the token value from `.env` on the server:
 
@@ -363,9 +375,10 @@ major update. Cosmos routes and container names do not change.
 - Do not expose the API port. It is bound to loopback for machine checks.
 - Keep `.env` and `.env.integrations` at mode `600`; they contain the database
   password, owner token, backup key and integration secrets.
-- There is one Media Manager owner token. Anyone who can sign in through Cosmos
-  and reach the routes has owner access unless you enable `AdminOnly` on the
-  routes. Use Cosmos users/admins deliberately.
+- There is one Media Manager owner token. All three routes require
+  `AdminOnly=true`; do not grant Cosmos `PERM_ADMIN_READ` to non-owner roles or
+  API tokens, because that permission is the route's admin gate. Do not share
+  the owner token or run a second proxy that injects it.
 - There is no separate Caddy or Basic-auth edge here. Cosmos is the supported
   public edge, matching production.
 
