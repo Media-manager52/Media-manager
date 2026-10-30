@@ -217,6 +217,7 @@ Restore procedure (manual):
    decrypt it **before** stopping the stack:
    ```sh
    docker compose cp media-manager.mmbak api:/tmp/media-manager.mmbak
+   docker compose exec -T --user root api chmod 0644 /tmp/media-manager.mmbak
    docker compose exec -T api media-manager backup-decrypt /tmp/media-manager.mmbak /tmp/media-manager.dump
    docker compose cp api:/tmp/media-manager.dump ./media-manager.dump
    ```

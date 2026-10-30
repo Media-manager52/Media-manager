@@ -85,9 +85,9 @@ Do not merge these from this work. They require the grouped owner approval below
   destination were supplied. Local backups are not sufficient disaster recovery.
 - **PLAN ONLY:** schema 49→50 is not applied in production. The exact deployment,
   backup, rollback, and post-checks are in
-  [schema-50-deployment](../operations/schema-50-deployment.md). Schema 50 images
-  must not run against schema 49, and schema 49 images must not run against a
-  migrated schema 50 database.
+  [schema-50-deployment](../operations/schema-50-deployment.md). Schema 50 images run the migration automatically at API startup; they must not
+  be started against schema 49 without a verified backup and an approved
+  deployment. Schema 49 images must not run against a migrated schema 50 database.
 
 ## Release engineering
 

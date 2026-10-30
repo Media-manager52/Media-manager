@@ -81,6 +81,7 @@ Use the existing screens; no generated defaults are assumed:
 - To turn an authenticated `.mmbak` file into the PostgreSQL custom dump:
   ```sh
   docker compose -f compose.release.yaml cp media-manager.mmbak api:/tmp/media-manager.mmbak
+  docker compose -f compose.release.yaml exec -T --user root api chmod 0644 /tmp/media-manager.mmbak
   docker compose -f compose.release.yaml exec -T api \
     media-manager backup-decrypt /tmp/media-manager.mmbak /tmp/media-manager.dump
   docker compose -f compose.release.yaml cp api:/tmp/media-manager.dump ./media-manager.dump
