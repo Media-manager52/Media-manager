@@ -93,6 +93,13 @@ func runHandler(ctx context.Context, cancel context.CancelFunc, handler Handler,
 	}
 }
 
+// RunBatch processes at most one currently claimable outbox event. It is the
+// testable boundary for the same claim/handler/acknowledgement path used by
+// Run; callers must not use it as a replacement worker loop.
+func (worker *Worker) RunBatch(ctx context.Context) error {
+	return worker.runBatch(ctx)
+}
+
 func (worker *Worker) Run(ctx context.Context) error {
 	if worker.Store == nil || worker.Owner == "" {
 		return errors.New("outbox worker is not configured")

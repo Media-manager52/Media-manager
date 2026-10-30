@@ -291,6 +291,7 @@ func run() error {
 	}()
 	go func() {
 		_, _ = store.PlanDueRecyclePurges(workerContext, time.Now().UTC(), 100)
+		_ = store.DeleteExpiredSearchPartialRetries(workerContext, time.Now().UTC())
 		_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 		_, _ = store.QueueAltMountRepairSweeps(workerContext, time.Now().UTC())
 		if seerrEnabled {
@@ -307,6 +308,7 @@ func run() error {
 			select {
 			case <-purgeTicker.C:
 				_, _ = store.PlanDueRecyclePurges(workerContext, time.Now().UTC(), 100)
+				_ = store.DeleteExpiredSearchPartialRetries(workerContext, time.Now().UTC())
 			case <-repairTicker.C:
 				// AltMount marks files whose Usenet articles disappeared as
 				// corrupted; Media Manager acquires their replacement itself.

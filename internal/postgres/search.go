@@ -33,6 +33,9 @@ type SearchContext struct {
 	Blocks              []ReleaseBlock
 	Exclusions          []WorkflowReleaseExclusion
 	OpenRound           *AcquisitionRound
+	// SearchRoundID is the open round for targeted searches or the exhausted
+	// discovery round for recovery. It scopes durable partial-retry evidence.
+	SearchRoundID uuid.UUID
 	// Complete searches rotate query titles; partial coverage retries keep the
 	// same title instead of skipping an alias before every provider saw it.
 	CompleteSearches uint64
@@ -58,6 +61,16 @@ type SearchPersistenceOptions struct {
 	RecoveryRescan   bool
 	RescanGeneration int64
 	IndexerOutcomes  []SearchIndexerOutcome
+	// PartialRetry is the durable chain for this search. It is nil for direct
+	// repository callers that do not have a search round/intent.
+	PartialRetry *SearchPartialRetry
+	// ReusedIndexerIDs marks completed providers whose evidence was loaded
+	// instead of queried during this attempt.
+	ReusedIndexerIDs map[uuid.UUID]bool
+	// Continuation is true only for a targeted automatic incomplete-run event.
+	// Recovery discovery uses RescanGeneration instead; it must not treat a
+	// waiting workflow's paced search event as an owner supersede.
+	Continuation bool
 }
 
 type WorkflowReleaseExclusion struct {
@@ -84,6 +97,14 @@ func (item WorkflowReleaseExclusion) MatchesTitle(title string) bool {
 type EvaluatedObservation struct {
 	Observation releases.Observation
 	Evaluation  releases.Evaluation
+	// ProviderResult is true only for observations returned by a provider in
+	// this execution. Held-candidate re-evaluations must never be recorded as
+	// fresh provider coverage.
+	ProviderResult bool
+	// Reused is true for evidence carried from an earlier successful provider
+	// in the same partial-retry chain. Reused evidence must not move the
+	// candidate's observation pointer or inflate its observation count.
+	Reused bool
 }
 
 func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID) (SearchContext, error) {
@@ -244,16 +265,19 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 		round.ID, _ = uuid.Parse(roundText)
 		round.PolicyVersion = uint64(roundPolicyVersion)
 		result.OpenRound = &round
+		result.SearchRoundID = round.ID
 		result.PolicyVersion = round.PolicyVersion
 		result.Policy = append(json.RawMessage(nil), round.Policy...)
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return SearchContext{}, err
 	} else {
-		err = store.Pool.QueryRow(ctx, `SELECT round.policy_version,round.policy_snapshot
+		var discoveryRoundText string
+		err = store.Pool.QueryRow(ctx, `SELECT round.id::text,round.policy_version,round.policy_snapshot
 			FROM workflow_retry_discovery discovery
 			JOIN acquisition_rounds round ON round.id=discovery.exhausted_round_id AND round.workflow_id=discovery.workflow_id
-			WHERE discovery.workflow_id=$1 AND discovery.state IN ('waiting','ready') AND round.state='exhausted'`, result.Workflow.ID.String()).Scan(&roundPolicyVersion, &result.Policy)
+			WHERE discovery.workflow_id=$1 AND discovery.state IN ('waiting','ready') AND round.state='exhausted'`, result.Workflow.ID.String()).Scan(&discoveryRoundText, &roundPolicyVersion, &result.Policy)
 		if err == nil {
+			result.SearchRoundID, _ = uuid.Parse(discoveryRoundText)
 			result.PolicyVersion = uint64(roundPolicyVersion)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return SearchContext{}, err
@@ -304,6 +328,36 @@ func insertReleaseObservation(ctx context.Context, transaction pgx.Tx, observati
 func (store *Store) PersistSearch(ctx context.Context, search SearchContext, queryFingerprint []byte, evaluated []EvaluatedObservation, options SearchPersistenceOptions, now time.Time) (workflows.Workflow, error) {
 	if !validSearchIndexerOutcomes(search.Indexers, options.IndexerOutcomes) {
 		return workflows.Workflow{}, errors.New("search result does not cover its exact planned indexer set")
+	}
+	if options.PartialRetry != nil {
+		planned := make([]uuid.UUID, 0, len(search.Indexers))
+		for _, integration := range search.Indexers {
+			planned = append(planned, integration.ID)
+		}
+		if options.PartialRetry.WorkflowID != search.Workflow.ID || options.PartialRetry.RoundID != search.SearchRoundID || !sameIndexerIDSet(options.PartialRetry.PlannedIndexerIDs, planned) {
+			return workflows.Workflow{}, ErrSearchPartialRetryInvalid
+		}
+		plannedSet := make(map[uuid.UUID]bool, len(planned))
+		for _, id := range planned {
+			plannedSet[id] = true
+		}
+		for id := range options.PartialRetry.CompletedIndexers {
+			if !plannedSet[id] {
+				return workflows.Workflow{}, ErrSearchPartialRetryInvalid
+			}
+		}
+		for id := range options.ReusedIndexerIDs {
+			if !plannedSet[id] {
+				return workflows.Workflow{}, ErrSearchPartialRetryInvalid
+			}
+		}
+		expectedMode := "targeted"
+		if options.RecoveryRescan {
+			expectedMode = "recovery"
+		}
+		if options.PartialRetry.Mode != expectedMode {
+			return workflows.Workflow{}, ErrSearchPartialRetryInvalid
+		}
 	}
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -384,6 +438,23 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			return workflows.Workflow{}, ErrConcurrentModification
 		}
 	}
+	if options.Continuation {
+		pending, err := store.hasPendingOwnerSearch(ctx, transaction, search.Workflow.ID, search.Workflow.Revision, uuid.UUID{})
+		if err != nil {
+			return workflows.Workflow{}, err
+		}
+		if pending {
+			// An owner explicitly requested a fresh search after this
+			// continuation was queued. Do not let the stale event reuse
+			// completed-provider evidence and overwrite the owner's event.
+			return workflows.Workflow{}, ErrConcurrentModification
+		}
+	}
+	if options.PartialRetry != nil && len(options.PartialRetry.CompletedIndexers) > 0 {
+		if err := store.validateSearchPartialEvidence(ctx, transaction, *options.PartialRetry); err != nil {
+			return workflows.Workflow{}, err
+		}
+	}
 	runID := uuid.NewV7()
 	mode, runState := "targeted", "partial"
 	if searchRunComplete(options.IndexerOutcomes) {
@@ -412,6 +483,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	evaluations := make([]releases.Evaluation, 0, len(evaluated))
 	candidateByObservation := map[uuid.UUID]uuid.UUID{}
 	candidateSequenceByObservation := map[uuid.UUID]int64{}
+	freshEvidence := map[uuid.UUID][]SearchCandidateEvidence{}
 	for _, entry := range evaluated {
 		observation := newznab.SanitizeObservation(entry.Observation)
 		evaluation := newznab.SanitizeEvaluation(entry.Evaluation)
@@ -441,20 +513,39 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		var firstSeenSequence int64
 		locatorReference := newznab.DownloadLocatorReference(observation.DownloadURL, observation.NativeGUID)
 		err = transaction.QueryRow(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at,first_observed_at,last_observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)
-			ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET search_run_id=EXCLUDED.search_run_id,observation_id=EXCLUDED.observation_id,title=EXCLUDED.title,download_locator_ref=EXCLUDED.download_locator_ref,last_observed_at=GREATEST(release_candidates.last_observed_at,EXCLUDED.last_observed_at),observation_count=release_candidates.observation_count+1
-			RETURNING id::text,first_seen_sequence`, candidateID.String(), search.Workflow.ID.String(), runID.String(), persistedObservationID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Title, locatorReference, now.UTC()).Scan(&returned, &firstSeenSequence)
+			ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET
+				search_run_id=CASE WHEN $10 THEN release_candidates.search_run_id ELSE EXCLUDED.search_run_id END,
+				observation_id=CASE WHEN $10 THEN release_candidates.observation_id ELSE EXCLUDED.observation_id END,
+				title=CASE WHEN $10 THEN release_candidates.title ELSE EXCLUDED.title END,
+				download_locator_ref=CASE WHEN $10 THEN release_candidates.download_locator_ref ELSE EXCLUDED.download_locator_ref END,
+				last_observed_at=CASE WHEN $10 THEN release_candidates.last_observed_at ELSE GREATEST(release_candidates.last_observed_at,EXCLUDED.last_observed_at) END,
+				observation_count=CASE WHEN $10 THEN release_candidates.observation_count ELSE release_candidates.observation_count+1 END
+			RETURNING id::text,first_seen_sequence`, candidateID.String(), search.Workflow.ID.String(), runID.String(), persistedObservationID.String(), observation.IndexerID.String(), observation.NativeGUID, observation.Title, locatorReference, now.UTC(), entry.Reused).Scan(&returned, &firstSeenSequence)
 		if err != nil {
 			return workflows.Workflow{}, err
 		}
 		candidateID, _ = uuid.Parse(returned)
 		candidateByObservation[sourceObservationID] = candidateID
 		candidateSequenceByObservation[sourceObservationID] = firstSeenSequence
+		if entry.ProviderResult {
+			freshEvidence[observation.IndexerID] = appendUniqueCandidateEvidence(freshEvidence[observation.IndexerID], SearchCandidateEvidence{CandidateID: candidateID, ObservationID: persistedObservationID})
+		}
 		reasons, _ := json.Marshal(evaluation.Explanations)
 		if _, err := transaction.Exec(ctx, `INSERT INTO candidate_decisions(workflow_id,candidate_id,policy_version,verdict,score,reasons,actor,decided_at) VALUES($1,$2,$3,$4,$5,$6,'policy',$7) ON CONFLICT(workflow_id,candidate_id,policy_version) DO UPDATE SET verdict=EXCLUDED.verdict,score=EXCLUDED.score,reasons=EXCLUDED.reasons,decided_at=EXCLUDED.decided_at`, search.Workflow.ID.String(), candidateID.String(), int64(search.PolicyVersion), evaluation.Verdict, evaluation.Score, string(reasons), now.UTC()); err != nil {
 			return workflows.Workflow{}, err
 		}
 		observations = append(observations, observation)
 		evaluations = append(evaluations, evaluation)
+	}
+	nextCompleted := map[uuid.UUID][]SearchCandidateEvidence{}
+	if options.PartialRetry != nil {
+		nextCompleted = cloneSearchPartialEvidence(options.PartialRetry.CompletedIndexers)
+		for _, outcome := range options.IndexerOutcomes {
+			if outcome.State != "succeeded" || options.ReusedIndexerIDs[outcome.IndexerInstanceID] {
+				continue
+			}
+			nextCompleted[outcome.IndexerInstanceID] = append([]SearchCandidateEvidence(nil), freshEvidence[outcome.IndexerInstanceID]...)
+		}
 	}
 	ranked := releases.Rank(observations, evaluations)
 	subtitlePolicy, err := subtitles.ParsePolicy(search.Policy)
@@ -465,8 +556,14 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		ranked = releases.RankForDanishSubtitles(observations, evaluations)
 	}
 	if options.RecoveryRescan {
-		if err := store.persistRecoveryDiscovery(ctx, transaction, search, ranked, candidateByObservation, candidateSequenceByObservation, options, now); err != nil {
+		partialNext, err := store.persistRecoveryDiscovery(ctx, transaction, search, ranked, candidateByObservation, candidateSequenceByObservation, options, now)
+		if err != nil {
 			return workflows.Workflow{}, err
+		}
+		if options.PartialRetry != nil {
+			if err := persistSearchPartialRetryState(ctx, transaction, *options.PartialRetry, nextCompleted, partialNext, now); err != nil {
+				return workflows.Workflow{}, err
+			}
 		}
 		if err := transaction.Commit(ctx); err != nil {
 			return workflows.Workflow{}, err
@@ -556,9 +653,15 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		if !searchRunComplete(options.IndexerOutcomes) {
 			retryReason = "Search incomplete: some indexers were deferred or failed; retrying."
 			nextSearchAt = incompleteSearchRetryAt(options.IndexerOutcomes, now)
-			payload, _ = json.Marshal(map[string]string{"workflow_id": search.Workflow.ID.String(), "reason": retryReason})
+			payload, _ = json.Marshal(map[string]any{"workflow_id": search.Workflow.ID.String(), "reason": retryReason, "partial_retry": true})
 		}
 		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$6) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), newRevision, string(payload), now.UTC(), nextSearchAt); err != nil {
+			return workflows.Workflow{}, err
+		}
+	}
+	if options.PartialRetry != nil {
+		partialNext := selected == nil && (to == workflows.StateWaiting || to == workflows.StateHeld) && !searchRunComplete(options.IndexerOutcomes)
+		if err := persistSearchPartialRetryState(ctx, transaction, *options.PartialRetry, nextCompleted, partialNext, now); err != nil {
 			return workflows.Workflow{}, err
 		}
 	}
@@ -579,7 +682,7 @@ const (
 
 // Retry incomplete coverage without counting it as evidence of absence or
 // increasing the empty-search backoff. Keep a 30-minute floor because this
-// search path queries all providers again, including those that succeeded.
+// path is also used by direct repository callers without durable partial state.
 func incompleteSearchRetryAt(outcomes []SearchIndexerOutcome, now time.Time) time.Time {
 	floor := now.UTC().Add(noSelectionRetryBase)
 	var earliest *time.Time
@@ -617,7 +720,7 @@ func noSelectionRetryDelay(roundRuns int) time.Duration {
 	return delay
 }
 
-func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pgx.Tx, search SearchContext, ranked []releases.Evaluation, candidates map[uuid.UUID]uuid.UUID, sequences map[uuid.UUID]int64, options SearchPersistenceOptions, now time.Time) error {
+func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pgx.Tx, search SearchContext, ranked []releases.Evaluation, candidates map[uuid.UUID]uuid.UUID, sequences map[uuid.UUID]int64, options SearchPersistenceOptions, now time.Time) (bool, error) {
 	var exhaustedRoundText, state string
 	var generation, cutoff, completeNoNew int64
 	err := transaction.QueryRow(ctx, `SELECT discovery.exhausted_round_id::text,discovery.state,discovery.rescan_generation,round.novelty_cutoff_sequence,discovery.complete_no_new_scans
@@ -625,13 +728,13 @@ func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pg
 		JOIN acquisition_rounds round ON round.id=discovery.exhausted_round_id AND round.workflow_id=discovery.workflow_id
 		WHERE discovery.workflow_id=$1 FOR UPDATE OF discovery,round`, search.Workflow.ID.String()).Scan(&exhaustedRoundText, &state, &generation, &cutoff, &completeNoNew)
 	if errors.Is(err, pgx.ErrNoRows) || state != "waiting" || generation != options.RescanGeneration {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if search.Workflow.State != workflows.StateWaiting {
-		return ErrConcurrentModification
+		return false, ErrConcurrentModification
 	}
 	var readyCandidate *uuid.UUID
 	var readySequence int64
@@ -650,7 +753,7 @@ func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pg
 			UNION ALL
 			SELECT 1 FROM workflow_release_exclusions exclusion JOIN release_candidates candidate ON candidate.workflow_id=exclusion.workflow_id AND candidate.indexer_instance_id=exclusion.indexer_instance_id AND candidate.native_key=exclusion.native_key WHERE exclusion.workflow_id=$1 AND candidate.id=$2
 		)`, search.Workflow.ID.String(), candidate.String()).Scan(&disqualified); err != nil {
-			return err
+			return false, err
 		}
 		if disqualified {
 			continue
@@ -662,12 +765,12 @@ func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pg
 		command, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='ready',next_rescan_at=NULL,last_scan_at=$2,last_scan_complete=$3,complete_no_new_scans=0,pending_indexer_ids=NULL,ready_candidate_id=$4,ready_first_seen_sequence=$5,updated_at=$2
 			WHERE workflow_id=$1 AND state='waiting' AND rescan_generation=$6`, search.Workflow.ID.String(), now.UTC(), searchRunComplete(options.IndexerOutcomes), readyCandidate.String(), readySequence, generation)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if command.RowsAffected() != 1 {
-			return ErrConcurrentModification
+			return false, ErrConcurrentModification
 		}
-		return nil
+		return false, nil
 	}
 	complete := searchRunComplete(options.IndexerOutcomes)
 	pendingIndexerIDs := []string{}
@@ -700,15 +803,40 @@ func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pg
 	command, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET rescan_generation=$2,next_rescan_at=$3,last_scan_at=$4,last_scan_complete=$5,complete_no_new_scans=$6,pending_indexer_ids=$7,updated_at=$4
 		WHERE workflow_id=$1 AND state='waiting' AND rescan_generation=$8`, search.Workflow.ID.String(), nextGeneration, next.UTC(), now.UTC(), complete, completeNoNew, pendingIndexerIDs, generation)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if command.RowsAffected() != 1 {
-		return ErrConcurrentModification
+		return false, ErrConcurrentModification
 	}
-	payload, _ := json.Marshal(map[string]any{"workflow_id": search.Workflow.ID.String(), "rescan_generation": nextGeneration})
+	payload, _ := json.Marshal(map[string]any{"workflow_id": search.Workflow.ID.String(), "rescan_generation": nextGeneration, "partial_retry": !complete})
 	_, err = transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested',$4,$5,$6) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), nextGeneration, payload, now.UTC(), next.UTC())
-	return err
+	return !complete, err
+}
+
+// hasPendingOwnerSearch reports whether a normal (unmarked) search event for
+// this exact workflow revision is still outstanding. A continuation is allowed
+// to recover only its own interrupted execution; it must not race an explicit
+// owner search that advanced the workflow revision and queued a fresh event.
+func (store *Store) HasPendingOwnerSearch(ctx context.Context, workflowID uuid.UUID, revision uint64, excludeEventID uuid.UUID) (bool, error) {
+	return store.hasPendingOwnerSearch(ctx, store.Pool, workflowID, revision, excludeEventID)
+}
+
+type pendingOwnerSearchQueryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (store *Store) hasPendingOwnerSearch(ctx context.Context, queryer pendingOwnerSearchQueryer, workflowID uuid.UUID, revision uint64, excludeEventID uuid.UUID) (bool, error) {
+	var pending bool
+	err := queryer.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM outbox_events
+		WHERE aggregate_type='workflow' AND aggregate_id=$1
+		  AND event_type='workflow.search_requested' AND aggregate_revision=$2
+		  AND completed_at IS NULL
+		  AND ($3::uuid IS NULL OR id<>$3)
+		  AND COALESCE(payload->>'partial_retry','false') <> 'true'
+	)`, workflowID.String(), int64(revision), excludeEventID.String()).Scan(&pending)
+	return pending, err
 }
 
 func searchRunComplete(outcomes []SearchIndexerOutcome) bool {

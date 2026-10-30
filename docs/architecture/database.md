@@ -7,7 +7,7 @@ belongs. Reading this before touching SQL saves hours.
 
 - Migrations are **embedded** Go/SQL: `internal/postgres/migrations/NNNN_name.sql`,
   embedded via `//go:embed migrations/*.sql` in `migrate.go`.
-- `CurrentSchemaVersion int64 = 49` in `migrate.go` is the single version gate.
+- `CurrentSchemaVersion int64 = 50` in `migrate.go` is the single version gate.
   `Migrate` applies every file whose numeric prefix is `<= CurrentSchemaVersion`
   and not yet in `schema_migrations`.
 - Each migration runs in its own transaction; a global advisory lock
@@ -97,6 +97,7 @@ non-obvious.
 | `workflow_package_exclusions` | Canonical NZB package exclusions. |
 | `workflow_submitted_packages` | Package identity → submission dedup. |
 | `workflow_retry_discovery` | Low-priority discovery state, completeness, jitter, new-identity flags. |
+| `search_partial_retries` | Durable targeted/recovery partial-search completion evidence keyed by workflow, round, mode and search-intent fingerprint; stores exact candidate and immutable observation IDs. |
 
 ### Search, evidence, selection, blocklist
 

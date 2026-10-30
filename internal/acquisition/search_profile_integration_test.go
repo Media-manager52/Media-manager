@@ -177,6 +177,11 @@ func movieSearchService(store *postgres.Store, server *httptest.Server) *SearchS
 
 func configureMovieSearchIndexer(t *testing.T, store *postgres.Store, baseURL string, legacyOnly bool) postgres.Integration {
 	t.Helper()
+	return configureMovieSearchIndexerNamed(t, store, baseURL, "Profile indexer", legacyOnly)
+}
+
+func configureMovieSearchIndexerNamed(t *testing.T, store *postgres.Store, baseURL, name string, legacyOnly bool) postgres.Integration {
+	t.Helper()
 	ctx := context.Background()
 	config, err := json.Marshal(map[string]any{
 		"base_url":                           baseURL,
@@ -188,7 +193,7 @@ func configureMovieSearchIndexer(t *testing.T, store *postgres.Store, baseURL st
 	if err != nil {
 		t.Fatal(err)
 	}
-	indexer, err := store.CreateIntegration(ctx, postgres.Integration{Kind: "newznab", Name: "Profile indexer", Enabled: true, Config: config, SecretRef: "MOVIE_SEARCH_TEST_KEY"})
+	indexer, err := store.CreateIntegration(ctx, postgres.Integration{Kind: "newznab", Name: name, Enabled: true, Config: config, SecretRef: "MOVIE_SEARCH_TEST_KEY"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -288,9 +288,16 @@ observations, candidates, decisions, and a selection. Then:
   budgets on repeat empty searches.
 - **Incomplete coverage without a selection** → stays `waiting`/`held` with an
   explicit incomplete-search reason, including historical partial runs in the
-  request summary. It does not advance the empty-search backoff. Retry the
-  earliest deferred/failed provider, with a 30-minute floor because this path
-  queries all providers again. Missing retry times use that same floor.
+  request summary. It does not advance the empty-search backoff. The automatic
+  continuation queries the providers that were not successfully completed and
+  re-evaluates the carried evidence, but selection remains prompt: if an already
+  observed candidate is eligible under the current policy, it is ranked and
+  selected without waiting for a deferred provider. The continuation has a
+  30-minute floor; missing retry times use that same floor.
+- **Owner search supersedes a continuation** → an owner-triggered search that is
+  pending at the current workflow revision invalidates an older automatic
+  continuation. The continuation cannot reuse partial state or commit a stale
+  result; the owner search runs with a fresh intent and queries its full plan.
 - **All indexers failed** → the search event is deferred/failed with a safe code;
   the workflow is not falsely advanced.
 
