@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { LIVE_REFRESH_MS, useAutoRefresh } from "@/hooks/use-auto-refresh"
+import { usePagedList } from "@/hooks/use-paged-list"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
@@ -48,7 +49,9 @@ import {
   loadCalendar,
   loadCatalogMedia,
   loadManagedFile,
-  loadManagedFiles,
+  loadManagedFilesPage,
+  loadRequestsPage,
+  loadWantedPage,
   loadNotificationDeliveries,
   loadNotificationDestinations,
   loadImportList,
@@ -61,9 +64,8 @@ import {
   loadSystemHealth,
   loadSystemInfo,
   loadTasks,
-  loadWanted,
-  loadRequests,
   loadWorkflows,
+  loadWorkflowsPage,
   refreshMediaMetadata,
   retryBackupOffsite,
   setNotificationDestinationEnabled,
@@ -76,6 +78,7 @@ import {
   type APISystemInfo,
   type APITasks,
   type APIImportList,
+  type APIManagedFile,
   type APIRequest,
   type APIRequestDetail,
   type APIWantedItem,
@@ -182,7 +185,9 @@ function qualityFact(evidence: Record<string, unknown>, key: string) {
 
 const activityLoader = (signal: AbortSignal) => loadActivity(signal)
 const calendarLoader = (signal: AbortSignal) => loadCalendar(signal)
-const filesLoader = (signal: AbortSignal) => loadManagedFiles(signal)
+const filesPageLoader = (offset: number, limit: number, signal: AbortSignal) => loadManagedFilesPage({ offset, limit, signal })
+const wantedPageLoader = (offset: number, limit: number, signal: AbortSignal) => loadWantedPage({ offset, limit, signal })
+const requestsPageLoader = (offset: number, limit: number, signal: AbortSignal) => loadRequestsPage({ offset, limit, signal })
 const releasesLoader = (signal: AbortSignal) => loadReleaseCandidates(signal)
 const blocksLoader = (signal: AbortSignal) => loadReleaseBlocks(signal)
 const sourcesLoader = (signal: AbortSignal) => loadSources(signal)
@@ -193,7 +198,6 @@ const notificationDestinationsLoader = (signal: AbortSignal) => loadNotification
 const notificationDeliveriesLoader = (signal: AbortSignal) => loadNotificationDeliveries(signal)
 const importListsLoader = (signal: AbortSignal) => loadImportLists(signal)
 const backupsLoader = (signal: AbortSignal) => loadBackups(signal)
-const requestsLoader = (signal: AbortSignal) => loadRequests(signal)
 
 // The overview groups persisted workflow states truthfully. Real acquisition
 // work is "actively acquiring"; normal monitoring, pacing, and future air dates
@@ -269,12 +273,24 @@ export function overviewQueueItems(workflows: APIWorkflow[], wanted: APIWantedIt
   return items
 }
 
+async function loadAllLibraryPages<T>(loadPage: (offset: number, limit: number, signal: AbortSignal) => Promise<import("@/lib/media-manager-api").Page<T>>, signal: AbortSignal): Promise<T[]> {
+  const pageSize = 500
+  const maxPages = 20
+  const items: T[] = []
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await loadPage(page * pageSize, pageSize, signal)
+    items.push(...result.items)
+    if (!result.hasMore) return items
+  }
+  throw new Error(`Library associations exceeded the safe ${pageSize * maxPages}-record load limit`)
+}
+
 async function loadMediaLibrary(kind: "movie" | "series", signal: AbortSignal) {
   const [media, files, wanted, workflows] = await Promise.all([
     loadCatalogMedia(signal),
-    loadManagedFiles(signal),
-    loadWanted(signal),
-    loadWorkflows(false, signal),
+    loadAllLibraryPages<APIManagedFile>((offset, limit, pageSignal) => loadManagedFilesPage({ offset, limit, signal: pageSignal }), signal),
+    loadAllLibraryPages<APIWantedItem>((offset, limit, pageSignal) => loadWantedPage({ offset, limit, signal: pageSignal }), signal),
+    loadAllLibraryPages<APIWorkflow>((offset, limit, pageSignal) => loadWorkflowsPage({ active: false, offset, limit, signal: pageSignal }), signal),
   ])
   return buildMediaLibraryRecords(kind, media, files, wanted, workflows)
 }
@@ -640,8 +656,9 @@ export function RequestInspector({ request, detail, loading, error, onDecided }:
 }
 
 export function LiveRequestsScreen() {
-  const { data, error, refresh } = useLiveData(requestsLoader, { autoRefresh: true })
-  const items = React.useMemo(() => data ?? [], [data])
+  const page = usePagedList(requestsPageLoader, 100, { autoRefresh: true })
+  const { error, refresh } = page
+  const items = page.items
   const [filter, setFilter] = React.useState<RequestFilter>("all")
   const [query, setQuery] = React.useState("")
   const [selectedID, setSelectedID] = React.useState<string | null>(null)
@@ -674,8 +691,8 @@ export function LiveRequestsScreen() {
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, requester, ID" className="h-8 border-line bg-surface-2 pl-8 text-[12px] shadow-none" />
           </label>
         </div>
-        {!data && !error ? <div className="p-10 text-center text-[12px] text-fg-subtle">Loading persisted requests…</div>
-          : filtered.length === 0 ? <div className="p-10 text-center text-[12px] text-fg-subtle">{items.length === 0 ? "No Seerr-originated requests are persisted yet." : "No requests match the active filter."}</div>
+        {page.loading && items.length === 0 && !error ? <div className="p-10 text-center text-[12px] text-fg-subtle">Loading persisted requests…</div>
+          : filtered.length === 0 ? <div className="p-10 text-center text-[12px] text-fg-subtle">{items.length === 0 ? "No Seerr-originated requests are persisted yet." : "No requests match the active filter on the loaded pages."}</div>
           : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Status</TableHead><TableHead>Profile</TableHead><TableHead>Requester</TableHead><TableHead>Updated</TableHead></TableRow></TableHeader><TableBody>
             {filtered.map((item) => <TableRow key={item.id} onClick={() => setSelectedID(item.id)} className={cn("cursor-pointer", selectedID === item.id && "bg-brand-soft")}>
               <TableCell><div className="flex min-w-[220px] items-center gap-3"><MiniPoster src={item.poster_url} title={item.title || "Request"} /><div className="min-w-0"><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedID(item.id) }} aria-pressed={selectedID === item.id} className="block max-w-[260px] truncate text-left text-[13px] font-semibold text-fg outline-none hover:underline hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring">{item.title || `Request ${item.request_id}`}</button><div className="text-[12px] text-fg-muted">{item.media_kind === "series" ? "TV" : "Movie"} · {item.year ?? "Year unknown"} · Seerr #{item.request_id}{item.seerr_instance_name ? ` · ${item.seerr_instance_name}` : ""}</div>{item.media_kind === "series" && item.season_count ? <div className="text-[12px] text-fg-subtle">{item.available_seasons}/{item.season_count} seasons available</div> : null}</div></div></TableCell>
@@ -687,13 +704,9 @@ export function LiveRequestsScreen() {
           </TableBody></Table></div>}
       </Panel>
       {selected ? <RequestInspector request={selected} detail={detail.data} loading={detail.data === null && !detail.error} error={detail.error} onDecided={refresh} /> : <Panel title="Request detail" subtitle="Select a request to inspect its exact intake and lifecycle state."><div className="rounded-lg border border-dashed border-line-strong px-3 py-10 text-center text-[13px] text-fg-muted">No request is selected.</div></Panel>}
+      <ListFooter loaded={page.loaded} hasMore={page.hasMore} loading={page.loadingMore} onLoadMore={page.loadMore} />
     </div>
   </div>
-}
-
-const wantedScreenLoader = async (signal: AbortSignal) => {
-  const [wanted, workflows, media] = await Promise.all([loadWanted(signal), loadWorkflows(false, signal), loadCatalogMedia(signal)])
-  return { wanted, workflows, posters: new Map(media.map((item) => [item.id, item.metadata?.poster_url])) }
 }
 
 /**
@@ -702,9 +715,20 @@ const wantedScreenLoader = async (signal: AbortSignal) => {
  * is already moving. Waiting is never styled as failure.
  */
 export function LiveWantedScreen() {
-  const { data, error, refresh } = useLiveData(wantedScreenLoader, { autoRefresh: true })
-  const items = data?.wanted ?? []
-  const workflows = data?.workflows ?? []
+  const page = usePagedList(wantedPageLoader, 100, { autoRefresh: true, keyOf: (item) => item.workflow_id })
+  const [support, setSupport] = React.useState<{ workflows: APIWorkflow[]; posters: Map<string, string | undefined> }>({ workflows: [], posters: new Map() })
+  const [supportError, setSupportError] = React.useState("")
+  React.useEffect(() => {
+    const controller = new AbortController()
+    Promise.all([loadWorkflows(false, controller.signal), loadCatalogMedia(controller.signal)])
+      .then(([workflows, media]) => { setSupport({ workflows, posters: new Map(media.map((item) => [item.id, item.metadata?.poster_url])) }); setSupportError("") })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setSupportError(reason instanceof Error ? reason.message : "Could not load wanted context") })
+    return () => controller.abort()
+  }, [])
+  const items = page.items
+  const workflows = support.workflows
+  const error = page.error || supportError
+  const refresh = page.refresh
   const byID = new Map(workflows.map((workflow) => [workflow.id, workflow]))
   const attention = attentionEntries(items, workflows)
   const attentionIDs = new Set(attention.map((entry) => entry.key))
@@ -712,11 +736,11 @@ export function LiveWantedScreen() {
   const progressIDs = new Set(inProgress.map((item) => item.workflow_id))
   const missing = items.filter((item) => item.gap === "missing" && !attentionIDs.has(item.workflow_id) && !progressIDs.has(item.workflow_id))
   const upgrades = items.filter((item) => item.gap === "upgrade" && !attentionIDs.has(item.workflow_id) && !progressIDs.has(item.workflow_id))
-  const posterFor = (id: string) => data?.posters.get(id)
+  const posterFor = (id: string) => support.posters.get(id)
   const itemCell = (item: APIWantedItem) => <div className="flex min-w-[220px] items-center gap-2.5"><MiniPoster src={posterFor(item.media_id)} title={item.title} /><div className="min-w-0"><Link className="block truncate text-[12.5px] font-semibold text-fg hover:underline" href={mediaHref(item.media_kind, item.media_id)}>{item.title}{item.year ? ` (${item.year})` : ""}</Link><small className="text-[10.5px] text-fg-subtle">{item.media_kind === "series" ? "TV" : "Movie"} · {item.variant}</small></div></div>
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
-    {!data && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Tabs defaultValue={attention.length ? "attention" : missing.length ? "missing" : upgrades.length ? "upgrades" : "progress"} className="gap-4">
+    {page.loading && items.length === 0 && !error ? <LoadingPanel label="Deriving wanted and upgrade gaps…" /> : <Tabs defaultValue={attention.length ? "attention" : missing.length ? "missing" : upgrades.length ? "upgrades" : "progress"} className="gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <TabsList className="mm-seg" aria-label="Wanted sections">
           <TabsTrigger value="attention">Needs attention <em className={cn("ml-1 not-italic", attention.length && "text-warn")}>{attention.length}</em></TabsTrigger>
@@ -752,6 +776,7 @@ export function LiveWantedScreen() {
         </Panel>
       </TabsContent>
     </Tabs>}
+    <ListFooter loaded={page.loaded} hasMore={page.hasMore} loading={page.loadingMore} onLoadMore={page.loadMore} />
   </div>
 }
 
@@ -804,16 +829,21 @@ export function LiveActivityHistoryScreen({ logs = false }: { logs?: boolean }) 
 }
 
 export function LiveFilesScreen() {
-  const { data, error, refresh } = useLiveData(filesLoader)
-  const items = data ?? []
+  const page = usePagedList(filesPageLoader, 100)
+  const items = page.items
   const current = items.filter((item) => item.state === "current").length
   const confirmed = items.filter((item) => item.plex_confirmed).length
   const attention = items.filter((item) => item.state === "quarantined").length
   return <div className="space-y-4">
-    {error ? <ErrorNotice error={error} /> : null}
-    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Current" value={String(current)} note="Active managed library files" tone="good" icon={Files} /><MetricCard label="Plex confirmed" value={String(confirmed)} note="Exact observed path and identity" tone="info" icon={CheckCircle2} /><MetricCard label="Quarantined" value={String(attention)} note="Publication needs review" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
-    {!data && !error ? <LoadingPanel /> : <Panel flush title="Managed files" subtitle="Plex-safe AltMount symlinks and reviewed adopted real files with persisted provenance." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Destination</TableHead><TableHead>Origin</TableHead><TableHead>Quality evidence</TableHead><TableHead>State</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell><Link className="font-semibold text-fg hover:text-info" href={`/files/${item.id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link><div className="mt-1 text-[12px] text-fg-subtle">{item.root_name} · {item.variant}</div></TableCell><TableCell className="max-w-xs break-all font-mono text-[12px]">{item.destination_relative}</TableCell><TableCell>{item.origin === "adoption" ? "Adopted real file" : "AltMount symlink"}<div className="mt-1 max-w-xs break-all font-mono text-[12px] text-fg-subtle">{item.source_relative}</div></TableCell><TableCell><StateBadge state={item.quality_evidence_state} /><div className="mt-1 text-[12px] text-fg-subtle">{[qualityFact(item.quality_evidence, "resolution"), qualityFact(item.quality_evidence, "video_codec")].filter(Boolean).join(" · ") || item.quality_profile}</div></TableCell><TableCell><StateBadge state={item.state} /></TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No managed files exist. AltMount source remains read-only.</div> : null}</Panel>}
+    {page.error ? <ErrorNotice error={page.error} /> : null}
+    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Current" value={String(current)} note={`${page.loaded} loaded; active managed library files`} tone="good" icon={Files} /><MetricCard label="Plex confirmed" value={String(confirmed)} note="Exact observed path and identity" tone="info" icon={CheckCircle2} /><MetricCard label="Quarantined" value={String(attention)} note="Publication needs review" tone={attention ? "warn" : "good"} icon={AlertTriangle} /></div>
+    {page.loading && items.length === 0 ? <LoadingPanel /> : <Panel flush title="Managed files" subtitle="Plex-safe AltMount symlinks and reviewed adopted real files with persisted provenance. Pages load on demand." action={<RefreshButton onClick={page.refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media</TableHead><TableHead>Destination</TableHead><TableHead>Origin</TableHead><TableHead>Quality evidence</TableHead><TableHead>State</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell><Link className="font-semibold text-fg hover:text-info" href={`/files/${item.id}`}>{item.title}{item.year ? ` (${item.year})` : ""}</Link><div className="mt-1 text-[12px] text-fg-subtle">{item.root_name} · {item.variant}</div></TableCell><TableCell className="max-w-xs break-all font-mono text-[12px]">{item.destination_relative}</TableCell><TableCell>{item.origin === "adoption" ? "Adopted real file" : "AltMount symlink"}<div className="mt-1 max-w-xs break-all font-mono text-[12px] text-fg-subtle">{item.source_relative}</div></TableCell><TableCell><StateBadge state={item.quality_evidence_state} /><div className="mt-1 text-[12px] text-fg-subtle">{[qualityFact(item.quality_evidence, "resolution"), qualityFact(item.quality_evidence, "video_codec")].filter(Boolean).join(" · ") || item.quality_profile}</div></TableCell><TableCell><StateBadge state={item.state} /></TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No managed files exist. AltMount source remains read-only.</div> : null}<ListFooter loaded={page.loaded} hasMore={page.hasMore} loading={page.loadingMore} onLoadMore={page.loadMore} /></Panel>}
   </div>
+}
+
+function ListFooter({ loaded, hasMore, loading, onLoadMore }: { loaded: number; hasMore: boolean; loading: boolean; onLoadMore: () => void }) {
+  if (!hasMore && loaded === 0) return null
+  return <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 text-[12px] text-fg-subtle"><span>{loaded.toLocaleString()} loaded{hasMore ? " · more available" : " · end of list"}</span>{hasMore ? <Button size="sm" variant="outline" disabled={loading} onClick={onLoadMore}>{loading ? "Loading…" : "Load more"}</Button> : null}</div>
 }
 
 export function LiveFileDetailScreen({ fileId }: { fileId: string }) {

@@ -144,6 +144,13 @@ func (store *Store) ListManagedFiles(ctx context.Context, limit int) ([]ManagedF
 	return store.managedFiles(ctx, nil, nil, limit)
 }
 
+// ListManagedFilesPage lets the owner page through every managed file. The
+// read model is a UNION of published link generations and adopted files, so
+// the offset is applied after the deterministic state/verified-at ordering.
+func (store *Store) ListManagedFilesPage(ctx context.Context, limit, offset int) ([]ManagedFile, error) {
+	return store.managedFilesPage(ctx, nil, nil, limit, offset)
+}
+
 // managedPublicationPath is the files-API presentation rule. A managed symlink
 // whose stored target escapes the Plex-visible library cannot be reported as a
 // contained publication path, so the real managed library directory (which is
@@ -169,8 +176,15 @@ func (store *Store) ManagedFile(ctx context.Context, id uuid.UUID) (ManagedFile,
 }
 
 func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, limit int) ([]ManagedFile, error) {
+	return store.managedFilesPage(ctx, id, mediaID, limit, 0)
+}
+
+func (store *Store) managedFilesPage(ctx context.Context, id, mediaID *uuid.UUID, limit, offset int) ([]ManagedFile, error) {
 	if limit < 1 || limit > 500 {
 		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	var idValue any
 	if id != nil {
@@ -228,7 +242,7 @@ func (store *Store) managedFiles(ctx context.Context, id, mediaID *uuid.UUID, li
 		WHERE ($1::uuid IS NULL OR item.id::uuid=$1::uuid) AND ($2::uuid IS NULL OR item.media_id::uuid=$2::uuid)
 		ORDER BY CASE item.state WHEN 'current' THEN 0 WHEN 'verified' THEN 1 WHEN 'publishing' THEN 2 ELSE 3 END,
 			item.sort_at DESC,item.id
-		LIMIT $3`, idValue, mediaIDValue, limit)
+		LIMIT $3 OFFSET $4`, idValue, mediaIDValue, limit, offset)
 	if err != nil {
 		return nil, err
 	}

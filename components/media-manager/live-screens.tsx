@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { LIVE_REFRESH_MS, useAutoRefresh } from "@/hooks/use-auto-refresh"
+import { usePagedList } from "@/hooks/use-paged-list"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Activity, ArchiveRestore, Copy, FolderTree, Library, LoaderCircle, Plus, RefreshCw, Search, Settings2, Trash2, Upload } from "lucide-react"
@@ -44,7 +45,7 @@ import {
   loadSubtitleVerifications,
   loadRecycle,
   loadSeerrRouting,
-  loadWorkflows,
+  loadWorkflowsPage,
   openAcquisitionRound,
   reconcileAltMount,
   recycleMedia,
@@ -116,20 +117,19 @@ function EmptyPanel({ title, copy, href, action }: { title: string; copy: string
   return <Panel><div className="grid min-h-44 place-items-center text-center"><div><Library className="mx-auto size-7 text-fg-subtle" /><h2 className="mt-3 text-sm font-semibold text-fg">{title}</h2><p className="mt-2 max-w-md text-[12px] leading-5 text-fg-subtle">{copy}</p>{href && action ? <Button asChild className="mt-4" size="sm"><Link href={href}><Plus /> {action}</Link></Button> : null}</div></div></Panel>
 }
 
+const workflowsPageLoader = (offset: number, limit: number, signal: AbortSignal) => loadWorkflowsPage({ active: false, offset, limit, signal })
+
 export function LiveWorkflowScreen() {
-  const [workflows, setWorkflows] = React.useState<APIWorkflow[]>([])
-  const [error, setError] = React.useState("")
+  const page = usePagedList(workflowsPageLoader, 200, { autoRefresh: true, refreshMs: 8000 })
+  const workflows = page.items
+  const error = page.error
+  const refresh = page.refresh
   const [busy, setBusy] = React.useState("")
   const [replacementConfirmations, setReplacementConfirmations] = React.useState<Record<string, string>>({})
   const [filter, setFilter] = React.useState<"all" | WorkflowGroupKey>("all")
   // Artwork is decoration; it loads once and never blocks the table.
   const [posters, setPosters] = React.useState<Map<string, string | undefined>>(() => new Map())
   React.useEffect(() => { const controller = new AbortController(); loadCatalogMedia(controller.signal).then((items) => setPosters(new Map(items.map((item) => [item.id, item.metadata?.poster_url])))).catch(() => undefined); return () => controller.abort() }, [])
-  const refresh = React.useCallback(async () => {
-    try { setWorkflows(await loadWorkflows(false)); setError("") } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load workflows") }
-  }, [])
-  React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(initial) }, [refresh])
-  useAutoRefresh(() => void refresh(), 8000)
   async function act(workflow: APIWorkflow, action: "search" | "round" | "reconcile" | "access-retry" | "cancel") {
     if (action === "access-retry" && !window.confirm(`Retry ${workflow.access_rejected_release_title} from ${workflow.access_rejected_indexer_name}? Confirm that the provider access problem has been fixed. This may download and publish the release after normal verification.`)) return
     setBusy(workflow.id)
@@ -165,6 +165,7 @@ export function LiveWorkflowScreen() {
       <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Pipeline</TableHead><TableHead>State</TableHead><TableHead>Recovery</TableHead><TableHead>Updated</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>{visible.filter((group) => group.items.length).map((group) => <React.Fragment key={group.key}><TableRow className="hover:bg-transparent"><TableCell colSpan={6} className="bg-surface py-[7px] text-[10.5px] font-bold uppercase tracking-[0.1em] text-fg-subtle">{group.label} · {group.hint}</TableCell></TableRow>{group.items.map(row)}</React.Fragment>)}</TableBody></Table></div>
       {workflows.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No workflows yet.</div> : null}
       <div className="border-t border-line px-4 py-2.5 text-[11.5px] text-fg-subtle">Failures Media Manager can retry on its own resolve here without asking; only Needs attention asks you for anything.</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 text-[11.5px] text-fg-subtle"><span>{page.loaded.toLocaleString()} loaded{page.hasMore ? " · more available" : " · end of list"}</span>{page.hasMore ? <Button size="sm" variant="outline" disabled={page.loadingMore} onClick={page.loadMore}>{page.loadingMore ? "Loading…" : "Load more"}</Button> : null}</div>
     </Panel>
   </div>
 }
