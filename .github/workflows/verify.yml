@@ -1,26 +1,32 @@
 name: Verify
 
 on:
-  # The verification jobs use the owner's self-hosted runner. Do not add a
-  # pull_request trigger: a public repository must never execute code from a
-  # fork pull request on that runner. Same-repository pushes are trusted.
+  # There is intentionally no pull_request trigger: a public repository must
+  # never execute code from a fork pull request on the self-hosted runner.
+  # Same-repository pushes are trusted. Frontend/browser checks run on
+  # GitHub-hosted runners; the self-hosted runner hosts backend, container and
+  # publish work that needs the owner's rootless Docker engine.
   push:
   workflow_dispatch:
 
 concurrency:
-  group: verify-${{ github.ref_name }}
-  cancel-in-progress: true
+  group: verify-${{ github.ref }}
+  # Superseded feature-branch pushes may be cancelled. Never cancel an active
+  # main verification: a later merge must not erase the evidence for an
+  # earlier main commit.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
-# All jobs use the owner's self-hosted runner. This workflow intentionally has
-# no pull_request trigger: fork code is never executed on that runner. Fork PRs
-# are reviewed by the owner and validated by a trusted push after review.
+# This workflow intentionally has no pull_request trigger: fork code is never
+# executed on the owner's runner. Fork PRs are reviewed and validated by a
+# trusted push after review. Frontend/browser jobs are public-repository-safe
+# GitHub-hosted work and carry no production secrets.
 jobs:
   frontend:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64, media-manager-vps]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -29,6 +35,8 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm audit --omit=dev --audit-level=high
@@ -40,7 +48,7 @@ jobs:
 
   browser:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64, media-manager-vps]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Same pinned image as the GitLab browser job, so browsers match @playwright/test.
     container: mcr.microsoft.com/playwright:v1.62.1-noble
@@ -48,6 +56,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       - run: npm run test:browser
       - if: failure()
@@ -87,10 +100,11 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: 1.27.0
-          cache: false
+          cache: true
+          cache-dependency-path: go.sum
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./cmd/... ./internal/...
-      - run: go test -count=1 -race ./cmd/... ./internal/...
+      - run: bash scripts/ci/test-backend.sh
       - run: go run ./cmd/media-manager migrate
       - run: git diff --exit-code -- go.mod go.sum
 
