@@ -3,8 +3,10 @@
 This guide is for a new owner running Media Manager behind **Cosmos Cloud**.
 Cosmos is the public edge: it terminates TLS, authenticates the owner with
 Cosmos OpenID, and routes one public origin to the UI and API. The `/api` route
-injects the owner bearer token server-side; the browser never receives it. This
-is the same architecture as the production deployment.
+injects the owner bearer token server-side; the browser never receives it. All
+three routes are host-bound and require a Cosmos admin/owner, so another Cosmos
+app host or a non-admin Cosmos user cannot reach the owner API. This is the same
+architecture as the production deployment.
 
 ## Install from the Cosmos market
 
