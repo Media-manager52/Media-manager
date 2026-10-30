@@ -27,6 +27,7 @@ export function usePagedList<T>(
   const [loadingMore, setLoadingMore] = React.useState(false)
   const [error, setError] = React.useState("")
   const [revision, setRevision] = React.useState(0)
+  const refreshPendingRef = React.useRef(false)
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -40,10 +41,20 @@ export function usePagedList<T>(
         setError("")
       })
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted && generationRef.current === generation) setError(reason instanceof Error ? reason.message : "Could not load live data")
+        if (!controller.signal.aborted && generationRef.current === generation) {
+          // A failed first-page reload invalidates the old snapshot. Do not
+          // leave an old offset and hasMore=true available for Load more.
+          setItems([])
+          nextOffsetRef.current = 0
+          setHasMore(false)
+          setError(reason instanceof Error ? reason.message : "Could not load live data")
+        }
       })
       .finally(() => {
-        if (!controller.signal.aborted && generationRef.current === generation) setLoading(false)
+        if (!controller.signal.aborted && generationRef.current === generation) {
+          refreshPendingRef.current = false
+          setLoading(false)
+        }
       })
     return () => controller.abort()
   }, [loadPage, pageSize, revision])
@@ -52,15 +63,15 @@ export function usePagedList<T>(
     generationRef.current += 1
     appendControllerRef.current?.abort()
     appendControllerRef.current = null
+    refreshPendingRef.current = true
     setLoading(true)
     setLoadingMore(false)
-    setHasMore(true)
     setRevision((current) => current + 1)
     onRefresh?.()
   }, [onRefresh])
 
   const loadMore = React.useCallback(async () => {
-    if (loadingMore || loading || !hasMore) return
+    if (loadingMore || loading || refreshPendingRef.current || !hasMore) return
     const generation = generationRef.current
     const controller = new AbortController()
     appendControllerRef.current = controller

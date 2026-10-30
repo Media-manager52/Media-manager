@@ -151,6 +151,7 @@ export async function loadAttentionWorkflows(signal?: AbortSignal): Promise<APIW
   }
   throw new Error(`Owner attention exceeded the safe ${pageSize * maxPages}-workflow load limit`)
 }
+export const loadWorkflow = (id: string, signal?: AbortSignal) => requestJSON<APIWorkflow>(`/api/v1/workflows/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflowSearches = async (id: string, signal?: AbortSignal) => await requestJSON<APISearchRun[] | null>(`/api/v1/workflows/${encodeURIComponent(id)}/searches?limit=10`, { signal }) ?? []
 export const loadIntegrations = async (signal?: AbortSignal) => await requestJSON<APIIntegration[] | null>("/api/v1/settings/integrations", { signal }) ?? []
 export const loadLibraryRoots = async (signal?: AbortSignal) => await requestJSON<APILibraryRoot[] | null>("/api/v1/settings/library-roots", { signal }) ?? []
