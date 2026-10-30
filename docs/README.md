@@ -40,6 +40,10 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/oldboys.md](operations/oldboys.md) | Owner credential setup, encryption key backup/recovery, and pending native provider validation |
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
+| [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
+| [operations/schema-50-deployment.md](operations/schema-50-deployment.md) | Prepared schema-49→50 deployment, backup, failure and rollback plan; not applied |
+| [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.1.md](releases/v0.1.0-beta.1.md) | Prepared public-beta release note, limitations and publication gates |
 
 ## Status, audits, and evidence
 
@@ -48,6 +52,8 @@ These are dated and may lag `main`. They are not behavioral truth.
 | Document | Contents |
 | --- | --- |
 | [status/implementation.md](status/implementation.md) | Feature-by-feature implementation audit |
+| [status/release-v0.1.0-beta.md](status/release-v0.1.0-beta.md) | v0.1.0 Beta readiness ledger and PASS/FAIL/NOT VERIFIED checklist |
+| [status/license-decision.md](status/license-decision.md) | AGPL-3.0-only owner decision, compatibility and verification record |
 | [status/release.md](status/release.md) | Release evidence and milestone closeouts |
 | [status/indexer-conformance.md](status/indexer-conformance.md) | Developer-only Newznab provider conformance evidence (not a runtime dependency) |
 | [status/availability-audit.md](status/availability-audit.md) | 2026-09-28 audit of why non-terminal titles are missing, with a per-title truth table |

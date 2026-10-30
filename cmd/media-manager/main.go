@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -67,6 +68,9 @@ func run() error {
 			return fmt.Errorf("health endpoint returned HTTP %d", response.StatusCode)
 		}
 		return nil
+	}
+	if command == "backup-decrypt" {
+		return decryptBackup(os.Args[2:])
 	}
 	if command == "mcp" {
 		// Model Context Protocol over stdio for AI clients. It is an HTTP
@@ -352,6 +356,68 @@ func requiredSecret(name string) (string, error) {
 		return "", fmt.Errorf("%s is required", name)
 	}
 	return strings.TrimSpace(value), nil
+}
+
+func decryptBackup(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: media-manager backup-decrypt <encrypted.mmbak> <output.dump>")
+	}
+	keyText := optionalSecret(backups.KeyReference)
+	if keyText == "" {
+		return errors.New("BACKUP_ENCRYPTION_KEY is required")
+	}
+	key, err := backups.ParseKey(keyText)
+	if err != nil {
+		return err
+	}
+	inputPath, outputPath := args[0], args[1]
+	inputInfo, err := os.Stat(inputPath)
+	if err != nil {
+		return fmt.Errorf("stat encrypted backup: %w", err)
+	}
+	if outputInfo, statErr := os.Stat(outputPath); statErr == nil && os.SameFile(inputInfo, outputInfo) {
+		return errors.New("encrypted input and decrypted output must be different files")
+	}
+	source, err := os.Open(inputPath)
+	if err != nil {
+		return fmt.Errorf("open encrypted backup: %w", err)
+	}
+	defer source.Close()
+	// Decrypt to a same-directory temporary file and rename only after the
+	// authenticated stream and sync complete. A tampered/truncated backup must
+	// not leave a partially plaintext dump at the requested path.
+	temporary, err := os.CreateTemp(filepath.Dir(outputPath), ".media-manager-backup-*.dump")
+	if err != nil {
+		return fmt.Errorf("create temporary decrypted dump: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("secure temporary decrypted dump: %w", err)
+	}
+	decryptErr := backups.Decrypt(temporary, source, key)
+	syncErr := temporary.Sync()
+	closeErr := temporary.Close()
+	if decryptErr != nil {
+		return fmt.Errorf("decrypt backup: %w", decryptErr)
+	}
+	if syncErr != nil {
+		return fmt.Errorf("sync decrypted dump: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close decrypted dump: %w", closeErr)
+	}
+	if err := os.Rename(temporaryPath, outputPath); err != nil {
+		return fmt.Errorf("publish decrypted dump: %w", err)
+	}
+	removeTemporary = false
+	return nil
 }
 
 func optionalSecret(name string) string {

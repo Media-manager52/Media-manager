@@ -410,6 +410,11 @@ function AppSidebar({ path, onSearch }: { path: string; onSearch: () => void }) 
           <div className="min-w-0 group-data-[collapsible=icon]:hidden"><div className={cn("truncate text-[11.5px] font-semibold", warningCount ? "text-warn" : "text-fg")}>{statusTitle}</div><div className="truncate text-[10.5px] text-fg-subtle">{statusDetail}</div></div>
         </Link>
         <div className="truncate text-center text-[10px] text-fg-subtle group-data-[collapsible=icon]:hidden">{service.version ? `Media Manager ${service.version} · self-hosted` : "Media Manager · self-hosted"}</div>
+        <div className="flex justify-center gap-1.5 text-[10px] text-fg-subtle group-data-[collapsible=icon]:hidden">
+          <a href="https://github.com/Media-manager52/Media-manager/blob/main/LICENSE" target="_blank" rel="noreferrer" className="underline-offset-2 hover:text-fg-muted hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">AGPL-3.0-only</a>
+          <span aria-hidden>·</span>
+          <a href="https://github.com/Media-manager52/Media-manager" target="_blank" rel="noreferrer" className="underline-offset-2 hover:text-fg-muted hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">Source</a>
+        </div>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

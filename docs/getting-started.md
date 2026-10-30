@@ -386,9 +386,10 @@ major update. Cosmos routes and container names do not change.
 
 Cosmos Cloud, AltMount, Plex, Seerr and the indexers are separate
 applications. This bundle is the Media Manager source; it builds its own API/UI
-images and runs its own PostgreSQL. The repository currently has no license
-file; ask the owner before redistributing it beyond the friend it was shared
-with.
+images and runs its own PostgreSQL. Media Manager is licensed under
+`AGPL-3.0-only`; see [`LICENSE`](../LICENSE) and
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). The corresponding source
+is <https://github.com/Media-manager52/Media-manager>.
 
 ## Where to go next
 

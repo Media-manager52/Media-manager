@@ -1,0 +1,175 @@
+# Media Manager v0.1.0 Beta readiness
+
+Status: **BLOCKED — not release-ready and not published.**
+
+This is the release-candidate evidence ledger, not a claim of completion. It is
+based on `main` after PR #91's merge
+`fd53eb62dcd5abdc3140beafbf463e2842678510`; the release-preparation branch is
+merged before publication. Production remains on `31789f7`/schema 49 and was
+not part of the release work.
+
+## Completed and merged
+
+| Work | Merge commit |
+| --- | --- |
+| Dependency security (PR #89) | `6c414b10cda9f4bc376a6f5946d01d579c75cda8` |
+| UI pagination (PR #87) | `c53fd0edacbd16bdea4b364b08bfb979534c9265` |
+| Cosmos installation volumes (PR #88) | `39a250cd6d3bf6f09fc3b058ad60780c92b4c293` |
+| Partial search retry, schema 50 in source (PR #86) | `c82d44ab08afe24b34d3f8c4105d61d22e45a5ec` |
+| Cosmos route host/owner authorization (PR #90) | `300c76c74f869bac6a1adb6bc4c6205cc067f174` |
+| CI parallelization/non-blocking policy (PR #91) | `fd53eb62dcd5abdc3140beafbf463e2842678510` |
+
+The PR checks for these merges passed. Main Verify and image publication for
+PR #91 were still pending when this ledger was last edited; its main run must be
+green before the merge is treated as fully evidenced. The baseline `c82d44a`
+image digests are recorded in [versioning](../releases/versioning.md); the final
+candidate digests are added only after publication.
+
+## Open release-relevant PRs
+
+| PR | Status | Remaining blocker |
+| --- | --- | --- |
+| #92 Release preparation | Open; final CI pending | Merge only after green exact-HEAD CI and final review |
+
+Do not merge these from this work. They require the grouped owner approval below.
+
+## Security
+
+- Dependency audit on source: `npm audit` and `npm audit --omit=dev` report zero
+  vulnerabilities; Dependabot open alerts were zero after the merge.
+- The published UI image contains the patched next/zod/vite/sharp/source-map-js/
+  undici/fast-uri versions; dev/build tooling is still present in the image.
+- PR #90 is merged. The template now sets `useHost:true`, one explicit host, and
+  `AdminOnly:true` on all three routes. Static regression tests cover unrelated
+  hosts, owner-only admin gates, route order, API bearer injection and the UI
+  catch-all. A live Cosmos 0.23.4 wizard and a non-admin/cross-host check remain
+  manual because this environment cannot safely exercise the live edge.
+- No production secrets or private VPS configuration are in this release work.
+
+## Installation and onboarding
+
+- **PASS (published images):** the published `sha-c82d44a...` API/UI pair was
+  previously exercised in a clean disposable stack: API/UI start, owner-token
+  rejection/acceptance, the UI, the read-only AltMount parent, and Movies/TV
+  writes. That pair predates the release Compose file and the backup decrypt
+  command.
+- **PASS (candidate image, not published):** local candidate images built from
+  commit `b6d68f1fee442b440e537bd0df34c2622abfda8c`
+  (`mm-release-api` ID `sha256:3c75550349fea98ab1f308ec81293d3eae28269a2471475c87d919fcbdc6a0ac`,
+  `mm-release-ui` ID `sha256:ea206cc0895869bd43b7a0860a5090b50e66fd2c09a906cb8392e2c9c14e2111`)
+  started through `compose.release.yaml` and completed the encrypted
+  backup/decrypt/fresh-stack restore test. The published `sha-c82d44a` pair
+  separately passed restart persistence.
+- **PASS (candidate image `b6d68f1`, not published):** an encrypted backup was
+  created through the API, verified in an isolated database, downloaded with an
+  authenticated request, and `media-manager backup-decrypt` produced a valid
+  custom dump. A truncated artifact was rejected without a plaintext output.
+  The backup artifacts and test stacks were removed.
+- **NOT VERIFIED:** installing on a genuinely clean public host with real
+  external services; the disposable Compose test is clean but runs on this host.
+- **NOT VERIFIED:** actual Cosmos 0.23.4 wizard installation and a real AltMount
+  FUSE child remount. The manual acceptance steps are in
+  `deploy/cosmos/VERIFICATION.md`.
+- **PARTIAL:** first-run configuration uses the existing Connections, Storage,
+  Profiles and Add media screens plus a documented checklist. There is no
+  automated clean-owner UI walkthrough; the Add media screen correctly names
+  missing prerequisites and links to setup.
+
+## End-to-end acceptance
+
+- **PASS:** the full Go race suite, including acquisition, publication,
+  retrieval, AltMount/Plex-facing unit and integration tests, ran in isolated
+  PostgreSQL groups with all 247 PostgreSQL tests passing.
+- **PASS (simulated stages, separate tests):** movie and exact-season search
+  selection, retrieval failure/retry handling, real temporary-file symlink
+  publication, and simulated Plex confirmations passed. These are stage-level
+  checks, not one continuous external-service run.
+- **PASS:** the UI pagination/owner-attention browser suite passed 166 cases in
+  the merged source; the release image use is covered by the disposable Compose
+  check above.
+- **NOT VERIFIED:** one complete real-system journey
+  `request → search → verify → AltMount output → Plex confirmation → publication`
+  against a disposable real AltMount/Plex/Seerr stack. The existing evidence is
+  component/isolated integration, not a claim of a live end-to-end run.
+- The real external-service gate remains manual and must be recorded before a
+  public release is described as fully tested.
+
+## Backup, restore, migration
+
+- **PASS (disposable):** encrypted backup creation, isolated restore
+  verification, authenticated download, and `backup-decrypt` were exercised in
+  the release image stack; the decrypt command is covered by a Go test.
+- **PASS (disposable):** the encrypted backup was downloaded, decrypted, restored
+  into a fresh PostgreSQL instance in a second Compose project, and the restored
+  API reached `ready` with its UI available. A synthetic persisted marker was
+  present after restore. A deliberately truncated backup was rejected without
+  creating a plaintext dump.
+- **NOT VERIFIED:** off-site copy/restore using the owner's real S3/WebDAV
+  destination; no credentials or destination were supplied. Local backups are
+  not sufficient disaster recovery.
+- **PLAN ONLY:** schema 49→50 is not applied in production. The exact deployment,
+  backup, rollback, and post-checks are in
+  [schema-50-deployment](../operations/schema-50-deployment.md). Schema 50 images run the migration automatically at API startup; they must not
+  be started against schema 49 without a verified backup and an approved
+  deployment. Schema 49 images must not run against a migrated schema 50 database.
+
+## Release engineering
+
+- **PASS:** immutable `sha-<commit>` image publication exists and the digests are
+  recorded.
+- **PASS:** `AGPL-3.0-only`, with the unmodified GNU AGPL v3 text in `LICENSE`,
+  the SPDX identifier in `package.json`, image labels, README, Cosmos listing,
+  and third-party notices. See the [license decision](../status/license-decision.md).
+- **OWNER/LEGAL NOTE:** no CLA or copyright-assignment document exists in the
+  repository. The owner authorized the license; an independent chain-of-title
+  review remains a legal check, not a blocker silently waived here.
+- **FAIL:** no v0.1.0 tag/release, no release changelog publication, and only
+  `linux/amd64` images. ARM64 may follow beta if amd64 is documented.
+- **PARTIAL:** the release image install path and versioning contract are
+  documented, but no release candidate has been tagged or published.
+- **PASS:** source and images have been built/tested on the supported amd64
+  platform; no production deployment was performed.
+
+## Release checklist
+
+| Requirement | Result |
+| --- | --- |
+| Critical/high dependency work complete | PASS on source; merge blocker for public exposure |
+| API authentication/owner authorization | PASS in template/static regression; live Cosmos non-admin/cross-host check NOT VERIFIED |
+| No secrets in release | PASS (no secrets printed or committed) |
+| Clean install from immutable images | PASS in disposable stack; clean-host repeat NOT VERIFIED |
+| Cosmos wizard and FUSE remount | NOT VERIFIED |
+| First-run owner onboarding | PARTIAL (existing screens + docs; no automated walkthrough) |
+| Workflows/Wanted/Files/Requests usable | PASS in browser/unit coverage; release image UI served |
+| Request → search → verify → publish | PARTIAL (component/integration; real-system E2E NOT VERIFIED) |
+| Restart/persistence | PASS in disposable Compose stack |
+| Backup/restore | PARTIAL: create/verify/decrypt and fresh-stack restore PASS in disposable stacks; off-site NOT VERIFIED |
+| Schema 50 production deployment | NOT APPLIED (plan prepared) |
+| License/public-distribution wording | PASS (AGPL-3.0-only); legal ownership review remains owner/legal |
+| Release tag/version/architecture | NOT PUBLISHED (owner decision required) |
+
+## Required before release
+
+1. Merge PR #92 only after exact-HEAD CI/review; the owner authorized the
+   merge.
+2. Repeat a disposable Cosmos cross-host/non-admin route check or record the
+   manual gate.
+3. Configure an off-site backup destination and exercise a restore.
+4. Run the real or faithfully simulated end-to-end acceptance journey and record
+   it as real-system or mocked.
+5. Obtain owner approval for a schema-50 deployment window if production is to
+   move; this is separate from the public beta release.
+6. Complete the owner/legal chain-of-title review for AGPL distribution.
+7. Create the release candidate/tag and publish images only after explicit owner
+   authorization.
+
+## Post-beta backlog
+
+- ARM64 images.
+- Remove unused `zod`/resolver dependencies and prune dev tooling from the
+  runtime image after verifying vinext starts.
+- Keyset pagination/covering indexes for very high-churn libraries.
+- Server-side filters for Workflows/Wanted/Requests and strict `/requests` limit
+  validation.
+- Replace the per-route Wanted context fallback with a bounded batch endpoint.
+- Off-site backup automation beyond the documented owner-configured copy.

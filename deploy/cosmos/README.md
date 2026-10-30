@@ -1,8 +1,8 @@
 # Media Manager — Cosmos Cloud market listing
 
-This public repository is the Cosmos Cloud marketplace listing for **Media Manager**.
-The application source is maintained separately; this repository exists so Cosmos can
-resolve the public listing, install template and icon.
+This repository is the canonical source for **Media Manager** and hosts the Cosmos
+Cloud marketplace listing, install template and icon. The application source is
+not a separate private tree.
 
 ## Install from the custom source
 
@@ -64,6 +64,10 @@ injected only by the Cosmos `/api` route; do not expose the API port.
 
 ## Licensing
 
-The Media Manager application source is private. This listing repository and the
-published container images are provided for installing and using Media Manager with
-Cosmos Cloud. All rights reserved.
+Media Manager is licensed under the **GNU Affero General Public License, version 3
+only** (`AGPL-3.0-only`). The full license text is in the canonical repository at
+`https://github.com/Media-manager52/Media-manager/blob/main/LICENSE`; the
+corresponding source is `https://github.com/Media-manager52/Media-manager`.
+Third-party components remain under their own licenses and notices. The Cosmos
+listing, install template, and published images do not grant rights beyond
+AGPL-3.0-only.

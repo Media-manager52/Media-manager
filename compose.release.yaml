@@ -1,0 +1,20 @@
+# Software bill: install a published, immutable Media Manager image pair.
+#
+# Example:
+#   MEDIA_MANAGER_API_IMAGE=ghcr.io/media-manager52/media-manager-api@sha256:... \
+#   MEDIA_MANAGER_UI_IMAGE=ghcr.io/media-manager52/media-manager-ui@sha256:... \
+#   docker compose -f compose.release.yaml --env-file .env up -d
+#
+# Do not use a mutable :main/:latest tag for a release deployment. Missing or
+# empty image variables fail closed here; run scripts/validate-release-images.sh
+# after loading .env to reject mutable tags before starting.
+name: media-manager
+include:
+  - path: compose.yaml
+services:
+  api:
+    build: !reset null
+    image: ${MEDIA_MANAGER_API_IMAGE:?set MEDIA_MANAGER_API_IMAGE to an immutable image reference}
+  ui:
+    build: !reset null
+    image: ${MEDIA_MANAGER_UI_IMAGE:?set MEDIA_MANAGER_UI_IMAGE to an immutable image reference}
