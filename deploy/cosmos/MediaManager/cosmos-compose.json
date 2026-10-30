@@ -238,33 +238,33 @@
       },
       "volumes": [
         {
-          "Type": "bind",
-          "Source": "{Context.altmountParentPath}",
-          "Target": "/mnt",
-          "ReadOnly": true,
-          "BindOptions": {
-            "Propagation": "rslave"
+          "type": "bind",
+          "source": "{Context.altmountParentPath}",
+          "target": "/mnt",
+          "readOnly": true,
+          "bindOptions": {
+            "propagation": "rslave"
           }
         },
         {
-          "Type": "bind",
-          "Source": "{Context.moviesPath}",
-          "Target": "/libraries/movies"
+          "type": "bind",
+          "source": "{Context.moviesPath}",
+          "target": "/libraries/movies"
         },
         {
-          "Type": "bind",
-          "Source": "{Context.tvPath}",
-          "Target": "/libraries/tv"
+          "type": "bind",
+          "source": "{Context.tvPath}",
+          "target": "/libraries/tv"
         },
         {
-          "Type": "bind",
-          "Source": "{Context.mediaLibraryPath}",
-          "Target": "/srv/media"
+          "type": "bind",
+          "source": "{Context.mediaLibraryPath}",
+          "target": "/srv/media"
         },
         {
-          "Type": "bind",
-          "Source": "{Context.backupPath}",
-          "Target": "/var/lib/media-manager/backups"
+          "type": "bind",
+          "source": "{Context.backupPath}",
+          "target": "/var/lib/media-manager/backups"
         }
       ],
       "networks": {
