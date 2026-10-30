@@ -467,3 +467,34 @@ test("paged owner list loaders carry exact server offsets and stable page metada
     globalThis.fetch = originalFetch;
   }
 });
+
+test("library loader returns a bounded catalog window with an explicit truncation result", async () => {
+  const originalFetch = globalThis.fetch;
+  const makeMedia = (offset, limit) => Array.from({ length: limit }, (_, index) => {
+    const number = offset + index + 1;
+    return { id: `catalog-${number}`, kind: "movie", title: `Catalog ${number}`, identities: [] };
+  });
+  globalThis.fetch = async (url) => {
+    const requestURL = String(url);
+    if (requestURL.startsWith("/api/v1/media?")) {
+      const parsed = new URL(requestURL, "http://local");
+      const offset = Number(parsed.searchParams.get("offset") ?? "0");
+      const limit = Number(parsed.searchParams.get("limit") ?? "200");
+      return new Response(JSON.stringify({ data: makeMedia(offset, limit) }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (requestURL.startsWith("/api/v1/files?") || requestURL.startsWith("/api/v1/wanted?") || requestURL.startsWith("/api/v1/workflows?")) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error(`Unexpected API request: ${requestURL}`);
+  };
+  try {
+    const { movieLibraryLoader } = await vite.ssrLoadModule("/components/media-manager/live-operational-screens.tsx");
+    const library = await movieLibraryLoader(new AbortController().signal);
+    assert.equal(library.truncated, true);
+    assert.equal(library.truncatedSource, "catalog");
+    assert.equal(library.loaded, 10000);
+    assert.equal(library.records.length, 10000);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

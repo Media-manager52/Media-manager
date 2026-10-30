@@ -124,15 +124,26 @@ async function requestPage<T>(path: string, limit: number, offset: number, signa
 const catalogPageSize = 200
 const catalogMaxPages = 50
 
-export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]> {
+async function loadCatalogMediaPage(signal?: AbortSignal): Promise<{ items: APIMedia[]; truncated: boolean }> {
   const catalog: APIMedia[] = []
   for (let page = 0; page < catalogMaxPages; page += 1) {
     const offset = page * catalogPageSize
     const batch = await requestJSON<APIMedia[] | null>(`/api/v1/media?limit=${catalogPageSize}&offset=${offset}`, { signal }) ?? []
     catalog.push(...batch)
-    if (batch.length < catalogPageSize) return catalog
+    if (batch.length < catalogPageSize) return { items: catalog, truncated: false }
   }
-  throw new Error(`Media catalog exceeded the safe ${catalogPageSize * catalogMaxPages}-record load limit`)
+  return { items: catalog, truncated: true }
+}
+
+export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]> {
+  const result = await loadCatalogMediaPage(signal)
+  if (result.truncated) throw new Error(`Media catalog exceeded the safe ${catalogPageSize * catalogMaxPages}-record load limit`)
+  return result.items
+}
+
+/** Bounded library variant: render the safe window and state that it is partial. */
+export async function loadCatalogMediaBounded(signal?: AbortSignal): Promise<{ items: APIMedia[]; truncated: boolean }> {
+  return loadCatalogMediaPage(signal)
 }
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []

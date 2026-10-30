@@ -48,6 +48,7 @@ import {
   loadActivity,
   loadCalendar,
   loadCatalogMedia,
+  loadCatalogMediaBounded,
   loadManagedFile,
   loadManagedFilesPage,
   loadRequestsPage,
@@ -289,16 +290,18 @@ async function loadAllLibraryPages<T>(loadPage: (offset: number, limit: number, 
 }
 
 async function loadMediaLibrary(kind: "movie" | "series", signal: AbortSignal) {
-  const [media, files, wanted, workflows] = await Promise.all([
-    loadCatalogMedia(signal),
+  const [catalog, files, wanted, workflows] = await Promise.all([
+    loadCatalogMediaBounded(signal),
     loadAllLibraryPages<APIManagedFile>((offset, limit, pageSignal) => loadManagedFilesPage({ offset, limit, signal: pageSignal }), signal),
     loadAllLibraryPages<APIWantedItem>((offset, limit, pageSignal) => loadWantedPage({ offset, limit, signal: pageSignal }), signal),
     loadAllLibraryPages<APIWorkflow>((offset, limit, pageSignal) => loadWorkflowsPage({ active: false, offset, limit, signal: pageSignal }), signal),
   ])
+  const truncatedSource = catalog.truncated ? "catalog" : files.truncated ? "files" : wanted.truncated ? "wanted" : workflows.truncated ? "workflows" : ""
   return {
-    records: buildMediaLibraryRecords(kind, media, files.items, wanted.items, workflows.items),
-    truncated: files.truncated || wanted.truncated || workflows.truncated,
-    loaded: Math.max(files.items.length, wanted.items.length, workflows.items.length),
+    records: buildMediaLibraryRecords(kind, catalog.items, files.items, wanted.items, workflows.items),
+    truncated: Boolean(truncatedSource),
+    truncatedSource,
+    loaded: catalog.truncated ? catalog.items.length : files.truncated ? files.items.length : wanted.truncated ? wanted.items.length : workflows.items.length,
   }
 }
 
@@ -424,7 +427,7 @@ export function LiveLibraryScreen({ mediaKind = "movie" }: { mediaKind?: "movie"
 
   return <div className={cn("mm-library-root grid h-full min-h-0 bg-canvas", selected && "xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_380px]")}>
     <section className="flex min-h-0 min-w-0 flex-col px-4 pb-3 pt-3 sm:px-5 lg:px-9" aria-labelledby={`${mediaKind}-library-title`}>
-      {truncated ? <InlineNotice tone="warn" title="Library view is partial">Media Manager loaded the safe {loadedAssociations.toLocaleString()}-record window. Use filters or open a title directly; the full library was not truncated silently.</InlineNotice> : null}
+      {truncated ? <InlineNotice tone="warn" title="Library view is partial">Media Manager loaded the safe {loadedAssociations.toLocaleString()}-record {data?.truncatedSource ?? "association"} window. Use filters or open a title directly; the full library was not truncated silently.</InlineNotice> : null}
       <div className="mb-4 flex min-h-9 items-end gap-3">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">

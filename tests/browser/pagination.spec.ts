@@ -297,6 +297,36 @@ test("library degrades with a visible partial notice above its bounded window", 
 
   await page.goto(`${baseURL}/media`)
   await expect(page.getByText("Library view is partial")).toBeVisible()
-  await expect(page.getByText(/safe 10,000-record window/)).toBeVisible()
+  await expect(page.getByText(/safe 10,000-record (files|catalog) window/)).toBeVisible()
   await expect(page.getByRole("button", { name: /First Browser Movie/ })).toBeVisible()
+})
+
+test("library catalog cap degrades with a visible partial notice", async ({ page }) => {
+  await installOwnerAPI(page, baseURL)
+  let mediaRequests = 0
+  await page.route("**/api/v1/media*", async (route) => {
+    const url = new URL(route.request().url())
+    const offset = Number(url.searchParams.get("offset") ?? "0")
+    const limit = Number(url.searchParams.get("limit") ?? "200")
+    mediaRequests += 1
+    const items = Array.from({ length: limit }, (_, index) => {
+      const number = offset + index + 1
+      return {
+        id: `97000000-0000-4000-8000-${String(number).padStart(12, "0")}`,
+        kind: "movie",
+        title: `Catalog Movie ${String(number).padStart(5, "0")}`,
+        year: 2024,
+        identities: [],
+        created_at: "2026-09-01T00:00:00Z",
+        updated_at: "2026-09-01T00:00:00Z",
+      }
+    })
+    await route.fulfill({ status: 200, json: { data: items } })
+  })
+
+  await page.goto(`${baseURL}/media`)
+  await expect(page.getByText("Library view is partial")).toBeVisible()
+  await expect(page.getByText(/safe 10,000-record catalog window/)).toBeVisible()
+  await expect(page.getByRole("button", { name: /Catalog Movie 00001/ }).first()).toBeVisible()
+  expect(mediaRequests).toBe(50)
 })

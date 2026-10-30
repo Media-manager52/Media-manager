@@ -57,8 +57,10 @@ All data comes from the Go API through `lib/media-manager-api.ts`:
 - Types (`APIMedia`, `APIWorkflow`, `APIManagedFile`, `APIRequest`,
   `APISystemHealth`, ...) mirror API payloads. When you change an API shape,
   update the matching type; screens are typed against it.
-- The catalog loader pages at 200 records up to 50 pages (10 000) and throws a
-  bounded error beyond that.
+- The catalog loader pages at 200 records up to 50 pages (10 000). The strict
+  `loadCatalogMedia` throws beyond that for callers that require completeness;
+  the Library uses `loadCatalogMediaBounded`, renders the safe window, and shows
+  a partial-view notice instead of failing the screen.
 - The Workflows, Wanted, managed-files and Requests screens use
   `usePagedList`: a bounded first page plus explicit server-offset **Load more**
   pages, deduplicated by stable identity. A refresh aborts an in-flight append
@@ -72,8 +74,10 @@ All data comes from the Go API through `lib/media-manager-api.ts`:
   operate on the records currently loaded and the footer states what is loaded.
 - The Library join needs every related record to decide per-title availability,
   so it reads bounded 500-record pages for files, wanted rows and workflows
-  (maximum 20 pages each) instead of silently joining only the first 300. The
-  catalog itself already uses the 200×50 bound.
+  (maximum 20 pages each) instead of silently joining only the first 300. Each
+  source is capped at 10 000; when a source is cut off the loader returns a
+  `truncated` flag and count, and the screen shows a partial-view notice with
+  the loaded rows. A request failure is still an error, not a partial view.
 - Read-only screens refresh themselves through `useAutoRefresh`
   (`hooks/use-auto-refresh.ts`). These are Overview, Library, Requests (list
   and inspector), Wanted, Calendar, component health, tasks, and title pages
