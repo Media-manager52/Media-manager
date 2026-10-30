@@ -60,22 +60,28 @@ The concurrency group is per Git ref:
 - production deployment remains a separate manual workflow and is not triggered
   by merges.
 
-## Avoiding agent polling
+## CI status without blocking
 
-Do not write repeated `sleep`/`gh run list` loops. After pushing, resolve the
-exact commit and watch the run once:
+Agents must not wait synchronously for GitHub Actions. After a push, make one
+short status check and record the exact run:
 
 ```sh
 sha="$(git rev-parse HEAD)"
-run="$(gh run list --repo Media-manager52/Media-manager --workflow Verify \
-  --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId')"
-gh run watch "$run" --repo Media-manager52/Media-manager --exit-status
+gh run list --repo Media-manager52/Media-manager --workflow Verify \
+  --commit "$sha" --limit 1 --json databaseId,url,status,conclusion
 ```
 
-`gh run watch` is event-driven from the CLI's perspective and returns the final
-status. Continue independent work while it runs; do not merge until the exact
-commit has a successful required run and the review gate is satisfied. A new
-commit requires a new run; never carry approval or CI status across commits.
+If the run is queued or in progress, mark it **PENDING** and continue with
+independent work on a separate branch/worktree. Do not use `gh run watch`,
+`sleep` loops, repeated polling, or long command timeouts. Recheck only at a
+natural dependency boundary. If no independent work remains, finish the turn and
+report the pending run.
+
+A merge is allowed only after the exact approved commit has successful required
+checks and a completed review gate. A newer commit never inherits an older
+commit's approval or CI result. If a dependent merge is waiting for CI and no
+authorized GitHub-native auto-merge/merge queue is configured, stop that merge
+and report **WAITING FOR CI**.
 
 ## Merge queue and branch protection
 

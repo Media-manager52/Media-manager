@@ -43,6 +43,21 @@ Follow an existing nearby pattern before adding a new abstraction. Prefer a
 small pure helper over expanding a screen or handler, and document why a new
 layer is necessary if an existing one cannot serve the change.
 
+## Non-blocking GitHub Actions Policy
+
+GitHub Actions must never block engineering progress:
+
+1. Never use `gh run watch`, `sleep` loops, repeated polling, or a long-running shell command merely to wait for GitHub Actions.
+2. Never use a 5–20 minute command timeout for CI status observation.
+3. Check CI status once with a short `gh run view`/API call and record the exact run ID, URL and commit SHA.
+4. If the run is queued or in progress, mark it **PENDING** and continue independent work on a separate branch/worktree.
+5. Do not modify an already submitted commit merely to keep busy.
+6. Recheck CI only at a natural dependency boundary, never through a polling loop.
+7. If no independent work remains, finish the response and report the pending run.
+8. Never merge a PR until its required checks pass on the exact approved commit.
+9. If a merge depends on unfinished CI and no authorized GitHub-native auto-merge/merge queue is configured, stop that merge and report **WAITING FOR CI**.
+10. Preserve all security, test, review, branch-protection and deployment-authorization boundaries; skipping verification is never permitted.
+
 ## Verification
 
 Frontend changes:
