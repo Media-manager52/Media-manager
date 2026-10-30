@@ -76,7 +76,7 @@ Notes:
 | --- | --- | --- |
 | GET | `/api/v1/dashboard` | Counts + recent workflows + recent activity. |
 | GET | `/api/v1/activity` | Merged audit + workflow transition timeline (`limit`). |
-| GET | `/api/v1/files` | Managed file read model (link generations + adopted files). |
+| GET | `/api/v1/files` | Managed file read model (link generations + adopted files). `limit`/`offset` page the deterministic state/verified-at order; `meta.count`, `meta.limit` and `meta.offset` describe the page. |
 | GET | `/api/v1/files/{id}` | One managed file with provenance/evidence. |
 
 ### Media catalog and details
@@ -122,8 +122,8 @@ Notes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/v1/wanted` | Missing/upgrade gaps derived from workflows, links, adopted files. |
-| GET | `/api/v1/requests` | Persisted Seerr requests + lifecycle. |
+| GET | `/api/v1/wanted` | Missing/upgrade gaps derived from workflows, links, adopted files. `limit`/`offset` page the deterministic order; `meta.count` is the page size. |
+| GET | `/api/v1/requests` | Persisted Seerr requests + lifecycle. `limit`/`offset` page the newest-first order. |
 | GET | `/api/v1/requests/{id}` | Request detail + workflows/seasons/files. |
 | POST | `/api/v1/requests/{id}/approve` | Owner approves a request that is still pending in Seerr (`409 not_pending` otherwise). Seerr must echo the same request with status approved (`502` if not); the decision is audited (`seerr.request_approved_by_owner`) and a `seerr.reconcile` delivery is queued so normal intake re-reads Seerr. Nothing is admitted locally. |
 | POST | `/api/v1/requests/{id}/decline` | Same as approve for a decline (`seerr.request_declined_by_owner`); Seerr may notify the requester. |

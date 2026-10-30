@@ -154,9 +154,9 @@ async function installLocalAPI(page: Page) {
     const path = `${url.pathname}${url.search}`
     let data: unknown
     if (path === "/api/v1/media?limit=200&offset=0") data = media
-    else if (path === "/api/v1/files?limit=300") data = files
-    else if (path === "/api/v1/wanted?limit=300") data = wanted
-    else if (path === "/api/v1/workflows?limit=300&active=false") data = workflows
+    else if (path === "/api/v1/files?limit=300" || path === "/api/v1/files?limit=500&offset=0") data = files
+    else if (path === "/api/v1/wanted?limit=300" || path === "/api/v1/wanted?limit=500&offset=0") data = wanted
+    else if (path === "/api/v1/workflows?limit=300&active=false" || path === "/api/v1/workflows?limit=500&offset=0&active=false") data = workflows
     else if (path === "/api/v1/workflows?limit=300&active=true") data = workflows
     else if (path === "/api/v1/workflows?attention=true&limit=500&offset=0") data = workflows
     else if (path === "/api/v1/system/health") data = { database_state: "ready", schema_version: 30, expected_schema: 30 }

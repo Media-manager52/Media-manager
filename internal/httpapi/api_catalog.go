@@ -127,7 +127,7 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "POST", Path: "/api/v1/blocklist", Handler: s.createReleaseBlock, Auth: owner, Effect: effectWrite, Tag: "releases", Summary: "Block a release candidate", Body: createReleaseBlockInput{}, Required: []string{"candidate_id"}},
 		{Method: "DELETE", Path: "/api/v1/blocklist/{id}", Handler: s.deleteReleaseBlock, Auth: owner, Effect: effectWrite, Tag: "releases", Summary: "Remove a release block"},
 
-		{Method: "GET", Path: "/api/v1/files", Handler: s.listManagedFiles, Auth: owner, Effect: effectRead, Tag: "library", Summary: "Managed files (published link generations and adopted files)", Query: []apiParam{limitParam}},
+		{Method: "GET", Path: "/api/v1/files", Handler: s.listManagedFiles, Auth: owner, Effect: effectRead, Tag: "library", Summary: "Managed files (published link generations and adopted files)", Query: []apiParam{limitParam, offsetParam}},
 		{Method: "GET", Path: "/api/v1/files/{id}", Handler: s.getManagedFile, Auth: owner, Effect: effectRead, Tag: "library", Summary: "One managed file with provenance and evidence"},
 		{Method: "GET", Path: "/api/v1/collections", Handler: s.listCollections, Auth: owner, Effect: effectRead, Tag: "library", Summary: "Collections", Query: []apiParam{limitParam}},
 		{Method: "POST", Path: "/api/v1/collections", Handler: s.createCollection, Auth: owner, Effect: effectWrite, Tag: "library", Summary: "Create a collection", Body: createCollectionInput{}, Required: []string{"name", "media_ids"}},
