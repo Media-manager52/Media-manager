@@ -191,7 +191,9 @@ type searchEventPayload struct {
 
 // partialRetryEvent is true only for the automatic continuation written after
 // an incomplete search. An owner-triggered or otherwise new search uses the
-// same round/intent in some cases but must still query every provider.
+// same round/intent in some cases but must still query every provider. A
+// continuation is subordinate to a pending owner search at the same revision;
+// it must not consume that owner search's revision or partial state.
 func partialRetryEvent(event postgres.OutboxEvent) bool {
 	var payload searchEventPayload
 	return json.Unmarshal(event.Payload, &payload) == nil && payload.PartialRetry

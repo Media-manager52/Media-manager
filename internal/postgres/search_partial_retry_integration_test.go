@@ -228,3 +228,34 @@ func TestSearchPartialRetryRejectsMovedObservation(t *testing.T) {
 		t.Fatalf("moved observation load err=%v, want invalid", err)
 	}
 }
+
+func TestSearchContinuationCannotPersistPastPendingOwnerSearch(t *testing.T) {
+	fixture := newFailureRecoveryFixture(t)
+	now := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+	workflow := fixture.newMovieWorkflow(t, "Continuation Owner Race", "901405")
+	workflow, err := fixture.store.TransitionWorkflow(fixture.ctx, workflow.ID, workflow.Revision, workflows.StateSearching, "test", "test", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err := fixture.store.LoadSearchContext(fixture.ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := sha256.Sum256([]byte("continuation-owner-race"))
+	retry := partialRetryStateForTest(search, fingerprint[:], "targeted")
+	if _, err := fixture.store.Pool.Exec(fixture.ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'workflow.search_requested','{"workflow_id":"owner"}',now(),now())`, uuid.NewV7().String(), workflow.ID.String(), int64(workflow.Revision)); err != nil {
+		t.Fatal(err)
+	}
+	outcomes := []SearchIndexerOutcome{{IndexerInstanceID: fixture.indexer.ID, State: "succeeded"}, {IndexerInstanceID: fixture.indexerTwo.ID, State: "deferred", Detail: "indexer_pacing_deferred"}}
+	_, err = fixture.store.PersistSearch(fixture.ctx, search, fingerprint[:], nil, SearchPersistenceOptions{IndexerOutcomes: outcomes, PartialRetry: &retry, Continuation: true}, now)
+	if !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("continuation past owner search err=%v, want concurrent modification", err)
+	}
+	var runs, states, pending int
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT (SELECT count(*) FROM search_runs WHERE workflow_id=$1),(SELECT count(*) FROM search_partial_retries WHERE workflow_id=$1),(SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.search_requested' AND completed_at IS NULL)`, workflow.ID.String()).Scan(&runs, &states, &pending); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 0 || states != 0 || pending != 1 {
+		t.Fatalf("race commit changed state: runs=%d states=%d pending=%d", runs, states, pending)
+	}
+}

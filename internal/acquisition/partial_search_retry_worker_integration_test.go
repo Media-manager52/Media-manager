@@ -178,3 +178,105 @@ func TestPartialRetryProductionOutboxCrashAndContinuation(t *testing.T) {
 		t.Fatalf("final state=%d, want 0", got)
 	}
 }
+
+// TestOwnerSearchSupersedesOlderPartialContinuation covers the race where an
+// owner asks for a fresh full search while an older automatic continuation is
+// still queued. The continuation must not reuse its completed providers and
+// overwrite the owner's event; the owner search must query the completed
+// provider again and select a newly available release.
+func TestOwnerSearchSupersedesOlderPartialContinuation(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	eligible := false
+	aServer, aCaptured := newMovieSearchServer(t, func(url.Values) string {
+		if !eligible {
+			return emptySearchXML()
+		}
+		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
+	})
+	defer aServer.Close()
+	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return movieSearchXMLWithResolution("Klaus.2019.720p.WEB-DL", "1280x720")
+	})
+	defer bServer.Close()
+	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Owner Search A", true)
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Owner Search B", true)
+	workflow := createMovieSearchWorkflow(t, store)
+	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
+	completeNonSearchEvents(t, store, workflow.ID)
+	ensureSearchOutboxEvent(t, store, workflow)
+
+	worker := testSearchWorker(store, newTwoProviderSearchService(store))
+	if err := worker.RunBatch(ctx); err != nil {
+		t.Fatalf("initial partial search: %v", err)
+	}
+	if len(aCaptured()) != 1 || len(bCaptured()) != 0 {
+		t.Fatalf("initial calls A=%d B=%d, want 1/0", len(aCaptured()), len(bCaptured()))
+	}
+	completeNonSearchEvents(t, store, workflow.ID)
+	old := pendingOutboxEvent(t, store, workflow.ID)
+	var oldPayload struct {
+		PartialRetry bool `json:"partial_retry"`
+	}
+	if err := json.Unmarshal(old.Payload, &oldPayload); err != nil || !oldPayload.PartialRetry {
+		t.Fatalf("old event is not a continuation: %s err=%v", old.Payload, err)
+	}
+
+	eligible = true
+	if err := store.RequestWorkflowSearch(ctx, workflow.ID, "", time.Now().UTC()); err != nil {
+		t.Fatalf("owner search request: %v", err)
+	}
+	current, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || current.State != workflows.StateSearching {
+		t.Fatalf("owner search state=%+v err=%v", current, err)
+	}
+	var oldID, ownerID string
+	if err := store.Pool.QueryRow(ctx, `SELECT id::text FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.search_requested' AND completed_at IS NULL AND payload->>'partial_retry'='true'`, workflow.ID.String()).Scan(&oldID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT id::text FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.search_requested' AND completed_at IS NULL AND COALESCE(payload->>'partial_retry','false')<>'true'`, workflow.ID.String()).Scan(&ownerID); err != nil {
+		t.Fatal(err)
+	}
+	// Deliver the old continuation first. Delay the owner event only by
+	// availability so the worker claims the older event deterministically.
+	if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=now() WHERE id=$1`, oldID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=now()+interval '1 hour' WHERE id=$1`, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimOutbox(ctx, "owner-review", 1, time.Minute, false)
+	if err != nil || len(claimed) != 1 || claimed[0].ID.String() != oldID {
+		t.Fatalf("claimed=%v err=%v old=%s", claimed, err, oldID)
+	}
+	service := newTwoProviderSearchService(store)
+	if err := service.Handle(ctx, claimed[0]); err != nil {
+		t.Fatalf("stale continuation: %v", err)
+	}
+	if err := store.CompleteOutbox(ctx, claimed[0].ID, "owner-review"); err != nil {
+		t.Fatal(err)
+	}
+	if len(aCaptured()) != 1 || len(bCaptured()) != 0 {
+		t.Fatalf("stale continuation queried A=%d B=%d, want 1/0", len(aCaptured()), len(bCaptured()))
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=now() WHERE id=$1`, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	clearIndexerBudget(t, store, a.ID)
+	service = newTwoProviderSearchService(store)
+	worker = testSearchWorker(store, service)
+	if err := worker.RunBatch(ctx); err != nil {
+		t.Fatalf("owner search worker: %v", err)
+	}
+	if len(aCaptured()) != 2 || len(bCaptured()) != 0 {
+		t.Fatalf("owner search calls A=%d B=%d, want A queried again and B deferred", len(aCaptured()), len(bCaptured()))
+	}
+	selected, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || selected.State != workflows.StateCandidateSelected || selected.SelectedRelease == nil {
+		t.Fatalf("owner search did not select A: %+v err=%v", selected, err)
+	}
+	var retrievals int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='release.retrieve_requested' AND completed_at IS NULL`, workflow.ID.String()).Scan(&retrievals); err != nil || retrievals != 1 {
+		t.Fatalf("retrieval events=%d err=%v, want exactly one", retrievals, err)
+	}
+}

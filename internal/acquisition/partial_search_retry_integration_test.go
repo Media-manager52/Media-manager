@@ -14,6 +14,7 @@ import (
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/postgres"
+	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
 	"uuid"
 )
@@ -339,7 +340,11 @@ func TestSearchIntentFingerprintCoversRetryInvalidationInputs(t *testing.T) {
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {
 			changedSearch := base
-			changedPlanned := append([]plannedSearchIndexer(nil), planned...)
+			changedPlanned := make([]plannedSearchIndexer, len(planned))
+			copy(changedPlanned, planned)
+			for index := range changedPlanned {
+				changedPlanned[index].Request.Params = append([]newznab.Param(nil), planned[index].Request.Params...)
+			}
 			mutation.fn(&changedSearch, &changedPlanned)
 			if string(fingerprint(changedSearch, changedPlanned)) == string(initial) {
 				t.Fatalf("%s change did not invalidate fingerprint", mutation.name)
@@ -674,4 +679,66 @@ func aCapturedIndexerID(t *testing.T, store *postgres.Store, name string) string
 		t.Fatal(err)
 	}
 	return id
+}
+
+// TestPartialSearchRetryCarriedHeldEvidenceIsReevaluated proves that a valid
+// continuation loads and re-evaluates persisted evidence even when it remains
+// held. B's empty result must not make the carried A candidate disappear from
+// the decision history or make the workflow look like a clean no-candidate run.
+func TestPartialSearchRetryCarriedHeldEvidenceIsReevaluated(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	aServer, aCaptured := newMovieSearchServer(t, func(url.Values) string {
+		return `<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Klaus.2019.WEB-DL</title><guid>held-carried-guid</guid></item></channel></rss>`
+	})
+	defer aServer.Close()
+	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string { return emptySearchXML() })
+	defer bServer.Close()
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Carried Held A", true)
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Carried Held B", true)
+	workflow := createMovieSearchWorkflow(t, store)
+	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
+	service := newTwoProviderSearchService(store)
+	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+		t.Fatalf("initial partial search: %v", err)
+	}
+	var candidateID string
+	var beforeCount int64
+	var beforeLast time.Time
+	if err := store.Pool.QueryRow(ctx, `SELECT candidate.id::text,candidate.observation_count,candidate.last_observed_at
+		FROM release_candidates candidate JOIN integration_instances indexer ON indexer.id=candidate.indexer_instance_id
+		WHERE candidate.workflow_id=$1 AND indexer.name='Carried Held A'`, workflow.ID.String()).Scan(&candidateID, &beforeCount, &beforeLast); err != nil {
+		t.Fatalf("load carried held candidate: %v", err)
+	}
+	initial, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || (initial.State != workflows.StateHeld && initial.State != workflows.StateWaiting) {
+		t.Fatalf("initial workflow=%+v err=%v", initial, err)
+	}
+	clearIndexerBudget(t, store, b.ID)
+	service = newTwoProviderSearchService(store)
+	if err := service.Handle(ctx, pendingSearchEvent(t, store, workflow.ID)); err != nil {
+		t.Fatalf("continuation: %v", err)
+	}
+	if len(aCaptured()) != 1 || len(bCaptured()) != 1 {
+		t.Fatalf("calls A=%d B=%d, want 1/1", len(aCaptured()), len(bCaptured()))
+	}
+	after, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || after.State != workflows.StateHeld {
+		t.Fatalf("final workflow=%+v err=%v, want held carried evidence", after, err)
+	}
+	var decision string
+	if err := store.Pool.QueryRow(ctx, `SELECT verdict FROM candidate_decisions WHERE workflow_id=$1 AND candidate_id=$2 ORDER BY decided_at DESC LIMIT 1`, workflow.ID.String(), candidateID).Scan(&decision); err != nil || decision != string(releases.VerdictHeld) {
+		t.Fatalf("carried decision=%q err=%v, want held", decision, err)
+	}
+	var afterCount int64
+	var afterLast time.Time
+	if err := store.Pool.QueryRow(ctx, `SELECT observation_count,last_observed_at FROM release_candidates WHERE id=$1`, candidateID).Scan(&afterCount, &afterLast); err != nil {
+		t.Fatal(err)
+	}
+	if afterCount != beforeCount || !afterLast.Equal(beforeLast) {
+		t.Fatalf("carried held evidence mutated freshness: count %d/%d last %s/%s", beforeCount, afterCount, beforeLast, afterLast)
+	}
+	if got := countSearchPartialRetries(t, store, workflow.ID); got != 0 {
+		t.Fatalf("final states=%d, want 0", got)
+	}
 }

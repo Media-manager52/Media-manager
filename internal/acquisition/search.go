@@ -73,6 +73,19 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	if err != nil {
 		return err
 	}
+	if !recovery && partialRetryEvent(event) && search.Workflow.State == workflows.StateSearching && search.Workflow.Revision == event.AggregateRevision+1 {
+		pending, err := service.Store.HasPendingOwnerSearch(ctx, search.Workflow.ID, search.Workflow.Revision, event.ID)
+		if err != nil {
+			return err
+		}
+		if pending {
+			// The revision bump may be the owner's fresh-search transition, not
+			// this continuation's own interrupted attempt. Let the owner event
+			// run; reusing carried evidence here would skip providers explicitly
+			// requested by the owner.
+			return nil
+		}
+	}
 	if recovery {
 		if err := service.Store.ValidateRecoveryDiscovery(ctx, event.AggregateID, int64(event.AggregateRevision)); err != nil {
 			if errors.Is(err, postgres.ErrConcurrentModification) {
@@ -367,6 +380,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		IndexerOutcomes:  outcomes,
 		PartialRetry:     state,
 		ReusedIndexerIDs: reusedIndexers,
+		Continuation:     partialRetryEvent(event),
 	}, time.Now().UTC())
 	err = persistErr
 	if recovery && errors.Is(err, postgres.ErrConcurrentModification) {

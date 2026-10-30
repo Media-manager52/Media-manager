@@ -67,6 +67,10 @@ type SearchPersistenceOptions struct {
 	// ReusedIndexerIDs marks completed providers whose evidence was loaded
 	// instead of queried during this attempt.
 	ReusedIndexerIDs map[uuid.UUID]bool
+	// Continuation is true only for the automatic incomplete-run event. It
+	// lets persistence reject a continuation that raced past an explicit owner
+	// search request.
+	Continuation bool
 }
 
 type WorkflowReleaseExclusion struct {
@@ -434,6 +438,18 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			return workflows.Workflow{}, ErrConcurrentModification
 		}
 	}
+	if options.Continuation {
+		pending, err := store.hasPendingOwnerSearch(ctx, transaction, search.Workflow.ID, search.Workflow.Revision, uuid.UUID{})
+		if err != nil {
+			return workflows.Workflow{}, err
+		}
+		if pending {
+			// An owner explicitly requested a fresh search after this
+			// continuation was queued. Do not let the stale event reuse
+			// completed-provider evidence and overwrite the owner's event.
+			return workflows.Workflow{}, ErrConcurrentModification
+		}
+	}
 	if options.PartialRetry != nil && len(options.PartialRetry.CompletedIndexers) > 0 {
 		if err := store.validateSearchPartialEvidence(ctx, transaction, *options.PartialRetry); err != nil {
 			return workflows.Workflow{}, err
@@ -796,6 +812,31 @@ func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pg
 	_, err = transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested',$4,$5,$6) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), nextGeneration, payload, now.UTC(), next.UTC())
 	return !complete, err
+}
+
+// hasPendingOwnerSearch reports whether a normal (unmarked) search event for
+// this exact workflow revision is still outstanding. A continuation is allowed
+// to recover only its own interrupted execution; it must not race an explicit
+// owner search that advanced the workflow revision and queued a fresh event.
+func (store *Store) HasPendingOwnerSearch(ctx context.Context, workflowID uuid.UUID, revision uint64, excludeEventID uuid.UUID) (bool, error) {
+	return store.hasPendingOwnerSearch(ctx, store.Pool, workflowID, revision, excludeEventID)
+}
+
+type pendingOwnerSearchQueryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (store *Store) hasPendingOwnerSearch(ctx context.Context, queryer pendingOwnerSearchQueryer, workflowID uuid.UUID, revision uint64, excludeEventID uuid.UUID) (bool, error) {
+	var pending bool
+	err := queryer.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM outbox_events
+		WHERE aggregate_type='workflow' AND aggregate_id=$1
+		  AND event_type='workflow.search_requested' AND aggregate_revision=$2
+		  AND completed_at IS NULL
+		  AND ($3::uuid IS NULL OR id<>$3)
+		  AND COALESCE(payload->>'partial_retry','false') <> 'true'
+	)`, workflowID.String(), int64(revision), excludeEventID.String()).Scan(&pending)
+	return pending, err
 }
 
 func searchRunComplete(outcomes []SearchIndexerOutcome) bool {
