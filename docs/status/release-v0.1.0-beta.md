@@ -3,9 +3,10 @@
 Status: **BLOCKED — not release-ready and not published.**
 
 This is the release-candidate evidence ledger, not a claim of completion. It is
-based on source at `main` merge `c82d44ab08afe24b34d3f8c4105d61d22e45a5ec`
-(30 October 2026). Production remains on `31789f7`/schema 49 and was not part of
-the release work.
+based on the release branch reconciled with PR #90's merge
+`300c76c74f869bac6a1adb6bc4c6205cc067f174`; PR #91 and the release-preparation
+branch are merged before publication. Production remains on `31789f7`/schema 49
+and was not part of the release work.
 
 ## Completed and merged
 
@@ -15,6 +16,7 @@ the release work.
 | UI pagination (PR #87) | `c53fd0edacbd16bdea4b364b08bfb979534c9265` |
 | Cosmos installation volumes (PR #88) | `39a250cd6d3bf6f09fc3b058ad60780c92b4c293` |
 | Partial search retry, schema 50 in source (PR #86) | `c82d44ab08afe24b34d3f8c4105d61d22e45a5ec` |
+| Cosmos route host/owner authorization (PR #90) | `300c76c74f869bac6a1adb6bc4c6205cc067f174` |
 
 Main CI for each merge passed, including image publication. The immutable image
 digests are recorded in [versioning](../releases/versioning.md).
@@ -23,8 +25,8 @@ digests are recorded in [versioning](../releases/versioning.md).
 
 | PR | Status | Remaining blocker |
 | --- | --- | --- |
-| #90 Cosmos route host/auth | Open; CI green; independent security review APPROVE | **Owner merge authorization**; live Cosmos wizard/FUSE acceptance still manual |
-| #91 CI parallelization/non-blocking policy | Open; CI on final HEAD pending at last check | **Owner merge authorization**, final CI result, and independent re-review of the final policy/docs commit |
+| #91 CI parallelization/non-blocking policy | Open; final CI pending | Merge only after green exact-HEAD CI |
+| #92 Release preparation | Open; final CI pending | Merge only after green exact-HEAD CI and final review |
 
 Do not merge these from this work. They require the grouped owner approval below.
 
@@ -34,9 +36,11 @@ Do not merge these from this work. They require the grouped owner approval below
   vulnerabilities; Dependabot open alerts were zero after the merge.
 - The published UI image contains the patched next/zod/vite/sharp/source-map-js/
   undici/fast-uri versions; dev/build tooling is still present in the image.
-- PR #90 is not merged. Until it is, the installed API/health routes can match an
-  unintended Cosmos host and `AdminOnly:false` permits any signed-in Cosmos user
-  to reach the owner token. This is a **release blocker** for public edge use.
+- PR #90 is merged. The template now sets `useHost:true`, one explicit host, and
+  `AdminOnly:true` on all three routes. Static regression tests cover unrelated
+  hosts, owner-only admin gates, route order, API bearer injection and the UI
+  catch-all. A live Cosmos 0.23.4 wizard and a non-admin/cross-host check remain
+  manual because this environment cannot safely exercise the live edge.
 - No production secrets or private VPS configuration are in this release work.
 
 ## Installation and onboarding
@@ -73,6 +77,10 @@ Do not merge these from this work. They require the grouped owner approval below
 - **PASS:** the full Go race suite, including acquisition, publication,
   retrieval, AltMount/Plex-facing unit and integration tests, ran in isolated
   PostgreSQL groups with all 247 PostgreSQL tests passing.
+- **PASS (simulated stages, separate tests):** movie and exact-season search
+  selection, retrieval failure/retry handling, real temporary-file symlink
+  publication, and simulated Plex confirmations passed. These are stage-level
+  checks, not one continuous external-service run.
 - **PASS:** the UI pagination/owner-attention browser suite passed 166 cases in
   the merged source; the release image use is covered by the disposable Compose
   check above.
@@ -124,7 +132,7 @@ Do not merge these from this work. They require the grouped owner approval below
 | Requirement | Result |
 | --- | --- |
 | Critical/high dependency work complete | PASS on source; merge blocker for public exposure |
-| API authentication/owner authorization | FAIL until PR #90 is merged |
+| API authentication/owner authorization | PASS in template/static regression; live Cosmos non-admin/cross-host check NOT VERIFIED |
 | No secrets in release | PASS (no secrets printed or committed) |
 | Clean install from immutable images | PASS in disposable stack; clean-host repeat NOT VERIFIED |
 | Cosmos wizard and FUSE remount | NOT VERIFIED |
@@ -139,9 +147,10 @@ Do not merge these from this work. They require the grouped owner approval below
 
 ## Required before release
 
-1. Merge PR #90 after owner approval and repeat a disposable Cross-host/non-admin
-   route check.
-2. Merge or explicitly defer PR #91; do not merge it with pending final checks.
+1. Merge PR #91 and #92 only after exact-HEAD CI/review; the owner authorized
+   these merges.
+2. Repeat a disposable Cosmos cross-host/non-admin route check or record the
+   manual gate.
 3. Configure an off-site backup destination and exercise a restore.
 4. Run the real or faithfully simulated end-to-end acceptance journey and record
    it as real-system or mocked.

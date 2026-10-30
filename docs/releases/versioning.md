@@ -1,7 +1,9 @@
 # Versioning and image identity
 
-Media Manager v0.1.0 Beta has not been tagged or published. This document defines
-the contract to use when the owner approves a release; it does not create a tag.
+Media Manager v0.1.0-beta.1 is prepared but has not been tagged or published.
+This document defines the contract to use when the owner approves a release; it
+does not create a tag. The candidate note is
+[`v0.1.0-beta.1.md`](v0.1.0-beta.1.md).
 
 ## Versions
 
