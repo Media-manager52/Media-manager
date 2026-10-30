@@ -199,8 +199,26 @@ Open **Sources → Download clients** and add an AltMount integration:
 
 The API mounts the **parent** of AltMount's FUSE mount at `/mnt` read-only with
 `rslave` propagation, so an AltMount restart or remount reaches the running API.
-The AltMount output must be visible to Plex at the same absolute path as
-`source_visible_root`; Plex resolves the symlinks Media Manager publishes.
+Both the Compose file and the Cosmos market template declare this propagation;
+mount the parent folder, never the FUSE mount point itself.
+
+The read-only bind is only a guard: it does not make a writable AltMount FUSE
+mount read-only. Before the first acquisition, enable AltMount's
+`fuse.read_only: true` (or expose the output through a read-only mount) and make
+the host parent a shared mount so new child mounts propagate to the API. For
+example, on a host where AltMount mounts under `/mnt/altmount`, verify both the
+mount options and the container view:
+
+```sh
+findmnt -no TARGET,OPTIONS /mnt /mnt/altmount
+docker exec media-manager-api-1 sh -c 'test -r /mnt/altmount && ! test -w /mnt/altmount'
+```
+
+The second command must succeed. If it fails, fix AltMount's output mode or the
+host propagation before adding a title; Media Manager will not copy or modify
+AltMount output. The AltMount output must be visible to Plex at the same
+absolute path as `source_visible_root`; Plex resolves the symlinks Media Manager
+publishes.
 
 ### Plex
 
