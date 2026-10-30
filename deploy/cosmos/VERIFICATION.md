@@ -227,4 +227,9 @@ Manual disposable validation still required:
 4. A reverse proxy in front of Cosmos preserves the configured Host header; an
    IP-only or alternate-host request is not expected to match.
 
-These checks have **not** been run against the live Cosmos instance.
+These checks have **not** been run against the live Cosmos instance. This PR
+changes only the install template; existing Cosmos installs need their three
+routes corrected manually and rechecked. Cosmos may show separate hostname
+fields for the API and health routes, but because all three routes use the same
+`{Hostnames...}` placeholder, the intended value is the Media Manager host
+shown for the UI route; verify the stored routes after installation.

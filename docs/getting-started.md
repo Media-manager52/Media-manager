@@ -126,9 +126,10 @@ pointed at Cosmos.
 | `/health` | `http://media-manager-api-1:8080` | owner login | none |
 | `/` (catch-all) | `http://media-manager-ui-1:3000` | owner login | none |
 
-Production uses `Mode=SERVAPP`, `UseHost=true`, `UsePathPrefix=true` for
-`/api` and `/health`, an empty path prefix for the UI, `StripPathPrefix=false`,
-`Timeout=14400000` (4 hours) and `AdminOnly=false`.
+Production uses `Mode=SERVAPP`, `UseHost=true`, the same explicit host for all
+three routes, `UsePathPrefix=true` for `/api` and `/health`, an empty path prefix
+for the UI, `StripPathPrefix=false`, `Timeout=14400000` (4 hours) and
+`AdminOnly=true` for all three routes.
 
 Important details:
 
@@ -139,9 +140,11 @@ Important details:
 - Do not strip the path prefix. The API expects the `/api/...` path.
 - Set the route timeout high enough for long downloads and backups; production
   uses 4 hours.
-- `AuthEnabled` must be on for all three routes. `AdminOnly` is optional:
-  production leaves it off and lets any signed-in Cosmos user in; enable it if
-  you want to restrict Media Manager to Cosmos admins.
+- `AuthEnabled` and `AdminOnly` must be on for all three routes. This makes the
+  API, health and UI owner/admin-only; a signed-in non-admin Cosmos user must
+  not receive the Media Manager owner token. The API and health routes must also
+  use `UseHost=true` with the same host as the UI, otherwise `/api` can match on
+  another Cosmos app's hostname.
 - The `/api` route's `ExtraHeaders` entry is what authenticates the browser to
   the API. Get the token value from `.env` on the server:
 
@@ -365,9 +368,10 @@ major update. Cosmos routes and container names do not change.
 - Do not expose the API port. It is bound to loopback for machine checks.
 - Keep `.env` and `.env.integrations` at mode `600`; they contain the database
   password, owner token, backup key and integration secrets.
-- There is one Media Manager owner token. Anyone who can sign in through Cosmos
-  and reach the routes has owner access unless you enable `AdminOnly` on the
-  routes. Use Cosmos users/admins deliberately.
+- There is one Media Manager owner token. All three routes require
+  `AdminOnly=true`; do not grant Cosmos `PERM_ADMIN_READ` to non-owner roles or
+  API tokens, because that permission is the route's admin gate. Do not share
+  the owner token or run a second proxy that injects it.
 - There is no separate Caddy or Basic-auth edge here. Cosmos is the supported
   public edge, matching production.
 

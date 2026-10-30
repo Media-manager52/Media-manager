@@ -69,11 +69,19 @@ class CosmosTemplateTest(unittest.TestCase):
         self.assertIs(ui["AuthEnabled"], True)
 
     def test_all_routes_are_host_bound_and_owner_only(self):
+        hosts = set()
         for route in self.routes:
             self.assertIs(route["useHost"], True, route["name"])
             self.assertIs(route["AuthEnabled"], True, route["name"])
             self.assertIs(route["AdminOnly"], True, route["name"])
-        self.assertIn("owner", self.routes[0]["description"].lower())
+            self.assertIn("host", route, route["name"])
+            self.assertTrue(route["host"], route["name"])
+            hosts.add(route["host"])
+        self.assertEqual(len(hosts), 1, hosts)
+        api, health, ui = self.routes
+        self.assertIn("ExtraHeaders", api)
+        self.assertNotIn("ExtraHeaders", health)
+        self.assertNotIn("ExtraHeaders", ui)
 
     def test_unintended_hosts_do_not_match_any_route(self):
         intended = self.routes[0]["host"]
