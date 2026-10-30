@@ -68,3 +68,60 @@ func TestDecryptBackupWritesAuthenticatedDump(t *testing.T) {
 		t.Fatalf("decrypted content=%q", content)
 	}
 }
+
+func writeEncryptedBackupFixture(t *testing.T, path string, plaintext string) []byte {
+	t.Helper()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("BACKUP_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(key))
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backups.Encrypt(file, strings.NewReader(plaintext), key); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func TestDecryptBackupRejectsSameInputAndOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "same.mmbak")
+	before := writeEncryptedBackupFixture(t, path, "postgres custom dump")
+	if err := decryptBackup([]string{path, path}); err == nil {
+		t.Fatal("same input/output path was accepted")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("input backup changed after same-path rejection")
+	}
+}
+
+func TestDecryptBackupLeavesNoPartialOutputOnTamper(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "tampered.mmbak")
+	output := filepath.Join(dir, "should-not-exist.dump")
+	body := writeEncryptedBackupFixture(t, input, "postgres custom dump")
+	body[len(body)-1] ^= 0xff
+	if err := os.WriteFile(input, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := decryptBackup([]string{input, output}); err == nil {
+		t.Fatal("tampered backup was accepted")
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("partial plaintext output remains: %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, ".media-manager-backup-*"))
+	if err != nil || len(matches) != 0 {
+		t.Fatalf("temporary plaintext files remain: %v", matches)
+	}
+}

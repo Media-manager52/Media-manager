@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -369,18 +370,40 @@ func decryptBackup(args []string) error {
 	if err != nil {
 		return err
 	}
-	source, err := os.Open(args[0])
+	inputPath, outputPath := args[0], args[1]
+	inputInfo, err := os.Stat(inputPath)
+	if err != nil {
+		return fmt.Errorf("stat encrypted backup: %w", err)
+	}
+	if outputInfo, statErr := os.Stat(outputPath); statErr == nil && os.SameFile(inputInfo, outputInfo) {
+		return errors.New("encrypted input and decrypted output must be different files")
+	}
+	source, err := os.Open(inputPath)
 	if err != nil {
 		return fmt.Errorf("open encrypted backup: %w", err)
 	}
 	defer source.Close()
-	destination, err := os.OpenFile(args[1], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// Decrypt to a same-directory temporary file and rename only after the
+	// authenticated stream and sync complete. A tampered/truncated backup must
+	// not leave a partially plaintext dump at the requested path.
+	temporary, err := os.CreateTemp(filepath.Dir(outputPath), ".media-manager-backup-*.dump")
 	if err != nil {
-		return fmt.Errorf("create decrypted dump: %w", err)
+		return fmt.Errorf("create temporary decrypted dump: %w", err)
 	}
-	decryptErr := backups.Decrypt(destination, source, key)
-	syncErr := destination.Sync()
-	closeErr := destination.Close()
+	temporaryPath := temporary.Name()
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("secure temporary decrypted dump: %w", err)
+	}
+	decryptErr := backups.Decrypt(temporary, source, key)
+	syncErr := temporary.Sync()
+	closeErr := temporary.Close()
 	if decryptErr != nil {
 		return fmt.Errorf("decrypt backup: %w", decryptErr)
 	}
@@ -390,6 +413,10 @@ func decryptBackup(args []string) error {
 	if closeErr != nil {
 		return fmt.Errorf("close decrypted dump: %w", closeErr)
 	}
+	if err := os.Rename(temporaryPath, outputPath); err != nil {
+		return fmt.Errorf("publish decrypted dump: %w", err)
+	}
+	removeTemporary = false
 	return nil
 }
 
