@@ -40,5 +40,9 @@ artwork hosts. The patched Next release closes the reported SVG/SSRF issues,
 but the deployment must keep the optimizer behind the authenticated Cosmos
 edge and must not add arbitrary remote image hosts. `zod` is present only for
 resolver compatibility; it should be removed if no future code uses it.
-Development-only Vite/Wrangler advisories do not affect the production image,
-but are fixed here to keep CI and local tooling clean.
+The current UI image copies the full `node_modules` tree, so development and
+build tooling (Vite, Wrangler/Miniflare, undici) is present in the final image
+even when its libraries are not on the primary request path. Those advisories are
+therefore fixed rather than dismissed as development-only. Pruning development
+dependencies from the runtime image is a separate hardening follow-up and must
+not be done without verifying that the vinext/Wrangler runtime still starts.
