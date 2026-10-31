@@ -18,6 +18,10 @@ truthful, and safe for an owner-operated production media system.
 - Read `docs/status/indexer-conformance.md` before touching Newznab behavior.
 - Check `git status` before editing. Preserve unrelated local work and never add
   `.env*`, credentials, runtime data, media, or download output.
+- Work from a GitHub issue: one issue, one branch, one worktree, one PR. Start
+  every session by confirming `pwd`, branch and HEAD match the task, and stop on
+  a mismatch. Merge and production deployment are separate owner approvals. See
+  `docs/operations/ai-development-workflow.md`.
 
 ## Code map
 

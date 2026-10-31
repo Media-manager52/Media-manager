@@ -12,13 +12,15 @@ guides under `docs/` (start with [`docs/onboarding/README.md`](docs/onboarding/R
 
 ## Development workflow
 
-1. Create a focused branch from the current `main`.
+1. Start from a GitHub issue and create a focused branch from the current `main`,
+   in its own worktree. Task flow, naming, review and approval stages:
+   [`docs/operations/ai-development-workflow.md`](docs/operations/ai-development-workflow.md).
 2. Make the smallest coherent change and preserve unrelated work.
 3. Add regression coverage at the narrowest useful layer.
 4. Run the relevant checks below.
 5. Update `CHANGELOG.md` for user-visible, operational, or security-relevant changes.
 6. Use a clear conventional commit such as `fix(ui): ...`, `feat(indexers): ...`, `security: ...`, or `docs: ...`.
-7. Open a merge request with the problem, evidence, safety impact, checks performed, and any remaining limitation. Never describe synthetic evidence as live verification.
+7. Open a pull request (the template prompts for this) with the problem, evidence, safety impact, checks performed, and any remaining limitation. Never describe synthetic evidence as live verification.
 
 ## Verification
 

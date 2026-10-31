@@ -15,6 +15,7 @@ behavioral truth is always the code and the SQL migrations.
 | Availability audit | [onboarding/agent-briefs/claude-availability-audit.md](onboarding/agent-briefs/claude-availability-audit.md) — prove per title whether missing content is truly unavailable or blocked by a pipeline defect |
 | Codex/agent review | [onboarding/agent-briefs/codex-availability-review.md](onboarding/agent-briefs/codex-availability-review.md) — full-server-access brief to challenge the audit, improve Danish evidence, and hunt defects |
 | Contributor workflow | [../CONTRIBUTING.md](../CONTRIBUTING.md) and [../AGENTS.md](../AGENTS.md) |
+| Task flow for the owner and AI agents | [operations/ai-development-workflow.md](operations/ai-development-workflow.md) — issue → branch/worktree → PR → review → CI → owner-approved merge; naming, roles, cleanup, separate deploy approval |
 | Product contract | [../README.md](../README.md) — deployment, commands, safety invariants |
 | Change history | [../CHANGELOG.md](../CHANGELOG.md) |
 
@@ -36,6 +37,7 @@ behavioral truth is always the code and the SQL migrations.
 | Document | Contents |
 | --- | --- |
 | [operations/runbook.md](operations/runbook.md) | Deploy, Cosmos edge, env vars, backup/restore, smoke tests, troubleshooting |
+| [operations/ai-development-workflow.md](operations/ai-development-workflow.md) | Issue-driven task lifecycle, branch/worktree/thread naming, agent roles, evidence, safe cleanup, separate merge and deploy approvals |
 | [operations/github-vps.md](operations/github-vps.md) | VPS-hosted GitHub checks, public GHCR images for the Cosmos market and owner-triggered production updates |
 | [operations/oldboys.md](operations/oldboys.md) | Owner credential setup, encryption key backup/recovery, and pending native provider validation |
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |

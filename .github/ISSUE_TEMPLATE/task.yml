@@ -1,0 +1,39 @@
+name: Task
+description: A unit of work for one branch, one worktree and one pull request
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One issue = one branch = one worktree = one PR. Keep secrets, private URLs,
+        media paths and provider payloads out of this issue. Workflow:
+        `docs/operations/ai-development-workflow.md`.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Problem or outcome
+      description: What is wrong or missing, and why it matters. No agent or model names.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: A checklist the pull request can tick off.
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety boundaries and approvals
+      description: >-
+        Name anything that needs separate owner approval: live searches or downloads,
+        publication, Plex refreshes, migrations, destructive operations, deployment.
+        Write "none" if there is none.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence required
+      description: Tests, commands or observations that will prove it, and whether each is local or live.

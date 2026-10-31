@@ -99,6 +99,8 @@ From `AGENTS.md` plus observed practice:
   success and inspect the final diff.
 - Do not add `.env*`, credentials, runtime data, media, or download output.
 - Check `git status` before editing; preserve unrelated local work.
+- Task flow, branch/thread naming, review roles, cleanup and the separate merge
+  and deploy approvals: [AI-assisted development workflow](../operations/ai-development-workflow.md).
 
 ## 5. Recipes
 
