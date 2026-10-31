@@ -81,11 +81,21 @@ if [[ "$isolation" == "database" ]]; then
       psql_admin -c "DROP DATABASE IF EXISTS \"${database}\" WITH (FORCE)" >/dev/null 2>&1 || true
     done
   }
-  trap drop_databases EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
   run_tag="$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
 fi
+
+cleanup() {
+  # Stop any group still running (only after an early failure or a signal),
+  # then drop the disposable databases.
+  local running
+  running="$(jobs -p)"
+  [[ -n "$running" ]] && kill $running 2>/dev/null || true
+  [[ "$isolation" == "database" ]] && drop_databases
+  return 0
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 prepare_group_database() {  # $1 = group name; sets group_db_url
   if [[ "$isolation" == "shared" ]]; then

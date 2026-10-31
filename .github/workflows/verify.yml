@@ -46,12 +46,23 @@ jobs:
       - run: python3 -m unittest discover -s tests/ci -v
       - run: npm test
 
-  browser:
+  # The browser suite is split into two independent hosted jobs. Each shard
+  # runs with PLAYWRIGHT_WORKERS parallel workers. The aggregate `browser` job
+  # below keeps the required job name stable for branch protection and the
+  # deployment broker.
+  browser-shard:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    name: browser-shard (${{ matrix.shard }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Same pinned image as the GitLab browser job, so browsers match @playwright/test.
     container: mcr.microsoft.com/playwright:v1.62.1-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
+    env:
+      PLAYWRIGHT_WORKERS: "2"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -62,14 +73,27 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
-      - run: npm run test:browser
+      - run: npm run test:browser -- --shard=${{ matrix.shard }}
       - if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-results
+          name: playwright-results-${{ strategy.job-index }}
           path: .sites-runtime/playwright-results
           retention-days: 7
+
+  browser:
+    needs: browser-shard
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every browser shard must have passed
+        env:
+          SHARDS_RESULT: ${{ needs.browser-shard.result }}
+        run: |
+          echo "browser shards: ${SHARDS_RESULT}"
+          test "${SHARDS_RESULT}" = "success"
 
   backend:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -82,6 +106,11 @@ jobs:
           POSTGRES_DB: media_manager_test
           POSTGRES_USER: media_manager
           POSTGRES_PASSWORD: media_manager_test
+          # Disposable test database: more lock slots (concurrent DROP SCHEMA
+          # across groups exhausts the default 64) and no durability waits.
+          POSTGRES_INITDB_ARGS: >-
+            -c max_locks_per_transaction=256 -c max_connections=200
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off
         ports: ["127.0.0.1:35432:5432"]
         options: >-
           --health-cmd "pg_isready -U media_manager -d media_manager_test"
@@ -100,11 +129,15 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: 1.27.0
-          cache: true
-          cache-dependency-path: go.sum
+          # The persistent runner keeps its own GOCACHE/GOMODCACHE and Go
+          # toolchain. Restoring a ~900 MB actions cache over them cost about
+          # 23 s per job plus a post-job save.
+          cache: false
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./cmd/... ./internal/...
       - run: bash scripts/ci/test-backend.sh
+        env:
+          BACKEND_TEST_SHARDS: "6"
       - run: go run ./cmd/media-manager migrate
       - run: git diff --exit-code -- go.mod go.sum
 
