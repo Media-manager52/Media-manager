@@ -49,6 +49,16 @@ export MEDIA_MANAGER_TEST_DATABASE_URL='postgres://user:pass@127.0.0.1:5432/medi
 GOFLAGS=-mod=readonly go test -count=1 -race ./internal/postgres/...
 ```
 
+To run the same gate CI runs (every package under `-race`, one disposable
+database per concurrent group, balanced groups, per-group timings), point the
+script at a PostgreSQL role that may `CREATE DATABASE`; it needs `psql` and
+`python3` and removes the databases it creates. See
+[CI](../operations/ci.md#backend-test-groups).
+
+```sh
+BACKEND_TEST_SHARDS=6 bash scripts/ci/test-backend.sh
+```
+
 ### Compose
 
 ```sh

@@ -10,8 +10,9 @@ by a trusted push after review.
 | Job | Runner | Why |
 | --- | --- | --- |
 | `frontend` | GitHub-hosted `ubuntu-24.04` | No production secrets; runs lint, typecheck, docs checks, dependency audits and unit tests. GitHub-hosted capacity runs it in parallel with the self-hosted work. |
-| `browser` | GitHub-hosted `ubuntu-24.04`, pinned Playwright container | No production secrets; the browser image remains pinned to `mcr.microsoft.com/playwright:v1.62.1-noble`. |
-| `backend` | self-hosted `media-manager-vps` | PostgreSQL service, Go race suite, 12-CPU capacity. |
+| `browser-shard (1/2)`, `browser-shard (2/2)` | GitHub-hosted `ubuntu-24.04`, pinned Playwright container | No production secrets; two independent jobs, each running its half of the suite with two Playwright workers. The image remains pinned to `mcr.microsoft.com/playwright:v1.62.1-noble`. |
+| `browser` | GitHub-hosted `ubuntu-24.04` | Aggregate that fails unless every shard passed; it keeps the required job name `browser` stable for branch protection and the deployment broker. |
+| `backend` | self-hosted `media-manager-vps` | PostgreSQL service, Go race suite in concurrent groups (see below). |
 | `containers` | self-hosted `media-manager-vps` | Requires the owner's separate rootless Docker engine for the disposable stack smoke. |
 | `publish` | self-hosted `media-manager-vps` | Needs the rootless Docker engine and registry credentials; runs only on `main` pushes after every required job succeeds. |
 
@@ -22,23 +23,132 @@ decision, not something this workflow can invent safely.
 
 ## Backend test groups
 
-`backend` runs `scripts/ci/test-backend.sh`. The script:
+`backend` runs `scripts/ci/test-backend.sh`, which launches these groups
+concurrently, each with `go test -race -count=1 -timeout 20m -json`:
 
-- runs every non-`internal/postgres` package with `-race`;
-- discovers every top-level PostgreSQL test;
-- partitions those tests into four groups;
-- runs all four PostgreSQL groups concurrently with the full `-race` flag;
-- fails if any group fails, and prints that group's log.
+- `postgres-N`: the top-level `internal/postgres` tests, split into
+  `BACKEND_TEST_SHARDS` groups (1 to 8);
+- `pkg-NAME`: every other package whose tests use
+  `MEDIA_MANAGER_TEST_DATABASE_URL` (found by grepping the test files, so a
+  new database-backed package is picked up automatically);
+- `other-packages`: every remaining package.
 
-The PostgreSQL tests create unique schemas, which is what makes concurrent
-groups safe. All 247 PostgreSQL tests are still executed; this is a split of the
-same suite, not a reduction. `BACKEND_TEST_SHARDS` can be set from 1 to 8 for a
-controlled experiment; the workflow default is 4.
+Why the groups are fast and still safe:
+
+- **One disposable database per group.** The schema migrator takes a
+  database-wide advisory lock (`pg_advisory_lock`) for every test fixture, so
+  groups that shared one database queued behind each other's migrations; under
+  CPU pressure that convoy showed up as 30-120 s "context deadline exceeded"
+  fixture timeouts. The script creates `mm_ci_<random>_<group>` databases on the
+  same server and drops them on exit. Tests still create their own unique
+  schemas inside them, and production migration code is untouched.
+  `BACKEND_TEST_DATABASE_ISOLATION=shared` restores the old single-database
+  behavior (and needs no `psql`).
+- **Balanced groups.** `scripts/ci/postgres-test-weights.txt` lists the
+  measured seconds of the ~20 slowest PostgreSQL tests; `backend_test_tools.py
+  plan` spreads them across groups (longest first). A missing or stale weight
+  only affects balance, never which tests run.
+- **Nothing is skipped silently.** The run fails if any discovered PostgreSQL
+  test reports no pass/fail/skip event, and it prints one timing line per
+  group (`=== postgres-2: exit 0, 43 tests (...) in 61s ===`), the five slowest
+  tests, and the job's CPU/memory use (see below).
+- **A tuned, socket-only, disposable PostgreSQL.**
+  `scripts/ci/postgres-container.sh` starts a pinned `postgres:18.6-alpine3.24`
+  container on the rootless engine (`start`, `wait`, `stop`; the stop step runs
+  `if: always()`, and stale containers older than three hours are reaped).
+  The server listens on **no TCP port**: it exposes a unix socket in a private
+  directory under `RUNNER_TEMP`, so there is no fixed host port to collide with
+  another job, and the password is random per run and never on a command line.
+  It runs with `max_locks_per_transaction=256` (the default 64 is exhausted by
+  roughly seven concurrent `DROP SCHEMA ... CASCADE` calls: `out of shared
+  memory`), `max_connections=200` and no durability waits (`fsync`,
+  `synchronous_commit`, `full_page_writes` off); it only ever holds throwaway
+  test data. The socket matters for speed, not just hygiene: through the
+  rootless engine's published port a query round trip measured 222 us versus
+  62 us over the socket, and the Go suite burned about 800 CPU-seconds of the
+  5-CPU quota instead of about 270.
+
+Run it locally against any disposable PostgreSQL (needs `psql` and `python3`):
+
+```sh
+MEDIA_MANAGER_TEST_DATABASE_URL='postgres://user:pass@127.0.0.1:5432/postgres?sslmode=disable' \
+  BACKEND_TEST_SHARDS=6 bash scripts/ci/test-backend.sh
+```
+
+The role needs `CREATEDB`; the URL's database is only used to issue
+`CREATE/DROP DATABASE`.
+
+## Resource ceiling
+
+The CI account's cgroup (`user-997.slice`) is capped at **5 CPUs**
+(`CPUQuota=500%`, `CPUWeight=25`) and **12 GiB** (`MemoryMax`, `TasksMax=4096`)
+across its runner, rootless Docker engine and containers; production keeps the
+rest of the 12-vCPU host. This is the real speed limit of the self-hosted jobs.
+At the time of measurement the counters (read-only, from
+`/sys/fs/cgroup/user.slice/user-997.slice`) showed `nr_throttled=6493` and
+`throttled_usec=1,280,914,245` since boot and 7,287 `memory.events max` hits
+with no OOM kills: the quota is occasionally throttled and the memory ceiling is
+reached (mostly reclaimable page cache). Do not add large tmpfs mounts or
+memory-hungry fixtures to CI jobs without checking `memory.peak`.
+
+Every backend run now prints the quota, the CPU seconds it used, throttling and
+memory high-water for that cgroup (`resources:` lines), so a change to the
+ceiling is visible in the job log.
+
+## Second VPS runner: investigated, not enabled
+
+Running `backend` and `containers` at the same time needs a second self-hosted
+runner. It was investigated but **not** enabled, because it cannot be done
+safely from the repository alone:
+
+- **The ceiling is shared, not doubled.** A second runner under the same
+  account adds concurrency, not capacity: it shares the 5 CPUs / 12 GiB above.
+  The container smoke is mostly waiting on cached image layers and health
+  checks, so the saving is bounded by its own duration (see the measured
+  results). Raising the ceiling is the owner's decision because it is
+  production headroom.
+- **Registration needs root and a registration token.** The existing runner
+  lives in a root-managed directory that AI agents cannot read or change.
+- **Isolation a second runner would need:** a separate OS account with its own
+  rootless Docker engine (own socket and data root), its own systemd slice with
+  explicit `CPUQuota`, `MemoryMax` and `TasksMax`, a distinct runner name and
+  label (for example `media-manager-vps-containers`) so jobs cannot land on the
+  wrong runner, no access to `/home/vps`, `.env*` files or the production Docker
+  socket, and no registry or integration credentials.
+- **Fixed host ports.** The backend job publishes no host port (its PostgreSQL
+  is socket-only with a per-run container and directory name). The container
+  smoke publishes the API on `127.0.0.1:38081` (hard-coded in
+  `scripts/ci/container-smoke.py`), so two smoke jobs on one host would collide;
+  rootless engines under different accounts share the host loopback.
+- **The deployment broker pins the runner name.**
+  `deploy/github/deploy-broker.py` accepts a Verify run only if every
+  `REQUIRED_JOBS` job (`frontend`, `browser`, `backend`, `containers`,
+  `publish`) concluded `success` with `runner_name == "media-manager-vps"`. A job
+  on a second runner fails that check, and so does any GitHub-hosted job (see
+  the next section).
+
+## Known conflict: deployment broker versus hosted frontend/browser jobs
+
+`frontend` and `browser` already run on GitHub-hosted runners (their
+`runner_name` is `GitHub Actions <number>`), but the broker's evidence check
+still requires `media-manager-vps` for all five required jobs and
+`docs/operations/github-vps.md` still says all five ran on the VPS runner. As
+written, the broker would reject a current `main` run ("Required VPS checks did
+not all succeed"), so a production deployment from it is expected to be refused.
+This predates this change and is not altered here: the broker is a root-owned
+production authorization boundary and the installed copy is outside the
+repository. The owner should decide whether hosted `frontend`/`browser` evidence
+is acceptable (and update the broker, its tests and the installed copy) or move
+those jobs back. This workflow keeps the required job names unchanged
+(`frontend`, `browser`, `backend`, `containers`, `publish`) so either decision
+stays possible.
 
 ## Caches and reproducibility
 
 - Frontend/browser use the npm cache keyed by `package-lock.json`.
-- Backend uses the Go module cache keyed by `go.sum`.
+- Backend does not restore a Go cache from GitHub: the persistent self-hosted
+  runner keeps its own toolchain, module cache and build cache (`setup-go`
+  `cache: false`), which avoided a ~900 MB download and extract per job.
 - The Playwright container remains pinned; browser tests are not moved to an
   unpinned browser install.
 - Go build/test results are not cached as passing tests (`-count=1`); only

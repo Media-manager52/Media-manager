@@ -22,6 +22,11 @@ const viewports = [
   { name: "mobile", width: 390, height: 844, theme: "dark", axe: false },
 ] as const
 
+// Every route/viewport case builds its own page and owner-API recorder and
+// shares no state with the others, so the tour may be spread across workers
+// and CI shards. Other spec files keep their serial, in-file ordering.
+test.describe.configure({ mode: "parallel" })
+
 async function settle(page: Page) {
   await page.waitForLoadState("networkidle")
   // Screens render persisted state after their loaders resolve; wait until no
