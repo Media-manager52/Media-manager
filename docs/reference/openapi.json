@@ -80,6 +80,102 @@
         },
         "type": "object"
       },
+      "Acquisition_DryRunCandidate": {
+        "properties": {
+          "attempted": {
+            "type": "boolean"
+          },
+          "candidate_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/Releases_Evaluation"
+          },
+          "excluded": {
+            "type": "boolean"
+          },
+          "explanation": {
+            "$ref": "#/components/schemas/Releases_DecisionExplanation"
+          },
+          "first_seen_sequence": {
+            "type": "integer"
+          },
+          "indexer_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "indexer_kind": {
+            "type": "string"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Acquisition_DryRunResult": {
+        "properties": {
+          "best_eligible_candidate_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/Acquisition_DryRunCandidate"
+            },
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "policy_source": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "integer"
+          },
+          "profile_policy_version": {
+            "type": "integer"
+          },
+          "ranked_candidate_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ApplyQualityProfilePresetInput": {
+        "properties": {
+          "policy_version": {
+            "type": "integer"
+          },
+          "preset": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ApproveProwlarrImportInput": {
         "properties": {
           "candidates": {
@@ -747,6 +843,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "decision_explanation": {
+            "$ref": "#/components/schemas/Releases_DecisionExplanation"
+          },
           "policy_version": {
             "type": "integer"
           },
@@ -1159,6 +1258,9 @@
       },
       "Postgres_ReleaseCandidateSummary": {
         "properties": {
+          "decision_explanation": {
+            "$ref": "#/components/schemas/Releases_DecisionExplanation"
+          },
           "id": {
             "format": "uuid",
             "type": "string"
@@ -1512,6 +1614,121 @@
         },
         "type": "object"
       },
+      "Releases_DecisionExplanation": {
+        "properties": {
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Releases_EvidenceView"
+            },
+            "type": "array"
+          },
+          "evidence_scope": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/Releases_Explanation"
+            },
+            "type": "array"
+          },
+          "score": {
+            "type": "integer"
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Releases_Evaluation": {
+        "properties": {
+          "explanations": {
+            "items": {
+              "$ref": "#/components/schemas/Releases_Explanation"
+            },
+            "type": "array"
+          },
+          "observation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "score": {
+            "type": "integer"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Releases_EvidenceView": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "evidence_at": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "fact": {
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Releases_Explanation": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "evidence_state": {
+            "type": "string"
+          },
+          "fact": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "rule_kind": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "Releases_Fact": {
         "properties": {
           "evidence_at": {
@@ -1535,6 +1752,58 @@
               "type": "string"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Releases_PresetDefinition": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "managed_facts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/Releases_Rule"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Releases_Rule": {
+        "properties": {
+          "allowed_values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "fact": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "unknown": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -5834,6 +6103,55 @@
         "x-mm-effect": "write"
       }
     },
+    "/api/v1/settings/quality-profile-presets": {
+      "get": {
+        "description": "Opt-in soft-scoring presets. They never replace required rules, scope, identity gates or required languages.\n\nNo state change and no provider contact. Always safe.",
+        "operationId": "listQualityProfilePresets",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Releases_PresetDefinition"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Quality profile presets",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
     "/api/v1/settings/quality-profiles": {
       "get": {
         "description": "No state change and no provider contact. Always safe.",
@@ -5912,7 +6230,7 @@
     },
     "/api/v1/settings/quality-profiles/{id}": {
       "patch": {
-        "description": "Changes Media Manager state or queues local work. Audited.",
+        "description": "Optimistic: policy_version is the version the editor read and is required. A stale version returns 409 quality_profile_changed and writes nothing, so an edit cannot overwrite a newer policy or its required rules; reload the profile and repeat the edit. A successful edit bumps policy_version by one. Existing acquisition rounds keep their snapshotted policy until the owner calls apply-policy.\n\nChanges Media Manager state or queues local work. Audited.",
         "operationId": "updateQualityProfile",
         "parameters": [
           {
@@ -5928,7 +6246,14 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Postgres_QualityProfile"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Postgres_QualityProfile"
+                  }
+                ],
+                "required": [
+                  "policy_version"
+                ]
               }
             }
           },
@@ -6001,6 +6326,68 @@
           }
         },
         "summary": "Apply the current profile policy to eligible existing workflows",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/quality-profiles/{id}/preset": {
+      "post": {
+        "description": "Replaces only preferred rules for the preset's managed facts. Required rules, language requirements and unrelated preferences are preserved. Existing acquisition rounds keep their snapshotted policy until the owner calls apply-policy.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "applyQualityProfilePreset",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ApplyQualityProfilePresetInput"
+                  }
+                ],
+                "required": [
+                  "preset",
+                  "policy_version"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Apply a soft quality preset to a profile",
         "tags": [
           "settings"
         ],
@@ -6708,6 +7095,62 @@
           }
         },
         "summary": "Release candidates of one workflow with their latest decision, reasons, attempts and exclusions",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
+    "/api/v1/workflows/{id}/candidates/dry-run": {
+      "get": {
+        "description": "Re-evaluates stored observations with the same evaluator as the worker. It never searches, downloads, submits to AltMount, publishes, or changes exclusions.\n\nNo state change and no provider contact. Always safe.",
+        "operationId": "dryRunWorkflowCandidates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Acquisition_DryRunResult"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Read-only policy replay of one workflow's stored release candidates",
         "tags": [
           "workflows"
         ],

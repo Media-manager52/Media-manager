@@ -145,6 +145,40 @@ func TestParseSearchCanonicalizesReliableResolutionMetadataWithoutLosingRawEvide
 	t.Fatal("canonical resolution fact was not emitted")
 }
 
+// The Newznab attribute "group" is "NNTP Group(s)" (documented example
+// "a.b.group, a.b.teevee"), i.e. the Usenet newsgroup(s) a release was posted
+// to. The release group is the separate "team" attribute ("Team doing the
+// release"). The owner UI depends on this: it shows the fact "group" as a
+// newsgroup and reads release groups only from a fact named "release_group".
+// If a future change starts producing that fact (for example from "team"), this
+// test must be updated deliberately together with the evidence it relies on.
+func TestParseSearchKeepsTheNewsgroupApartFromTheReleaseGroup(t *testing.T) {
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Show.S01E01.1080p.WEB-DL-SCENE</title><guid>native-1</guid>` +
+		`<newznab:attr name="group" value="a.b.group, a.b.teevee"/><newznab:attr name="team" value="DiAMOND"/><newznab:attr name="poster" value="yenc@power-post"/></item></channel></rss>`)
+	items, err := ParseSearch(body, "", "tvsearch", time.Unix(1, 0))
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items=%#v err=%v", items, err)
+	}
+	facts := map[string][]string{}
+	for _, fact := range items[0].Facts {
+		facts[fact.Name] = fact.Values
+	}
+	if !reflect.DeepEqual(facts["group"], []string{"a.b.group, a.b.teevee"}) {
+		t.Fatalf("the newsgroup attribute must be stored as the fact \"group\" exactly as the provider sent it: %#v", items[0].Facts)
+	}
+	if _, produced := facts["release_group"]; produced {
+		t.Fatalf("a release_group fact appeared; the newsgroup must never be turned into one: %#v", items[0].Facts)
+	}
+	// The provider's own release-group attribute is kept as raw evidence, untouched.
+	raw := map[string]string{}
+	for _, field := range items[0].Fields {
+		raw[field.Name] = field.Value
+	}
+	if raw["team"] != "DiAMOND" || raw["group"] != "a.b.group, a.b.teevee" {
+		t.Fatalf("raw attributes were not preserved: %#v", items[0].Fields)
+	}
+}
+
 func TestCanonicalResolutionRejectsAmbiguousValues(t *testing.T) {
 	t.Parallel()
 	for input, want := range map[string]string{

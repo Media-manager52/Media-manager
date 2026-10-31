@@ -2013,9 +2013,20 @@ func (server *Server) updateQualityProfile(writer http.ResponseWriter, request *
 		return
 	}
 	item.ID = id
-	updated, err := server.store.UpdateQualityProfile(request.Context(), item)
+	// policy_version is the version the editor read. It is required: an edit
+	// without it cannot be told apart from a stale one, and silently replacing a
+	// newer policy (including its required rules) is the failure this prevents.
+	if item.PolicyVersion == 0 {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "current policy_version is required")
+		return
+	}
+	updated, err := server.store.UpdateQualityProfile(request.Context(), item, item.PolicyVersion)
 	if errors.Is(err, postgres.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, "not_found", "quality profile was not found")
+		return
+	}
+	if errors.Is(err, postgres.ErrConcurrentModification) {
+		writeError(writer, http.StatusConflict, "quality_profile_changed", "the quality profile changed; reload it and retry")
 		return
 	}
 	if err != nil {

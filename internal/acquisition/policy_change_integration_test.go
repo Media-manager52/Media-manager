@@ -41,7 +41,17 @@ func TestQualityPolicyChangeParksSearchUntilOwnerApplies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		updated, err := store.UpdateQualityProfile(ctx, postgres.QualityProfile{ID: profileID, MediaKind: catalog.KindMovie, Name: "Movies quality", Policy: policy, UpgradesEnabled: true, Default: true, Enabled: true})
+		profiles, err := store.ListQualityProfiles(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var read uint64
+		for _, profile := range profiles {
+			if profile.ID == profileID {
+				read = profile.PolicyVersion
+			}
+		}
+		updated, err := store.UpdateQualityProfile(ctx, postgres.QualityProfile{ID: profileID, MediaKind: catalog.KindMovie, Name: "Movies quality", Policy: policy, UpgradesEnabled: true, Default: true, Enabled: true}, read)
 		if err != nil {
 			t.Fatal(err)
 		}

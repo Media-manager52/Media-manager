@@ -7,6 +7,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/indexers"
+	"github.com/media-manager/media-manager/internal/releases"
 )
 
 // Read models an operator (or agent) previously had to reconstruct with SQL:
@@ -297,6 +298,9 @@ type CandidateDecisionView struct {
 	Reasons       json.RawMessage `json:"reasons"`
 	PolicyVersion int64           `json:"policy_version"`
 	DecidedAt     time.Time       `json:"decided_at"`
+	// DecisionExplanation is additive presentation metadata derived from the
+	// stored reasons and the candidate's currently linked observation.
+	DecisionExplanation *releases.DecisionExplanation `json:"decision_explanation,omitempty"`
 }
 
 type CandidateExclusionView struct {
@@ -337,8 +341,9 @@ func (store *Store) WorkflowCandidates(ctx context.Context, workflowID uuid.UUID
 		d.verdict,d.score,d.reasons,d.policy_version,d.decided_at,
 		EXISTS(SELECT 1 FROM workflow_attempted_releases a WHERE a.workflow_id=c.workflow_id AND a.candidate_id=c.id),
 		COALESCE(w.selected_release_id=c.id,false),
-		e.reason,e.failure_kind,e.created_at
+		e.reason,e.failure_kind,e.created_at,COALESCE(o.normalized_facts,'[]'::jsonb)
 		FROM release_candidates c JOIN integration_instances i ON i.id=c.indexer_instance_id JOIN workflows w ON w.id=c.workflow_id
+		LEFT JOIN release_observations o ON o.id=c.observation_id
 		LEFT JOIN LATERAL (SELECT verdict,score,reasons,policy_version,decided_at FROM candidate_decisions d WHERE d.workflow_id=c.workflow_id AND d.candidate_id=c.id ORDER BY d.policy_version DESC,d.decided_at DESC LIMIT 1) d ON true
 		LEFT JOIN LATERAL (SELECT reason,failure_kind,created_at FROM workflow_release_exclusions e WHERE e.workflow_id=c.workflow_id AND e.candidate_id=c.id ORDER BY e.created_at DESC LIMIT 1) e ON true
 		WHERE c.workflow_id=$1 AND ($2='' OR d.verdict=$2)
@@ -353,17 +358,19 @@ func (store *Store) WorkflowCandidates(ctx context.Context, workflowID uuid.UUID
 		var idText, indexerText string
 		var decisionVerdict, exclusionReason, exclusionKind *string
 		var score *int
-		var reasons []byte
+		var reasons, facts []byte
 		var policy *int64
 		var decidedAt, excludedAt *time.Time
 		if err := rows.Scan(&idText, &item.Title, &indexerText, &item.IndexerName, &item.IndexerKind, &item.SizeBytes, &item.PublishedAt, &item.FirstObservedAt, &item.LastObservedAt, &item.ObservationCount,
-			&decisionVerdict, &score, &reasons, &policy, &decidedAt, &item.Attempted, &item.Selected, &exclusionReason, &exclusionKind, &excludedAt); err != nil {
+			&decisionVerdict, &score, &reasons, &policy, &decidedAt, &item.Attempted, &item.Selected, &exclusionReason, &exclusionKind, &excludedAt, &facts); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)
 		item.IndexerID, _ = uuid.Parse(indexerText)
 		if decisionVerdict != nil && score != nil && policy != nil && decidedAt != nil {
-			item.Decision = &CandidateDecisionView{Verdict: *decisionVerdict, Score: *score, Reasons: json.RawMessage(reasons), PolicyVersion: *policy, DecidedAt: *decidedAt}
+			reasonJSON := json.RawMessage(reasons)
+			explanation := releases.ExplainDecision(releases.Verdict(*decisionVerdict), *score, releases.ParseDecisionReasons(reasonJSON), releases.ParseObservationFacts(json.RawMessage(facts)))
+			item.Decision = &CandidateDecisionView{Verdict: *decisionVerdict, Score: *score, Reasons: reasonJSON, PolicyVersion: *policy, DecidedAt: *decidedAt, DecisionExplanation: &explanation}
 		}
 		if exclusionReason != nil && exclusionKind != nil && excludedAt != nil {
 			item.Exclusion = &CandidateExclusionView{Reason: *exclusionReason, FailureKind: *exclusionKind, CreatedAt: *excludedAt}

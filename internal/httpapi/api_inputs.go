@@ -63,6 +63,11 @@ type executeAdoptionBatchInput struct {
 	AdoptedReplacementConfirmation string `json:"adopted_replacement_confirmation"`
 }
 
+type applyQualityProfilePresetInput struct {
+	Preset        string `json:"preset"`
+	PolicyVersion uint64 `json:"policy_version"`
+}
+
 type createReleaseBlockInput struct {
 	CandidateID   string `json:"candidate_id"`
 	Scope         string `json:"scope"`

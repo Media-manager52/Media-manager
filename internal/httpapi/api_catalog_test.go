@@ -52,6 +52,33 @@ func TestAPICatalogIsCompleteAndConsistent(t *testing.T) {
 	}
 }
 
+func TestReleaseIntelligenceAPIRoutesHaveSafeEffects(t *testing.T) {
+	server := catalogServer(t)
+	operations := map[string]apiOperation{}
+	for _, operation := range server.apiOperations() {
+		operations[operation.Method+" "+operation.Path] = operation
+	}
+	dryRun, ok := operations["GET /api/v1/workflows/{id}/candidates/dry-run"]
+	if !ok || dryRun.Effect != effectRead {
+		t.Fatalf("dry-run route effect=%v ok=%v, want read", dryRun.Effect, ok)
+	}
+	presets, ok := operations["GET /api/v1/settings/quality-profile-presets"]
+	if !ok || presets.Effect != effectRead {
+		t.Fatalf("preset list route effect=%v ok=%v, want read", presets.Effect, ok)
+	}
+	apply, ok := operations["POST /api/v1/settings/quality-profiles/{id}/preset"]
+	if !ok || apply.Effect != effectWrite {
+		t.Fatalf("preset apply route effect=%v ok=%v, want write", apply.Effect, ok)
+	}
+	required := map[string]bool{}
+	for _, name := range apply.Required {
+		required[name] = true
+	}
+	if !required["preset"] || !required["policy_version"] {
+		t.Fatalf("preset apply required fields=%v, want preset and policy_version", apply.Required)
+	}
+}
+
 // The catalog must declare every JSON body and query parameter its handlers
 // actually read, so the published schema cannot silently fall behind the code.
 func TestAPICatalogDeclaresWhatHandlersRead(t *testing.T) {

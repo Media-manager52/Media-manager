@@ -60,6 +60,7 @@ import {
   loadBackups,
   loadReleaseCandidates,
   loadReleaseBlocks,
+  loadWorkflowDryRun,
   loadRequest,
   loadSources,
   loadSystemHealth,
@@ -74,6 +75,9 @@ import {
   uploadImportListSnapshot,
   type APIActivity,
   type APICalendarEntry,
+  type APIDecisionExplanation,
+  type APIDryRunCandidate,
+  type APIDryRunResult,
   type APIReleaseCandidate,
   type APISourceStatus,
   type APISystemHealth,
@@ -86,6 +90,7 @@ import {
   type APIWantedItem,
   type APIWorkflow,
 } from "@/lib/media-manager-api"
+import { evidenceStateNotRecorded, fallbackEvidenceRows, summarizeReleaseGroups, summarizeUsenetGroups, type ReleaseGroupSummary } from "@/lib/release-evidence"
 import { cn } from "@/lib/utils"
 import {
   buildMediaLibraryRecords,
@@ -967,7 +972,7 @@ export function LiveReleaseIntelligenceScreen({ mode = "releases" }: { mode?: "r
   const rejected = items.filter((item) => item.verdict === "rejected").length
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
-    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Eligible" value={String(eligible)} note="Passed required rules" tone="good" icon={CheckCircle2} /><MetricCard label="Held" value={String(held)} note="Unknown or conflicting evidence" tone={held ? "warn" : "good"} icon={AlertTriangle} /><MetricCard label="Rejected" value={String(rejected)} note="Failed a hard requirement" tone={rejected ? "bad" : "neutral"} icon={ShieldCheck} /></div>
+    <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Eligible" value={String(eligible)} note="Passed required rules" tone="good" icon={CheckCircle2} /><MetricCard label="Held" value={String(held)} note="Unknown or conflicting evidence" tone={held ? "warn" : "good"} icon={AlertTriangle} /><MetricCard label="Rejected" value={String(rejected)} note="Failed a hard requirement or an exclusion" tone={rejected ? "bad" : "neutral"} icon={ShieldCheck} /></div>
     {!data && !error ? <LoadingPanel label="Loading persisted release evidence…" /> : mode === "evidence" ? <EvidenceTable items={items} refresh={refresh} /> : <ReleaseTable items={items} refresh={refresh} />}
   </div>
 }
@@ -1011,7 +1016,91 @@ export function LiveBlocklistScreen() {
 }
 
 function ReleaseTable({ items, refresh }: { items: APIReleaseCandidate[]; refresh: () => void }) {
-  return <Panel flush title="Release candidates" subtitle="Persisted observations and policy decisions from paced searches." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Candidate</TableHead><TableHead>Media</TableHead><TableHead>Indexer</TableHead><TableHead>Size</TableHead><TableHead>Decision</TableHead><TableHead>Last seen</TableHead><TableHead>Evidence</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell className="max-w-lg font-semibold text-fg">{item.title}{item.selected ? <div className="mt-1 text-[12px] text-good">Selected for this workflow</div> : null}</TableCell><TableCell><Link className="hover:text-info" href={item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`}>{item.media_title}</Link></TableCell><TableCell>{item.indexer_name}</TableCell><TableCell>{formatBytes(item.size_bytes)}</TableCell><TableCell><StatusChip tone={verdictTone(item.verdict ?? "", item.selected)}>{item.selected ? "Selected" : item.verdict ? pretty(item.verdict) : "Unevaluated"}{item.score !== undefined ? ` · ${item.score}` : ""}</StatusChip></TableCell><TableCell>{timeAgo(item.last_observed_at)}</TableCell><TableCell className="text-fg-subtle">{timeAgo(item.observed_at)}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No release observations have been persisted.</div> : null}</Panel>
+  const [dryRun, setDryRun] = React.useState<APIDryRunResult | null>(null)
+  const [dryRunBusy, setDryRunBusy] = React.useState("")
+  const [dryRunError, setDryRunError] = React.useState("")
+  async function runDryRun(workflowID: string) {
+    setDryRunBusy(workflowID); setDryRunError(""); setDryRun(null)
+    try { setDryRun(await loadWorkflowDryRun(workflowID)) }
+    catch (reason) { setDryRunError(reason instanceof Error ? reason.message : "Could not complete the read-only dry run") }
+    finally { setDryRunBusy("") }
+  }
+  return <>
+    <Panel flush title="Release candidates" subtitle="Persisted observations and policy decisions from paced searches. Dry run replays stored evidence only." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Candidate</TableHead><TableHead>Media</TableHead><TableHead>Indexer</TableHead><TableHead>Size</TableHead><TableHead>Decision</TableHead><TableHead>Last seen</TableHead><TableHead>Evidence</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell className="max-w-lg font-semibold text-fg">{item.title}{item.selected ? <div className="mt-1 text-[12px] text-good">Selected for this workflow</div> : null}</TableCell><TableCell><Link className="hover:text-info" href={item.media_kind === "movie" ? `/media/movies/${item.media_id}` : `/media/series/${item.media_id}`}>{item.media_title}</Link></TableCell><TableCell>{item.indexer_name}</TableCell><TableCell>{formatBytes(item.size_bytes)}</TableCell><TableCell><StatusChip tone={verdictTone(item.verdict ?? "", item.selected)}>{item.selected ? "Selected" : item.verdict ? pretty(item.verdict) : "Unevaluated"}{item.score !== undefined ? ` · ${item.score}` : ""}</StatusChip>{item.decision_explanation ? <ReleaseDecisionExplanation explanation={item.decision_explanation} /> : null}<Button size="sm" variant="ghost" className="mt-1 px-0" disabled={dryRunBusy === item.workflow_id} onClick={() => void runDryRun(item.workflow_id)}>{dryRunBusy === item.workflow_id ? "Replaying…" : "Dry run"}</Button></TableCell><TableCell>{timeAgo(item.last_observed_at)}</TableCell><TableCell className="text-fg-subtle">{timeAgo(item.observed_at)}</TableCell></TableRow>)}</TableBody></Table></div>{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No release observations have been persisted.</div> : null}</Panel>
+    {dryRunError ? <InlineNotice tone="bad" title="Dry run unavailable">{dryRunError}</InlineNotice> : null}
+    {dryRun ? <ReleaseDryRunPanel result={dryRun} onClose={() => setDryRun(null)} /> : null}
+  </>
+}
+
+function ReleaseDecisionExplanation({ explanation }: { explanation: APIDecisionExplanation }) {
+  return <details className="mt-2 max-w-md rounded-md border border-line bg-surface-2/40 p-2 text-[12px]">
+    <summary className="cursor-pointer select-none text-fg-subtle outline-none hover:text-info focus-visible:text-info">Why this decision</summary>
+    <div className="mt-2 space-y-2">
+      <p className="text-[11px] leading-4 text-fg-subtle">
+        {explanation.evidence_scope === "dry_run_replay"
+          ? "Recomputed from the stored observation by this read-only replay. Inferred facts come from the release title and never invent provider evidence."
+          : "Reasons are stored with the decision. Evidence is the currently linked observation, not a decision-time snapshot; legacy reasons keep an unrecorded rule kind, and their category is derived from the stored rule and fact names."}
+      </p>
+      {explanation.reasons.length ? <ul className="space-y-1.5">
+        {explanation.reasons.map((reason, index) => <li key={`${reason.rule}:${index}`} className="border-t border-line pt-1.5 first:border-t-0 first:pt-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <StatusChip tone={reasonTone(reason.decision)}>{pretty(reason.category ?? "other")}</StatusChip>
+            <span className="font-semibold text-fg">{reason.rule}</span>
+            {reason.rule_kind ? <span className="text-[11px] text-fg-subtle">{reason.rule_kind === "required" ? "Hard requirement" : "Preference"}</span> : null}
+            {reason.score ? <span className="text-[11px] text-fg-subtle">+{reason.score}</span> : null}
+          </div>
+          <div className="mt-0.5 text-fg-secondary">{reason.reason}</div>
+          {reason.values?.length ? <div className="mt-0.5 break-words font-mono text-[11px] text-fg-subtle">{reason.fact ? `${reason.fact}: ` : ""}{reason.values.join(", ")}</div> : null}
+        </li>)}
+      </ul> : <div className="text-fg-subtle">No stored reason was recorded for this decision.</div>}
+      {explanation.evidence.length ? <div>
+        <div className="font-semibold text-fg">Stored evidence</div>
+        <ul className="mt-1 space-y-1">
+          {explanation.evidence.map((evidence, index) => <li key={`${evidence.fact}:${index}`} className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-[11px] text-fg-subtle">{evidence.fact}</span>
+            <StatusChip tone={evidenceTone(evidence.state)}>{pretty(evidence.state)}</StatusChip>
+            <span className="break-words text-fg-secondary">{evidence.values.join(", ") || "Unknown"}</span>
+            {evidence.observed_at ? <span className="text-[11px] text-fg-subtle">{timeAgo(evidence.observed_at)}</span> : null}
+          </li>)}
+        </ul>
+      </div> : null}
+    </div>
+  </details>
+}
+
+function ReleaseDryRunPanel({ result, onClose }: { result: APIDryRunResult; onClose: () => void }) {
+  const byID = new Map(result.candidates.map((candidate) => [candidate.candidate_id, candidate] as const))
+  const ranked = result.ranked_candidate_ids.map((id) => byID.get(id)).filter((candidate): candidate is APIDryRunCandidate => Boolean(candidate))
+  const best = result.best_eligible_candidate_id ? byID.get(result.best_eligible_candidate_id) : undefined
+  const visible = ranked.slice(0, 50)
+  const bestRank = best ? ranked.findIndex((candidate) => candidate.candidate_id === best.candidate_id) + 1 : 0
+  return <Panel flush title="Read-only dry run" subtitle="Policy replay of stored observations. No indexer search, NZB download, AltMount submission, Plex publication or durable exclusion change." action={<Button size="sm" variant="outline" onClick={onClose}>Close</Button>}>
+    <div className="grid gap-3 p-4 sm:grid-cols-3">
+      <MetricCard label="Best eligible" value={best ? "Available" : "None"} note={best ? `${best.title} · rank ${bestRank} of ${ranked.length}` : "No stored candidate is eligible under this policy"} tone={best ? "good" : "warn"} icon={CheckCircle2} />
+      <MetricCard label="Replayed" value={String(result.candidates.length)} note={`${pretty(result.policy_source)} policy ${result.policy_version} · profile ${result.profile_policy_version}`} tone="info" icon={ListChecks} />
+      <MetricCard label="Generated" value={timeAgo(result.generated_at)} note="Stored observations only" tone="neutral" icon={RefreshCw} />
+    </div>
+    <div className="border-t border-line px-4 py-3"><InlineNotice tone="info" title="What this dry run does not do">{result.limitations.join(" ")}</InlineNotice></div>
+    {result.truncated ? <div className="border-t border-line px-4 py-3"><InlineNotice tone="warn" title="Replay truncated">Only the most recently observed candidates were replayed, so the ranking may omit others.</InlineNotice></div> : null}
+    <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Rank</TableHead><TableHead>Candidate</TableHead><TableHead>Verdict</TableHead><TableHead>Gates</TableHead><TableHead>Why</TableHead></TableRow></TableHeader><TableBody>{visible.map((candidate, index) => <TableRow key={candidate.candidate_id}><TableCell>{index + 1}</TableCell><TableCell className="max-w-lg font-semibold text-fg">{candidate.title}{candidate.selected ? <div className="mt-1 text-[12px] text-good">Currently selected</div> : null}</TableCell><TableCell><StatusChip tone={verdictTone(candidate.evaluation.verdict, candidate.selected)}>{pretty(candidate.evaluation.verdict)} · {candidate.evaluation.score}</StatusChip></TableCell><TableCell><div className="flex flex-wrap gap-1">{candidate.attempted ? <StatusChip tone="warn">Attempted</StatusChip> : null}{candidate.excluded ? <StatusChip tone="bad">Excluded</StatusChip> : null}{candidate.selected ? <StatusChip tone="good">Selected</StatusChip> : null}{!candidate.attempted && !candidate.excluded && !candidate.selected ? <span className="text-[12px] text-fg-subtle">Available</span> : null}</div></TableCell><TableCell><ReleaseDecisionExplanation explanation={candidate.explanation} /></TableCell></TableRow>)}</TableBody></Table></div>
+    {ranked.length > visible.length ? <div className="border-t border-line p-3 text-[12px] text-fg-subtle">Showing the first {visible.length} of {ranked.length} ranked candidates.</div> : null}
+    {ranked.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No stored candidates are available for this workflow.</div> : null}
+  </Panel>
+}
+
+function reasonTone(decision: string): Tone {
+  if (decision === "pass") return "good"
+  if (decision === "unknown") return "warn"
+  if (decision === "fail") return "bad"
+  return "neutral"
+}
+
+function evidenceTone(state: string): Tone {
+  if (state === "observed") return "good"
+  if (state === "inferred") return "info"
+  if (state === "conflicting") return "bad"
+  if (state === evidenceStateNotRecorded) return "neutral"
+  return "warn"
 }
 
 // The evidence view expands every candidate into one row per normalized fact.
@@ -1021,35 +1110,41 @@ function ReleaseTable({ items, refresh }: { items: APIReleaseCandidate[]; refres
 const evidenceRowLimit = 300
 
 function EvidenceTable({ items, refresh }: { items: APIReleaseCandidate[]; refresh: () => void }) {
-  const rows = React.useMemo(() => items.flatMap((item) => Object.entries(item.normalized_facts ?? {}).slice(0, 20).map(([fact, value]) => ({ id: item.id, title: item.title, verdict: item.verdict, selected: item.selected, fact, value }))), [items])
+  const rows = React.useMemo(() => items.flatMap((item) => {
+    const evidence = item.decision_explanation?.evidence
+    if (evidence?.length) {
+      return evidence.slice(0, 20).map((fact) => ({ id: item.id, title: item.title, verdict: item.verdict, selected: item.selected, fact: fact.fact, value: fact.values.length ? fact.values.join(", ") : "Unknown", state: fact.state }))
+    }
+    // Raw stored facts: a fact array (what the store writes) or the legacy object
+    // shape. Neither is decision evidence, and the legacy shape records no state.
+    return fallbackEvidenceRows(item.normalized_facts).map((row) => ({ id: item.id, title: item.title, verdict: item.verdict, selected: item.selected, ...row }))
+  }), [items])
   const visible = rows.slice(0, evidenceRowLimit)
   const hidden = rows.length - visible.length
-  return <Panel flush title="Evidence explorer" subtitle="Normalized facts point to a persisted raw observation; unknowns stay visible." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Candidate</TableHead><TableHead>Fact</TableHead><TableHead>Value</TableHead><TableHead>Decision</TableHead></TableRow></TableHeader><TableBody>{visible.map((row) => <TableRow key={`${row.id}:${row.fact}`}><TableCell className="max-w-sm truncate font-semibold">{row.title}</TableCell><TableCell className="font-mono text-[12px]">{row.fact}</TableCell><TableCell className="max-w-lg break-words">{formatFact(row.value)}</TableCell><TableCell><StatusChip tone={verdictTone(row.verdict ?? "", row.selected)}>{row.verdict ? pretty(row.verdict) : "Unevaluated"}</StatusChip></TableCell></TableRow>)}</TableBody></Table></div>{hidden > 0 ? <div className="border-t border-line p-3 text-[12px] text-fg-subtle">Showing the first {visible.length.toLocaleString()} of {rows.length.toLocaleString()} persisted evidence facts from {items.length.toLocaleString()} candidates. Narrow the release set above to inspect the rest.</div> : null}{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No evidence has been persisted.</div> : null}</Panel>
-}
-
-function formatFact(value: unknown) {
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
-  if (Array.isArray(value)) return value.map(String).join(", ")
-  return value ? JSON.stringify(value) : "Unknown"
+  return <Panel flush title="Evidence explorer" subtitle="Structured decision evidence and legacy normalized facts; unknowns stay visible." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Candidate</TableHead><TableHead>Fact</TableHead><TableHead>Value</TableHead><TableHead>State</TableHead><TableHead>Decision</TableHead></TableRow></TableHeader><TableBody>{visible.map((row, index) => <TableRow key={`${row.id}:${row.fact}:${index}`}><TableCell className="max-w-sm truncate font-semibold">{row.title}</TableCell><TableCell className="font-mono text-[12px]">{row.fact}</TableCell><TableCell className="max-w-lg break-words">{row.value}</TableCell><TableCell><StatusChip tone={evidenceTone(row.state)}>{pretty(row.state)}</StatusChip></TableCell><TableCell><StatusChip tone={verdictTone(row.verdict ?? "", row.selected)}>{row.verdict ? pretty(row.verdict) : "Unevaluated"}</StatusChip></TableCell></TableRow>)}</TableBody></Table></div>{hidden > 0 ? <div className="border-t border-line p-3 text-[12px] text-fg-subtle">Showing the first {visible.length.toLocaleString()} of {rows.length.toLocaleString()} persisted evidence facts from {items.length.toLocaleString()} candidates. Narrow the release set above to inspect the rest.</div> : null}{items.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No evidence has been persisted.</div> : null}</Panel>
 }
 
 function LiveReleaseGroups({ items, error, loading, refresh }: { items: APIReleaseCandidate[]; error: string; loading: boolean; refresh: () => void }) {
-  const groups = React.useMemo(() => {
-    const result = new Map<string, { observations: number; eligible: number; held: number; rejected: number }>()
-    for (const item of items) {
-      const facts = item.normalized_facts ?? {}
-      const raw = facts.release_group ?? facts.group
-      const name = typeof raw === "string" && raw.trim() ? raw.trim() : "Unknown"
-      const current = result.get(name) ?? { observations: 0, eligible: 0, held: 0, rejected: 0 }
-      current.observations += 1
-      if (item.verdict === "eligible") current.eligible += 1
-      if (item.verdict === "held") current.held += 1
-      if (item.verdict === "rejected") current.rejected += 1
-      result.set(name, current)
-    }
-    return Array.from(result.entries()).sort((left, right) => right[1].observations - left[1].observations)
-  }, [items])
-  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{loading ? <LoadingPanel /> : <Panel flush title="Observed release groups" subtitle="Counts summarize current persisted evidence; they are not permanent trust labels." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Group</TableHead><TableHead>Observations</TableHead><TableHead>Eligible</TableHead><TableHead>Held</TableHead><TableHead>Rejected</TableHead></TableRow></TableHeader><TableBody>{groups.map(([name, counts]) => <TableRow key={name}><TableCell className="font-semibold">{name}</TableCell><TableCell>{counts.observations}</TableCell><TableCell>{counts.eligible}</TableCell><TableCell>{counts.held}</TableCell><TableCell>{counts.rejected}</TableCell></TableRow>)}</TableBody></Table></div>{groups.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No group evidence has been observed.</div> : null}</Panel>}</div>
+  const releaseGroups = React.useMemo(() => summarizeReleaseGroups(items), [items])
+  const usenetGroups = React.useMemo(() => summarizeUsenetGroups(items), [items])
+  return <div className="space-y-4">
+    {error ? <ErrorNotice error={error} /> : null}
+    {loading ? <LoadingPanel /> : <>
+      <Panel flush title="Observed release groups" subtitle="The team behind a release, counted only where a release-group fact was recorded; Unknown means none was. Counts summarize current persisted evidence; they are not permanent trust labels." action={<RefreshButton onClick={refresh} />}>
+        <GroupSummaryTable label="Release group" rows={releaseGroups} empty="No release-group evidence has been observed." />
+      </Panel>
+      <Panel flush title="Usenet newsgroups" subtitle="Where providers say a release was posted (the Newznab group attribute). A newsgroup is not a release group. A release posted to several newsgroups is counted under each.">
+        <GroupSummaryTable label="Newsgroup" rows={usenetGroups} empty="No newsgroup evidence has been observed." />
+      </Panel>
+    </>}
+  </div>
+}
+
+function GroupSummaryTable({ label, rows, empty }: { label: string; rows: ReleaseGroupSummary[]; empty: string }) {
+  return <>
+    <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>{label}</TableHead><TableHead>Observations</TableHead><TableHead>Eligible</TableHead><TableHead>Held</TableHead><TableHead>Rejected</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.key}><TableCell className={row.kind === "group" ? "font-semibold" : "italic text-fg-muted"}>{row.name}</TableCell><TableCell>{row.observations}</TableCell><TableCell>{row.eligible}</TableCell><TableCell>{row.held}</TableCell><TableCell>{row.rejected}</TableCell></TableRow>)}</TableBody></Table></div>
+    {rows.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">{empty}</div> : null}
+  </>
 }
 
 export function LiveSourcesScreen({ kind }: { kind?: "newznab" | "altmount" }) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -430,9 +431,23 @@ func canonicalizeOriginalLanguageRouting(policy json.RawMessage) (json.RawMessag
 	return json.Marshal(document)
 }
 
-func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityProfile) (QualityProfile, error) {
+// ErrExpectedPolicyVersionRequired is returned when an update names no version
+// to compare against. A version of zero never exists (profiles start at 1), so
+// it can only mean the caller did not read the profile it is replacing.
+var ErrExpectedPolicyVersionRequired = errors.New("expected policy version is required")
+
+// UpdateQualityProfile replaces a profile's name, policy and flags if, and only
+// if, its stored policy_version is still expectedVersion, the version the caller
+// read. The comparison happens under the row lock before anything is written, so
+// a stale editor gets ErrConcurrentModification and cannot overwrite a newer
+// policy (including newer required rules). profile.PolicyVersion is ignored: the
+// stored version is bumped by exactly one on success.
+func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityProfile, expectedVersion uint64) (QualityProfile, error) {
 	if profile.ID == (uuid.UUID{}) {
 		return QualityProfile{}, errors.New("quality profile ID is required")
+	}
+	if expectedVersion == 0 {
+		return QualityProfile{}, ErrExpectedPolicyVersionRequired
 	}
 	profile, err := canonicalQualityProfile(profile)
 	if err != nil {
@@ -450,6 +465,11 @@ func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityPro
 	} else if err != nil {
 		return QualityProfile{}, err
 	}
+	// Checked before any write (including the default flip below) so a stale
+	// edit leaves every row untouched.
+	if uint64(currentVersion) != expectedVersion {
+		return QualityProfile{}, ErrConcurrentModification
+	}
 	if currentKind != profile.MediaKind {
 		return QualityProfile{}, errors.New("quality profile media kind cannot change")
 	}
@@ -466,6 +486,74 @@ func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityPro
 	if command.RowsAffected() != 1 {
 		return QualityProfile{}, ErrConcurrentModification
 	}
+	return profile, transaction.Commit(ctx)
+}
+
+// UpdateQualityProfilePolicyAtVersion replaces only the policy of an existing
+// profile and bumps its version. It deliberately does not write the name,
+// default, enabled or upgrade flags from a stale read: a concurrent default
+// change does not bump policy_version and must not be undone by a preset
+// application.
+func (store *Store) UpdateQualityProfilePolicyAtVersion(ctx context.Context, id uuid.UUID, policy json.RawMessage, expectedVersion uint64) (QualityProfile, error) {
+	if id == (uuid.UUID{}) {
+		return QualityProfile{}, errors.New("quality profile ID is required")
+	}
+	if expectedVersion == 0 {
+		return QualityProfile{}, errors.New("expected policy version is required")
+	}
+	if !json.Valid(policy) {
+		return QualityProfile{}, fmt.Errorf("%w: policy is not valid JSON", ErrInvalidQualityProfilePolicy)
+	}
+	canonical, _, err := subtitles.CanonicalizePolicy(policy)
+	if err != nil {
+		return QualityProfile{}, fmt.Errorf("%w: %v", ErrInvalidQualityProfilePolicy, err)
+	}
+	canonical, err = canonicalizeOriginalLanguageRouting(canonical)
+	if err != nil {
+		return QualityProfile{}, fmt.Errorf("%w: %v", ErrInvalidQualityProfilePolicy, err)
+	}
+	rules, err := releases.ParsePolicyRules(canonical)
+	if err != nil {
+		return QualityProfile{}, fmt.Errorf("%w: policy must contain release rules", ErrInvalidQualityProfilePolicy)
+	}
+	if err := releases.ValidateRules(rules); err != nil {
+		return QualityProfile{}, fmt.Errorf("%w: invalid release rules", ErrInvalidQualityProfilePolicy)
+	}
+	var routing struct {
+		Languages []string `json:"original_language_routing"`
+	}
+	if err := json.Unmarshal(canonical, &routing); err != nil {
+		return QualityProfile{}, fmt.Errorf("%w: policy is invalid", ErrInvalidQualityProfilePolicy)
+	}
+	transaction, err := store.Pool.Begin(ctx)
+	if err != nil {
+		return QualityProfile{}, err
+	}
+	defer transaction.Rollback(ctx)
+	var currentKind catalog.MediaKind
+	var currentVersion int64
+	var name string
+	var upgrades, isDefault, enabled bool
+	if err := transaction.QueryRow(ctx, `SELECT media_kind,policy_version,name,upgrades_enabled,is_default,enabled FROM quality_profiles WHERE id=$1 FOR UPDATE`, id.String()).Scan(&currentKind, &currentVersion, &name, &upgrades, &isDefault, &enabled); errors.Is(err, pgx.ErrNoRows) {
+		return QualityProfile{}, ErrNotFound
+	} else if err != nil {
+		return QualityProfile{}, err
+	}
+	if uint64(currentVersion) != expectedVersion {
+		return QualityProfile{}, ErrConcurrentModification
+	}
+	if isDefault && len(routing.Languages) > 0 {
+		return QualityProfile{}, fmt.Errorf("%w: an original-language routing profile cannot be the default fallback", ErrInvalidQualityProfilePolicy)
+	}
+	newVersion := currentVersion + 1
+	command, err := transaction.Exec(ctx, `UPDATE quality_profiles SET policy=$2,policy_version=$3 WHERE id=$1`, id.String(), string(canonical), newVersion)
+	if err != nil {
+		return QualityProfile{}, err
+	}
+	if command.RowsAffected() != 1 {
+		return QualityProfile{}, ErrConcurrentModification
+	}
+	profile := QualityProfile{ID: id, MediaKind: currentKind, Name: name, PolicyVersion: uint64(newVersion), Policy: canonical, UpgradesEnabled: upgrades, Default: isDefault, Enabled: enabled}
 	return profile, transaction.Commit(ctx)
 }
 

@@ -48,6 +48,10 @@ for (const viewport of viewports) {
           await expect(page.getByRole("columnheader", { name: "Last seen" })).toBeVisible()
           await expect(page.getByRole("columnheader", { name: "Evidence" })).toBeVisible()
           await expect(page.getByRole("columnheader", { name: "Observed" })).toHaveCount(0)
+          await expect(page.getByText("Why this decision").first()).toBeVisible()
+        }
+        if (route === "/settings/profiles") {
+          await expect(page.getByRole("columnheader", { name: "Preset" })).toBeVisible()
         }
         const overflow = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }))
         expect(overflow.document, "page must not scroll horizontally").toBeLessThanOrEqual(overflow.viewport)

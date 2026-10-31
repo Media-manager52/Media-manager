@@ -598,7 +598,7 @@ func TestSubtitlePolicyForJobFailsClosedToLiveProfileRequirements(t *testing.T) 
 	updated, err := fixture.store.UpdateQualityProfile(fixture.ctx, QualityProfile{
 		ID: fixture.profile.ID, MediaKind: fixture.profile.MediaKind, Name: fixture.profile.Name,
 		Policy: policy, UpgradesEnabled: fixture.profile.UpgradesEnabled, Default: fixture.profile.Default, Enabled: fixture.profile.Enabled,
-	})
+	}, storedQualityProfileVersion(t, fixture.ctx, fixture.store, fixture.profile.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
