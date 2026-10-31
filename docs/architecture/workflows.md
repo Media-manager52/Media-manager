@@ -405,7 +405,12 @@ Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
 
 `PATCH /api/v1/settings/quality-profiles/{id}` bumps `policy_version` but never
 touches existing rounds: round snapshots are immutable (trigger
-`enforce_acquisition_round_immutable_snapshot`). The snapshot is the policy of
+`enforce_acquisition_round_immutable_snapshot`). The edit itself is optimistic:
+the request's `policy_version` is the version the editor read, and
+`Store.UpdateQualityProfile` compares it with the stored version under the row
+lock before writing anything. A stale version is `409 quality_profile_changed`
+and a missing one `400 invalid_request`; neither overwrites a newer policy, the
+same contract as the preset endpoint. The snapshot is the policy of
 record for an attempt: selection uses it, and output verification reads the
 attempt's round snapshot (`SubtitlePolicyForJob`), never the live profile.
 

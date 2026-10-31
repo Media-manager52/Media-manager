@@ -90,7 +90,7 @@ import {
   type APIWantedItem,
   type APIWorkflow,
 } from "@/lib/media-manager-api"
-import { evidenceStateNotRecorded, fallbackEvidenceRows, summarizeReleaseGroups } from "@/lib/release-evidence"
+import { evidenceStateNotRecorded, fallbackEvidenceRows, summarizeReleaseGroups, summarizeUsenetGroups, type ReleaseGroupSummary } from "@/lib/release-evidence"
 import { cn } from "@/lib/utils"
 import {
   buildMediaLibraryRecords,
@@ -1125,8 +1125,26 @@ function EvidenceTable({ items, refresh }: { items: APIReleaseCandidate[]; refre
 }
 
 function LiveReleaseGroups({ items, error, loading, refresh }: { items: APIReleaseCandidate[]; error: string; loading: boolean; refresh: () => void }) {
-  const groups = React.useMemo(() => summarizeReleaseGroups(items), [items])
-  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{loading ? <LoadingPanel /> : <Panel flush title="Observed release groups" subtitle="Counts summarize current persisted evidence; they are not permanent trust labels." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Group</TableHead><TableHead>Observations</TableHead><TableHead>Eligible</TableHead><TableHead>Held</TableHead><TableHead>Rejected</TableHead></TableRow></TableHeader><TableBody>{groups.map((group) => <TableRow key={group.key}><TableCell className={group.kind === "group" ? "font-semibold" : "italic text-fg-muted"}>{group.name}</TableCell><TableCell>{group.observations}</TableCell><TableCell>{group.eligible}</TableCell><TableCell>{group.held}</TableCell><TableCell>{group.rejected}</TableCell></TableRow>)}</TableBody></Table></div>{groups.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No group evidence has been observed.</div> : null}</Panel>}</div>
+  const releaseGroups = React.useMemo(() => summarizeReleaseGroups(items), [items])
+  const usenetGroups = React.useMemo(() => summarizeUsenetGroups(items), [items])
+  return <div className="space-y-4">
+    {error ? <ErrorNotice error={error} /> : null}
+    {loading ? <LoadingPanel /> : <>
+      <Panel flush title="Observed release groups" subtitle="The team behind a release, counted only where a release-group fact was recorded; Unknown means none was. Counts summarize current persisted evidence; they are not permanent trust labels." action={<RefreshButton onClick={refresh} />}>
+        <GroupSummaryTable label="Release group" rows={releaseGroups} empty="No release-group evidence has been observed." />
+      </Panel>
+      <Panel flush title="Usenet newsgroups" subtitle="Where providers say a release was posted (the Newznab group attribute). A newsgroup is not a release group. A release posted to several newsgroups is counted under each.">
+        <GroupSummaryTable label="Newsgroup" rows={usenetGroups} empty="No newsgroup evidence has been observed." />
+      </Panel>
+    </>}
+  </div>
+}
+
+function GroupSummaryTable({ label, rows, empty }: { label: string; rows: ReleaseGroupSummary[]; empty: string }) {
+  return <>
+    <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>{label}</TableHead><TableHead>Observations</TableHead><TableHead>Eligible</TableHead><TableHead>Held</TableHead><TableHead>Rejected</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.key}><TableCell className={row.kind === "group" ? "font-semibold" : "italic text-fg-muted"}>{row.name}</TableCell><TableCell>{row.observations}</TableCell><TableCell>{row.eligible}</TableCell><TableCell>{row.held}</TableCell><TableCell>{row.rejected}</TableCell></TableRow>)}</TableBody></Table></div>
+    {rows.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">{empty}</div> : null}
+  </>
 }
 
 export function LiveSourcesScreen({ kind }: { kind?: "newznab" | "altmount" }) {

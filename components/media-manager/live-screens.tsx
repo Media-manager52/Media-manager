@@ -772,7 +772,14 @@ export function LiveProfilesScreen() {
       const input = { media_kind: kind, name, policy_version: editBase?.version ?? 1, policy, upgrades_enabled: upgrades, is_default: isDefault, enabled }
       if (editingID) await updateQualityProfile(editingID, input); else await createQualityProfile(input)
       toast.success(editingID ? "Quality profile updated" : "Quality profile saved"); resetForm(); await refresh()
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save profile") } finally { setBusy(false) }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "Could not save profile"
+      // The server refuses an edit made against a policy that has since changed (409).
+      // Re-read the profiles so the open form shows it is stale and the table shows the
+      // current policy; refresh clears the error, so set the message afterwards.
+      if (editingID) await refresh()
+      setError(message)
+    } finally { setBusy(false) }
   }
   async function applyPreset(profile: APIQualityProfile) {
     const preset = presetChoice[profile.id]

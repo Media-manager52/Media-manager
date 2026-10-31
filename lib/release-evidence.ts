@@ -44,65 +44,86 @@ export function fallbackEvidenceRows(normalizedFacts: unknown, limit = 20): Fall
 }
 
 /**
- * Release-group evidence from a candidate's stored facts.
+ * Release-group and Usenet-newsgroup evidence from a candidate's stored facts.
  *
- * The group is read from the structured fact array (`[{name, values, state}]`)
- * that the store actually writes; there is no `{group: "X"}` object shape in
- * persisted data, so none is accepted here. Evidence stays three-valued, the
- * same way the evaluator treats it:
+ * These are two different things and are never mixed:
  *
- *  - a usable fact with exactly one distinct value names the group;
- *  - an absent fact, an `unknown` fact, or one with no values is `unknown`;
- *  - a `conflicting` fact, or one that carries several distinct values, is
- *    `conflicting`. The candidate is not attributed to any one of the values,
- *    and it is not hidden as `unknown` either.
+ *  - a *release group* is the team that made the release (Newznab's `team`
+ *    attribute, "Team doing the release"). It is read only from a fact named
+ *    `release_group`. The Newznab adapter does not write that fact today, so
+ *    until a source produces it every candidate honestly counts as unknown.
+ *  - a *Usenet newsgroup* is where the release was posted (Newznab's `group`
+ *    attribute, "NNTP Group(s)", for example `"a.b.group, a.b.teevee"`). The
+ *    adapter stores it as the fact `group`. It is not a release group and must
+ *    not be presented as one.
+ *
+ * Facts are read from the structured array the store actually writes
+ * (`[{name, values, state}]`); there is no `{group: "X"}` object shape in
+ * persisted data, so none is accepted. Evidence stays three-valued, the way the
+ * evaluator treats it: absent, `unknown` or value-less facts are unknown, and a
+ * `conflicting` fact is conflicting rather than being attributed to one value.
  */
 export type ReleaseGroupEvidence =
   | { kind: "group"; name: string }
   | { kind: "unknown" }
   | { kind: "conflicting"; values: string[] }
 
-// `release_group` is preferred over `group`, the name the Newznab adapter writes.
-const releaseGroupFactNames = ["release_group", "group"]
+export type UsenetGroupEvidence =
+  | { kind: "groups"; names: string[] }
+  | { kind: "unknown" }
+  | { kind: "conflicting"; values: string[] }
 
-function distinctValues(values: unknown): string[] {
-  if (!Array.isArray(values)) return []
+type StoredFactLike = { name?: unknown; values?: unknown; state?: unknown }
+type FactReading = { kind: "unknown" } | { kind: "conflicting"; values: string[] } | { kind: "values"; values: string[] }
+
+// `split` is for newsgroup lists: each value is comma-separated and Usenet names
+// are case-insensitive, so they are folded to lower case.
+function distinctValues(values: unknown[], split: boolean): string[] {
   const seen = new Set<string>()
   const result: string[] = []
   for (const value of values) {
-    const text = typeof value === "string" ? value.trim() : ""
-    if (!text || seen.has(text.toLowerCase())) continue
-    seen.add(text.toLowerCase())
-    result.push(text)
+    if (typeof value !== "string") continue
+    for (const part of split ? value.split(",") : [value]) {
+      const text = split ? part.trim().toLowerCase() : part.trim()
+      if (!text || seen.has(text.toLowerCase())) continue
+      seen.add(text.toLowerCase())
+      result.push(text)
+    }
   }
   return result
 }
 
-function factEvidence(facts: Array<{ name?: unknown; values?: unknown; state?: unknown }>, name: string): ReleaseGroupEvidence {
-  const matching = facts.filter((fact) => typeof fact.name === "string" && fact.name.trim().toLowerCase() === name)
+// One fact, by exact (case-insensitive) name. `split` treats each value as a
+// comma-separated list, which is how Newznab lists several newsgroups.
+function readFact(normalizedFacts: unknown, name: string, split: boolean): FactReading {
+  if (!Array.isArray(normalizedFacts)) return { kind: "unknown" }
+  const matching = normalizedFacts.filter((entry): entry is StoredFactLike => Boolean(entry) && typeof entry === "object")
+    .filter((fact) => typeof fact.name === "string" && fact.name.trim().toLowerCase() === name)
   if (matching.length === 0) return { kind: "unknown" }
-  if (matching.some((fact) => fact.state === "conflicting")) return { kind: "conflicting", values: distinctValues(matching.flatMap((fact) => Array.isArray(fact.values) ? fact.values : [])) }
-  const usable = matching.filter((fact) => fact.state !== "unknown")
-  const values = distinctValues(usable.flatMap((fact) => Array.isArray(fact.values) ? fact.values : []))
-  if (values.length === 0) return { kind: "unknown" }
-  return values.length === 1 ? { kind: "group", name: values[0] } : { kind: "conflicting", values }
+  const valuesOf = (facts: StoredFactLike[]) => distinctValues(facts.flatMap((fact) => Array.isArray(fact.values) ? fact.values : []), split)
+  if (matching.some((fact) => fact.state === "conflicting")) return { kind: "conflicting", values: valuesOf(matching) }
+  const values = valuesOf(matching.filter((fact) => fact.state !== "unknown"))
+  return values.length === 0 ? { kind: "unknown" } : { kind: "values", values }
 }
 
+/** The release group, from the `release_group` fact only. Never from `group`. */
 export function releaseGroupEvidence(normalizedFacts: unknown): ReleaseGroupEvidence {
-  if (!Array.isArray(normalizedFacts)) return { kind: "unknown" }
-  const facts = normalizedFacts.filter((entry): entry is { name?: unknown; values?: unknown; state?: unknown } => Boolean(entry) && typeof entry === "object")
-  // The first fact name with any conclusive evidence decides, so a conflicting
-  // release_group is reported as conflicting rather than overruled by `group`.
-  for (const name of releaseGroupFactNames) {
-    const evidence = factEvidence(facts, name)
-    if (evidence.kind !== "unknown") return evidence
-  }
-  return { kind: "unknown" }
+  const reading = readFact(normalizedFacts, "release_group", false)
+  if (reading.kind !== "values") return reading
+  // A release has one group; several distinct values cannot all be it.
+  return reading.values.length === 1 ? { kind: "group", name: reading.values[0] } : { kind: "conflicting", values: reading.values }
+}
+
+/** The Usenet newsgroups a release was posted to, from the `group` fact. */
+export function usenetGroupEvidence(normalizedFacts: unknown): UsenetGroupEvidence {
+  const reading = readFact(normalizedFacts, "group", true)
+  // Posting to several newsgroups is normal (cross-posting), not a conflict.
+  return reading.kind === "values" ? { kind: "groups", names: reading.values } : reading
 }
 
 export type ReleaseGroupSummary = {
   key: string
-  kind: ReleaseGroupEvidence["kind"]
+  kind: "group" | "unknown" | "conflicting"
   name: string
   observations: number
   eligible: number
@@ -110,27 +131,46 @@ export type ReleaseGroupSummary = {
   rejected: number
 }
 
+type SummarizableCandidate = { normalized_facts?: unknown; verdict?: string }
 const groupBucketNames = { unknown: "Unknown", conflicting: "Conflicting evidence" } as const
 
-/**
- * Counts candidates per observed release group. Real groups come first, ordered
- * by observation count; the "Conflicting evidence" and "Unknown" buckets follow
- * so that missing evidence never reads as a group of its own. Keys are kept
- * apart so a group literally named "Unknown" cannot merge into the bucket.
- */
-export function summarizeReleaseGroups(candidates: ReadonlyArray<{ normalized_facts?: unknown; verdict?: string }>): ReleaseGroupSummary[] {
+// Counts candidates per named group. A candidate counts once under each name it
+// has. Real names come first, ordered by count; the "Conflicting evidence" and
+// "Unknown" buckets follow so missing evidence never reads as a group of its
+// own. Keys are kept apart so a group literally named "Unknown" cannot merge
+// into the bucket.
+function tally(candidates: ReadonlyArray<SummarizableCandidate>, namespace: string, resolve: (candidate: SummarizableCandidate) => { names: string[] } | { bucket: "unknown" | "conflicting" }): ReleaseGroupSummary[] {
   const summaries = new Map<string, ReleaseGroupSummary>()
   for (const candidate of candidates) {
-    const evidence = releaseGroupEvidence(candidate.normalized_facts)
-    const key = evidence.kind === "group" ? `group:${evidence.name}` : evidence.kind
-    const name = evidence.kind === "group" ? evidence.name : groupBucketNames[evidence.kind]
-    const summary = summaries.get(key) ?? { key, kind: evidence.kind, name, observations: 0, eligible: 0, held: 0, rejected: 0 }
-    summary.observations += 1
-    if (candidate.verdict === "eligible") summary.eligible += 1
-    if (candidate.verdict === "held") summary.held += 1
-    if (candidate.verdict === "rejected") summary.rejected += 1
-    summaries.set(key, summary)
+    const resolved = resolve(candidate)
+    const targets = "names" in resolved
+      ? resolved.names.map((name) => ({ key: `${namespace}:${name}`, kind: "group" as const, name }))
+      : [{ key: resolved.bucket, kind: resolved.bucket, name: groupBucketNames[resolved.bucket] }]
+    for (const target of targets) {
+      const summary = summaries.get(target.key) ?? { ...target, observations: 0, eligible: 0, held: 0, rejected: 0 }
+      summary.observations += 1
+      if (candidate.verdict === "eligible") summary.eligible += 1
+      if (candidate.verdict === "held") summary.held += 1
+      if (candidate.verdict === "rejected") summary.rejected += 1
+      summaries.set(target.key, summary)
+    }
   }
   const rank = { group: 0, conflicting: 1, unknown: 2 } as const
   return Array.from(summaries.values()).sort((left, right) => rank[left.kind] - rank[right.kind] || right.observations - left.observations || left.name.localeCompare(right.name))
+}
+
+/** Candidates per observed release group (the `release_group` fact only). */
+export function summarizeReleaseGroups(candidates: ReadonlyArray<SummarizableCandidate>): ReleaseGroupSummary[] {
+  return tally(candidates, "group", (candidate) => {
+    const evidence = releaseGroupEvidence(candidate.normalized_facts)
+    return evidence.kind === "group" ? { names: [evidence.name] } : { bucket: evidence.kind }
+  })
+}
+
+/** Candidates per Usenet newsgroup (the `group` fact). Not release groups. */
+export function summarizeUsenetGroups(candidates: ReadonlyArray<SummarizableCandidate>): ReleaseGroupSummary[] {
+  return tally(candidates, "usenet", (candidate) => {
+    const evidence = usenetGroupEvidence(candidate.normalized_facts)
+    return evidence.kind === "groups" ? { names: evidence.names } : { bucket: evidence.kind }
+  })
 }

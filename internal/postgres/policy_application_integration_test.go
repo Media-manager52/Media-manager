@@ -152,7 +152,7 @@ func TestApplyQualityProfilePolicyAcrossWorkflowStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := store.UpdateQualityProfile(ctx, QualityProfile{ID: fixture.profile.ID, MediaKind: catalog.KindMovie, Name: fixture.profile.Name, Policy: policy, UpgradesEnabled: true, Default: true, Enabled: true})
+	updated, err := store.UpdateQualityProfile(ctx, QualityProfile{ID: fixture.profile.ID, MediaKind: catalog.KindMovie, Name: fixture.profile.Name, Policy: policy, UpgradesEnabled: true, Default: true, Enabled: true}, storedQualityProfileVersion(t, ctx, store, fixture.profile.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestApplyQualityProfilePolicyRespectsRetainedOutputLimit(t *testing.T) {
 	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='waiting',grab_attempt_id=NULL,selected_release_id=NULL,revision=revision+1 WHERE id=$1`, workflowID.String()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpdateQualityProfile(ctx, QualityProfile{ID: fixture.profile.ID, MediaKind: catalog.KindMovie, Name: fixture.profile.Name, Policy: fixture.profile.Policy, UpgradesEnabled: true, Default: true, Enabled: true}); err != nil {
+	if _, err := store.UpdateQualityProfile(ctx, QualityProfile{ID: fixture.profile.ID, MediaKind: catalog.KindMovie, Name: fixture.profile.Name, Policy: fixture.profile.Policy, UpgradesEnabled: true, Default: true, Enabled: true}, storedQualityProfileVersion(t, ctx, store, fixture.profile.ID)); err != nil {
 		t.Fatal(err)
 	}
 	result, err := store.ApplyQualityProfilePolicy(ctx, fixture.profile.ID, "owner", time.Now().UTC())

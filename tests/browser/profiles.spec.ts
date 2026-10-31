@@ -95,6 +95,7 @@ test("owner can persist and reload canonical original-language routing", async (
   await page.getByRole("button", { name: "Update profile" }).click()
 
   expect(saved).toBeDefined()
+  expect(saved?.policy_version).toBe(1)
   expect(saved?.is_default).toBe(false)
   expect((saved?.policy as Record<string, unknown>).original_language_routing).toEqual(["Danish"])
   await page.getByRole("button", { name: "Edit" }).click()
@@ -185,6 +186,7 @@ test("owner can replace a hard resolution gate with persisted best-available qua
   await page.getByRole("button", { name: "Update profile" }).click()
 
   expect(saved).toBeDefined()
+  expect(saved?.policy_version).toBe(1)
   const policy = saved?.policy as Record<string, unknown>
   const rules = policy.rules as Array<Record<string, unknown>>
   expect(rules.some((rule) => rule.fact === "resolution" && rule.kind === "required")).toBe(false)
@@ -395,6 +397,8 @@ const presetLabels: Record<string, { name: string; resolutionPreference: string;
 async function installProfileAPI(page: Page, rules: Rule[], options: { presetStatus?: number } = {}) {
   const unexpected: string[] = []
   const patches: Array<Record<string, unknown>> = []
+  // Every PATCH the page sent, including those the server refused.
+  const attempts: Array<Record<string, unknown>> = []
   const presetRequests: Array<Record<string, unknown>> = []
   let profile: ProfileFixture = {
     id: profileID,
@@ -435,7 +439,16 @@ async function installProfileAPI(page: Page, rules: Rule[], options: { presetSta
       return await route.fulfill({ status: 200, json: { data: profile } })
     }
     if (request.method() === "PATCH" && url.pathname === `/api/v1/settings/quality-profiles/${profileID}`) {
+      // The server contract: policy_version is the version the editor read. It is
+      // required, a stale one is a 409, and a refused edit writes nothing.
       const body = request.postDataJSON() as Record<string, unknown>
+      attempts.push(body)
+      if (typeof body.policy_version !== "number" || body.policy_version < 1) {
+        return await route.fulfill({ status: 400, json: { error: { code: "invalid_request", message: "current policy_version is required" } } })
+      }
+      if (body.policy_version !== profile.policy_version) {
+        return await route.fulfill({ status: 409, json: { error: { code: "quality_profile_changed", message: "the quality profile changed; reload it and retry" } } })
+      }
       patches.push(body)
       profile = { ...profile, ...body, policy_version: profile.policy_version + 1 } as ProfileFixture
       return await route.fulfill({ status: 200, json: { data: profile } })
@@ -443,7 +456,7 @@ async function installProfileAPI(page: Page, rules: Rule[], options: { presetSta
     unexpected.push(`${request.method()} ${url.pathname}${url.search}`)
     await route.fulfill({ status: 501, json: { error: { message: "Unexpected local test request" } } })
   })
-  return { unexpected, patches, presetRequests, current: () => profile, setProfile: (next: ProfileFixture) => { profile = next } }
+  return { unexpected, patches, attempts, presetRequests, current: () => profile, setProfile: (next: ProfileFixture) => { profile = next } }
 }
 
 async function applyPresetFromTable(page: Page, preset: string) {
@@ -586,5 +599,39 @@ test("a preset applied against a stale policy version is refused and changes not
   expect(api.current().policy_version).toBe(3)
   expect((api.current().policy as Record<string, unknown>).rules).toEqual(presetFixture.base_rules)
   expect(api.patches).toEqual([])
+  expect(api.unexpected).toEqual([])
+})
+
+test("a save the server refuses as stale shows the conflict, refreshes the form and keeps the newer required rules", async ({ page }) => {
+  const api = await installProfileAPI(page, presetFixture.base_rules)
+  await page.goto("/settings/profiles")
+  await page.getByRole("button", { name: "Edit" }).click()
+  await page.getByLabel("Name", { exact: true }).fill("Edited against version 3")
+
+  // Another session applies a preset after this page loaded; this page cannot know.
+  api.setProfile({ ...api.current(), policy_version: 4, policy: { ...api.current().policy, rules: presetFixture.applied_rules.balanced } })
+  await page.getByRole("button", { name: "Update profile" }).click()
+
+  // The page sent the version it opened the form on, and the server refused it.
+  await expect.poll(() => api.attempts.length).toBe(1)
+  expect(api.attempts[0].policy_version).toBe(3)
+  await expect(page.getByText("the quality profile changed; reload it and retry")).toBeVisible()
+  // The page re-read the profile: the open form is marked stale and cannot be saved again.
+  await expect(page.getByText("Profile changed", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Update profile" })).toBeDisabled()
+  await expect(page.getByRole("row", { name: /Movie 1080p Danish/ }).getByRole("cell").nth(2)).toHaveText(/Require 1080p, prefer best available/)
+  // Nothing was written: the newer policy, with its required rules, is intact.
+  expect(api.patches).toEqual([])
+  expect(api.current().policy_version).toBe(4)
+  expect((api.current().policy as Record<string, unknown>).rules).toEqual(presetFixture.applied_rules.balanced)
+
+  // Reopening loads the current policy and the repeated edit is accepted.
+  await page.getByRole("button", { name: "Cancel" }).click()
+  await page.getByRole("button", { name: "Edit" }).click()
+  await page.getByLabel("Name", { exact: true }).fill("Edited against version 4")
+  await page.getByRole("button", { name: "Update profile" }).click()
+  await expect.poll(() => api.patches.length).toBe(1)
+  expect(api.patches[0].policy_version).toBe(4)
+  expect((api.patches[0].policy as Record<string, unknown>).rules).toEqual(presetFixture.applied_rules.balanced)
   expect(api.unexpected).toEqual([])
 })

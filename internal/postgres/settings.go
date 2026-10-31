@@ -431,9 +431,23 @@ func canonicalizeOriginalLanguageRouting(policy json.RawMessage) (json.RawMessag
 	return json.Marshal(document)
 }
 
-func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityProfile) (QualityProfile, error) {
+// ErrExpectedPolicyVersionRequired is returned when an update names no version
+// to compare against. A version of zero never exists (profiles start at 1), so
+// it can only mean the caller did not read the profile it is replacing.
+var ErrExpectedPolicyVersionRequired = errors.New("expected policy version is required")
+
+// UpdateQualityProfile replaces a profile's name, policy and flags if, and only
+// if, its stored policy_version is still expectedVersion, the version the caller
+// read. The comparison happens under the row lock before anything is written, so
+// a stale editor gets ErrConcurrentModification and cannot overwrite a newer
+// policy (including newer required rules). profile.PolicyVersion is ignored: the
+// stored version is bumped by exactly one on success.
+func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityProfile, expectedVersion uint64) (QualityProfile, error) {
 	if profile.ID == (uuid.UUID{}) {
 		return QualityProfile{}, errors.New("quality profile ID is required")
+	}
+	if expectedVersion == 0 {
+		return QualityProfile{}, ErrExpectedPolicyVersionRequired
 	}
 	profile, err := canonicalQualityProfile(profile)
 	if err != nil {
@@ -450,6 +464,11 @@ func (store *Store) UpdateQualityProfile(ctx context.Context, profile QualityPro
 		return QualityProfile{}, ErrNotFound
 	} else if err != nil {
 		return QualityProfile{}, err
+	}
+	// Checked before any write (including the default flip below) so a stale
+	// edit leaves every row untouched.
+	if uint64(currentVersion) != expectedVersion {
+		return QualityProfile{}, ErrConcurrentModification
 	}
 	if currentKind != profile.MediaKind {
 		return QualityProfile{}, errors.New("quality profile media kind cannot change")
