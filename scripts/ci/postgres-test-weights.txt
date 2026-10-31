@@ -1,0 +1,25 @@
+# Approximate seconds per slow internal/postgres test, measured locally on 2026-10-31
+# (8 groups, one database per group, race detector on). `backend_test_tools.py plan`
+# uses these only to spread the slowest tests across groups; a test missing here is
+# assumed to take about 0.8 s, and names that no longer exist are ignored. Stale
+# numbers can only affect balance, never which tests run.
+11.4 TestRetryAccessRejectedReleaseRefusesUnsafeRecovery
+8.1 TestAllowlistedOutcomesClearGate
+5.7 TestCompleteLiveAttemptRederivesClassificationFromInputs
+5.5 TestNewznabCredentialMigrationPreservesObservationsAndIsIdempotent
+5.4 TestCompleteLiveAttemptUsesSuppliedBudgetForCooldownDerivation
+5.0 TestRetainedMovieInspectionRefusesUnsafeRecovery
+4.4 TestRetainedGateOutcomesCannotClearGate
+4.3 TestCompleteLiveAttemptRejectsIncoherentClassification
+4.1 TestPersistSearchCreatesVersionForMeaningfulEvidenceChange
+3.8 TestOwnerDiscoveryRejectsUnsafeStates
+3.3 TestCompleteLiveAttemptRunTransitionSafeCodesDurable
+3.0 TestKnownSubtitleFailureGuardsPersistedSelectionAndRetrieval
+3.0 TestRetrievalRecoveryRejectsStaleAndDisabledAlternatives
+2.6 TestRetryAccessRejectedRelease
+2.3 TestIndexerCommissioningDraftActivationRechecksAndIsIdempotent
+2.1 TestCompleteLiveAttemptRetainsGateWhenAccountingUnresolved
+2.0 TestIndexerCommissioningStopStatesAndIndeterminateAttempt
+1.8 TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia
+1.8 TestCompletedEpisodeFallbackIgnoresUnrelatedScopeAndIdentity
+1.5 TestIndexerCommissioningRepositoryOfflineLifecycle
