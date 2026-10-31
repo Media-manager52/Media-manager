@@ -28,12 +28,26 @@ decision, not something this workflow can invent safely.
 - discovers every top-level PostgreSQL test;
 - partitions those tests into four groups;
 - runs all four PostgreSQL groups concurrently with the full `-race` flag;
-- fails if any group fails, and prints that group's log.
+- fails if any group fails, and prints that group's log;
+- prints one timing line per group with its name, exit status, test count and
+  elapsed seconds, plus a total at the end.
 
 The PostgreSQL tests create unique schemas, which is what makes concurrent
 groups safe. All 247 PostgreSQL tests are still executed; this is a split of the
 same suite, not a reduction. `BACKEND_TEST_SHARDS` can be set from 1 to 8 for a
 controlled experiment; the workflow default is 4.
+
+Groups run with `go test -json`; `-count=1`, `-race` and the 20-minute timeout
+are unchanged. On failure the original plain-text output is rendered back from
+the JSON `Output` events, so diagnostics read exactly like `go test`. A group
+reports like:
+
+```text
+=== postgres-2: exit 0, 66 tests (65 passed, 0 failed, 1 skipped) in 341s ===
+```
+
+Use these lines to compare shard balance between runs. A change is only an
+improvement if every group still reports its tests and the totals do not drop.
 
 ## Caches and reproducibility
 
@@ -123,3 +137,28 @@ GitHub runs on an idle runner (`41063007937` and `41064445136`) completed in
 **343 s**. These are two samples, not a like-for-like median claim. The
 GitHub-hosted frontend/browser split removes their serialized queue time;
 backend and containers remain serialized on the single self-hosted worker.
+
+### Baseline for the CI optimization work
+
+The post-split steady state measured on 2026-10-30 (runs `41138196759` and
+`41080415579`) is **432 s** for a branch push and **477 s** for a `main` push:
+
+| Segment | Seconds |
+| --- | --- |
+| `backend` job (setup + tests) | 386 |
+| `test-backend.sh` step | 332–343 |
+| `containers` job, which only starts once `backend` frees the runner | 37 |
+| `frontend` / `browser` (parallel, off the critical path) | 64–97 / 250–342 |
+
+To compare the next run, read the job and step timings and the per-group lines:
+
+```sh
+run=<run-id>
+gh api "repos/Media-manager52/Media-manager/actions/runs/${run}/jobs" \
+  --jq '.jobs[] | {name, started_at, completed_at}'
+```
+
+Compare the `backend` execution time, the `test-backend.sh` step, the longest
+`=== postgres-N` group and the run wall time (`created_at` → `updated_at`).
+Quote the run ID with every number, and remember that a single run on a shared
+runner is noisy: the queue time of `containers` is part of the wall clock.
