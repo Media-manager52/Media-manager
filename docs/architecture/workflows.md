@@ -273,6 +273,35 @@ Each observation is normalized (`InferTitleFacts`) then evaluated by pure rules
 Any observation with a `weak:` native GUID (no retrievable identity) is held —
 never selected.
 
+Every explanation is additive metadata on the existing decision: `rule_kind`
+(required or preferred), `category` (eligibility, quality, resolution/codec,
+dynamic range, audio codec, Danish language, identity, upgrade, exclusion or
+other), and `evidence_state` (observed, inferred, unknown or conflicting).
+Older persisted decisions omit these fields; readers must treat them as
+unrecorded rather than infer a rule kind. The read models also return
+`decision_explanation` with stored evidence from the candidate's currently
+linked observation. That evidence is not a historical decision-time snapshot,
+and the API labels it `current_linked_observation`.
+
+`GET /api/v1/workflows/{id}/candidates/dry-run` replays the stored observations
+through the same evaluator and returns the ranked candidates plus their
+explanation. It is a read effect: it never searches, downloads, submits to
+AltMount, publishes, or changes a block or exclusion. It evaluates with the
+open round's policy snapshot, or the exhausted discovery round's snapshot, or
+the profile's current policy when neither exists; `policy_source` names which.
+It does not re-apply novelty or final-selection gates, and it does not replay
+indexer authorization denials or cross-candidate subtitle failures, so its best
+eligible candidate can differ from the worker's final choice. The response lists
+these limitations explicitly.
+
+The replay reads each candidate's stored facts as a fact array, JSON `null` (no
+facts) or the legacy empty object `{}` (no facts). Any other stored shape is
+corruption: the replay refuses to guess a subset and returns `500
+dry_run_failed` without naming the candidate, because a partial ranking would
+look conclusive. The owner candidate list tolerates the same rows and shows no
+evidence for them, which is how the corrupt candidate is found. As with every
+other handler, the cause is not logged by the API.
+
 ### 4.4 Persistence and outcomes
 
 `Store.PersistSearch` (serializable) stores the run, per-indexer outcomes,
