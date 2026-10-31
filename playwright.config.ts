@@ -1,10 +1,15 @@
 import { defineConfig, devices } from "@playwright/test"
 
+// Specs stay serial inside a file; CI may add workers (PLAYWRIGHT_WORKERS) and
+// split files across jobs with `--shard`. Anything else keeps one worker.
+const requestedWorkers = Number.parseInt(process.env.PLAYWRIGHT_WORKERS ?? "", 10)
+const workers = Number.isInteger(requestedWorkers) && requestedWorkers > 0 ? requestedWorkers : 1
+
 export default defineConfig({
   testDir: "./tests/browser",
   outputDir: ".sites-runtime/playwright-results",
   fullyParallel: false,
-  workers: 1,
+  workers,
   retries: 0,
   reporter: "line",
   use: {
