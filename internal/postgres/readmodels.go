@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/releases"
 	"uuid"
 )
 
@@ -617,6 +618,10 @@ type ReleaseCandidateSummary struct {
 	Selected        bool              `json:"selected"`
 	ObservedAt      time.Time         `json:"observed_at"`
 	LastObservedAt  time.Time         `json:"last_observed_at"`
+	// DecisionExplanation is additive presentation metadata. It describes the
+	// stored decision and the currently linked observation; it never
+	// re-evaluates the release or changes the persisted verdict/score.
+	DecisionExplanation *releases.DecisionExplanation `json:"decision_explanation,omitempty"`
 }
 
 func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]ReleaseCandidateSummary, error) {
@@ -663,6 +668,14 @@ func (store *Store) ListReleaseCandidates(ctx context.Context, limit int) ([]Rel
 		item.Reasons = append(json.RawMessage(nil), reasons...)
 		item.NormalizedFacts = append(json.RawMessage(nil), facts...)
 		item.Problems = append(json.RawMessage(nil), problems...)
+		if item.Verdict != "" {
+			score := 0
+			if item.Score != nil {
+				score = *item.Score
+			}
+			explanation := releases.ExplainDecision(releases.Verdict(item.Verdict), score, releases.ParseDecisionReasons(item.Reasons), releases.ParseObservationFacts(item.NormalizedFacts))
+			item.DecisionExplanation = &explanation
+		}
 		result = append(result, item)
 	}
 	return result, rows.Err()
