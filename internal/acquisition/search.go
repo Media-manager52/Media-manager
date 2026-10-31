@@ -416,11 +416,11 @@ func evaluateCandidateObservation(observation releases.Observation, search postg
 	}
 	if len(rules) == 0 {
 		evaluation.Verdict = releases.VerdictHeld
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "quality profile", Decision: releases.DecisionUnknown, Reason: "no release rules are configured"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "quality profile", Decision: releases.DecisionUnknown, Category: releases.CategoryQuality, Reason: "no release rules are configured"})
 	}
 	if strings.HasPrefix(observation.NativeGUID, "weak:") {
 		evaluation.Verdict = releases.VerdictHeld
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native release identity", Decision: releases.DecisionUnknown, Reason: "provider supplied no retrievable native GUID"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native release identity", Decision: releases.DecisionUnknown, Category: releases.CategoryIdentity, Reason: "provider supplied no retrievable native GUID"})
 	}
 	evaluation = constrainMediaMatch(observation, evaluation, search.Media)
 	evaluation = applyReleaseBlocks(observation, evaluation, search)
@@ -451,7 +451,7 @@ func applyUpgradeBaseline(observation releases.Observation, evaluation releases.
 	}
 	if observation.IndexerID == current.IndexerID && observation.NativeGUID == current.NativeGUID {
 		evaluation.Verdict = releases.VerdictRejected
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "current_release", Decision: releases.DecisionFail, Reason: "candidate is the exact release currently published"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "current_release", Decision: releases.DecisionFail, Category: releases.CategoryUpgrade, Reason: "candidate is the exact release currently published"})
 		return evaluation
 	}
 	// The same release title cross-posted under another indexer or GUID is the
@@ -460,12 +460,12 @@ func applyUpgradeBaseline(observation releases.Observation, evaluation releases.
 	// "replacement".
 	if title := strings.TrimSpace(current.Title); title != "" && strings.EqualFold(strings.TrimSpace(observation.Title), title) {
 		evaluation.Verdict = releases.VerdictRejected
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "current_release", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "candidate has the exact release title currently published"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "current_release", Decision: releases.DecisionFail, Values: []string{observation.Title}, Category: releases.CategoryUpgrade, Reason: "candidate has the exact release title currently published"})
 		return evaluation
 	}
 	if evaluation.Verdict == releases.VerdictEligible && baseline.Verdict == releases.VerdictEligible && evaluation.Score <= baseline.Score {
 		evaluation.Verdict = releases.VerdictRejected
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "quality_score", Decision: releases.DecisionFail, Reason: "candidate does not improve the current publication under this quality profile"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "quality_score", Decision: releases.DecisionFail, Category: releases.CategoryUpgrade, Reason: "candidate does not improve the current publication under this quality profile"})
 	}
 	return evaluation
 }
@@ -507,7 +507,7 @@ func applyRepairExclusions(observation releases.Observation, evaluation releases
 	for _, broken := range brokenTitles {
 		if title != "" && strings.EqualFold(title, strings.TrimSpace(broken)) {
 			evaluation.Verdict = releases.VerdictRejected
-			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "AltMount repair", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "this release's published file is being replaced (broken, or missing a required audio language)"})
+			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "AltMount repair", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Category: releases.CategoryExclusion, Reason: "this release's published file is being replaced (broken, or missing a required audio language)"})
 			return evaluation
 		}
 	}
@@ -524,7 +524,7 @@ func applyWorkflowExclusions(observation releases.Observation, evaluation releas
 		if exclusion.FailureKind == "subtitle_verification" {
 			rule = "workflow subtitle verification"
 		}
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: rule, Fact: "native_release", Decision: releases.DecisionFail, Values: []string{observation.NativeGUID}, Reason: exclusion.Reason})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: rule, Fact: "native_release", Decision: releases.DecisionFail, Values: []string{observation.NativeGUID}, Category: releases.CategoryExclusion, Reason: exclusion.Reason})
 		return evaluation
 	}
 	return evaluation
@@ -536,7 +536,7 @@ func applyReleaseBlocks(observation releases.Observation, evaluation releases.Ev
 			continue
 		}
 		evaluation.Verdict = releases.VerdictRejected
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "release blocklist", Fact: "native_release", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: block.Reason})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "release blocklist", Fact: "native_release", Decision: releases.DecisionFail, Values: []string{observation.Title}, Category: releases.CategoryExclusion, Reason: block.Reason})
 		return evaluation
 	}
 	return evaluation
@@ -545,7 +545,7 @@ func applyReleaseBlocks(observation releases.Observation, evaluation releases.Ev
 func constrainMediaMatch(observation releases.Observation, evaluation releases.Evaluation, media catalog.MediaItem) releases.Evaluation {
 	if !mediaTitleMatches(observation.Title, media) {
 		evaluation.Verdict = releases.VerdictRejected
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested title", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Reason: "release title does not begin with a saved canonical, original or alias title"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested title", Fact: "release_title", Decision: releases.DecisionFail, Values: []string{observation.Title}, Category: releases.CategoryIdentity, Reason: "release title does not begin with a saved canonical, original or alias title"})
 		return evaluation
 	}
 	verified := make(map[string]string)
@@ -556,7 +556,7 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 	}
 	positiveIdentity := hasOldBoysCatalogueBinding(observation, media)
 	if positiveIdentity {
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native Danish series catalogue binding", Fact: "oldboys_catalogue_binding", Decision: releases.DecisionPass, Values: []string{media.ID.String()}, Reason: "inferred from exact original/canonical title and explicit scene scope; provider IDs remain unknown"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native Danish series catalogue binding", Fact: "oldboys_catalogue_binding", Decision: releases.DecisionPass, Values: []string{media.ID.String()}, Category: releases.CategoryIdentity, Reason: "inferred from exact original/canonical title and explicit scene scope; provider IDs remain unknown"})
 	}
 	for _, fact := range observation.Facts {
 		expected, comparable := verified[strings.ToLower(strings.TrimSpace(fact.Name))]
@@ -567,7 +567,7 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 			if evaluation.Verdict != releases.VerdictRejected {
 				evaluation.Verdict = releases.VerdictHeld
 			}
-			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "verified media identity", Fact: fact.Name, Decision: releases.DecisionUnknown, Values: append([]string(nil), fact.Values...), Reason: "provider identity evidence conflicts"})
+			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "verified media identity", Fact: fact.Name, Decision: releases.DecisionUnknown, Values: append([]string(nil), fact.Values...), Category: releases.CategoryIdentity, Reason: "provider identity evidence conflicts"})
 			continue
 		}
 		matched := false
@@ -579,7 +579,7 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 		}
 		if !matched {
 			evaluation.Verdict = releases.VerdictRejected
-			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "verified media identity", Fact: fact.Name, Decision: releases.DecisionFail, Values: append([]string(nil), fact.Values...), Reason: "provider identity belongs to different media"})
+			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "verified media identity", Fact: fact.Name, Decision: releases.DecisionFail, Values: append([]string(nil), fact.Values...), Category: releases.CategoryIdentity, Reason: "provider identity belongs to different media"})
 		} else {
 			positiveIdentity = true
 		}
@@ -590,19 +590,19 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 		if evaluation.Verdict != releases.VerdictRejected {
 			evaluation.Verdict = releases.VerdictHeld
 		}
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested movie year", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Reason: "explicit release year conflicts with the requested movie; matching provider IDs do not resolve the contradiction"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested movie year", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Category: releases.CategoryIdentity, Reason: "explicit release year conflicts with the requested movie; matching provider IDs do not resolve the contradiction"})
 	}
 	if media.Kind == catalog.KindMovie && !positiveIdentity && media.Year != nil && !releases.TitleContainsYear(observation.Title, *media.Year) {
 		if evaluation.Verdict != releases.VerdictRejected {
 			evaluation.Verdict = releases.VerdictHeld
 		}
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested movie year", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Reason: "requested year is not explicit in the release title and no provider identity matched"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested movie year", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Category: releases.CategoryIdentity, Reason: "requested year is not explicit in the release title and no provider identity matched"})
 	}
 	if media.Kind == catalog.KindSeries && !positiveIdentity && (media.Year == nil || !releases.TitleContainsYear(observation.Title, *media.Year)) {
 		if evaluation.Verdict != releases.VerdictRejected {
 			evaluation.Verdict = releases.VerdictHeld
 		}
-		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "series identity evidence", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Reason: "provider supplied no matching series ID and the canonical first-air year is not explicit"})
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "series identity evidence", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Category: releases.CategoryIdentity, Reason: "provider supplied no matching series ID and the canonical first-air year is not explicit"})
 	}
 	return evaluation
 }

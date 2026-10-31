@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +49,42 @@ func pendingEvents(t *testing.T, fixture *plexPublicationFixture, workflowID uui
 		t.Fatal(err)
 	}
 	return count
+}
+
+func TestUpdateQualityProfilePolicyAtVersionRejectsStaleWrite(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	expected := fixture.profile.PolicyVersion
+	policy, err := releases.WithPolicyRules(fixture.profile.Policy, []releases.Rule{{Name: "Preset preference", Fact: "resolution", AllowedValues: []string{"2160p"}, Kind: releases.RulePreferred, Weight: 10, Unknown: releases.UnknownAllow}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := fixture.store.UpdateQualityProfilePolicyAtVersion(fixture.ctx, fixture.profile.ID, policy, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.PolicyVersion != expected+1 || updated.Name != fixture.profile.Name || updated.Default != fixture.profile.Default || updated.Enabled != fixture.profile.Enabled || updated.UpgradesEnabled != fixture.profile.UpgradesEnabled {
+		t.Fatalf("updated profile=%+v", updated)
+	}
+	if _, err := fixture.store.UpdateQualityProfilePolicyAtVersion(fixture.ctx, fixture.profile.ID, policy, expected); !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("stale write error=%v, want ErrConcurrentModification", err)
+	}
+	profiles, err := fixture.store.ListQualityProfiles(fixture.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, profile := range profiles {
+		if profile.ID != fixture.profile.ID {
+			continue
+		}
+		found = true
+		if profile.PolicyVersion != expected+1 || profile.Name != fixture.profile.Name || profile.Default != fixture.profile.Default || profile.Enabled != fixture.profile.Enabled || profile.UpgradesEnabled != fixture.profile.UpgradesEnabled {
+			t.Fatalf("stored profile after stale write=%+v", profile)
+		}
+	}
+	if !found {
+		t.Fatal("updated profile not found")
+	}
 }
 
 // TestApplyQualityProfilePolicyAcrossWorkflowStates proves the owner policy
@@ -115,7 +152,7 @@ func TestApplyQualityProfilePolicyAcrossWorkflowStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := store.UpdateQualityProfile(ctx, QualityProfile{ID: fixture.profile.ID, MediaKind: catalog.KindMovie, Name: fixture.profile.Name, Policy: policy, UpgradesEnabled: true, Default: true, Enabled: true})
+	updated, err := store.UpdateQualityProfile(ctx, QualityProfile{ID: fixture.profile.ID, MediaKind: catalog.KindMovie, Name: fixture.profile.Name, Policy: policy, UpgradesEnabled: true, Default: true, Enabled: true}, storedQualityProfileVersion(t, ctx, store, fixture.profile.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +284,7 @@ func TestApplyQualityProfilePolicyRespectsRetainedOutputLimit(t *testing.T) {
 	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='waiting',grab_attempt_id=NULL,selected_release_id=NULL,revision=revision+1 WHERE id=$1`, workflowID.String()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpdateQualityProfile(ctx, QualityProfile{ID: fixture.profile.ID, MediaKind: catalog.KindMovie, Name: fixture.profile.Name, Policy: fixture.profile.Policy, UpgradesEnabled: true, Default: true, Enabled: true}); err != nil {
+	if _, err := store.UpdateQualityProfile(ctx, QualityProfile{ID: fixture.profile.ID, MediaKind: catalog.KindMovie, Name: fixture.profile.Name, Policy: fixture.profile.Policy, UpgradesEnabled: true, Default: true, Enabled: true}, storedQualityProfileVersion(t, ctx, store, fixture.profile.ID)); err != nil {
 		t.Fatal(err)
 	}
 	result, err := store.ApplyQualityProfilePolicy(ctx, fixture.profile.ID, "owner", time.Now().UTC())

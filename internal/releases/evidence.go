@@ -96,6 +96,12 @@ type Explanation struct {
 	Values   []string     `json:"values,omitempty"`
 	Score    int          `json:"score"`
 	Reason   string       `json:"reason"`
+	// RuleKind, Category and EvidenceState are additive explanation metadata.
+	// Older persisted decisions omit them; an omitted rule_kind means the
+	// historical rule kind was not recorded and must not be guessed.
+	RuleKind      RuleKind            `json:"rule_kind,omitempty"`
+	Category      ExplanationCategory `json:"category,omitempty"`
+	EvidenceState FactState           `json:"evidence_state,omitempty"`
 }
 
 type Verdict string
@@ -164,7 +170,7 @@ func Evaluate(observation Observation, rules []Rule) (Evaluation, error) {
 		}
 		fact, exists := facts[normalize(rule.Fact)]
 		if !exists || fact.State == FactUnknown || len(fact.Values) == 0 {
-			explanation := Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionUnknown, Reason: "the provider supplied no conclusive evidence"}
+			explanation := Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionUnknown, Reason: "the provider supplied no conclusive evidence", RuleKind: rule.Kind, Category: CategoryForRule(rule), EvidenceState: FactUnknown}
 			result.Explanations = append(result.Explanations, explanation)
 			if rule.Kind == RuleRequired {
 				switch unknown {
@@ -179,7 +185,7 @@ func Evaluate(observation Observation, rules []Rule) (Evaluation, error) {
 			continue
 		}
 		if fact.State == FactConflicting {
-			result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionUnknown, Values: append([]string(nil), fact.Values...), Reason: "the evidence conflicts"})
+			result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionUnknown, Values: append([]string(nil), fact.Values...), Reason: "the evidence conflicts", RuleKind: rule.Kind, Category: CategoryForRule(rule), EvidenceState: FactConflicting})
 			if rule.Kind == RuleRequired && result.Verdict != VerdictRejected {
 				result.Verdict = VerdictHeld
 			}
@@ -192,10 +198,10 @@ func Evaluate(observation Observation, rules []Rule) (Evaluation, error) {
 				score = rule.Weight
 				result.Score += score
 			}
-			result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionPass, Values: append([]string(nil), fact.Values...), Score: score, Reason: "observed evidence satisfies the rule"})
+			result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionPass, Values: append([]string(nil), fact.Values...), Score: score, Reason: "observed evidence satisfies the rule", RuleKind: rule.Kind, Category: CategoryForRule(rule), EvidenceState: fact.State})
 			continue
 		}
-		result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionFail, Values: append([]string(nil), fact.Values...), Reason: "observed evidence does not satisfy the rule"})
+		result.Explanations = append(result.Explanations, Explanation{Rule: rule.Name, Fact: rule.Fact, Decision: DecisionFail, Values: append([]string(nil), fact.Values...), Reason: "observed evidence does not satisfy the rule", RuleKind: rule.Kind, Category: CategoryForRule(rule), EvidenceState: fact.State})
 		if rule.Kind == RuleRequired {
 			result.Verdict = VerdictRejected
 		}

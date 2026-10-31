@@ -22,8 +22,9 @@ type Store struct {
 }
 
 var (
-	ErrConcurrentModification = errors.New("concurrent modification")
-	ErrNotFound               = errors.New("record not found")
+	ErrConcurrentModification      = errors.New("concurrent modification")
+	ErrNotFound                    = errors.New("record not found")
+	ErrInvalidQualityProfilePolicy = errors.New("invalid quality profile policy")
 )
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
