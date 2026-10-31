@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import { qualityProfilePresets } from "./fixtures/owner-api"
 
 const baseURL = "http://127.0.0.1:4174"
 
@@ -53,6 +54,11 @@ test("owner can persist and reload canonical original-language routing", async (
     }
     if (request.method() === "GET" && url.pathname === "/api/v1/acquisition-verifications" && url.search === "?limit=100") {
       await route.fulfill({ status: 200, json: { data: [] } })
+      return
+    }
+    // The profiles screen lists the soft quality presets alongside the profiles.
+    if (request.method() === "GET" && url.pathname === "/api/v1/settings/quality-profile-presets") {
+      await route.fulfill({ status: 200, json: { data: qualityProfilePresets } })
       return
     }
     // The shell loads owner attention on every page.
@@ -135,6 +141,11 @@ test("owner can replace a hard resolution gate with persisted best-available qua
     }
     if (request.method() === "GET" && url.pathname === "/api/v1/acquisition-verifications" && url.search === "?limit=100") {
       await route.fulfill({ status: 200, json: { data: [] } })
+      return
+    }
+    // The profiles screen lists the soft quality presets alongside the profiles.
+    if (request.method() === "GET" && url.pathname === "/api/v1/settings/quality-profile-presets") {
+      await route.fulfill({ status: 200, json: { data: qualityProfilePresets } })
       return
     }
     // The shell loads owner attention on every page.
@@ -233,6 +244,11 @@ test("owner can queue one exact retained-output reverification", async ({ page }
       await route.fulfill({ status: 202, json: { data: { status: "reverification_queued", workflow_id: workflowID, job_id: jobID } } })
       return
     }
+    // The profiles screen lists the soft quality presets alongside the profiles.
+    if (request.method() === "GET" && url.pathname === "/api/v1/settings/quality-profile-presets") {
+      await route.fulfill({ status: 200, json: { data: qualityProfilePresets } })
+      return
+    }
     // The shell loads owner attention on every page.
     if (request.method() === "GET" && (url.pathname === "/api/v1/wanted" || url.pathname === "/api/v1/workflows")) {
       await route.fulfill({ status: 200, json: { data: [] } })
@@ -256,5 +272,101 @@ test("owner can queue one exact retained-output reverification", async ({ page }
 
   await expect.poll(() => submitted).toEqual({ job_id: jobID })
   await expect(page.getByRole("button", { name: "Reverify output" })).toHaveCount(0)
+  expect(unexpected).toEqual([])
+})
+
+test("owner applies a soft quality preset against the reloaded policy version", async ({ page }) => {
+  const unexpected: string[] = []
+  const profileID = "11111111-1111-4111-8111-111111111111"
+  let profile: ProfileFixture = {
+    id: profileID,
+    media_kind: "movie",
+    name: "Movie 1080p Danish",
+    policy_version: 3,
+    policy: {
+      rules: [{ name: "Required resolution", fact: "resolution", allowed_values: ["1080p"], kind: "required", weight: 0, unknown: "hold" }],
+      required_subtitle_languages: ["da"],
+      preferred_subtitle_languages: [],
+    },
+    upgrades_enabled: true,
+    is_default: true,
+    enabled: true,
+  }
+  const submitted: Array<Record<string, unknown>> = []
+  const confirmations: string[] = []
+  page.on("dialog", async (dialog) => {
+    confirmations.push(dialog.message())
+    await dialog.accept()
+  })
+
+  await page.route("**/*", async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.origin !== baseURL) {
+      unexpected.push(`${request.method()} ${url.origin}${url.pathname}`)
+      await route.abort("blockedbyclient")
+      return
+    }
+    if (!url.pathname.startsWith("/api/v1/")) {
+      await route.continue()
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/settings/quality-profiles") {
+      await route.fulfill({ status: 200, json: { data: [profile] } })
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/settings/quality-profile-presets") {
+      await route.fulfill({ status: 200, json: { data: qualityProfilePresets } })
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/acquisition-verifications" && url.search === "?limit=100") {
+      await route.fulfill({ status: 200, json: { data: [] } })
+      return
+    }
+    // The shell loads owner attention on every page.
+    if (request.method() === "GET" && (url.pathname === "/api/v1/wanted" || url.pathname === "/api/v1/workflows")) {
+      await route.fulfill({ status: 200, json: { data: [] } })
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/system/info") {
+      await route.fulfill({ status: 200, json: { data: { version: "browser-test" } } })
+      return
+    }
+    if (request.method() === "GET" && url.pathname === "/api/v1/system/health") {
+      await route.fulfill({ status: 200, json: { data: { database_state: "ready", schema_version: 30, expected_schema: 30 } } })
+      return
+    }
+    if (request.method() === "POST" && url.pathname === `/api/v1/settings/quality-profiles/${profileID}/preset`) {
+      submitted.push(request.postDataJSON() as Record<string, unknown>)
+      // The server replaces only soft rules and bumps the policy version; the
+      // required resolution rule and the Danish requirement are untouched.
+      profile = { ...profile, policy_version: profile.policy_version + 1 }
+      await route.fulfill({ status: 200, json: { data: profile } })
+      return
+    }
+    unexpected.push(`${request.method()} ${url.pathname}${url.search}`)
+    await route.fulfill({ status: 501, json: { error: { message: "Unexpected local test request" } } })
+  })
+
+  await page.goto("/settings/profiles")
+  const choose = async (presetName: string) => {
+    await page.getByLabel("Soft preset for Movie 1080p Danish").click()
+    await page.getByRole("option", { name: presetName }).click()
+    await page.getByRole("button", { name: "Apply", exact: true }).click()
+  }
+
+  await expect(page.getByRole("button", { name: "Apply", exact: true })).toBeDisabled()
+  await choose("Storage efficient")
+  await expect.poll(() => submitted.length).toBe(1)
+  expect(submitted[0]).toEqual({ preset: "storage_efficient", policy_version: 3 })
+  expect(confirmations[0]).toContain("Storage efficient")
+  expect(confirmations[0]).toContain("Required rules, language requirements and unrelated preferences stay unchanged")
+  expect(confirmations[0]).toContain("Existing acquisition rounds keep their current policy")
+
+  // The screen must reload the bumped version instead of reusing the stale one.
+  await expect(page.getByRole("button", { name: "Apply", exact: true })).toBeDisabled()
+  await choose("Compatibility first")
+  await expect.poll(() => submitted.length).toBe(2)
+  expect(submitted[1]).toEqual({ preset: "compatibility_first", policy_version: 4 })
   expect(unexpected).toEqual([])
 })
