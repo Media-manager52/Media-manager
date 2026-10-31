@@ -400,3 +400,86 @@ func dryRunCandidate(candidateID, observationID, indexerID uuid.UUID, title, gui
 		Excluded:    excluded,
 	}
 }
+
+// The limitation text must say what the replay really does. Exact-title subtitle
+// exclusions are replayed by the evaluator; an indexer-wide authorization denial
+// is not, because the worker applies it in SQL at selection time. This test pins
+// both halves of that claim to the behavior, so the wording cannot drift again.
+func TestDryRunLimitationsMatchTheReplayedExclusions(t *testing.T) {
+	workflowID, mediaID := uuid.NewV7(), uuid.NewV7()
+	indexerS, indexerX, indexerR, indexerW := uuid.NewV7(), uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	failedSubtitle, crossPost := uuid.NewV7(), uuid.NewV7()
+	denied, sameIndexerSibling, retrievalCrossPost := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+	year := uint16(2020)
+	search := postgres.SearchContext{
+		Media:         catalog.MediaItem{ID: mediaID, Kind: catalog.KindMovie, Title: "Example", Year: &year},
+		PolicyVersion: 1, ProfilePolicyVersion: 1,
+		Policy: json.RawMessage(`{"rules":[{"name":"Required resolution","fact":"resolution","allowed_values":["1080p","2160p"],"kind":"required","unknown":"hold"}]}`),
+		Exclusions: []postgres.WorkflowReleaseExclusion{
+			// A completed subtitle inspection: applies to exact-title cross-posts.
+			{CandidateID: failedSubtitle, IndexerInstanceID: indexerS, NativeKey: "guid-s", FailureKind: "subtitle_verification", Reason: "required language was not verified", ReleaseTitle: "Example.2020.2160p.WEB-DL.DAN", SubtitleUnverified: true},
+			// A retrieval failure keeps its provider/native scope.
+			{CandidateID: denied, IndexerInstanceID: indexerR, NativeKey: "guid-r", FailureKind: "retrieval_failed", Reason: "indexer refused the NZB download (HTTP 403)", ReleaseTitle: "Example.2020.1080p.WEB-DL.R"},
+		},
+	}
+	store := &fakeDryRunStore{search: search, candidates: []postgres.CandidateObservation{
+		dryRunCandidate(failedSubtitle, uuid.NewV7(), indexerS, "Example.2020.2160p.WEB-DL.DAN", "guid-s", "2160p", false, true),
+		dryRunCandidate(crossPost, uuid.NewV7(), indexerX, "EXAMPLE.2020.2160p.WEB-DL.DAN", "guid-x", "2160p", false, false),
+		dryRunCandidate(denied, uuid.NewV7(), indexerR, "Example.2020.1080p.WEB-DL.R", "guid-r", "1080p", false, true),
+		dryRunCandidate(sameIndexerSibling, uuid.NewV7(), indexerR, "Example.2020.1080p.WEB-DL.R2", "guid-r2", "1080p", false, false),
+		dryRunCandidate(retrievalCrossPost, uuid.NewV7(), indexerW, "Example.2020.1080p.WEB-DL.R", "guid-w", "1080p", false, false),
+	}}
+
+	result, err := DryRunWorkflow(context.Background(), store, workflowID, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[uuid.UUID]DryRunCandidate{}
+	for _, candidate := range result.Candidates {
+		byID[candidate.CandidateID] = candidate
+	}
+	hasRule := func(candidate DryRunCandidate, rule string) bool {
+		for _, explanation := range candidate.Evaluation.Explanations {
+			if explanation.Rule == rule && explanation.Decision == releases.DecisionFail {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Replayed: the exact-title subtitle exclusion rejects the cross-post, for the
+	// subtitle reason, although the cross-post has no exclusion row of its own.
+	if cross := byID[crossPost]; cross.Evaluation.Verdict != releases.VerdictRejected || cross.Excluded || !hasRule(cross, "workflow subtitle verification") {
+		t.Fatalf("exact-title cross-post=%+v, want rejected by the subtitle exclusion", cross.Evaluation)
+	}
+	// Not widened: a retrieval failure keeps its native scope, so a same-title cross-post stays eligible.
+	if other := byID[retrievalCrossPost]; other.Evaluation.Verdict != releases.VerdictEligible {
+		t.Fatalf("retrieval-failure cross-post verdict=%s, want eligible", other.Evaluation.Verdict)
+	}
+	// Not replayed: only the denied release is rejected; the worker would skip the whole indexer.
+	if byID[denied].Evaluation.Verdict != releases.VerdictRejected {
+		t.Fatalf("denied release verdict=%s, want rejected", byID[denied].Evaluation.Verdict)
+	}
+	if sibling := byID[sameIndexerSibling]; sibling.Evaluation.Verdict != releases.VerdictEligible {
+		t.Fatalf("same-indexer sibling verdict=%s, want eligible (indexer-wide denials are not replayed)", sibling.Evaluation.Verdict)
+	}
+
+	replayed, notReplayed := "", ""
+	for _, limitation := range result.Limitations {
+		if strings.Contains(limitation, "exact-title subtitle exclusions") {
+			replayed = limitation
+		}
+		if strings.Contains(limitation, "Indexer-wide") {
+			notReplayed = limitation
+		}
+	}
+	if replayed == "" || !strings.Contains(replayed, "replayed") || strings.Contains(replayed, "not replayed") || strings.Contains(replayed, "not fully") {
+		t.Fatalf("exact-title subtitle exclusions must be described as replayed: %v", result.Limitations)
+	}
+	if notReplayed == "" || !strings.Contains(notReplayed, "not fully replayed") || !strings.Contains(notReplayed, "401/403") || !strings.Contains(notReplayed, "only the denied release is rejected") {
+		t.Fatalf("indexer-wide checks must be described as not fully replayed: %v", result.Limitations)
+	}
+	if strings.Contains(strings.Join(result.Limitations, " "), "known subtitle failures are not replayed") {
+		t.Fatalf("a replayed exclusion is still described as not replayed: %v", result.Limitations)
+	}
+}

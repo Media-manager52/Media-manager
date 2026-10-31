@@ -107,7 +107,8 @@ func DryRunWorkflow(ctx context.Context, store DryRunStore, workflowID uuid.UUID
 		"Attempted, excluded and already-selected candidates are marked but not removed from the per-candidate explanation. The best eligible candidate skips them.",
 		"Novelty cutoffs and the final persisted selection are not re-applied; this is a policy replay, not a new acquisition decision.",
 		"The workflow, policy, exclusions and candidates are read in separate queries; a concurrent change can mix states in this informational response.",
-		"Open-round indexer authorization denials (indexer HTTP 401/403) and cross-candidate known subtitle failures are not replayed, so the best eligible candidate can differ from the worker's final choice.",
+		"Workflow release exclusions are replayed, including exact-title subtitle exclusions: a release posted under the same title as one whose required subtitles failed verification is rejected, even from another indexer.",
+		"Indexer-wide and other cross-candidate selection checks are not fully replayed. An open-round indexer authorization denial (HTTP 401/403) makes the worker skip every candidate from that indexer, but here only the denied release is rejected, so the best eligible candidate can differ from the worker's final choice.",
 	}
 	if truncated {
 		limitations = append(limitations, "Only the most recently observed candidates were replayed; the ranking may omit other stored candidates.")

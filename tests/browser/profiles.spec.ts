@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test"
+import { readFileSync } from "node:fs"
+import { expect, test, type Page } from "@playwright/test"
 import { qualityProfilePresets } from "./fixtures/owner-api"
 
 const baseURL = "http://127.0.0.1:4174"
@@ -173,9 +174,13 @@ test("owner can replace a hard resolution gate with persisted best-available qua
 
   await page.goto("/settings/profiles")
   await page.getByRole("button", { name: "Edit" }).click()
-  await page.getByLabel("Resolution policy").click()
+  // The hard gate is shown as such; removing it is a separate, explicit choice.
+  await expect(page.getByLabel("Required resolution")).toHaveText("Require 2160p")
+  await page.getByLabel("Required resolution").click()
+  await page.getByRole("option", { name: "No requirement", exact: true }).click()
+  await page.getByLabel("Resolution preference").click()
   await page.getByRole("option", { name: "Best available", exact: true }).click()
-  await page.getByLabel("Audio policy").click()
+  await page.getByLabel("Audio preference").click()
   await page.getByRole("option", { name: "Best available", exact: true }).click()
   await page.getByRole("button", { name: "Update profile" }).click()
 
@@ -189,8 +194,9 @@ test("owner can replace a hard resolution gate with persisted best-available qua
   expect(rules.filter((rule) => rule.fact === "audio_codec" && rule.kind === "preferred")).toHaveLength(14)
   expect(policy.required_subtitle_languages).toEqual(["da"])
   await page.getByRole("button", { name: "Edit" }).click()
-  await expect(page.getByLabel("Resolution policy")).toHaveText("Best available")
-  await expect(page.getByLabel("Audio policy")).toHaveText("Best available")
+  await expect(page.getByLabel("Required resolution")).toHaveText("No requirement")
+  await expect(page.getByLabel("Resolution preference")).toHaveText("Best available")
+  await expect(page.getByLabel("Audio preference")).toHaveText("Best available")
   expect(unexpected).toEqual([])
 })
 
@@ -369,4 +375,216 @@ test("owner applies a soft quality preset against the reloaded policy version", 
   await expect.poll(() => submitted.length).toBe(2)
   expect(submitted[1]).toEqual({ preset: "compatibility_first", policy_version: 4 })
   expect(unexpected).toEqual([])
+})
+
+type Rule = Record<string, unknown>
+const presetFixture = JSON.parse(readFileSync(new URL("./fixtures/quality-preset-applications.json", import.meta.url), "utf8")) as { base_rules: Rule[]; applied_rules: Record<string, Rule[]> }
+const profileID = "77777777-7777-4777-8777-777777777777"
+const presetLabels: Record<string, { name: string; resolutionPreference: string; audioPreference: string; resolutionCell: RegExp }> = {
+  balanced: { name: "Balanced", resolutionPreference: "Best available", audioPreference: "Best available", resolutionCell: /Require 1080p, prefer best available/ },
+  maximum_quality: { name: "Maximum quality", resolutionPreference: "Keep custom / none", audioPreference: "Keep custom / none", resolutionCell: /Require 1080p/ },
+  storage_efficient: { name: "Storage efficient", resolutionPreference: "Keep custom / none", audioPreference: "Keep custom / none", resolutionCell: /Require 1080p/ },
+  compatibility_first: { name: "Compatibility first", resolutionPreference: "Keep custom / none", audioPreference: "Keep custom / none", resolutionCell: /Require 1080p/ },
+}
+
+/**
+ * A stateful profile API that applies the real Go ApplyPreset output (recorded
+ * in the shared fixture) the way the server does: it checks the policy_version
+ * of the request, replaces the rules, and bumps the version.
+ */
+async function installProfileAPI(page: Page, rules: Rule[], options: { presetStatus?: number } = {}) {
+  const unexpected: string[] = []
+  const patches: Array<Record<string, unknown>> = []
+  const presetRequests: Array<Record<string, unknown>> = []
+  let profile: ProfileFixture = {
+    id: profileID,
+    media_kind: "movie",
+    name: "Movie 1080p Danish",
+    policy_version: 3,
+    policy: { rules, required_subtitle_languages: ["da"], preferred_subtitle_languages: ["da", "en"], original_language_routing: [] },
+    upgrades_enabled: true,
+    is_default: true,
+    enabled: true,
+  }
+  await page.route("**/*", async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.origin !== baseURL) {
+      unexpected.push(`${request.method()} ${url.origin}${url.pathname}`)
+      await route.abort("blockedbyclient")
+      return
+    }
+    if (!url.pathname.startsWith("/api/v1/")) {
+      await route.continue()
+      return
+    }
+    const get = request.method() === "GET"
+    if (get && url.pathname === "/api/v1/settings/quality-profiles") return await route.fulfill({ status: 200, json: { data: [profile] } })
+    if (get && url.pathname === "/api/v1/settings/quality-profile-presets") return await route.fulfill({ status: 200, json: { data: qualityProfilePresets } })
+    if (get && url.pathname === "/api/v1/acquisition-verifications") return await route.fulfill({ status: 200, json: { data: [] } })
+    if (get && (url.pathname === "/api/v1/wanted" || url.pathname === "/api/v1/workflows")) return await route.fulfill({ status: 200, json: { data: [] } })
+    if (get && url.pathname === "/api/v1/system/info") return await route.fulfill({ status: 200, json: { data: { version: "browser-test" } } })
+    if (get && url.pathname === "/api/v1/system/health") return await route.fulfill({ status: 200, json: { data: { database_state: "ready", schema_version: 30, expected_schema: 30 } } })
+    if (request.method() === "POST" && url.pathname === `/api/v1/settings/quality-profiles/${profileID}/preset`) {
+      const body = request.postDataJSON() as { preset: string; policy_version: number }
+      presetRequests.push(body)
+      if (options.presetStatus === 409 || body.policy_version !== profile.policy_version) {
+        return await route.fulfill({ status: 409, json: { error: { code: "quality_profile_changed", message: "the quality profile changed; reload it and retry" } } })
+      }
+      profile = { ...profile, policy_version: profile.policy_version + 1, policy: { ...profile.policy, rules: presetFixture.applied_rules[body.preset] } }
+      return await route.fulfill({ status: 200, json: { data: profile } })
+    }
+    if (request.method() === "PATCH" && url.pathname === `/api/v1/settings/quality-profiles/${profileID}`) {
+      const body = request.postDataJSON() as Record<string, unknown>
+      patches.push(body)
+      profile = { ...profile, ...body, policy_version: profile.policy_version + 1 } as ProfileFixture
+      return await route.fulfill({ status: 200, json: { data: profile } })
+    }
+    unexpected.push(`${request.method()} ${url.pathname}${url.search}`)
+    await route.fulfill({ status: 501, json: { error: { message: "Unexpected local test request" } } })
+  })
+  return { unexpected, patches, presetRequests, current: () => profile, setProfile: (next: ProfileFixture) => { profile = next } }
+}
+
+async function applyPresetFromTable(page: Page, preset: string) {
+  await page.getByLabel("Soft preset for Movie 1080p Danish").click()
+  await page.getByRole("option", { name: presetLabels[preset].name, exact: true }).click()
+  await page.getByRole("button", { name: "Apply", exact: true }).click()
+}
+
+for (const preset of Object.keys(presetLabels)) {
+  test(`${preset}: editing an unrelated field after applying the preset keeps the required resolution and audio rules`, async ({ page }) => {
+    const api = await installProfileAPI(page, presetFixture.base_rules)
+    page.on("dialog", (dialog) => void dialog.accept())
+    await page.goto("/settings/profiles")
+
+    await applyPresetFromTable(page, preset)
+    await expect.poll(() => api.presetRequests.length).toBe(1)
+    expect(api.presetRequests[0]).toEqual({ preset, policy_version: 3 })
+    await expect(page.getByRole("row", { name: /Movie 1080p Danish/ }).getByRole("cell").nth(2)).toHaveText(presetLabels[preset].resolutionCell)
+
+    await page.getByRole("button", { name: "Edit" }).click()
+    // The editor shows the effective profile: the hard gates and the preset's preferences.
+    await expect(page.getByLabel("Required resolution")).toHaveText("Require 1080p")
+    await expect(page.getByLabel("Required audio codec")).toHaveText("Keep current (eac3 / ac3)")
+    await expect(page.getByLabel("Resolution preference")).toHaveText(presetLabels[preset].resolutionPreference)
+    await expect(page.getByLabel("Audio preference")).toHaveText(presetLabels[preset].audioPreference)
+
+    await page.getByLabel("Name", { exact: true }).fill("Movie 1080p Danish (renamed)")
+    await page.getByRole("button", { name: "Update profile" }).click()
+
+    await expect.poll(() => api.patches.length).toBe(1)
+    const saved = api.patches[0]
+    const policy = saved.policy as Record<string, unknown>
+    // Every rule the preset left behind survives, unchanged and in order.
+    expect(policy.rules).toEqual(presetFixture.applied_rules[preset])
+    expect(saved.policy_version).toBe(4)
+    expect(saved.name).toBe("Movie 1080p Danish (renamed)")
+    expect(policy.required_subtitle_languages).toEqual(["da"])
+    expect(policy.preferred_subtitle_languages).toEqual(["da", "en"])
+
+    // And it round-trips: the reopened editor still shows the same effective profile.
+    await page.getByRole("button", { name: "Edit" }).click()
+    await expect(page.getByLabel("Required resolution")).toHaveText("Require 1080p")
+    await expect(page.getByLabel("Required audio codec")).toHaveText("Keep current (eac3 / ac3)")
+    await expect(page.getByLabel("Resolution preference")).toHaveText(presetLabels[preset].resolutionPreference)
+    expect(api.unexpected).toEqual([])
+  })
+}
+
+test("the owner can still remove the required resolution and audio codec explicitly", async ({ page }) => {
+  const api = await installProfileAPI(page, presetFixture.applied_rules.balanced)
+  await page.goto("/settings/profiles")
+  await page.getByRole("button", { name: "Edit" }).click()
+
+  await page.getByLabel("Required resolution").click()
+  await page.getByRole("option", { name: "No requirement", exact: true }).click()
+  await page.getByLabel("Required audio codec").click()
+  await page.getByRole("option", { name: "Remove requirement", exact: true }).click()
+  await page.getByRole("button", { name: "Update profile" }).click()
+
+  await expect.poll(() => api.patches.length).toBe(1)
+  const rules = (api.patches[0].policy as Record<string, unknown>).rules as Rule[]
+  // Only the two gates are gone; the preset ladders and the Danish rule remain.
+  expect(rules).toEqual(presetFixture.applied_rules.balanced.filter((rule) => !((rule.fact === "resolution" || rule.fact === "audio_codec") && rule.kind === "required")))
+  expect(rules.some((rule) => rule.fact === "subtitle_or_audio_languages" && rule.kind === "required")).toBe(true)
+  await page.getByRole("button", { name: "Edit" }).click()
+  await expect(page.getByLabel("Required resolution")).toHaveText("No requirement")
+  await expect(page.getByLabel("Resolution preference")).toHaveText("Best available")
+  await expect(page.getByLabel("Required audio codec")).toHaveCount(0)
+  expect(api.unexpected).toEqual([])
+})
+
+test("changing the required resolution keeps the preset ranking", async ({ page }) => {
+  const api = await installProfileAPI(page, presetFixture.applied_rules.maximum_quality)
+  await page.goto("/settings/profiles")
+  await page.getByRole("button", { name: "Edit" }).click()
+  await page.getByLabel("Required resolution").click()
+  await page.getByRole("option", { name: "Require 2160p", exact: true }).click()
+  await page.getByRole("button", { name: "Update profile" }).click()
+
+  await expect.poll(() => api.patches.length).toBe(1)
+  const rules = (api.patches[0].policy as Record<string, unknown>).rules as Rule[]
+  expect(rules.filter((rule) => rule.fact === "resolution" && rule.kind === "required").map((rule) => rule.allowed_values)).toEqual([["2160p"]])
+  expect(rules.filter((rule) => rule.fact === "resolution" && rule.kind === "preferred")).toEqual(presetFixture.applied_rules.maximum_quality.filter((rule) => rule.fact === "resolution" && rule.kind === "preferred"))
+  expect(rules.filter((rule) => rule.fact === "audio_codec" && rule.kind === "required")).toEqual(presetFixture.base_rules.filter((rule) => rule.fact === "audio_codec" && rule.kind === "required"))
+  expect(api.unexpected).toEqual([])
+})
+
+test("a custom required resolution is kept as it is, not narrowed to its first value", async ({ page }) => {
+  const custom: Rule[] = [
+    { name: "Minimum 1080p", fact: "resolution", allowed_values: ["1080p", "2160p"], kind: "required", weight: 0, unknown: "reject" },
+    { name: "Preferred source", fact: "source", allowed_values: ["webdl", "bluray"], kind: "preferred", weight: 100, unknown: "allow" },
+  ]
+  const api = await installProfileAPI(page, custom)
+  await page.goto("/settings/profiles")
+  await page.getByRole("button", { name: "Edit" }).click()
+  await expect(page.getByLabel("Required resolution")).toHaveText("Keep current (1080p / 2160p)")
+  await expect(page.getByLabel("Preferred source")).toHaveText("Keep custom / none")
+  await page.getByLabel("Name", { exact: true }).fill("Renamed only")
+  await page.getByRole("button", { name: "Update profile" }).click()
+
+  await expect.poll(() => api.patches.length).toBe(1)
+  expect((api.patches[0].policy as Record<string, unknown>).rules).toEqual(custom)
+  expect(api.unexpected).toEqual([])
+})
+
+test("an edit opened before a preset was applied is refused instead of overwriting the preset", async ({ page }) => {
+  const api = await installProfileAPI(page, presetFixture.base_rules)
+  page.on("dialog", (dialog) => void dialog.accept())
+  await page.goto("/settings/profiles")
+  await page.getByRole("button", { name: "Edit" }).click()
+  await page.getByLabel("Name", { exact: true }).fill("Edited against version 3")
+
+  await applyPresetFromTable(page, "balanced")
+  await expect.poll(() => api.presetRequests.length).toBe(1)
+
+  // The open form was built from version 3; the profile is now version 4.
+  await expect(page.getByText("Profile changed", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Update profile" })).toBeDisabled()
+  expect(api.patches).toEqual([])
+
+  // Reopening loads the current policy, including the preset, and saving works.
+  await page.getByRole("button", { name: "Cancel" }).click()
+  await page.getByRole("button", { name: "Edit" }).click()
+  await expect(page.getByLabel("Resolution preference")).toHaveText("Best available")
+  await page.getByRole("button", { name: "Update profile" }).click()
+  await expect.poll(() => api.patches.length).toBe(1)
+  expect(api.patches[0].policy_version).toBe(4)
+  expect((api.patches[0].policy as Record<string, unknown>).rules).toEqual(presetFixture.applied_rules.balanced)
+  expect(api.unexpected).toEqual([])
+})
+
+test("a preset applied against a stale policy version is refused and changes nothing", async ({ page }) => {
+  const api = await installProfileAPI(page, presetFixture.base_rules, { presetStatus: 409 })
+  page.on("dialog", (dialog) => void dialog.accept())
+  await page.goto("/settings/profiles")
+  await applyPresetFromTable(page, "storage_efficient")
+
+  await expect(page.getByText("the quality profile changed; reload it and retry")).toBeVisible()
+  expect(api.presetRequests).toEqual([{ preset: "storage_efficient", policy_version: 3 }])
+  expect(api.current().policy_version).toBe(3)
+  expect((api.current().policy as Record<string, unknown>).rules).toEqual(presetFixture.base_rules)
+  expect(api.patches).toEqual([])
+  expect(api.unexpected).toEqual([])
 })

@@ -90,7 +90,7 @@ import {
   type APIWantedItem,
   type APIWorkflow,
 } from "@/lib/media-manager-api"
-import { evidenceStateNotRecorded, fallbackEvidenceRows } from "@/lib/release-evidence"
+import { evidenceStateNotRecorded, fallbackEvidenceRows, summarizeReleaseGroups } from "@/lib/release-evidence"
 import { cn } from "@/lib/utils"
 import {
   buildMediaLibraryRecords,
@@ -1125,22 +1125,8 @@ function EvidenceTable({ items, refresh }: { items: APIReleaseCandidate[]; refre
 }
 
 function LiveReleaseGroups({ items, error, loading, refresh }: { items: APIReleaseCandidate[]; error: string; loading: boolean; refresh: () => void }) {
-  const groups = React.useMemo(() => {
-    const result = new Map<string, { observations: number; eligible: number; held: number; rejected: number }>()
-    for (const item of items) {
-      const facts = item.normalized_facts ?? {}
-      const raw = facts.release_group ?? facts.group
-      const name = typeof raw === "string" && raw.trim() ? raw.trim() : "Unknown"
-      const current = result.get(name) ?? { observations: 0, eligible: 0, held: 0, rejected: 0 }
-      current.observations += 1
-      if (item.verdict === "eligible") current.eligible += 1
-      if (item.verdict === "held") current.held += 1
-      if (item.verdict === "rejected") current.rejected += 1
-      result.set(name, current)
-    }
-    return Array.from(result.entries()).sort((left, right) => right[1].observations - left[1].observations)
-  }, [items])
-  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{loading ? <LoadingPanel /> : <Panel flush title="Observed release groups" subtitle="Counts summarize current persisted evidence; they are not permanent trust labels." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Group</TableHead><TableHead>Observations</TableHead><TableHead>Eligible</TableHead><TableHead>Held</TableHead><TableHead>Rejected</TableHead></TableRow></TableHeader><TableBody>{groups.map(([name, counts]) => <TableRow key={name}><TableCell className="font-semibold">{name}</TableCell><TableCell>{counts.observations}</TableCell><TableCell>{counts.eligible}</TableCell><TableCell>{counts.held}</TableCell><TableCell>{counts.rejected}</TableCell></TableRow>)}</TableBody></Table></div>{groups.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No group evidence has been observed.</div> : null}</Panel>}</div>
+  const groups = React.useMemo(() => summarizeReleaseGroups(items), [items])
+  return <div className="space-y-4">{error ? <ErrorNotice error={error} /> : null}{loading ? <LoadingPanel /> : <Panel flush title="Observed release groups" subtitle="Counts summarize current persisted evidence; they are not permanent trust labels." action={<RefreshButton onClick={refresh} />}><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Group</TableHead><TableHead>Observations</TableHead><TableHead>Eligible</TableHead><TableHead>Held</TableHead><TableHead>Rejected</TableHead></TableRow></TableHeader><TableBody>{groups.map((group) => <TableRow key={group.key}><TableCell className={group.kind === "group" ? "font-semibold" : "italic text-fg-muted"}>{group.name}</TableCell><TableCell>{group.observations}</TableCell><TableCell>{group.eligible}</TableCell><TableCell>{group.held}</TableCell><TableCell>{group.rejected}</TableCell></TableRow>)}</TableBody></Table></div>{groups.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No group evidence has been observed.</div> : null}</Panel>}</div>
 }
 
 export function LiveSourcesScreen({ kind }: { kind?: "newznab" | "altmount" }) {

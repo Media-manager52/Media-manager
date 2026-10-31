@@ -289,10 +289,14 @@ explanation. It is a read effect: it never searches, downloads, submits to
 AltMount, publishes, or changes a block or exclusion. It evaluates with the
 open round's policy snapshot, or the exhausted discovery round's snapshot, or
 the profile's current policy when neither exists; `policy_source` names which.
-It does not re-apply novelty or final-selection gates, and it does not replay
-indexer authorization denials or cross-candidate subtitle failures, so its best
-eligible candidate can differ from the worker's final choice. The response lists
-these limitations explicitly.
+It does not re-apply novelty or final-selection gates. Workflow release
+exclusions are replayed, including exact-title subtitle exclusions (a completed
+subtitle failure also rejects a release posted under the same title by another
+indexer). Indexer-wide and other cross-candidate selection checks are not fully
+replayed: an open-round indexer authorization denial (HTTP 401/403) makes the
+worker skip every candidate from that indexer, but the replay rejects only the
+denied release. Its best eligible candidate can therefore differ from the
+worker's final choice. The response lists these limitations explicitly.
 
 The replay reads each candidate's stored facts as a fact array, JSON `null` (no
 facts) or the legacy empty object `{}` (no facts). Any other stored shape is

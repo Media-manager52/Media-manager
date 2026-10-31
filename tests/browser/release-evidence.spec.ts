@@ -17,9 +17,10 @@ function stateOf(row: ReturnType<Page["getByRole"]>) {
 }
 
 // The Evidence explorer prefers the server's structured evidence. Only when a
-// candidate carries none does it fall back to the raw stored facts, and that
-// fallback must never present "no recorded state" as the provider's "unknown".
-test("evidence explorer shows the recorded state and labels legacy facts as not recorded", async ({ page }) => {
+// candidate carries none does it fall back to the raw stored facts, which the Go
+// store writes as an array of {name, values, state} and which therefore keep
+// their own recorded state.
+test("evidence explorer shows the recorded state of stored fact arrays", async ({ page }) => {
   const recorder = await installOwnerAPI(page, baseURL)
   await openEvidence(page)
 
@@ -28,16 +29,50 @@ test("evidence explorer shows the recorded state and labels legacy facts as not 
   await expect(stateOf(decided.nth(0))).toHaveText("Observed")
   await expect(stateOf(decided.nth(1))).toHaveText("Observed")
 
-  // The fixture's second candidate stores the legacy object shape, which has
-  // values but no per-fact state.
-  const legacy = page.getByRole("row", { name: /Attention\.Browser\.Movie/ })
-  await expect(legacy).toHaveCount(2)
-  const resolution = legacy.filter({ has: page.getByRole("cell", { name: "resolution", exact: true }) })
+  // The fixture's second candidate has no server explanation, so its rows come
+  // from the stored fact array: group and resolution, both recorded as observed.
+  const stored = page.getByRole("row", { name: /Attention\.Browser\.Movie/ })
+  await expect(stored).toHaveCount(2)
+  const resolution = stored.filter({ has: page.getByRole("cell", { name: "resolution", exact: true }) })
   await expect(resolution).toHaveCount(1)
   await expect(resolution.getByRole("cell").nth(2)).toHaveText("720p")
+  for (const index of [0, 1]) await expect(stateOf(stored.nth(index))).toHaveText("Observed")
+  expect(recorder.unexpected).toEqual([])
+})
+
+// A plain {fact: value} object carries no per-fact state. It is only ever seen
+// from hand-written data, but if it appears the explorer must not present the
+// missing state as the provider's "unknown".
+test("evidence explorer labels object-shaped facts as not recorded", async ({ page }) => {
+  const recorder = await installOwnerAPI(page, baseURL)
+  const legacy = {
+    id: "d0000002-0000-4000-8000-000000000002",
+    workflow_id: ownerFixtureIDs.wfA,
+    media_id: ownerFixtureIDs.movieA,
+    media_kind: "movie",
+    media_title: "First Browser Movie",
+    media_year: 2024,
+    variant: "movie",
+    title: "Legacy.Browser.Movie.2024.720p-OTHER",
+    indexer_id: ownerFixtureIDs.indexer,
+    indexer_name: "NZB Example",
+    reasons: [],
+    normalized_facts: { resolution: "720p", group: "OTHER" },
+    problems: [],
+    selected: false,
+    observed_at: observed,
+    last_observed_at: observed,
+  } as unknown as APIReleaseCandidate
+  await page.route("**/api/v1/intelligence/releases*", (route) => route.fulfill({ status: 200, json: { data: [legacy] } }))
+  await openEvidence(page)
+
+  const rows = page.getByRole("row", { name: /Legacy\.Browser\.Movie/ })
+  await expect(rows).toHaveCount(2)
+  const resolution = rows.filter({ has: page.getByRole("cell", { name: "resolution", exact: true }) })
+  await expect(resolution.getByRole("cell").nth(2)).toHaveText("720p")
   for (const index of [0, 1]) {
-    await expect(stateOf(legacy.nth(index))).toHaveText("Not Recorded")
-    await expect(stateOf(legacy.nth(index))).not.toHaveText("Unknown")
+    await expect(stateOf(rows.nth(index))).toHaveText("Not Recorded")
+    await expect(stateOf(rows.nth(index))).not.toHaveText("Unknown")
   }
   expect(recorder.unexpected).toEqual([])
 })

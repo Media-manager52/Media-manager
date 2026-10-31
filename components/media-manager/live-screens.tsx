@@ -87,6 +87,7 @@ import { describeStatus, InlineNotice, KeyValue, Panel, StateBadge, StatusChip }
 import { AttentionCard, CoverageBar, CoverageLegend, DownloadProgress, MiniPoster, StageStepper, titleHue } from "./console"
 import { isActivelyAcquiring, isCompleted } from "@/lib/workflow-states"
 import { cn } from "@/lib/utils"
+import { audioLabel, audioRequirement, defaultSelections, deriveSelections, mergeQualityRules, requiredValues, resolutionLabel, resolutionRequirement, type AudioRequirement, type PreferenceChoice, type QualitySelections, type ResolutionRequirement, type RuleRecord } from "@/lib/quality-profile-rules"
 import { retryPlan, workflowStep, workflowSteps } from "@/lib/workflow-presentation"
 import { MetadataArtwork, MetadataSourceLink } from "./metadata-artwork"
 import { episodeStatus, formatSeasonVariant, parseSeriesVariant, rollupSeriesSeasons, seasonAddCheck } from "@/lib/series-variants"
@@ -721,9 +722,10 @@ export function LiveProfilesScreen() {
   const [editingID, setEditingID] = React.useState("")
   const [kind, setKind] = React.useState<"movie" | "series">("movie")
   const [name, setName] = React.useState("UHD")
-  const [resolution, setResolution] = React.useState("best_available")
-  const [audio, setAudio] = React.useState("best_available")
-  const [source, setSource] = React.useState("webdl")
+  const [selections, setSelections] = React.useState<QualitySelections>(defaultSelections)
+  // The policy version and stored rules the open form was loaded from. The form
+  // is merged against exactly this snapshot and saved at exactly this version.
+  const [editBase, setEditBase] = React.useState<{ id: string; version: number; rules: RuleRecord[] } | null>(null)
   const [requiredSubtitles, setRequiredSubtitles] = React.useState("da")
   const [requiredAudio, setRequiredAudio] = React.useState("")
   const [preferredSubtitles, setPreferredSubtitles] = React.useState("")
@@ -746,25 +748,28 @@ export function LiveProfilesScreen() {
   }, [])
   React.useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); return () => window.clearTimeout(initial) }, [refresh])
   function beginEdit(profile: APIQualityProfile) {
-    const rules = Array.isArray(profile.policy.rules) ? profile.policy.rules as Array<Record<string, unknown>> : []
-    const sourceRule = rules.find((rule) => rule.fact === "source" && rule.kind === "preferred")
+    const rules = profileRules(profile).map((rule) => ({ ...rule }))
     setEditingID(profile.id); setKind(profile.media_kind); setName(profile.name)
-    setResolution(profileResolutionStrategy(rules)); setAudio(profileAudioStrategy(rules)); setSource(ruleFirstValue(sourceRule) || "none")
+    setEditBase({ id: profile.id, version: profile.policy_version, rules }); setSelections(deriveSelections(rules))
     setRequiredSubtitles(policyLanguages(profile, "required_subtitle_languages").join(", "))
     setRequiredAudio(policyLanguages(profile, "required_audio_languages").join(", "))
     setPreferredSubtitles(policyLanguages(profile, "preferred_subtitle_languages").join(", "))
     setOriginalLanguageRouting(policyOriginalLanguages(profile).join(", "))
     setUpgrades(profile.upgrades_enabled); setIsDefault(profile.is_default); setEnabled(profile.enabled)
   }
-  function resetForm() { setEditingID(""); setKind("movie"); setName("UHD"); setResolution("best_available"); setAudio("best_available"); setSource("webdl"); setRequiredSubtitles("da"); setRequiredAudio(""); setPreferredSubtitles(""); setOriginalLanguageRouting(""); setUpgrades(true); setIsDefault(true); setEnabled(true) }
+  function resetForm() { setEditingID(""); setEditBase(null); setKind("movie"); setName("UHD"); setSelections(defaultSelections()); setRequiredSubtitles("da"); setRequiredAudio(""); setPreferredSubtitles(""); setOriginalLanguageRouting(""); setUpgrades(true); setIsDefault(true); setEnabled(true) }
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError("")
     try {
       const current = profiles.find((profile) => profile.id === editingID)
-      const existingRules = current && Array.isArray(current.policy.rules) ? current.policy.rules as Array<Record<string, unknown>> : []
-      const rules = mergeProfileRules(existingRules, resolution, audio, source)
+      if (editingID && (!current || !editBase || editBase.id !== editingID)) throw new Error("This profile is no longer available. Cancel and reopen it from the list.")
+      // Never merge a form that was opened on one policy version into a policy
+      // that has since moved on (for example after a preset was applied).
+      if (current && editBase && current.policy_version !== editBase.version) throw new Error(profileChangedMessage)
+      const rules = mergeQualityRules(editBase?.rules ?? [], selections)
+      if (rules.length === 0) throw new Error("A profile needs at least one release rule. Choose a Best available preference or keep a requirement.")
       const policy = { ...(current?.policy ?? {}), rules, required_subtitle_languages: languageInput(requiredSubtitles), required_audio_languages: languageInput(requiredAudio), preferred_subtitle_languages: languageInput(preferredSubtitles), original_language_routing: languageInput(originalLanguageRouting) }
-      const input = { media_kind: kind, name, policy_version: current?.policy_version ?? 1, policy, upgrades_enabled: upgrades, is_default: isDefault, enabled }
+      const input = { media_kind: kind, name, policy_version: editBase?.version ?? 1, policy, upgrades_enabled: upgrades, is_default: isDefault, enabled }
       if (editingID) await updateQualityProfile(editingID, input); else await createQualityProfile(input)
       toast.success(editingID ? "Quality profile updated" : "Quality profile saved"); resetForm(); await refresh()
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save profile") } finally { setBusy(false) }
@@ -800,11 +805,12 @@ export function LiveProfilesScreen() {
       setReverifying("")
     }
   }
+  const editStale = Boolean(editBase) && profiles.some((profile) => profile.id === editBase?.id && profile.policy_version !== editBase.version)
   return <div className="space-y-4">
     {error ? <ErrorNotice error={error} /> : null}
     <div className="grid gap-4 xl:grid-cols-[1fr_400px]">
-      <Panel flush title="Quality profiles" subtitle="Best available ranks quality without rejecting a safe fallback. Presets replace only soft preferences; required rules and language requirements stay hard. Required languages are still verified before publication."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Kind</TableHead><TableHead>Quality</TableHead><TableHead>Audio</TableHead><TableHead>Original language</TableHead><TableHead>Required subtitles</TableHead><TableHead>Required audio</TableHead><TableHead>Upgrades</TableHead><TableHead>State</TableHead><TableHead>Preset</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{profiles.map((profile) => { const rules = profileRules(profile); return <TableRow key={profile.id}><TableCell className="font-semibold text-fg">{profile.name}{profile.is_default ? <div className="mt-1 text-[12px] text-fg-subtle">Default fallback</div> : null}</TableCell><TableCell>{profile.media_kind}</TableCell><TableCell>{profileResolutionLabel(rules)}</TableCell><TableCell>{profileAudioLabel(rules)}</TableCell><TableCell className="font-mono text-[12px]">{policyOriginalLanguages(profile).join(", ") || "Fallback"}</TableCell><TableCell className="font-mono text-[12px]">{policyLanguages(profile, "required_subtitle_languages").join(", ") || "None"}</TableCell><TableCell className="font-mono text-[12px]">{policyLanguages(profile, "required_audio_languages").join(", ") || "None"}</TableCell><TableCell>{profile.upgrades_enabled ? "On" : "Off"}</TableCell><TableCell><StateBadge state={profile.enabled ? "enabled" : "disabled"} /></TableCell><TableCell><div className="flex items-center gap-1.5"><Select value={presetChoice[profile.id] ?? ""} onValueChange={(value) => setPresetChoice((current) => ({ ...current, [profile.id]: value }))}><SelectTrigger className="mm-input h-8 w-[145px]" aria-label={`Soft preset for ${profile.name}`}><SelectValue placeholder="Choose preset" /></SelectTrigger><SelectContent>{presets.map((preset) => <SelectItem key={preset.preset} value={preset.preset}>{preset.name}</SelectItem>)}</SelectContent></Select><Button size="sm" variant="outline" disabled={!presetChoice[profile.id] || presetBusy === profile.id} onClick={() => void applyPreset(profile)}>{presetBusy === profile.id ? "Applying…" : "Apply"}</Button></div></TableCell><TableCell><Button size="sm" variant="outline" onClick={() => beginEdit(profile)}>Edit</Button></TableCell></TableRow> })}</TableBody></Table></div>{profiles.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No quality profiles exist.</div> : null}</Panel>
-      <Panel title={editingID ? "Edit profile" : "Create profile"} subtitle="Best available prefers higher resolution and audio from positive release evidence. Unknown evidence stays neutral."><form className="grid gap-3" onSubmit={submit}><Field label="Media kind"><Select value={kind} disabled={Boolean(editingID)} onValueChange={(value) => setKind(value as "movie" | "series")}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="movie">Movie</SelectItem><SelectItem value="series">TV series</SelectItem></SelectContent></Select></Field><Field label="Name"><Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Resolution policy"><Select value={resolution} onValueChange={setResolution}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="best_available">Best available</SelectItem><SelectItem value="2160p">Require 2160p</SelectItem><SelectItem value="1080p">Require 1080p</SelectItem><SelectItem value="720p">Require 720p</SelectItem><SelectItem value="none">Keep custom / none</SelectItem></SelectContent></Select><div className="mt-1 text-[12px] text-fg-subtle">Best available ranks 2160p, 1080p, 720p, 576p, then 480p without imposing a minimum.</div></Field><Field label="Audio policy"><Select value={audio} onValueChange={setAudio}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="best_available">Best available</SelectItem><SelectItem value="none">Keep custom / none</SelectItem></SelectContent></Select><div className="mt-1 text-[12px] text-fg-subtle">Positive release-name evidence ranks lossless and object-based codecs first. Unknown audio remains eligible.</div></Field><Field label="Preferred source"><Select value={source} onValueChange={setSource}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Keep custom / none</SelectItem><SelectItem value="remux">Remux</SelectItem><SelectItem value="bluray">Blu-ray</SelectItem><SelectItem value="webdl">WEB-DL</SelectItem><SelectItem value="webrip">WEBRip</SelectItem></SelectContent></Select></Field><Field label="Original-language routing"><Input className="mm-input font-mono" value={originalLanguageRouting} onChange={(event) => { setOriginalLanguageRouting(event.target.value); if (event.target.value.trim()) setIsDefault(false) }} placeholder="da" /><div className="mt-1 text-[12px] text-fg-subtle">Routes Seerr requests from reliable provider metadata. Leave blank for the default fallback profile.</div></Field><Field label="Required subtitle languages"><Input className="mm-input font-mono" value={requiredSubtitles} onChange={(event) => setRequiredSubtitles(event.target.value)} placeholder="da" /><div className="mt-1 text-[12px] text-fg-subtle">Comma-separated reliable tags. Every selected video needs a subtitle or an audio track in every required language.</div></Field><Field label="Required audio languages"><Input className="mm-input font-mono" value={requiredAudio} onChange={(event) => setRequiredAudio(event.target.value)} placeholder="da" /><div className="mt-1 text-[12px] text-fg-subtle">A dub: every selected video needs an audio track in these languages. Subtitles do not count. Use for kids libraries.</div></Field><Field label="Preferred subtitle languages"><Input className="mm-input font-mono" value={preferredSubtitles} onChange={(event) => setPreferredSubtitles(event.target.value)} placeholder="da, en" /></Field><ToggleRow label="Allow upgrades" checked={upgrades} onChange={setUpgrades} /><ToggleRow label="Make default" checked={isDefault} onChange={setIsDefault} /><ToggleRow label="Enabled" checked={enabled} onChange={setEnabled} /><div className="flex gap-2"><Button type="submit" disabled={busy}><Settings2 /> {editingID ? "Update profile" : "Save profile"}</Button>{editingID ? <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button> : null}</div></form></Panel>
+      <Panel flush title="Quality profiles" subtitle="Best available ranks quality without rejecting a safe fallback. Presets replace only soft preferences; required rules and language requirements stay hard. Required languages are still verified before publication."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Kind</TableHead><TableHead>Quality</TableHead><TableHead>Audio</TableHead><TableHead>Original language</TableHead><TableHead>Required subtitles</TableHead><TableHead>Required audio</TableHead><TableHead>Upgrades</TableHead><TableHead>State</TableHead><TableHead>Preset</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{profiles.map((profile) => { const rules = profileRules(profile); return <TableRow key={profile.id}><TableCell className="font-semibold text-fg">{profile.name}{profile.is_default ? <div className="mt-1 text-[12px] text-fg-subtle">Default fallback</div> : null}</TableCell><TableCell>{profile.media_kind}</TableCell><TableCell>{resolutionLabel(rules)}</TableCell><TableCell>{audioLabel(rules)}</TableCell><TableCell className="font-mono text-[12px]">{policyOriginalLanguages(profile).join(", ") || "Fallback"}</TableCell><TableCell className="font-mono text-[12px]">{policyLanguages(profile, "required_subtitle_languages").join(", ") || "None"}</TableCell><TableCell className="font-mono text-[12px]">{policyLanguages(profile, "required_audio_languages").join(", ") || "None"}</TableCell><TableCell>{profile.upgrades_enabled ? "On" : "Off"}</TableCell><TableCell><StateBadge state={profile.enabled ? "enabled" : "disabled"} /></TableCell><TableCell><div className="flex items-center gap-1.5"><Select value={presetChoice[profile.id] ?? ""} onValueChange={(value) => setPresetChoice((current) => ({ ...current, [profile.id]: value }))}><SelectTrigger className="mm-input h-8 w-[145px]" aria-label={`Soft preset for ${profile.name}`}><SelectValue placeholder="Choose preset" /></SelectTrigger><SelectContent>{presets.map((preset) => <SelectItem key={preset.preset} value={preset.preset}>{preset.name}</SelectItem>)}</SelectContent></Select><Button size="sm" variant="outline" disabled={!presetChoice[profile.id] || presetBusy === profile.id} onClick={() => void applyPreset(profile)}>{presetBusy === profile.id ? "Applying…" : "Apply"}</Button></div></TableCell><TableCell><Button size="sm" variant="outline" onClick={() => beginEdit(profile)}>Edit</Button></TableCell></TableRow> })}</TableBody></Table></div>{profiles.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No quality profiles exist.</div> : null}</Panel>
+      <Panel title={editingID ? "Edit profile" : "Create profile"} subtitle="Best available prefers higher resolution and audio from positive release evidence. Unknown evidence stays neutral. Required rules are hard gates and are kept unless you change them here."><form className="grid gap-3" onSubmit={submit}>{editStale ? <InlineNotice tone="warn" title="Profile changed">{profileChangedMessage}</InlineNotice> : null}<Field label="Media kind"><Select value={kind} disabled={Boolean(editingID)} onValueChange={(value) => setKind(value as "movie" | "series")}><SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="movie">Movie</SelectItem><SelectItem value="series">TV series</SelectItem></SelectContent></Select></Field><Field label="Name"><Input className="mm-input" value={name} onChange={(event) => setName(event.target.value)} required /></Field><QualityRuleFields selections={selections} rules={editBase?.rules ?? []} onChange={(patch) => setSelections((current) => ({ ...current, ...patch }))} /><Field label="Original-language routing"><Input className="mm-input font-mono" value={originalLanguageRouting} onChange={(event) => { setOriginalLanguageRouting(event.target.value); if (event.target.value.trim()) setIsDefault(false) }} placeholder="da" /><div className="mt-1 text-[12px] text-fg-subtle">Routes Seerr requests from reliable provider metadata. Leave blank for the default fallback profile.</div></Field><Field label="Required subtitle languages"><Input className="mm-input font-mono" value={requiredSubtitles} onChange={(event) => setRequiredSubtitles(event.target.value)} placeholder="da" /><div className="mt-1 text-[12px] text-fg-subtle">Comma-separated reliable tags. Every selected video needs a subtitle or an audio track in every required language.</div></Field><Field label="Required audio languages"><Input className="mm-input font-mono" value={requiredAudio} onChange={(event) => setRequiredAudio(event.target.value)} placeholder="da" /><div className="mt-1 text-[12px] text-fg-subtle">A dub: every selected video needs an audio track in these languages. Subtitles do not count. Use for kids libraries.</div></Field><Field label="Preferred subtitle languages"><Input className="mm-input font-mono" value={preferredSubtitles} onChange={(event) => setPreferredSubtitles(event.target.value)} placeholder="da, en" /></Field><ToggleRow label="Allow upgrades" checked={upgrades} onChange={setUpgrades} /><ToggleRow label="Make default" checked={isDefault} onChange={setIsDefault} /><ToggleRow label="Enabled" checked={enabled} onChange={setEnabled} /><div className="flex gap-2"><Button type="submit" disabled={busy || editStale}><Settings2 /> {editingID ? "Update profile" : "Save profile"}</Button>{editingID ? <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button> : null}</div></form></Panel>
     </div>
     <Panel flush title="AltMount subtitle verification" subtitle="Persisted owner-review evidence. Unverified output is retained, never made current, and never automatically deleted."><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Media / release</TableHead><TableHead>Lifetime attempt</TableHead><TableHead>Required</TableHead><TableHead>Observed</TableHead><TableHead>Result</TableHead><TableHead>Retry</TableHead><TableHead>Evidence</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>{verifications.map((item) => <TableRow key={item.id}><TableCell className="max-w-sm"><div className="font-semibold text-fg">{item.media_title}</div><div className="mt-1 break-all font-mono text-[12px] text-fg-subtle">{item.release_title}</div></TableCell><TableCell>#{item.attempt_generation}</TableCell><TableCell className="font-mono text-[12px]">{item.required_languages.join(", ") || "None"}</TableCell><TableCell className="font-mono text-[12px]">{item.observed_languages.join(", ") || "Unknown"}</TableCell><TableCell><StateBadge state={item.status} /></TableCell><TableCell><StateBadge state={item.retry_state} /></TableCell><TableCell className="max-w-md text-[12px] text-fg-secondary">{item.failure_reasons.join(" · ") || `Verified ${timeAgo(item.created_at)}`}</TableCell><TableCell>{item.can_reverify ? <Button size="sm" variant="outline" disabled={reverifying === item.id} onClick={() => void reverify(item)}>{reverifying === item.id ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}Reverify output</Button> : "—"}</TableCell></TableRow>)}</TableBody></Table></div>{verifications.length === 0 ? <div className="p-8 text-center text-[12px] text-fg-subtle">No completed AltMount output has been subtitle-verified yet.</div> : null}</Panel>
   </div>
@@ -824,88 +830,77 @@ function profileRules(profile: APIQualityProfile) {
   return Array.isArray(profile.policy.rules) ? profile.policy.rules as Array<Record<string, unknown>> : []
 }
 
-function ruleFirstValue(rule: Record<string, unknown> | undefined) {
-  const values = rule?.allowed_values
-  return Array.isArray(values) && typeof values[0] === "string" ? values[0] : ""
-}
-
 function languageInput(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean) }
 
-const bestAvailableResolutionRules = [
-  { label: "2160p", value: "2160p", weight: 50000 },
-  { label: "1080p", value: "1080p", weight: 40000 },
-  { label: "720p", value: "720p", weight: 30000 },
-  { label: "576p", value: "576p", weight: 20000 },
-  { label: "480p", value: "480p", weight: 10000 },
-]
+const profileChangedMessage = "This profile changed after you opened it (for example a preset was applied), so these edits were made against an older policy. Cancel and reopen the profile, then repeat your changes."
 
-const bestAvailableAudioRules = [
-  { label: "TrueHD Atmos", value: "truehd_atmos", weight: 5300 },
-  { label: "DTS:X", value: "dts_x", weight: 5100 },
-  { label: "TrueHD", value: "truehd", weight: 5000 },
-  { label: "DTS-HD MA", value: "dts_hd_ma", weight: 4800 },
-  { label: "DTS-HD", value: "dts_hd", weight: 4700 },
-  { label: "FLAC", value: "flac", weight: 4600 },
-  { label: "LPCM", value: "lpcm", weight: 4400 },
-  { label: "E-AC-3 Atmos", value: "eac3_atmos", weight: 3300 },
-  { label: "E-AC-3", value: "eac3", weight: 3000 },
-  { label: "DTS", value: "dts", weight: 2800 },
-  { label: "AC-3", value: "ac3", weight: 2000 },
-  { label: "Opus", value: "opus", weight: 1800 },
-  { label: "AAC", value: "aac", weight: 1500 },
-  { label: "MP3", value: "mp3", weight: 1000 },
-]
-
-function bestAvailableRules(fact: "resolution" | "audio_codec", values: typeof bestAvailableResolutionRules) {
-  const prefix = fact === "resolution" ? "Best available resolution" : "Best available audio"
-  return values.map((item) => ({ name: `${prefix}: ${item.label}`, fact, allowed_values: [item.value], kind: "preferred", weight: item.weight, unknown: "allow" }))
-}
-
-function hasBestAvailableRules(rules: Array<Record<string, unknown>>, fact: "resolution" | "audio_codec", values: typeof bestAvailableResolutionRules) {
-  return values.every((item) => rules.some((rule) => rule.fact === fact && rule.kind === "preferred" && rule.weight === item.weight && ruleFirstValue(rule) === item.value))
-}
-
-function profileResolutionStrategy(rules: Array<Record<string, unknown>>) {
-  if (hasBestAvailableRules(rules, "resolution", bestAvailableResolutionRules)) return "best_available"
-  const required = rules.find((rule) => rule.fact === "resolution" && rule.kind === "required")
-  const value = ruleFirstValue(required)
-  return ["2160p", "1080p", "720p"].includes(value) ? value : "none"
-}
-
-function profileAudioStrategy(rules: Array<Record<string, unknown>>) {
-  return hasBestAvailableRules(rules, "audio_codec", bestAvailableAudioRules) ? "best_available" : "none"
-}
-
-function profileResolutionLabel(rules: Array<Record<string, unknown>>) {
-  const strategy = profileResolutionStrategy(rules)
-  if (strategy === "best_available") return "Best available"
-  if (strategy !== "none") return `Require ${strategy}`
-  return "Custom / none"
-}
-
-function profileAudioLabel(rules: Array<Record<string, unknown>>) {
-  return profileAudioStrategy(rules) === "best_available" ? "Best available" : "Custom / none"
-}
-
-function mergeProfileRules(existing: Array<Record<string, unknown>>, resolution: string, audio: string, source: string) {
-  let rules = existing.map((rule) => ({ ...rule }))
-  if (resolution !== "none") {
-    rules = rules.filter((rule) => rule.fact !== "resolution")
-    if (resolution === "best_available") rules.push(...bestAvailableRules("resolution", bestAvailableResolutionRules))
-    else rules.push({ name: "Required resolution", fact: "resolution", kind: "required", allowed_values: [resolution], weight: 0, unknown: "hold" })
-  }
-  if (audio !== "none") {
-    rules = rules.filter((rule) => rule.fact !== "audio_codec")
-    if (audio === "best_available") rules.push(...bestAvailableRules("audio_codec", bestAvailableAudioRules))
-  }
-  function replace(fact: string, kind: string, value: string, fallback: Record<string, unknown>) {
-    if (value === "none") return
-    const index = rules.findIndex((rule) => rule.fact === fact && rule.kind === kind)
-    const next = { ...(index >= 0 ? rules[index] : fallback), allowed_values: [value] }
-    if (index >= 0) rules[index] = next; else rules.push(next)
-  }
-  replace("source", "preferred", source, { name: "Preferred source", fact: "source", kind: "preferred", weight: 100, unknown: "allow" })
-  return rules
+function QualityRuleFields({ selections, rules, onChange }: { selections: QualitySelections; rules: RuleRecord[]; onChange: (patch: Partial<QualitySelections>) => void }) {
+  const keepsResolution = resolutionRequirement(rules) === "custom"
+  const keepsAudio = audioRequirement(rules) === "custom"
+  const knownSources = ["none", "remux", "bluray", "webdl", "webrip"]
+  // Radix Select reports "" when the selected value and its item mount in the
+  // same render (an option that only exists for the stored rules). No option has
+  // an empty value, so an empty report is never a choice by the owner.
+  const choose = (patch: Partial<QualitySelections>) => { if (Object.values(patch).every(Boolean)) onChange(patch) }
+  return <>
+    <Field label="Required resolution">
+      <Select value={selections.resolutionRequirement} onValueChange={(value) => choose({ resolutionRequirement: value as ResolutionRequirement })}>
+        <SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">No requirement</SelectItem>
+          <SelectItem value="2160p">Require 2160p</SelectItem>
+          <SelectItem value="1080p">Require 1080p</SelectItem>
+          <SelectItem value="720p">Require 720p</SelectItem>
+          {keepsResolution ? <SelectItem value="custom">Keep current ({requiredValues(rules, "resolution").join(" / ")})</SelectItem> : null}
+        </SelectContent>
+      </Select>
+      <div className="mt-1 text-[12px] text-fg-subtle">A hard gate: releases that do not match are not eligible. It stays in force next to any ranking and changes only here.</div>
+    </Field>
+    <Field label="Resolution preference">
+      <Select value={selections.resolutionPreference} onValueChange={(value) => choose({ resolutionPreference: value as PreferenceChoice })}>
+        <SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="best_available">Best available</SelectItem>
+          <SelectItem value="none">Keep custom / none</SelectItem>
+        </SelectContent>
+      </Select>
+      <div className="mt-1 text-[12px] text-fg-subtle">Best available ranks 2160p, 1080p, 720p, 576p, then 480p without imposing a minimum.</div>
+    </Field>
+    {keepsAudio ? <Field label="Required audio codec">
+      <Select value={selections.audioRequirement} onValueChange={(value) => choose({ audioRequirement: value as AudioRequirement })}>
+        <SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="custom">Keep current ({requiredValues(rules, "audio_codec").join(" / ")})</SelectItem>
+          <SelectItem value="none">Remove requirement</SelectItem>
+        </SelectContent>
+      </Select>
+      <div className="mt-1 text-[12px] text-fg-subtle">A hard gate set outside this form. It is kept unless you remove it here.</div>
+    </Field> : null}
+    <Field label="Audio preference">
+      <Select value={selections.audioPreference} onValueChange={(value) => choose({ audioPreference: value as PreferenceChoice })}>
+        <SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="best_available">Best available</SelectItem>
+          <SelectItem value="none">Keep custom / none</SelectItem>
+        </SelectContent>
+      </Select>
+      <div className="mt-1 text-[12px] text-fg-subtle">Positive release-name evidence ranks lossless and object-based codecs first. Unknown audio remains eligible.</div>
+    </Field>
+    <Field label="Preferred source">
+      <Select value={selections.source} onValueChange={(value) => choose({ source: value })}>
+        <SelectTrigger className="mm-input w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Keep custom / none</SelectItem>
+          <SelectItem value="remux">Remux</SelectItem>
+          <SelectItem value="bluray">Blu-ray</SelectItem>
+          <SelectItem value="webdl">WEB-DL</SelectItem>
+          <SelectItem value="webrip">WEBRip</SelectItem>
+          {knownSources.includes(selections.source) ? null : <SelectItem value={selections.source}>{selections.source}</SelectItem>}
+        </SelectContent>
+      </Select>
+      <div className="mt-1 text-[12px] text-fg-subtle">A source ranking applied by a preset is kept until you pick a source here, which replaces it.</div>
+    </Field>
+  </>
 }
 
 export function LiveProwlarrImportScreen() {
