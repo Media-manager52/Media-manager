@@ -211,6 +211,27 @@ class BackendTestGroupsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("1 discovered PostgreSQL tests reported no result: TestOne", result.stderr)
 
+    def test_unix_socket_urls_keep_the_socket_directory_for_psql_and_every_group(self):
+        socket_url = "postgres://ci_user:s3cret@/admin_db?host=/tmp/pg-socket&sslmode=disable"
+        result = self.run_script(BACKEND_TEST_SHARDS="3", MEDIA_MANAGER_TEST_DATABASE_URL=socket_url)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for line in self.go_runs():
+            self.assertRegex(
+                line.split("|", 1)[0],
+                r"^postgres://ci_user:s3cret@/mm_ci_[0-9a-f]{12}_[a-z0-9_]+\?host=/tmp/pg-socket&sslmode=disable$",
+            )
+        for call in self.psql_calls():
+            self.assertIn("PGHOST=/tmp/pg-socket|PGPORT=5432|PGUSER=ci_user|PGSSLMODE=disable", call)
+
+    def test_socket_url_port_comes_from_the_query_and_a_missing_host_is_rejected(self):
+        with_port = "postgres://ci_user@/admin_db?host=/tmp/pg-socket&port=45432"
+        self.assertEqual(self.run_script(BACKEND_TEST_SHARDS="3", MEDIA_MANAGER_TEST_DATABASE_URL=with_port).returncode, 0)
+        self.assertTrue(all("PGPORT=45432" in call for call in self.psql_calls()))
+        self.assertTrue(all("@/mm_ci_" in line.split("|", 1)[0] for line in self.go_runs()))
+        missing = self.run_script(MEDIA_MANAGER_TEST_DATABASE_URL="postgres://ci_user@/admin_db?sslmode=disable")
+        self.assertEqual(missing.returncode, 64, missing.stderr)
+        self.assertIn("needs a host", missing.stderr)
+
     def test_shared_isolation_reuses_the_admin_database_without_psql(self):
         result = self.run_script(BACKEND_TEST_SHARDS="3", BACKEND_TEST_DATABASE_ISOLATION="shared")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

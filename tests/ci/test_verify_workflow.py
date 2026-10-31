@@ -73,15 +73,30 @@ class VerifyWorkflowTest(unittest.TestCase):
     def test_browser_image_stays_pinned(self):
         self.assertIn("container: mcr.microsoft.com/playwright:v1.62.1-noble", JOBS["browser-shard"])
 
-    def test_backend_database_supports_the_concurrent_groups(self):
+    def test_backend_database_is_socket_only_and_always_removed(self):
         backend = JOBS["backend"]
         shards = int(re.search(r'BACKEND_TEST_SHARDS: "(\d+)"', backend).group(1))
         self.assertTrue(1 <= shards <= 8)
-        locks = int(re.search(r"max_locks_per_transaction=(\d+)", backend).group(1))
-        connections = int(re.search(r"max_connections=(\d+)", backend).group(1))
-        self.assertGreaterEqual(locks, 256)
-        self.assertGreaterEqual(connections, 100)
-        self.assertIn("127.0.0.1:35432:5432", backend)  # loopback only, never all interfaces
+        self.assertNotIn("services:", backend)  # no published host port
+        self.assertNotIn("35432", backend)
+        start = backend.index("postgres-container.sh start")
+        wait = backend.index("postgres-container.sh wait")
+        tests = backend.index("bash scripts/ci/test-backend.sh")
+        migrate = backend.index("go run ./cmd/media-manager migrate")
+        self.assertLess(start, wait)
+        self.assertLess(wait, tests)
+        self.assertLess(tests, migrate)
+        self.assertRegex(backend, r"- if: always\(\)\n\s+run: bash scripts/ci/postgres-container.sh stop")
+        # The job must not pin its own database URLs over the ones the start step exports.
+        self.assertNotIn("DATABASE_URL:", backend)
+
+    def test_the_container_script_keeps_the_settings_the_concurrent_groups_need(self):
+        script = (ROOT / "scripts" / "ci" / "postgres-container.sh").read_text(encoding="utf-8")
+        self.assertGreaterEqual(int(re.search(r"max_locks_per_transaction=(\d+)", script).group(1)), 256)
+        self.assertGreaterEqual(int(re.search(r"max_connections=(\d+)", script).group(1)), 100)
+        self.assertIn("listen_addresses=", script)
+        self.assertNotIn("--publish", script)
+        self.assertNotIn("--privileged", script)
 
     def test_backend_keeps_every_gate(self):
         backend = JOBS["backend"]

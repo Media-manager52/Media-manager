@@ -51,19 +51,31 @@ if [[ "$isolation" == "database" ]]; then
     echo "psql is required to create per-group databases (or set BACKEND_TEST_DATABASE_ISOLATION=shared)" >&2
     exit 69
   }
-  url_pattern='^postgres(ql)?://([^:@/?]+)(:([^@/?]*))?@([^:/?]+)(:([0-9]+))?/([^?]+)(\?(.*))?$'
+  # TCP (`@host:port/db`) or unix socket (`@/db?host=/socket/dir[&port=N]`).
+  url_pattern='^postgres(ql)?://([^:@/?]+)(:([^@/?]*))?@([^:/?]*)(:([0-9]+))?/([^?]+)(\?(.*))?$'
   if ! [[ "$admin_url" =~ $url_pattern ]]; then
     echo "MEDIA_MANAGER_TEST_DATABASE_URL must look like postgres://user[:password]@host[:port]/database[?query]" >&2
     exit 64
   fi
   db_user="${BASH_REMATCH[2]}"
   db_password="${BASH_REMATCH[4]}"
-  db_host="${BASH_REMATCH[5]}"
-  db_port="${BASH_REMATCH[7]}"
+  url_host="${BASH_REMATCH[5]}"
+  url_port="${BASH_REMATCH[7]}"
+  db_port="$url_port"
   db_name="${BASH_REMATCH[8]}"
   db_query="${BASH_REMATCH[10]}"
+  db_host="$url_host"
   db_sslmode=""
   [[ "$db_query" =~ (^|&)sslmode=([a-z-]+) ]] && db_sslmode="${BASH_REMATCH[2]}"
+  if [[ -z "$db_host" ]]; then
+    if [[ "$db_query" =~ (^|\&)host=([^\&]+) ]]; then
+      db_host="${BASH_REMATCH[2]//%2F//}"
+    else
+      echo "MEDIA_MANAGER_TEST_DATABASE_URL needs a host, or ?host=<socket directory> for a unix socket" >&2
+      exit 64
+    fi
+    [[ -z "$db_port" && "$db_query" =~ (^|\&)port=([0-9]+) ]] && db_port="${BASH_REMATCH[2]}"
+  fi
 
   psql_admin() {
     # Credentials travel in the environment, never on the command line.
@@ -72,8 +84,8 @@ if [[ "$isolation" == "database" ]]; then
       psql -X -q -v ON_ERROR_STOP=1 -d "$db_name" "$@"
   }
   group_database_url() {  # $1 = database name
-    printf 'postgres://%s%s@%s%s/%s%s' "$db_user" "${db_password:+:$db_password}" "$db_host" \
-      "${db_port:+:$db_port}" "$1" "${db_query:+?$db_query}"
+    printf 'postgres://%s%s@%s%s/%s%s' "$db_user" "${db_password:+:$db_password}" "$url_host" \
+      "${url_port:+:$url_port}" "$1" "${db_query:+?$db_query}"
   }
   drop_databases() {
     local database

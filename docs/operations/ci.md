@@ -52,12 +52,21 @@ Why the groups are fast and still safe:
   test reports no pass/fail/skip event, and it prints one timing line per
   group (`=== postgres-2: exit 0, 43 tests (...) in 61s ===`), the five slowest
   tests, and the job's CPU/memory use (see below).
-- **A tuned, disposable PostgreSQL.** The service container is initialised with
-  `POSTGRES_INITDB_ARGS` (`max_locks_per_transaction=256`, `max_connections=200`,
-  `fsync=off`, `synchronous_commit=off`, `full_page_writes=off`). The default 64
-  lock slots are exhausted by roughly seven concurrent `DROP SCHEMA ... CASCADE`
-  calls (`out of shared memory`), which is what limited the old workflow to four
-  groups. The database holds only throwaway test data.
+- **A tuned, socket-only, disposable PostgreSQL.**
+  `scripts/ci/postgres-container.sh` starts a pinned `postgres:18.6-alpine3.24`
+  container on the rootless engine (`start`, `wait`, `stop`; the stop step runs
+  `if: always()`, and stale containers older than three hours are reaped).
+  The server listens on **no TCP port**: it exposes a unix socket in a private
+  directory under `RUNNER_TEMP`, so there is no fixed host port to collide with
+  another job, and the password is random per run and never on a command line.
+  It runs with `max_locks_per_transaction=256` (the default 64 is exhausted by
+  roughly seven concurrent `DROP SCHEMA ... CASCADE` calls: `out of shared
+  memory`), `max_connections=200` and no durability waits (`fsync`,
+  `synchronous_commit`, `full_page_writes` off); it only ever holds throwaway
+  test data. The socket matters for speed, not just hygiene: through the
+  rootless engine's published port a query round trip measured 222 us versus
+  62 us over the socket, and the Go suite burned about 800 CPU-seconds of the
+  5-CPU quota instead of about 270.
 
 Run it locally against any disposable PostgreSQL (needs `psql` and `python3`):
 
@@ -106,12 +115,11 @@ safely from the repository alone:
   label (for example `media-manager-vps-containers`) so jobs cannot land on the
   wrong runner, no access to `/home/vps`, `.env*` files or the production Docker
   socket, and no registry or integration credentials.
-- **Fixed host ports.** The backend PostgreSQL service publishes
-  `127.0.0.1:35432` and the container smoke publishes the API on
-  `127.0.0.1:38081` (hard-coded in `scripts/ci/container-smoke.py`). They differ,
-  so a backend job and a smoke job do not collide, but two jobs of the same kind
-  on one host would; rootless engines under different accounts still share the
-  host loopback.
+- **Fixed host ports.** The backend job publishes no host port (its PostgreSQL
+  is socket-only with a per-run container and directory name). The container
+  smoke publishes the API on `127.0.0.1:38081` (hard-coded in
+  `scripts/ci/container-smoke.py`), so two smoke jobs on one host would collide;
+  rootless engines under different accounts share the host loopback.
 - **The deployment broker pins the runner name.**
   `deploy/github/deploy-broker.py` accepts a Verify run only if every
   `REQUIRED_JOBS` job (`frontend`, `browser`, `backend`, `containers`,
