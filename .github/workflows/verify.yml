@@ -3,9 +3,9 @@ name: Verify
 on:
   # There is intentionally no pull_request trigger: a public repository must
   # never execute code from a fork pull request on the self-hosted runner.
-  # Same-repository pushes are trusted. Frontend/browser checks run on
-  # GitHub-hosted runners; the self-hosted runner hosts backend, container and
-  # publish work that needs the owner's rootless Docker engine.
+  # Same-repository pushes are trusted. Frontend, browser and backend checks run
+  # on GitHub-hosted runners; the self-hosted runner hosts container and publish
+  # work that needs the owner's rootless Docker engine.
   push:
   workflow_dispatch:
 
@@ -21,8 +21,8 @@ permissions:
 
 # This workflow intentionally has no pull_request trigger: fork code is never
 # executed on the owner's runner. Fork PRs are reviewed and validated by a
-# trusted push after review. Frontend/browser jobs are public-repository-safe
-# GitHub-hosted work and carry no production secrets.
+# trusted push after review. Frontend, browser and backend jobs are
+# public-repository-safe GitHub-hosted work and carry no production secrets.
 jobs:
   frontend:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -73,7 +73,13 @@ jobs:
 
   backend:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64, media-manager-vps]
+    # Experiment: this job needs only the Go toolchain and its own disposable
+    # PostgreSQL service. It uses no rootless Docker engine, production
+    # credential or local service, so GitHub-hosted capacity can run it in
+    # parallel with the container smoke instead of queueing behind it on the
+    # single-job owner runner. Revert this line if the measured run is slower
+    # than the 432 s baseline in docs/operations/ci.md.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
       postgres:

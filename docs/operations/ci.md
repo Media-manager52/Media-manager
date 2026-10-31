@@ -11,14 +11,17 @@ by a trusted push after review.
 | --- | --- | --- |
 | `frontend` | GitHub-hosted `ubuntu-24.04` | No production secrets; runs lint, typecheck, docs checks, dependency audits and unit tests. GitHub-hosted capacity runs it in parallel with the self-hosted work. |
 | `browser` | GitHub-hosted `ubuntu-24.04`, pinned Playwright container | No production secrets; the browser image remains pinned to `mcr.microsoft.com/playwright:v1.62.1-noble`. |
-| `backend` | self-hosted `media-manager-vps` | PostgreSQL service, Go race suite, 12-CPU capacity. |
+| `backend` | GitHub-hosted `ubuntu-24.04` | Experiment (2026-10-31): needs only a disposable PostgreSQL service and the Go toolchain, so it runs in parallel with the self-hosted container smoke instead of queueing behind it. |
 | `containers` | self-hosted `media-manager-vps` | Requires the owner's separate rootless Docker engine for the disposable stack smoke. |
 | `publish` | self-hosted `media-manager-vps` | Needs the rootless Docker engine and registry credentials; runs only on `main` pushes after every required job succeeds. |
 
-The self-hosted runner is still a single-job runner. Backend and containers are
-therefore serialized on it. The hosted frontend/browser jobs no longer wait
-behind them. Adding a second self-hosted runner is an owner/infrastructure
-decision, not something this workflow can invent safely.
+The self-hosted runner is still a single-job runner, so `containers` and
+`publish` are serialized on it. `backend` no longer occupies that slot, which
+removes the 37–80 s container tail and, more importantly, stops a queued
+`backend` from blocking the container smoke for up to 26 minutes when several
+pushes overlap. `publish` still waits for every verification job. Adding a
+second self-hosted runner remains an owner/infrastructure decision, not
+something this workflow can invent safely.
 
 ## Backend test groups
 
@@ -136,7 +139,8 @@ GitHub runs on an idle runner (`41063007937` and `41064445136`) completed in
 **471 s** and **465 s**; their longest PostgreSQL shards were **345 s** and
 **343 s**. These are two samples, not a like-for-like median claim. The
 GitHub-hosted frontend/browser split removes their serialized queue time;
-backend and containers remain serialized on the single self-hosted worker.
+at that point backend and containers were still serialized on the single
+self-hosted worker.
 
 ### Baseline for the CI optimization work
 
@@ -162,3 +166,29 @@ Compare the `backend` execution time, the `test-backend.sh` step, the longest
 `=== postgres-N` group and the run wall time (`created_at` → `updated_at`).
 Quote the run ID with every number, and remember that a single run on a shared
 runner is noisy: the queue time of `containers` is part of the wall clock.
+
+## Hosted backend experiment
+
+`backend` currently runs on GitHub-hosted `ubuntu-24.04`; `containers` and
+`publish` stay on the self-hosted runner. The previous self-hosted baseline was
+**432 s** of total workflow wall time on a feature-branch push.
+
+Judge the experiment on two numbers from the same run, not on wall time alone:
+
+- `backend` job execution time (checkout, setup and `test-backend.sh`), which
+  should stay close to the 386 s baseline;
+- total workflow wall time, which shows whether freeing the single-job runner
+  actually shortened the critical path below 432 s.
+
+The first hosted run may be slower: its Go module and build caches are cold, so
+its `test-backend.sh` step is not comparable to a warm baseline. Retain the
+hosted runner only if warm-run performance is acceptable — after the cache is
+warm, backend execution must not regress materially and the total workflow wall
+time should stay below the 432 s baseline. If it does not, revert and record the
+measured numbers here.
+
+Reverting is a one-line change: restore
+`runs-on: [self-hosted, linux, x64, media-manager-vps]` on the `backend` job and
+update the runner layout above. No verification gate changes with the runner:
+the Go race suite, the four PostgreSQL groups, the container smoke and the
+publishing rules all remain exactly as documented above.
