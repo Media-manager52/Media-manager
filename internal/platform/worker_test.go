@@ -1,8 +1,11 @@
 package platform
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -87,5 +90,73 @@ func TestRunHandlerTurnsAPanicIntoARetry(t *testing.T) {
 	ok := func(context.Context, postgres.OutboxEvent) error { return nil }
 	if err := runHandler(ctx, cancel, ok, postgres.OutboxEvent{}, time.Second, time.Second); err != nil {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+// captureDefaultLog routes slog's default logger into a buffer for the
+// duration of the test.
+func captureDefaultLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var output bytes.Buffer
+	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() {
+		// SetDefault redirects the log package to the handler and does not
+		// undo that when the original default logger is restored.
+		slog.SetDefault(previous)
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+	})
+	return &output
+}
+
+func TestRunHandlerPanicLogOmitsThePanicValue(t *testing.T) {
+	const sentinel = "apikey=SENTINEL-7f3c9d"
+	cases := map[string]any{
+		"string":      sentinel,
+		"error":       errors.New("provider rejected " + sentinel),
+		"coded error": codedTestError{code: "newznab_invalid_nzb"},
+		"struct":      struct{ Token string }{Token: sentinel},
+	}
+	for name, value := range cases {
+		t.Run(name, func(t *testing.T) {
+			output := captureDefaultLog(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			panicking := func(context.Context, postgres.OutboxEvent) error { panic(value) }
+			err := runHandler(ctx, cancel, panicking, postgres.OutboxEvent{Type: "test.panic_requested"}, time.Second, time.Second)
+			if safeError(err) != "handler_panicked" {
+				t.Fatalf("err=%v, want handler_panicked so the event is retried", err)
+			}
+			logged := output.String()
+			if strings.Contains(logged, "SENTINEL") || strings.Contains(logged, "details must remain private") {
+				t.Fatalf("panic value reached the log: %s", logged)
+			}
+			for _, want := range []string{"outbox handler panicked", "event_type=test.panic_requested", "panic_type=", "stack="} {
+				if !strings.Contains(logged, want) {
+					t.Fatalf("log is missing %q: %s", want, logged)
+				}
+			}
+		})
+	}
+}
+
+func TestPanicLogAttrsKeepsSafeCodeAndBoundsTheStack(t *testing.T) {
+	attrs := panicLogAttrs(codedTestError{code: "newznab_invalid_nzb"}, bytes.Repeat([]byte("x"), maxPanicStackBytes+10))
+	values := map[string]any{}
+	for index := 0; index+1 < len(attrs); index += 2 {
+		values[attrs[index].(string)] = attrs[index+1]
+	}
+	if values["panic_type"] != "platform.codedTestError" || values["panic_code"] != "newznab_invalid_nzb" {
+		t.Fatalf("attrs=%v", values)
+	}
+	if stack, _ := values["stack"].(string); len(stack) != maxPanicStackBytes || values["stack_truncated"] != true {
+		t.Fatalf("stack length=%d truncated=%v", len(stack), values["stack_truncated"])
+	}
+	unsafe := panicLogAttrs(codedTestError{code: "secret=value"}, nil)
+	for _, attr := range unsafe {
+		if text, ok := attr.(string); ok && strings.Contains(text, "secret") {
+			t.Fatalf("unvalidated code reached the log: %v", unsafe)
+		}
 	}
 }

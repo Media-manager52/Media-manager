@@ -57,6 +57,29 @@ type handlerPanicError struct{}
 func (handlerPanicError) Error() string    { return "handler panicked" }
 func (handlerPanicError) SafeCode() string { return "handler_panicked" }
 
+// maxPanicStackBytes bounds the stack trace logged for a recovered panic.
+const maxPanicStackBytes = 16 << 10
+
+// panicLogAttrs describes a recovered panic for the log without the panic
+// value's text: a panic message or error can carry request, provider or
+// credential data, while persisted failures only ever store safe codes. The
+// log keeps the value's type, its validated safe code when it is a coded
+// error, and a bounded stack trace (which records call sites and raw argument
+// words, never string contents).
+func panicLogAttrs(recovered any, stack []byte) []any {
+	attrs := []any{"panic_type", fmt.Sprintf("%T", recovered)}
+	if err, ok := recovered.(error); ok {
+		if code := safeError(err); code != fmt.Sprintf("%T", err) {
+			attrs = append(attrs, "panic_code", code)
+		}
+	}
+	truncated := len(stack) > maxPanicStackBytes
+	if truncated {
+		stack = stack[:maxPanicStackBytes]
+	}
+	return append(attrs, "stack", string(stack), "stack_truncated", truncated)
+}
+
 // runHandler runs one handler under its time limit. A panic becomes an error
 // (the event is retried) instead of stopping the process.
 func runHandler(ctx context.Context, cancel context.CancelFunc, handler Handler, event postgres.OutboxEvent, limit, grace time.Duration) error {
@@ -64,7 +87,8 @@ func runHandler(ctx context.Context, cancel context.CancelFunc, handler Handler,
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.Error("outbox handler panicked", "event_type", event.Type, "event_id", event.ID, "panic", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+				attrs := append([]any{"event_type", event.Type, "event_id", event.ID}, panicLogAttrs(recovered, debug.Stack())...)
+				slog.Error("outbox handler panicked", attrs...)
 				done <- handlerPanicError{}
 			}
 		}()
