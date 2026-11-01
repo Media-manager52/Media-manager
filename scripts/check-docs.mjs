@@ -18,7 +18,6 @@ const excludedDirectories = new Set([
   ".wrangler",
   "data",
   "dist",
-  "drizzle",
   "node_modules",
 ])
 

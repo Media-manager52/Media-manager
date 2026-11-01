@@ -50,7 +50,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # Same pinned image as the GitLab browser job, so browsers match @playwright/test.
+    # Pinned image so browsers match @playwright/test.
     container: mcr.microsoft.com/playwright:v1.62.1-noble
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

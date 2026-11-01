@@ -6,6 +6,11 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 ## Unreleased
 
+### Removed
+
+- **Unused UI template scaffolding.** The repository started from a hosted-site template, and several of its parts were never used by Media Manager. Removed: the empty Drizzle/D1 database layer (`db/`, `drizzle/`, `drizzle.config.ts`, `npm run db:generate`), the D1 example under `examples/`, the ChatGPT sign-in helper `app/chatgpt-auth.ts`, the D1 type declaration `cloudflare-env.d.ts`, 38 shadcn components under `components/ui/` that no screen imported, and the 14 npm packages only they used (`drizzle-orm`, `drizzle-kit`, `@base-ui/react`, `@hookform/resolvers`, `@shadcn/react`, `date-fns`, `embla-carousel-react`, `input-otp`, `react-day-picker`, `react-hook-form`, `react-resizable-panels`, `recharts`, `vaul`, `zod`). The template-only chart test and three CSS assertions for utilities used only by removed components were dropped. No screen, API, Go code, schema or deployment behaviour changed; lint, typecheck, docs check, 84 unit tests and 190 browser tests pass.
+- **Duplicate GitLab pipeline.** `.gitlab-ci.yml` duplicated the GitHub Actions Verify workflow. GitHub Actions is now the only CI definition; onboarding and README were updated.
+
 ### Fixed
 
 - **The profile editor no longer drops hard quality gates.** A Balanced preset's preference ladders looked like "Best available" to the editor, so saving the profile for any reason replaced every `resolution` and `audio_codec` rule and removed a required resolution or audio-codec gate; the other three presets lost their five-rung resolution ladder the same way, and a multi-value required resolution was narrowed to its first value. The editor now models a required gate and a preference separately ("Required resolution", "Resolution preference", "Required audio codec", "Audio preference"), shows both for the effective profile, and edits only what the owner changed: an unchanged choice leaves the stored rules byte-for-byte alone, and removing or replacing a gate is an explicit choice. A preset's source ladder is kept until a source is picked. The form is also bound to the policy version it was opened on, so an edit that predates a preset application is refused instead of overwriting it.
