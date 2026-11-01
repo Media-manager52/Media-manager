@@ -14,6 +14,7 @@ behavioral truth is always the code and the SQL migrations.
 | Hard-problem review | [onboarding/agent-briefs/claude-review-hard-parts.md](onboarding/agent-briefs/claude-review-hard-parts.md) — the eight open hard problems with live state, tried approaches, constraints, and acceptance criteria |
 | Availability audit | [onboarding/agent-briefs/claude-availability-audit.md](onboarding/agent-briefs/claude-availability-audit.md) — prove per title whether missing content is truly unavailable or blocked by a pipeline defect |
 | Codex/agent review | [onboarding/agent-briefs/codex-availability-review.md](onboarding/agent-briefs/codex-availability-review.md) — full-server-access brief to challenge the audit, improve Danish evidence, and hunt defects |
+| Media Manager v2 preparation | [v2/V1_MAP.md](v2/V1_MAP.md) — module-by-module map of v1 for the v2 rebuild: verdicts (port/rewrite/redesign/drop), invariants already enforced, structural problems, regression scenarios |
 | Contributor workflow | [../CONTRIBUTING.md](../CONTRIBUTING.md) and [../AGENTS.md](../AGENTS.md) |
 | Product contract | [../README.md](../README.md) — deployment, commands, safety invariants |
 | Change history | [../CHANGELOG.md](../CHANGELOG.md) |

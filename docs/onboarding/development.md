@@ -29,7 +29,6 @@ npm test                 # build + node --test tests/*.test.mjs
 npm run test:browser     # build + Playwright Chromium specs (tests/browser)
 npm run test:live-browser# read-only acceptance against a deployed stack
 npm run bench:library    # deterministic library-transform benchmark
-npm run db:generate      # Drizzle generation (UI scaffolding only; see warning)
 ```
 
 ### Go
@@ -59,15 +58,16 @@ docker compose up -d
 
 ## 3. CI
 
-Two equivalent pipelines:
+One pipeline: **GitHub Actions** (`.github/workflows/verify.yml`). The former
+GitLab pipeline was removed so there is a single source of CI truth.
 
-- **GitLab** (`.gitlab-ci.yml`): `frontend` (lint, typecheck, `docs:check`,
-  `npm test`, `npm audit --omit=dev`), `browser` (Playwright image), `backend` (PostgreSQL
-  18.6 service; `gofmt -l`, `go vet`, `go test -race`, `migrate`, then
-  `git diff --exit-code -- go.mod go.sum`).
-- **GitHub Actions** (`.github/workflows/verify.yml`): a dedicated private VPS
-  runner performs the same `frontend`,
-  `browser` (pinned Playwright image), and `backend` jobs, plus a
+- `frontend` (GitHub-hosted): `npm audit`, lint, typecheck, `docs:check`,
+  Python CI tests and `npm test`.
+- `browser` (GitHub-hosted, pinned Playwright image): Playwright specs.
+- `backend` (private VPS runner, PostgreSQL 18.6 service): `gofmt -l`,
+  `go vet`, `go test -race`, `migrate`, then
+  `git diff --exit-code -- go.mod go.sum`.
+- `containers` (private VPS runner): a
   `containers` job that builds the stack, checks the API auth boundary
   (`401` unauthenticated, `200` with owner token), asserts the unconfigured
   Seerr webhook returns `503`, and verifies `pg_dump` works. Its separate
@@ -76,9 +76,7 @@ Two equivalent pipelines:
   the owner starts production updates through the separate Deploy workflow.
   See [GitHub VPS operations](../operations/github-vps.md).
 
-The GitLab `frontend` job additionally runs `npm audit --omit=dev`; a known
-moderate transitive advisory has failed that step historically without blocking
-the V1 gates. Check current CI status before assuming red = broken product.
+Check current CI status before assuming red = broken product.
 
 ## 4. Repository conventions
 

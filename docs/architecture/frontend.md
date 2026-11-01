@@ -26,10 +26,8 @@ Key files:
 - `app/page.tsx` — home entry rendering the app shell.
 - `app/[...route]/page.tsx` — catch-all route; validates the path with
   `isKnownRoute`, otherwise `notFound()`; renders `<MediaManagerApp path=... />`.
-- `app/chatgpt-auth.ts` — internal template auth helper (not part of the media
-  domain).
 - `vite.config.ts` — Vinext + sites plugin + local Cloudflare bindings.
-- `build/sites-vite-plugin.ts` — packages metadata/migrations after the Vite
+- `build/sites-vite-plugin.ts` — copies hosting metadata after the Vite
   build.
 - `worker/index.ts` — worker `fetch` handler incl. `/_vinext/image`
   optimization against `IMAGES`.

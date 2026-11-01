@@ -45,7 +45,7 @@ COPY public ./public
 COPY third_party ./third_party
 COPY worker ./worker
 COPY .openai ./.openai
-COPY cloudflare-env.d.ts components.json eslint.config.mjs next.config.ts postcss.config.mjs tsconfig.json vite.config.ts ./
+COPY components.json eslint.config.mjs next.config.ts postcss.config.mjs tsconfig.json vite.config.ts ./
 ARG NEXT_PUBLIC_MEDIA_MANAGER_MODE=live
 ENV NEXT_PUBLIC_MEDIA_MANAGER_MODE=${NEXT_PUBLIC_MEDIA_MANAGER_MODE}
 # CI checks out source with a private umask; runtime assets must also be

@@ -16,6 +16,8 @@ truthful, and safe for an owner-operated production media system.
 - Read `docs/status/release.md` for release evidence and
   `docs/status/implementation.md` before changing a partial feature.
 - Read `docs/status/indexer-conformance.md` before touching Newznab behavior.
+- Working on Media Manager v2? Read `docs/v2/V1_MAP.md` first: it maps every
+  v1 module to a v2 verdict and lists the rules and tests v2 must preserve.
 - Check `git status` before editing. Preserve unrelated local work and never add
   `.env*`, credentials, runtime data, media, or download output.
 

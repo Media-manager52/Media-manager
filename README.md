@@ -299,7 +299,7 @@ GOFLAGS=-mod=readonly go vet ./cmd/... ./internal/...
 GOFLAGS=-mod=readonly go test -count=1 -race ./cmd/... ./internal/...
 ```
 
-The browser suite uses local API fixtures, blocks unexpected network access, and checks the library at desktop and mobile sizes with Playwright and axe. GitLab CI runs the frontend, browser, and PostgreSQL-backed Go verification jobs for branches, tags, and merge requests.
+The browser suite uses local API fixtures, blocks unexpected network access, and checks the library at desktop and mobile sizes with Playwright and axe. GitHub Actions (`.github/workflows/verify.yml`) runs the frontend, browser, PostgreSQL-backed Go and container verification jobs on every push.
 
 The release workflow also applies all migrations to a disposable PostgreSQL 18 service and builds both container targets. Before promoting to the main server, run one complete live movie and one complete live season-pack workflow against the dev Plex, AltMount, Seerr, and real indexers.
 
