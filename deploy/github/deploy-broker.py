@@ -16,7 +16,35 @@ import urllib.request
 REPOSITORY = "Media-manager52/Media-manager"
 CHECKOUT = Path("/home/vps/media-manager")
 STATE = Path("/var/lib/media-manager-deploy")
-REQUIRED_JOBS = {"frontend", "browser", "backend", "containers", "publish"}
+# Approved runner placement for every Verify job the broker requires. Jobs that
+# build or publish the images production runs stay on the dedicated VPS runner;
+# public-safe checks run on GitHub-hosted runners. Any job on another runner, or
+# on the wrong one of these two, is rejected.
+VPS_RUNNER = "media-manager-vps"
+HOSTED_LABELS = ["ubuntu-24.04"]
+JOB_PLACEMENT = {
+    "frontend": "github-hosted",
+    "browser": "github-hosted",
+    "backend": "vps",
+    "containers": "vps",
+    "publish": "vps",
+}
+REQUIRED_JOBS = set(JOB_PLACEMENT)
+
+
+def runner_matches(job, placement):
+    labels = job.get("labels")
+    if not isinstance(labels, list):
+        return False
+    if placement == "vps":
+        return (job.get("runner_name") == VPS_RUNNER
+                and "self-hosted" in labels and VPS_RUNNER in labels)
+    if placement == "github-hosted":
+        name = job.get("runner_name")
+        return (isinstance(name, str) and name.startswith("GitHub Actions ")
+                and job.get("runner_group_name") == "GitHub Actions"
+                and labels == HOSTED_LABELS)
+    return False
 
 
 def validate_request(request):
@@ -44,11 +72,13 @@ def validate_evidence(request, main_sha, verification, jobs, deployment):
             or verification.get("event") not in ["push", "workflow_dispatch"]
             or verification.get("status") != "completed" or verification.get("conclusion") != "success"):
         raise ValueError("Verification run did not succeed")
-    names = {job["name"] for job in jobs}
-    if not REQUIRED_JOBS.issubset(names) or any(
-            job.get("conclusion") != "success" or job.get("runner_name") != "media-manager-vps"
-            for job in jobs if job["name"] in REQUIRED_JOBS):
-        raise ValueError("Required VPS checks did not all succeed")
+    required = [job for job in jobs if job.get("name") in REQUIRED_JOBS]
+    if len(required) != len(REQUIRED_JOBS) or {job["name"] for job in required} != REQUIRED_JOBS:
+        raise ValueError("Required checks are missing or duplicated")
+    if any(job.get("conclusion") != "success" for job in required):
+        raise ValueError("Required checks did not all succeed")
+    if any(not runner_matches(job, JOB_PLACEMENT[job["name"]]) for job in required):
+        raise ValueError("Required checks did not run on their approved runners")
     if (deployment.get("id") != request["deployment_run"]
             or deployment.get("event") != "workflow_dispatch" or deployment.get("status") != "in_progress"):
         raise ValueError("An active owner-triggered deployment is required")

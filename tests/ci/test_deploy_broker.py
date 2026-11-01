@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -25,8 +26,21 @@ class DeploymentBoundaryTests(unittest.TestCase):
         self.deploy = dict(copy.deepcopy(common), id=456, event="workflow_dispatch",
                            status="in_progress", path=".github/workflows/deploy.yml",
                            triggering_actor={"login": "Media-manager52"})
-        self.jobs = [{"name": name, "conclusion": "success", "runner_name": "media-manager-vps"}
-                     for name in broker.REQUIRED_JOBS]
+        # Shape and runner fields copied from the successful main Verify run
+        # 41235746613 (commit 34478c4), as returned by the GitHub jobs API.
+        hosted = {"runner_group_name": "GitHub Actions", "labels": ["ubuntu-24.04"]}
+        vps = {"runner_name": "media-manager-vps", "runner_group_name": "Default",
+               "labels": ["self-hosted", "linux", "x64", "media-manager-vps"]}
+        self.jobs = [
+            dict(name="frontend", conclusion="success", runner_name="GitHub Actions 1000000518", **copy.deepcopy(hosted)),
+            dict(name="containers", conclusion="success", **copy.deepcopy(vps)),
+            dict(name="browser", conclusion="success", runner_name="GitHub Actions 1000000517", **copy.deepcopy(hosted)),
+            dict(name="backend", conclusion="success", **copy.deepcopy(vps)),
+            dict(name="publish", conclusion="success", **copy.deepcopy(vps)),
+        ]
+
+    def job(self, name):
+        return next(job for job in self.jobs if job["name"] == name)
 
     def check(self):
         broker.validate_evidence(self.request, self.sha, self.verify, self.jobs, self.deploy)
@@ -69,9 +83,67 @@ class DeploymentBoundaryTests(unittest.TestCase):
             self.check()
 
     def test_checks_must_run_on_the_dedicated_vps_runner(self):
-        self.jobs[0]["runner_name"] = "unreviewed-runner"
+        self.job("backend")["runner_name"] = "unreviewed-runner"
         with self.assertRaises(ValueError):
             self.check()
+
+    def test_mixed_hosted_and_vps_placement_from_real_verify_run_is_accepted(self):
+        self.check()
+        self.assertEqual({job["name"] for job in self.jobs}, broker.REQUIRED_JOBS)
+
+    def test_image_building_jobs_cannot_move_to_hosted_runners(self):
+        for name in ["backend", "containers", "publish"]:
+            with self.subTest(job=name):
+                job = self.job(name)
+                before = copy.deepcopy(job)
+                job.update(runner_name="GitHub Actions 1000000599",
+                           runner_group_name="GitHub Actions", labels=["ubuntu-24.04"])
+                with self.assertRaises(ValueError):
+                    self.check()
+                job.clear(); job.update(before)
+
+    def test_hosted_jobs_cannot_run_on_another_self_hosted_runner(self):
+        for change in [
+                {"runner_name": "unreviewed-runner", "runner_group_name": "Default",
+                 "labels": ["self-hosted", "linux", "x64"]},
+                {"runner_name": "GitHub Actions 7", "runner_group_name": "GitHub Actions",
+                 "labels": ["self-hosted", "ubuntu-24.04"]},
+                {"runner_name": "GitHub Actions 7", "runner_group_name": "Default",
+                 "labels": ["ubuntu-24.04"]},
+                {"runner_name": "GitHub Actions 7", "runner_group_name": "GitHub Actions",
+                 "labels": ["ubuntu-22.04"]},
+                {"runner_name": "media-manager-vps", "runner_group_name": "GitHub Actions",
+                 "labels": ["ubuntu-24.04"]}]:
+            with self.subTest(change=change):
+                job = self.job("frontend")
+                before = copy.deepcopy(job)
+                job.update(change)
+                with self.assertRaises(ValueError):
+                    self.check()
+                job.clear(); job.update(before)
+
+    def test_missing_runner_evidence_cannot_deploy(self):
+        for name, fields in [("frontend", ["runner_name", "runner_group_name", "labels"]),
+                             ("backend", ["runner_name", "labels"])]:
+            for field in fields:
+                with self.subTest(job=name, field=field):
+                    job = self.job(name)
+                    before = copy.deepcopy(job)
+                    job.pop(field, None)
+                    with self.assertRaises(ValueError):
+                        self.check()
+                    job.clear(); job.update(before)
+
+    def test_skipped_required_job_cannot_deploy(self):
+        self.job("publish")["conclusion"] = "skipped"
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_duplicate_required_job_cannot_deploy(self):
+        self.jobs.append(dict(copy.deepcopy(self.job("browser")), conclusion="failure"))
+        with self.assertRaises(ValueError):
+            self.check()
+
 
     def test_only_active_owner_triggered_deployment_is_accepted(self):
         for field, value in [("status", "completed"), ("event", "push"), ("id", 789),
@@ -97,6 +169,43 @@ class DeploymentBoundaryTests(unittest.TestCase):
         self.deploy["triggering_actor"] = {"login": "another-collaborator"}
         with self.assertRaises(ValueError):
             self.check()
+
+
+class VerifyWorkflowPlacementContractTests(unittest.TestCase):
+    """The broker's approved placement must match what Verify actually declares."""
+
+    EXPECTED_RUNS_ON = {
+        "github-hosted": "ubuntu-24.04",
+        "vps": "[self-hosted, linux, x64, media-manager-vps]",
+    }
+
+    def declared_runs_on(self):
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/verify.yml"
+        declared, job, in_jobs = {}, None, False
+        for line in workflow.read_text().splitlines():
+            if line.startswith("jobs:"):
+                in_jobs = True
+                continue
+            if not in_jobs:
+                continue
+            header = re.fullmatch(r"  ([A-Za-z0-9_-]+):\s*", line)
+            if header:
+                job = header.group(1)
+                continue
+            runs_on = re.fullmatch(r"    runs-on:\s*(.+?)\s*", line)
+            if job and runs_on:
+                declared[job] = runs_on.group(1)
+        return declared
+
+    def test_every_required_job_is_declared_on_its_approved_runner(self):
+        declared = self.declared_runs_on()
+        for name, placement in broker.JOB_PLACEMENT.items():
+            with self.subTest(job=name):
+                self.assertIn(name, declared, "Verify no longer declares a job the broker requires")
+                self.assertEqual(declared[name], self.EXPECTED_RUNS_ON[placement])
+
+    def test_hosted_label_matches_the_broker(self):
+        self.assertEqual(broker.HOSTED_LABELS, [self.EXPECTED_RUNS_ON["github-hosted"]])
 
 
 class DeploymentResultTests(unittest.TestCase):
