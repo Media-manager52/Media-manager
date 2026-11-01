@@ -115,16 +115,20 @@ invariant exists; v2 completes it.
 
 | # | Problem | Evidence | v2 rule |
 | --- | --- | --- | --- |
-| P1 | **The database layer is the domain.** 38 % of all Go code and 888 functions live in `internal/postgres`; business decisions sit inside transactions. | `postgres/publication.go` decides playable assets and Plex confirmation; `postgres/subtitles.go` merges subtitle requirements. | Domain rules are pure functions in domain packages. The store only loads and saves. A store method may not contain a policy decision. |
+| P1 | **Policy decisions live inside the database layer.** 38 % of all Go code and 888 functions are in `internal/postgres`. Large transactional methods are legitimate (they keep state, audit and outbox atomic), but some of them also *decide* policy. | `postgres/publication.go` decides playable assets and Plex confirmation; `postgres/subtitles.go` merges subtitle requirements; acquisition depends on `*postgres.Store` and store-owned context types. | Keep cross-table atomic operations in the store. The *decision* is a pure function in a domain package, computed before or inside the transaction and passed in. A store method may persist a decision, never make one. |
 | P2 | **Domain packages are thin.** `workflows` 230 lines, `catalog` 468 lines with 68 test lines. | Package sizes in §2. | Each planning-package module owns its types, rules and tests. |
 | P3 | **Two generations of one feature coexist.** Commissioning v1 and v2 call each other. | `commissioning/live_v2.go`, 5,372 lines across both. | When a feature is replaced, the old one is deleted in the same task. |
 | P4 | **The UI sits on a hosted-site template.** Next 16 via Vinext with a Cloudflare Worker build target, run on Node through `register-cloudflare-loader.mjs`; a second UI (`app/v2`) lives inside v1. | `vite.config.ts`, `worker/index.ts`, `Dockerfile` UI stage. | A plain Vite + React + TypeScript SPA, served as static files by the Go binary (planning `ARCHITECTURE.md`). No Cloudflare, no Next server runtime. |
-| P5 | **Oversized files.** `httpapi/server.go` 2,245 lines; several store files over 1,000 lines. | §2. | Soft limit of ~400 lines per file; one handler group per file. |
+| P5 | **Unrelated concerns share files.** `httpapi/server.go` (2,245 lines) mixes backups, off-site file fetching, discovery, workflows, recycle, settings and auth; shared UI hooks (`useLiveData`) are exported from a screen file. | §2; Codex D06, D07. | Split by responsibility, not by line count: one handler family per file, shared hooks in `hooks/`, shared loaders in `lib/`. No screen file exports shared infrastructure. |
 | P6 | **One event per worker claim** starved Plex confirmations behind a search backlog; a priority-tier fix was added later. | `platform/worker.go`; hard-parts brief, problem 3. | Design throughput and priority lanes from the start. |
 | P7 | **Risky code with thin tests.** Recycle (deletion) has no dedicated tests; AltMount adapter 852/173; metadata 1,421/236; `servarr` 218/34. | §2. | Safety-critical modules are written test-first. The S01/S03/S14 tests are locked (see the AI setup). |
 | P8 | **Documentation sprawl.** A 53 KB changelog, dated status/evidence documents and dated agent briefs that describe older snapshots. | `CHANGELOG.md`, `docs/status/`, `docs/onboarding/agent-briefs/`. | One current design document per module, kept in sync in the same commit as the code; history lives in git, not in docs. |
 | P9 | **GitHub-centred process.** `AGENTS.md` spends most of its length on GitHub Actions waiting rules. | `AGENTS.md`. | Local inner loop: local git, local test gate, local review. GitHub only for backups and releases. |
 | P10 | **Workflow-per-scope model** cannot express several variants of one title, shared assets or per-server publication. | `workflows/scope.go`. | Variant / FulfillmentScope / Want / Asset / Placement / Generation (planning `DOMAIN_MODEL.md`). |
+
+| P11 | **List completeness is implicit.** Some loaders take one page of 300 rows and join it as if complete. | Codex D03 (`v2-app.tsx`, `media-manager-api.ts`). | Every bounded list states whether it is a page, a complete result or a truncated result, and the UI shows truncation. |
+| P12 | **API responses are untyped.** 104 of 118 OpenAPI operations use a generic success envelope; the UI casts JSON instead of validating it. | Codex D05. | Every v2 endpoint declares its response schema from day one, with a contract test against the real handler. |
+| P13 | **CI and deployment contracts drift.** The deploy broker requires every job on the VPS runner while Verify runs frontend/browser on hosted runners. | Codex D01 (`deploy/github/deploy-broker.py`). | Any check consumed by an approval step is tested with real, CI-shaped evidence. |
 
 ## 5. Features v1 has that the planning package does not mention
 
@@ -183,6 +187,42 @@ From [`agent-briefs/claude-review-hard-parts.md`](../onboarding/agent-briefs/cla
 7. Seerr library sync deliberately disabled.
 8. Unmanaged Plex files needing adoption.
 9. Recovering a failed Seerr request is manual.
+
+## 7a. Independent Codex audit (2026-11-01)
+
+A static, inspection-only Codex audit of the same commit (`34478c4`) reached
+these conclusions. Status of each item is as reported by that audit, not
+re-verified here unless stated.
+
+| ID | Finding | Severity | v1 action | v2 lesson |
+| --- | --- | --- | --- | --- |
+| D01 | Deploy broker rejects evidence from the current Verify workflow (runner placement mismatch) | P1 | Decide runner policy (#95/#97), then fix broker and its tests | P13 |
+| D02 | Merge safeguards documented but not enforced by branch rules | P1 | Owner decision | Gates are enforced by tooling, not prose |
+| D03 | V2 preview joins incomplete (first 300) related data | P2 | Share V1's bounded loader | P11 |
+| D04 | Catalog listing runs ~2 queries per item (N+1) | P2 | Batch identities/metadata | Batch-load lists from the start |
+| D05 | OpenAPI response contracts incomplete | P2 | Add response schemas per endpoint family | P12 |
+| D06 | Shared UI infrastructure exported from a screen file | P2 | Move `useLiveData` to `hooks/` | P5 |
+| D07 | `server.go` mixes handler families | P2 | Split by family | P5 |
+| D08 | Worker panic logging prints arbitrary panic text | P2 | Log safe classification only | Every log path uses safe error codes |
+| D09 | Onboarding states stale facts (schema 44, fonts, `doc.go`) | P2 | Correct current docs | P8 |
+| D10 | Unused Drizzle/D1/ChatGPT scaffolding | P3 | **Done** on branch `cleanup/v1-v2-prep` (PR #98). The Cloudflare/Vinext build path was kept, as the audit advised. | P4 |
+
+**Do not change without characterization tests first** (from the same audit):
+
+- `platform/worker.go` deliberately abandons a handler goroutine after
+  cancellation and grace, because a blocked FUSE read cannot be killed. v2 must
+  keep an equivalent mitigation and prove that a resumed stale handler cannot
+  displace current media.
+- Applied migrations are tracked by version, not checksum. v2 adds a checksum
+  or CI rule that applied migrations never change.
+- `useLiveData` lacks an explicit aborted check on its success path; not
+  reproduced as a defect.
+
+**Where this map and the audit differ.** The audit recommends keeping v1's
+layout and refactoring along existing boundaries. That is the right advice for
+*maintaining v1*. The owner has decided to build v2 as new code; this map
+therefore uses the audit's findings as requirements for v2, and the audit's
+"preserve" list (§3 here) as the rules v2 must keep.
 
 ## 8. Drop in v2
 
