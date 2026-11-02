@@ -497,3 +497,64 @@ func TestPackageIdentityAcceptsLatin1NZB(t *testing.T) {
 		t.Fatalf("Latin-1 NZB rejected: %v", err)
 	}
 }
+
+func providerFact(t *testing.T, attrs string, name string) (releases.Fact, bool) {
+	t.Helper()
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Show.S01E01.MULTI.1080p.DSNP.WEB-DL</title><guid>native-audio</guid>` + attrs + `</item></channel></rss>`)
+	items, err := ParseSearch(body, "", "tvsearch", time.Unix(1, 0))
+	if err != nil || len(items) != 1 {
+		t.Fatalf("parse: %v %#v", err, items)
+	}
+	for _, fact := range items[0].Facts {
+		if fact.Name == name {
+			return fact, true
+		}
+	}
+	return releases.Fact{}, false
+}
+
+// Real shapes seen from NZBgeek, Nzb.life, msgnews and treasure-maps: the
+// language attribute lists the audio tracks, subs lists the subtitles.
+func TestParseSearchReadsProviderLanguageAttributeAsAudioLanguages(t *testing.T) {
+	t.Parallel()
+	for attrs, want := range map[string][]string{
+		`<newznab:attr name="language" value="English"/><newznab:attr name="language" value="Danish"/><newznab:attr name="language" value="Dutch"/>`: {"en", "da", "nl"},
+		`<newznab:attr name="language" value="bg-BG, Bulgarian, Czech, Danish, English"/>`:                                                           {"bg", "cs", "da", "en"},
+		`<newznab:attr name="language" value="English (United States),German (Germany)"/>`:                                                           {"en", "de"},
+		`<newznab:attr name="language" value="English, Danish, Finnish, Norwegian, Swedish"/>`:                                                       {"en", "da", "fi", "no", "sv"},
+		`<newznab:attr name="audio" value="en-US, English (US), German"/>`:                                                                           {"en", "de"},
+	} {
+		fact, ok := providerFact(t, attrs, "audio_languages")
+		if !ok || fact.State != releases.FactObserved || !reflect.DeepEqual(fact.Values, want) {
+			t.Errorf("%s: got %#v (present=%v), want %v", attrs, fact, ok, want)
+		}
+	}
+	if _, ok := providerFact(t, `<newznab:attr name="language" value="Danish"/>`, "subtitle_languages"); ok {
+		t.Fatal("the audio language attribute must not become subtitle evidence")
+	}
+	if fact, ok := providerFact(t, `<newznab:attr name="language" value="Danish"/>`, "language"); !ok || fact.Values[0] != "Danish" {
+		t.Fatalf("raw language fact must be kept: %#v", fact)
+	}
+}
+
+func TestParseSearchSplitsProviderAudioCodecAndChannels(t *testing.T) {
+	t.Parallel()
+	for value, want := range map[string][2]string{
+		"E-AC-3 6":  {"eac3", "6 channels"},
+		"AAC 2":     {"aac", "2 channels"},
+		"MLP FBA 8": {"truehd", "8 channels"},
+	} {
+		attrs := `<newznab:attr name="audio" value="` + value + `"/>`
+		codec, okCodec := providerFact(t, attrs, "audio_codec")
+		channels, okChannels := providerFact(t, attrs, "audio_channels")
+		if !okCodec || !okChannels || codec.Values[0] != want[0] || channels.Values[0] != want[1] {
+			t.Errorf("%s: codec=%#v channels=%#v", value, codec, channels)
+		}
+		if _, ok := providerFact(t, attrs, "audio_languages"); ok {
+			t.Errorf("%s: codec read as a language", value)
+		}
+	}
+	if codec, ok := providerFact(t, `<newznab:attr name="audio" value="AC-3"/>`, "audio_codec"); !ok || codec.Values[0] != "ac3" {
+		t.Fatalf("plain codec: %#v", codec)
+	}
+}
