@@ -46,17 +46,37 @@ const (
 )
 
 type BrowseInput struct {
-	Kind    catalog.MediaKind `json:"kind"`
-	IMDb    string            `json:"imdb_id"`
-	Title   string            `json:"title"`
-	Year    uint16            `json:"year"`
-	Season  uint16            `json:"season"`
-	Episode uint16            `json:"episode"`
+	Kind catalog.MediaKind `json:"kind"`
+	IMDb string            `json:"imdb_id,omitempty"`
+	// TMDB identifies titles that have no IMDb id, such as many new Danish
+	// series; it is used only when imdb_id is empty.
+	TMDB    uint32 `json:"tmdb_id,omitempty"`
+	Title   string `json:"title"`
+	Year    uint16 `json:"year"`
+	Season  uint16 `json:"season"`
+	Episode uint16 `json:"episode"`
 }
 
 func (in BrowseInput) Valid() bool {
-	return browseIMDb.MatchString(in.IMDb) && len(strings.TrimSpace(in.Title)) > 0 && len(in.Title) <= 250 && in.Year >= 1880 && in.Year <= 2200 &&
+	identified := browseIMDb.MatchString(in.IMDb) || (in.IMDb == "" && in.TMDB > 0 && in.TMDB <= 1_000_000_000)
+	return identified && len(strings.TrimSpace(in.Title)) > 0 && len(in.Title) <= 250 && in.Year >= 1880 && in.Year <= 2200 &&
 		((in.Kind == catalog.KindMovie && in.Season == 0 && in.Episode == 0) || (in.Kind == catalog.KindSeries && in.Season > 0 && in.Season <= 999 && in.Episode > 0 && in.Episode <= 9999))
+}
+
+// identities returns the external identity the viewer supplied: the IMDb id
+// when present, otherwise the TMDB id.
+func (in BrowseInput) identities() []catalog.ExternalIdentity {
+	if in.IMDb != "" {
+		return []catalog.ExternalIdentity{{Namespace: "imdb", Value: in.IMDb, State: catalog.IdentityVerified, Source: "addon"}}
+	}
+	return []catalog.ExternalIdentity{{Namespace: "tmdb", Value: strconv.FormatUint(uint64(in.TMDB), 10), State: catalog.IdentityVerified, Source: "addon"}}
+}
+
+func (in BrowseInput) identityKey() string {
+	if in.IMDb != "" {
+		return in.IMDb
+	}
+	return "tmdb:" + strconv.FormatUint(uint64(in.TMDB), 10)
 }
 
 type BrowseRelease struct {
@@ -157,7 +177,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 	if err != nil {
 		return BrowseResult{}, err
 	}
-	media := catalog.MediaItem{Kind: in.Kind, Title: in.Title, Year: &in.Year, Identities: []catalog.ExternalIdentity{{Namespace: "imdb", Value: in.IMDb, State: catalog.IdentityVerified, Source: "addon"}}}
+	media := catalog.MediaItem{Kind: in.Kind, Title: in.Title, Year: &in.Year, Identities: in.identities()}
 	// Prefer saved verified identity, original title and aliases when available.
 	id, found, archived, err := s.Search.Store.MediaIDByIdentities(ctx, in.Kind, media.Identities)
 	if err != nil {
@@ -414,7 +434,7 @@ func (s *BrowseService) browseNewznab(ctx context.Context, client *newznab.Clien
 	if in.Kind != catalog.KindSeries || in.Season < 1 {
 		return s.searchNewznab(ctx, client, i, c, search)
 	}
-	key := i.ID.String() + "|" + in.IMDb + "|" + strconv.Itoa(int(in.Season))
+	key := i.ID.String() + "|" + in.identityKey() + "|" + strconv.Itoa(int(in.Season))
 	now := time.Now()
 	s.mu.Lock()
 	cached, hasCache := s.seasonCache[key]

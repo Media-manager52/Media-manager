@@ -18,6 +18,9 @@
           "title": {
             "type": "string"
           },
+          "tmdb_id": {
+            "type": "integer"
+          },
           "year": {
             "type": "integer"
           }
@@ -6488,7 +6491,6 @@
                 ],
                 "required": [
                   "kind",
-                  "imdb_id",
                   "title",
                   "year"
                 ]

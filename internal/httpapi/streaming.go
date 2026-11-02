@@ -15,7 +15,7 @@ func (s *Server) streamingSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	var in acquisition.BrowseInput
 	if decodeJSON(r, &in, 4096) != nil || !in.Valid() {
-		writeError(w, 400, "invalid_streaming_search", "Provide a movie or episode, IMDb ID, title and year")
+		writeError(w, 400, "invalid_streaming_search", "Provide a movie or episode, an IMDb or TMDB ID, title and year")
 		return
 	}
 	result, err := s.config.Streaming.Browse(r.Context(), in)
