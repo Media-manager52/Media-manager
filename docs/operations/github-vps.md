@@ -51,8 +51,11 @@ local compiler/tool/image caches remain for subsequent builds.
 
 The root-owned deployment broker accepts only a commit and two numeric run
 identities. It independently checks GitHub for current `main`, a successful
-Verify run and all five successful jobs on this VPS runner, and an active
-owner-triggered Deploy run from the same repository/main commit. It checks
+Verify run whose five required jobs all succeeded on their approved runners
+(`frontend` and `browser` on GitHub-hosted `ubuntu-24.04`; `backend`,
+`containers` and `publish` on this VPS runner, see
+[runner layout](ci.md#runner-layout)), and an active owner-triggered Deploy run
+from the same repository/main commit. It checks
 image labels before transferring the already-tested images from the CI engine.
 The runner receives no production Docker access or integration credentials.
 

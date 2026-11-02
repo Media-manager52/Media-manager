@@ -15,6 +15,12 @@ by a trusted push after review.
 | `containers` | self-hosted `media-manager-vps` | Requires the owner's separate rootless Docker engine for the disposable stack smoke. |
 | `publish` | self-hosted `media-manager-vps` | Needs the rootless Docker engine and registry credentials; runs only on `main` pushes after every required job succeeds. |
 
+The deployment broker enforces this exact placement (`JOB_PLACEMENT` in
+`deploy/github/deploy-broker.py`): a required job on any other runner, or a
+VPS job moved to a hosted runner, blocks deployment. A contract test in
+`tests/ci/test_deploy_broker.py` fails if `verify.yml` and the broker disagree,
+so moving a job requires changing both and reinstalling the broker.
+
 The self-hosted runner is still a single-job runner. Backend and containers are
 therefore serialized on it. The hosted frontend/browser jobs no longer wait
 behind them. Adding a second self-hosted runner is an owner/infrastructure
