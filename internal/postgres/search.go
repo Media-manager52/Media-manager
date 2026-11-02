@@ -642,7 +642,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			WHERE run.workflow_id=$1 AND run.mode='targeted' AND run.state='complete' AND run.started_at>=round.opened_at`, search.Workflow.ID.String()).Scan(&roundRuns); err != nil {
 			return workflows.Workflow{}, err
 		}
-		nextSearchAt := now.UTC().Add(noSelectionRetryDelay(roundRuns))
+		nextSearchAt := now.UTC().Add(noSelectionRetryDelay(roundRuns, recentRelease(search.Media.Year, now)))
 		var priorSubmissions int
 		if err := transaction.QueryRow(ctx, `SELECT count(*) FROM altmount_jobs WHERE workflow_id=$1`, search.Workflow.ID.String()).Scan(&priorSubmissions); err != nil {
 			return workflows.Workflow{}, err
@@ -677,8 +677,34 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 
 const (
 	noSelectionRetryBase = 30 * time.Minute
-	noSelectionRetryCap  = 12 * time.Hour
+	// A title that keeps finding nothing is searched at most weekly. Episode
+	// workflows are created only after their air date, so a new episode
+	// always starts again at the 30-minute base.
+	noSelectionRetryCap = 7 * 24 * time.Hour
+	// Recent titles (a movie requested before its digital release) keep a
+	// daily search so a new release is found within a day.
+	noSelectionRecentRetryCap = 24 * time.Hour
+	// Recovery rescans whose coverage was cut short by pacing or exhausted
+	// budgets wait at least this long. Retrying at the next pacing slot made
+	// every waiting title rescan every few minutes while the background
+	// budget was exhausted, without ever reaching the deferred indexers.
+	recoveryPartialRetryFloor = 2 * time.Hour
 )
+
+// recoveryPartialRetryAt schedules an incomplete recovery rescan at the
+// latest provider deferral, but never sooner than recoveryPartialRetryFloor.
+func recoveryPartialRetryAt(providerRetryAt, now time.Time) time.Time {
+	next := now.UTC().Add(recoveryPartialRetryFloor)
+	if providerRetryAt.After(next) {
+		next = providerRetryAt.UTC()
+	}
+	return next
+}
+
+// recentRelease reports whether a title's year is this year or last year.
+func recentRelease(year *uint16, now time.Time) bool {
+	return year != nil && int(*year) >= now.UTC().Year()-1
+}
 
 // Retry incomplete coverage without counting it as evidence of absence or
 // increasing the empty-search backoff. Keep a 30-minute floor because this
@@ -706,16 +732,20 @@ func incompleteSearchRetryAt(outcomes []SearchIndexerOutcome, now time.Time) tim
 
 // noSelectionRetryDelay paces the next targeted search after runs in the
 // current round that selected nothing: 30 minutes after the first, doubling
-// per run up to 12 hours. Every search queries every indexer, and a flat
-// 30-minute retry for titles with no eligible release spent the indexers'
-// rolling query budgets on repeat empty searches.
-func noSelectionRetryDelay(roundRuns int) time.Duration {
+// per run up to a week (a day for recent titles). Every search queries every
+// indexer; the former 12-hour cap searched about 2,000 waiting titles twice a
+// day forever, about 3,000 queries per indexer per day, almost all empty.
+func noSelectionRetryDelay(roundRuns int, recent bool) time.Duration {
+	limit := noSelectionRetryCap
+	if recent {
+		limit = noSelectionRecentRetryCap
+	}
 	delay := noSelectionRetryBase
-	for run := 1; run < roundRuns && delay < noSelectionRetryCap; run++ {
+	for run := 1; run < roundRuns && delay < limit; run++ {
 		delay *= 2
 	}
-	if delay > noSelectionRetryCap {
-		delay = noSelectionRetryCap
+	if delay > limit {
+		delay = limit
 	}
 	return delay
 }
@@ -797,7 +827,7 @@ func (store *Store) persistRecoveryDiscovery(ctx context.Context, transaction pg
 			}
 		}
 		if earliestRetryAt != nil {
-			next = *earliestRetryAt
+			next = recoveryPartialRetryAt(*earliestRetryAt, now)
 		}
 	}
 	command, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET rescan_generation=$2,next_rescan_at=$3,last_scan_at=$4,last_scan_complete=$5,complete_no_new_scans=$6,pending_indexer_ids=$7,updated_at=$4
