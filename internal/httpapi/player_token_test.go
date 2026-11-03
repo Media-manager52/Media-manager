@@ -22,6 +22,9 @@ var playerRoutes = map[string]bool{
 	"GET /api/v1/discovery/{kind}/{id}":        true,
 	"POST /api/v1/streaming/search":            true,
 	"POST /api/v1/streaming/releases/{id}/nzb": true,
+	// Prepare returns only a path on the read-only mount the addon already
+	// reads; it hands out no AltMount credential or download key.
+	"POST /api/v1/streaming/releases/{id}/prepare": true,
 }
 
 func TestPlayerTokenOpensOnlyThePlaybackRoutes(t *testing.T) {

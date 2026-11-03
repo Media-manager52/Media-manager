@@ -25,6 +25,7 @@ import (
 
 type Config struct {
 	Streaming          *acquisition.BrowseService
+	StreamPreparer     *acquisition.StreamPreparer
 	OldBoysCredentials *oldboyscredentials.Service
 	CommissionOldBoys  func(context.Context) (postgres.Integration, error)
 	OwnerToken         string

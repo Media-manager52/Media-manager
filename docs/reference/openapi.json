@@ -168,6 +168,23 @@
         },
         "type": "object"
       },
+      "Altmount_PreparedStream": {
+        "properties": {
+          "cached": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "queue_item_id": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "ApplyQualityProfilePresetInput": {
         "properties": {
           "policy_version": {
@@ -6538,6 +6555,70 @@
           }
         ],
         "summary": "Retrieve the viewer-selected NZB using the shared provider budget",
+        "tags": [
+          "streaming"
+        ],
+        "x-mm-auth": "owner_or_player",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/streaming/releases/{id}/prepare": {
+      "post": {
+        "description": "Retrieves the NZB with the shared provider budget and submits it to AltMount's stream endpoint. Returns only the prepared file's path on the read-only AltMount mount (data.path, starting with /). 410 when the choice expired, 422 when the release's articles are missing, 503 when the NZB could not be retrieved, 504 when AltMount did not finish in time.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "streamingPrepare",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Altmount_PreparedStream"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
+        "summary": "Have AltMount prepare the viewer-selected release for playback",
         "tags": [
           "streaming"
         ],
