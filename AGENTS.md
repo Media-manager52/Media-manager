@@ -43,6 +43,15 @@ truthful, and safe for an owner-operated production media system.
   browser tests mock the API; unexpected external network access must remain
   blocked.
 
+## Guardrails
+
+- `docs/invariants.md` lists the guarantees (S01–S18) and the tests that
+  prove them. Never weaken one silently.
+- `docs/architecture/boundaries.md` lists the layer rules.
+  `internal/architecture` fails the build when a change crosses a layer or
+  grows a file past 1,000 lines; its allowlist may only shrink.
+- CI also runs pinned `staticcheck` and `govulncheck`.
+
 Follow an existing nearby pattern before adding a new abstraction. Prefer a
 small pure helper over expanding a screen or handler, and document why a new
 layer is necessary if an existing one cannot serve the change.

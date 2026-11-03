@@ -8,12 +8,7 @@ import (
 	"time"
 
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
-	"github.com/media-manager/media-manager/internal/releases"
 )
-
-func observedIdentityFact(name, value string) releases.Fact {
-	return releases.Fact{Name: name, Values: []string{value}, State: releases.FactObserved}
-}
 
 func searchMatrixFixtures() FixtureDocument {
 	movieYear, seasonYear := uint16(2026), uint16(2022)

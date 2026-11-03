@@ -225,7 +225,7 @@ func TestWorkflowCandidateObservationsLoadsStoredEvidenceReadOnly(t *testing.T) 
 	if got := byID[newest].Observation; len(got.Facts) != 2 || got.Facts[0].Name != "resolution" || got.NativeGUID != "newest" || got.IndexerID != f.indexer.ID || byID[newest].IndexerKind != "newznab" {
 		t.Fatalf("newest observation=%+v kind=%q", got, byID[newest].IndexerKind)
 	}
-	if byID[middle].Observation.Facts != nil && len(byID[middle].Observation.Facts) != 0 {
+	if len(byID[middle].Observation.Facts) != 0 {
 		t.Fatalf("legacy empty-object facts must load as no facts, got %+v", byID[middle].Observation.Facts)
 	}
 

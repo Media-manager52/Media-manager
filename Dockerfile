@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.9
 
-FROM golang:1.27-alpine AS api-build
+FROM golang:1.27.3-alpine3.23 AS api-build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFLAGS=-mod=readonly
 COPY go.mod go.sum ./

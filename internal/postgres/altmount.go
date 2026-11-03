@@ -555,14 +555,6 @@ func (store *Store) CompleteImportWithCode(ctx context.Context, job AltMountJobC
 	return transaction.Commit(ctx)
 }
 
-func playableAsset(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".mkv", ".mp4", ".m4v", ".avi", ".ts":
-		return true
-	}
-	return false
-}
-
 // altMountProgress returns the progress AltMount itself reported, bounded to
 // what the schema accepts. A missing or out-of-range percentage is stored as
 // NULL rather than guessed, and the stage is only a short display label.
