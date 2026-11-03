@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/media-manager/media-manager/internal/commissioningv2"
 	"github.com/media-manager/media-manager/internal/postgres"
-	"uuid"
 )
 
 const commissionV2TestOrigin = "https://owner.media-manager.test"

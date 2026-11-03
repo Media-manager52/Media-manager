@@ -127,6 +127,18 @@ func TestPruneRepeatedObservationsRemovesOnlyUnreferencedRepeatsAndArchivesThem(
 	if len(remaining()) != len(before) {
 		t.Fatal("a dry run removed observations")
 	}
+	for _, scoped := range []struct {
+		indexer           string
+		releases, repeats int64
+	}{{fixture.indexer.ID.String(), 2, 2}, {fixture.indexerTwo.ID.String(), 1, 0}} {
+		result, err := fixture.store.PruneRepeatedObservations(ctx, ObservationPruneOptions{ObservedBefore: cutoff, ReleasesPerBatch: 1, IndexerInstanceID: scoped.indexer})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Releases != scoped.releases || result.Repeats != scoped.repeats {
+			t.Fatalf("pass limited to %s=%+v, want %d releases and %d repeats", scoped.indexer, result, scoped.releases, scoped.repeats)
+		}
+	}
 
 	failing := errors.New("disk full")
 	if _, err := fixture.store.PruneRepeatedObservations(ctx, ObservationPruneOptions{ObservedBefore: cutoff, ReleasesPerBatch: 10, Apply: true,
