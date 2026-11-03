@@ -5,9 +5,6 @@
  * unknown states render at the start rather than further along.
  */
 
-/** The eight acquisition steps an owner reads left to right. */
-export const workflowSteps = ["Search", "Select", "Submit", "Download", "Import", "Verify", "Publish", "Plex"] as const
-
 const stepByState: Record<string, number> = {
   searching: 0,
   candidate_selected: 1,

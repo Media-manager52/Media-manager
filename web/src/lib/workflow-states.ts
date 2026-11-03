@@ -9,7 +9,7 @@
 import type { APIWantedItem, APIWorkflow } from "@/api/client"
 
 /** Real ongoing acquisition work: a worker or provider is actively involved. */
-export const activelyAcquiringStates = new Set([
+const activelyAcquiringStates = new Set([
   "searching",
   "candidate_selected",
   "submitting",
@@ -30,7 +30,7 @@ export const activelyAcquiringStates = new Set([
  * Normal waiting and monitoring. No owner action is required; automatic
  * pacing, discovery, and future air dates own the next step.
  */
-export const waitingStates = new Set([
+const waitingStates = new Set([
   "monitored",
   "waiting",
   "planned",
@@ -40,10 +40,10 @@ export const waitingStates = new Set([
 ])
 
 /** States that are complete and owner-visible as finished work. */
-export const completedStates = new Set(["plex_confirmed", "available", "delivered", "succeeded", "success", "restored"])
+const completedStates = new Set(["plex_confirmed", "available", "delivered", "succeeded", "success", "restored"])
 
 /** States that genuinely pause for an owner decision or recovery. */
-export const ownerAttentionStates = new Set([
+const ownerAttentionStates = new Set([
   "needs_attention",
   "blocked",
   "quarantined",

@@ -35,12 +35,8 @@ export function parseSeriesVariant(variant: string | undefined | null): ParsedSe
   return { kind: "other" }
 }
 
-export function formatSeasonVariant(season: number): string {
+function formatSeasonVariant(season: number): string {
   return `season:${String(Math.max(0, Math.trunc(season))).padStart(2, "0")}`
-}
-
-export function formatEpisodeVariant(season: number, episode: number): string {
-  return `${formatSeasonVariant(season)}:episode:${String(Math.max(0, Math.trunc(episode))).padStart(2, "0")}`
 }
 
 function parseNumber(value: string, maximum: number): number | undefined {
