@@ -165,7 +165,7 @@ function SeasonRow({ season, rollup }: { season: APIMediaSeason; rollup?: Series
             </div>
           ) : null}
           {statuses.length === 0 ? <p className="text-sm text-text-2">Afsnittene kendes ikke endnu.</p> : null}
-          <ol className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+          <ol className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
             {statuses.map(({ episode, status, workflow }) => (
               <li key={episode.number} className="flex items-center gap-2 rounded-lg bg-surface px-3 py-2 text-sm">
                 <span className="tabular w-7 shrink-0 text-text-3">{episode.number}</span>

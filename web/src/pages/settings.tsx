@@ -209,7 +209,7 @@ function SeerrInstance({ instance }: { instance: APIIntegration }) {
         Nye anmodninger til <span className="font-medium text-text">{removing?.folder}</span> bruger derefter standardbiblioteket. Allerede hentede titler flyttes ikke.
       </Dialog>
       {draft ? (
-        <form onSubmit={(event) => { event.preventDefault(); save.mutate() }} className="grid gap-3 border-t border-line px-5 py-4 text-sm sm:grid-cols-[1fr_1fr_auto]">
+        <form onSubmit={(event) => { event.preventDefault(); save.mutate() }} className="grid grid-cols-1 gap-3 border-t border-line px-5 py-4 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
           <div className="sm:col-span-3 font-medium break-all">{draft.folder}</div>
           <select required value={draft.root} onChange={(event) => setDraft({ ...draft, root: event.target.value })} className="h-9 rounded-lg border border-line bg-surface px-2">
             <option value="">Vælg bibliotek</option>

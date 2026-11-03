@@ -15,7 +15,7 @@ export function SourcesPage() {
       <PageHeader title="Kilder" description="Indexerne, Media Manager søger hos, og hvor meget af dagens grænse der er brugt. Grænserne gælder et rullende døgn." />
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
       {query.isPending ? <Card><ListSkeleton rows={6} /></Card> : null}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {items.map((indexer) => <IndexerCard key={indexer.id} indexer={indexer} />)}
       </div>
       <OldBoysCard />
