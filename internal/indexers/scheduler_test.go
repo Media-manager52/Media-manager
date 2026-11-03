@@ -3,6 +3,7 @@ package indexers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -477,5 +478,67 @@ func TestBackgroundSearchUsesAtMostFirstFifthOfQueryBudget(t *testing.T) {
 		if limit != test.want || family != "query" {
 			t.Fatalf("query limit=%d got limit=%d family=%q want limit=%d family=query", test.queryLimit, limit, family, test.want)
 		}
+	}
+}
+
+// TestBrowseHasItsOwnInFlightSlots pins that a viewer stream list is not
+// queued behind background work in the global pool, that its own pool is
+// bounded, and that the per-indexer lane still holds one request at a time.
+func TestBrowseHasItsOwnInFlightSlots(t *testing.T) {
+	scheduler := NewScheduler(1, nil)
+	budget := Budget{MinimumInterval: time.Millisecond, FailureBackoff: time.Second, MaximumBackoff: time.Minute, QueryLimit: 1000, LimitWindow: time.Hour}
+	for index := 0; index <= BrowseConcurrency; index++ {
+		if err := scheduler.Configure(fmt.Sprintf("indexer-%d", index), budget); err != nil {
+			t.Fatal(err)
+		}
+	}
+	background, err := scheduler.Acquire(context.Background(), "indexer-0", WorkloadBackground)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The only global slot is taken; browse on other indexers still proceeds.
+	var browse []*Permit
+	for index := 1; index <= BrowseConcurrency; index++ {
+		quick, cancel := context.WithTimeout(context.Background(), time.Second)
+		permit, err := scheduler.Acquire(quick, fmt.Sprintf("indexer-%d", index), WorkloadBrowse)
+		cancel()
+		if err != nil {
+			t.Fatalf("browse %d waited behind background work: %v", index, err)
+		}
+		browse = append(browse, permit)
+	}
+	// The browse pool is bounded: with every browse slot held, the next
+	// browse request waits.
+	if err := scheduler.Configure("indexer-extra", budget); err != nil {
+		t.Fatal(err)
+	}
+	blocked, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	if _, err := scheduler.Acquire(blocked, "indexer-extra", WorkloadBrowse); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("browse beyond its pool: err=%v", err)
+	}
+	cancel()
+	// The lane is still exclusive: browse on the indexer background is using
+	// waits for it.
+	_ = browse[0].Record(context.Background(), OutcomeSuccess, nil)
+	sameLane, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	if _, err := scheduler.Acquire(sameLane, "indexer-0", WorkloadBrowse); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("browse shared a lane with background work: err=%v", err)
+	}
+	cancel()
+	// Releasing browse permits returns their slots to the browse pool, not
+	// to the global one.
+	for _, permit := range browse[1:] {
+		if err := permit.Record(context.Background(), OutcomeSuccess, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(scheduler.browse) != 0 || len(scheduler.global) != 1 {
+		t.Fatalf("browse pool=%d global pool=%d after release", len(scheduler.browse), len(scheduler.global))
+	}
+	if err := background.Record(context.Background(), OutcomeSuccess, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(scheduler.global) != 0 {
+		t.Fatalf("global pool=%d after release", len(scheduler.global))
 	}
 }

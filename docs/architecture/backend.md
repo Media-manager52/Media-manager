@@ -202,7 +202,10 @@ If you add a service handler, keep it idempotent: events are at-least-once.
 10 files, ~2 800 lines. No network I/O.
 
 - `Scheduler(globalLimit, store)` is shared by runtime search and the
-  commissioning lab. Main wires `NewScheduler(4, store)`.
+  commissioning lab. Main wires `NewScheduler(4, store)`: at most four
+  requests in flight across indexers. Viewer stream lists (`WorkloadBrowse`)
+  draw from their own pool of `BrowseConcurrency` (16) slots instead, so a list
+  that asks every indexer at once is not queued behind background searches.
 - `Budget` = rolling query/grab window (`NewznabBudget(minimumIntervalMS,
   queryLimit, grabLimit, windowSeconds)`). Conservative fallback 1 000 queries /
   100 grabs per 24h (`ConservativeQueryLimit` etc.), in addition to a ≥3s
@@ -518,7 +521,7 @@ to `streaming_choices` (`browse_choices.go`) and reads a choice back from there
 after a restart or eviction, and permits retrieval only through an exact choice.
 A stored choice is usable only while its indexer is enabled with the same
 configuration fingerprint. No acquisition workflow or library publication is created.
-Each provider search runs in its own goroutine (up to nine) so per-indexer
+Each provider search runs in its own goroutine (up to `BrowseConcurrency`) so per-indexer
 pacing waits do not serialize the other providers; the scheduler still enforces
 the global and per-indexer limits. Optional details/NFO enrichment is capped at
 five seconds and falls back to the extended-search facts when it is slow or

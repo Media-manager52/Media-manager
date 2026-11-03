@@ -33,7 +33,7 @@ const (
 	// Every provider gets its own goroutine so a slow pacing wait on one
 	// indexer cannot serialize the remaining providers. The shared scheduler
 	// still enforces the real global and per-indexer request limits.
-	browseProviderConcurrency = 9
+	browseProviderConcurrency = indexers.BrowseConcurrency
 	// Optional details/NFO lookups enrich a release only when the provider
 	// search omitted the fields. Keep that work off the critical path when a
 	// provider is slow.
