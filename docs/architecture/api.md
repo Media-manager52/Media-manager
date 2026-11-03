@@ -371,7 +371,11 @@ precedence when available. It does not create workflows, retrieve NZBs or publis
 
 Results include opaque release-choice IDs, normalized facts with provenance,
 provider outcomes (complete/deferred/unavailable) and expiry. Searches are
-coalesced and cached for five minutes (30 seconds for partial results). Extended
+coalesced and cached for five minutes (30 seconds for partial results).
+OldBoys (title-only, 25 rows per page, one request per five seconds) answers
+with its first page; when that page is full, pages two to four are fetched in
+the background, the provider is reported `deferred`, and the next open of the
+title includes every page. Extended
 provider attributes retain repeated subtitle values and explicit media fields.
 For the first matching result per provider lacking subtitle fields, a bounded
 DETAILS request and an advertised NFO may supplement the search response. This

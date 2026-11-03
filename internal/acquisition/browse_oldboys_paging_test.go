@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"uuid"
@@ -21,10 +22,12 @@ type oldBoysPageTransport func(*http.Request) (*http.Response, error)
 
 func (f oldBoysPageTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// TestOldBoysBrowseStopsAtTheShortPage pins that a stream list asks OldBoys
-// for the next page only after a full page: each extra request waits for
-// OldBoys' pacing interval, and the page after a short one is always empty.
-func TestOldBoysBrowseStopsAtTheShortPage(t *testing.T) {
+// TestOldBoysBrowseShowsPageOneAndFetchesTheRestInTheBackground pins that a
+// stream list waits only for OldBoys' first page. After a full first page the
+// remaining pages arrive in the background, stopping at the first short page
+// or MaxPage, and the next open of the title gets every page without new
+// requests. A short first page is complete at once.
+func TestOldBoysBrowseShowsPageOneAndFetchesTheRestInTheBackground(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		pages    []int
@@ -37,9 +40,9 @@ func TestOldBoysBrowseStopsAtTheShortPage(t *testing.T) {
 		{"empty", []int{0}, 1, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			requests := 0
+			var requests atomic.Int32
 			transport := oldBoysPageTransport(func(r *http.Request) (*http.Response, error) {
-				requests++
+				requests.Add(1)
 				page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 				count := 0
 				if page >= 1 && page <= len(test.pages) {
@@ -61,12 +64,41 @@ func TestOldBoysBrowseStopsAtTheShortPage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			observations, err := oldBoysBrowseObservations(context.Background(), client, BrowseInput{Kind: catalog.KindMovie, IMDb: "tt0000123", Title: "Example", Year: 2020})
+			in := BrowseInput{Kind: catalog.KindMovie, IMDb: "tt0000123", Title: "Example", Year: 2020}
+			service := &BrowseService{}
+			// A stream list built from page one must not outlive the
+			// complete result.
+			service.cache = map[BrowseInput]browseCache{in: {until: time.Now().Add(time.Minute)}}
+			first, partial, err := service.oldBoysBrowseObservations(context.Background(), client, id.String(), in)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if requests != test.requests || len(observations) != test.rows {
-				t.Fatalf("requests=%d rows=%d, want requests=%d rows=%d", requests, len(observations), test.requests, test.rows)
+			wantFirst := test.pages[0]
+			if len(first) != wantFirst || partial != (wantFirst == oldboys.PageSize) {
+				t.Fatalf("first open rows=%d partial=%v", len(first), partial)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				all, partial, err := service.oldBoysBrowseObservations(context.Background(), client, id.String(), in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !partial {
+					if len(all) != test.rows || int(requests.Load()) != test.requests {
+						t.Fatalf("complete rows=%d requests=%d, want rows=%d requests=%d", len(all), requests.Load(), test.rows, test.requests)
+					}
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the remaining pages never arrived")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			service.mu.Lock()
+			_, stale := service.cache[in]
+			service.mu.Unlock()
+			if stale && partial {
+				t.Fatal("the stream list built from page one was kept")
 			}
 		})
 	}
