@@ -2,11 +2,8 @@ package postgres
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
@@ -15,11 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/commissioningv2"
 	"github.com/media-manager/media-manager/internal/indexers"
-	"uuid"
 )
 
 // liveTestStore opens a disposable per-test schema via
@@ -141,16 +139,6 @@ func configureCommissioningScheduler(t *testing.T, scheduler *indexers.Scheduler
 	if err := scheduler.Configure(indexerID.String(), budget); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func liveSnapshotForStepBudget(t *testing.T, scheduler *indexers.Scheduler, indexerID, stepID uuid.UUID) indexers.CommissioningBudgetSnapshot {
-	t.Helper()
-	permit, err := scheduler.AcquireCommissioningV2(context.Background(), indexerID.String(), stepID.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer permit.ReleaseWithoutOutcome()
-	return permit.CommissioningBudgetSnapshot()
 }
 
 func liveSnapshotForStep(t *testing.T, scheduler *indexers.Scheduler, indexerID, stepID uuid.UUID) indexers.CommissioningBudgetSnapshot {
@@ -1596,34 +1584,6 @@ func TestLegacyOneUseTransmissionBindingSuperseded(t *testing.T) {
 
 func TestLegacyOneUseTransmissionBindingBody(t *testing.T) {
 	t.Skip("superseded body preserved for audit; see git history")
-}
-
-// liveTransmittingAuthorizer is the test-only durable authorizer for
-// TestOneUseTransmissionBinding: it authorizes exactly one real attempt.
-type liveTransmittingAuthorizer struct {
-	indexerID string
-	stepID    string
-}
-
-func (authorizer *liveTransmittingAuthorizer) AuthorizedTransmittingCommissioningStep(_ context.Context, indexerID, stepID string) bool {
-	return authorizer != nil && indexerID == authorizer.indexerID && stepID == authorizer.stepID
-}
-
-type testAllowGuard struct{}
-
-func (testAllowGuard) BeforeSend(context.Context) error { return nil }
-func (testAllowGuard) InspectSecret([]byte, http.Header, [][]byte, [][]byte) error {
-	return nil
-}
-func (testAllowGuard) InspectStructure([]byte, http.Header) error { return nil }
-
-func liveTestServerRoots(server *httptest.Server) *x509.CertPool {
-	if server.Certificate() == nil {
-		return nil
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(server.Certificate())
-	return roots
 }
 
 func TestLegacyCloseInterruptedSupersededByExternalC2Test(t *testing.T) {

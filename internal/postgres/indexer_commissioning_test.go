@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/commissioningv2"
-	"uuid"
 )
 
 func TestIndexerCommissioningRepositoryOfflineLifecycle(t *testing.T) {
@@ -811,7 +812,7 @@ func sealCommissioningSearchPlanInTransaction(t *testing.T, ctx context.Context,
 func transitionCommissioningStepToTransmission(t *testing.T, ctx context.Context, store *Store, indexerID, runID uuid.UUID, step IndexerCommissioningStep, now time.Time) IndexerCommissioningStep {
 	t.Helper()
 	leaseUntil := now.Add(time.Minute)
-	updated, err := store.TransitionIndexerCommissioningStep(ctx, indexerID, runID, step.ID, commissioningv2.StepPlanned, IndexerCommissioningStepTransition{
+	_, err := store.TransitionIndexerCommissioningStep(ctx, indexerID, runID, step.ID, commissioningv2.StepPlanned, IndexerCommissioningStepTransition{
 		State:      commissioningv2.StepIntentCommitted,
 		LeaseOwner: "worker.test",
 		LeaseUntil: &leaseUntil,
@@ -819,7 +820,7 @@ func transitionCommissioningStepToTransmission(t *testing.T, ctx context.Context
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err = store.TransitionIndexerCommissioningStep(ctx, indexerID, runID, step.ID, commissioningv2.StepIntentCommitted, IndexerCommissioningStepTransition{State: commissioningv2.StepTransmitting}, now.Add(time.Second))
+	updated, err := store.TransitionIndexerCommissioningStep(ctx, indexerID, runID, step.ID, commissioningv2.StepIntentCommitted, IndexerCommissioningStepTransition{State: commissioningv2.StepTransmitting}, now.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

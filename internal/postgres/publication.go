@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 	"uuid"
@@ -1159,8 +1158,4 @@ func splitPlexGUID(guid string) (string, string) {
 		return "unknown", guid
 	}
 	return strings.ToLower(parts[0]), parts[1]
-}
-
-func sortPublicationEpisodes(episodes []packs.ExpectedEpisode) {
-	sort.Slice(episodes, func(i, j int) bool { return episodes[i].Key.Episode < episodes[j].Key.Episode })
 }

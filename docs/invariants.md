@@ -1,0 +1,32 @@
+# System invariants
+
+These are the guarantees Media Manager gives its owner. They are not
+preferences: a change that weakens one is a bug, even if every other test
+passes. An agent may propose changing an invariant in a pull request that
+says so in its title; it must never weaken one silently.
+
+Each invariant names the tests that prove it. `tests/ci/test_invariants_map.py`
+fails if a named test no longer exists, so renaming or deleting a test forces
+this file to be updated. **Gap** marks an invariant whose proof is incomplete;
+closing gaps is tracked work, not optional polish.
+
+| ID | Invariant | Proven by |
+|---|---|---|
+| S01 | A working published asset is never deleted or overwritten because a search failed, a mount was unavailable, a request timed out, verification was incomplete or a media-server scan was missing. | `TestFailedUpgradePublicationPreservesCurrentPublication`, `TestFailedUpgradeVerificationPreservesCurrentPublication`, `TestMountOutageDefersInsteadOfFailing`, `TestRemoveSymlinkNeverTouchesRealMedia` |
+| S02 | A new version replaces the current one only after the media server has confirmed it at the exact expected path and identity. | `TestFailedUpgradePublicationPreservesCurrentPublication`, `TestConfirmationReportsIdentityMismatchForExactPath`, `TestConfirmationByPathRequiresContainingLocation` |
+| S03 | Destructive file operations touch only the exact recorded target and fingerprint, never real media behind a link. | `TestRemoveSymlinkRequiresExactRecordedTarget`, `TestMoveAndRemoveRegularFileRequireExactFingerprint`, `TestRemoveSymlinkNeverTouchesRealMedia`. **Gap:** `internal/recycle` has no tests. |
+| S04 | A hard requirement (resolution, language, audio language) cannot be offset by a preference score, and `unknown` never counts as `pass` unless the policy explicitly holds or allows it. | `TestEvaluateUnknownEvidenceStaysUnknown`, `TestRequiredAudioHoldsUntaggedReleasesUnlessItIsTheOriginalLanguage`, `TestApplyPresetPreservesHardRulesAndLanguagePreferences` |
+| S05 | Claims (a release name, an indexer attribute), measurements (ffprobe), mount state and media-server visibility are separate facts with their source; a claim is never reported as a measurement. | `TestAltMountProgressIsReportedOnlyAsObserved`, `TestParseRejectsUnknownOrMissingVideoEvidence` |
+| S06 | Evidence used to select a release is immutable and stays traceable; re-scoring adds history instead of rewriting it. | `TestPersistSearchRescoredHeldObservationPreservesHistoryAndIsIdempotent`, `TestPersistSearchConcurrentAttemptsDoNotDuplicateObservation`, `TestWorkflowCandidateObservationsLoadsStoredEvidenceReadOnly` |
+| S07 | External submissions are recorded before the side effect; an ambiguous outcome is reconciled, never blindly re-sent. | `TestActiveSubmissionIsNotRetransmitted`, `TestInterruptedSubmissionRecoveryIsTruthful`, `TestCAPSUncertainFinalizationDoesNotResend`, `TestTransferRegularFileVerifiesAndReconcilesUnknownOutcomes` |
+| S08 | Background work is idempotent: a retried, deferred, panicking or abandoned handler cannot duplicate or overwrite newer decisions. | `TestDeferredOutboxWorkDoesNotConsumeAnAttempt`, `TestRunHandlerTurnsAPanicIntoARetry`, `TestRunHandlerAbandonsAHandlerThatNeverReturns`, `TestHeldRescoreConcurrentPersistenceDoesNotDuplicateVersion`, `TestUpdateQualityProfileRejectsStaleEditAndKeepsNewerRequiredRules` |
+| S09 | Indexer budgets, pacing and cooldowns persist across restarts; retries honour `Retry-After`; one request is in flight per indexer. | `TestPersistedCooldownDefersWithoutHoldingSchedulerSlots`, `TestRateLimitHonorsRetryAfter`, `TestSchedulerAllowsOnlyOneInflightPerIndexer`, `TestRollingBudgetsReserveBeforePermitAndSeparateQueriesFromGrabs`, `TestBackgroundSearchUsesAtMostFirstFifthOfQueryBudget` |
+| S10 | Path operations stay inside their configured root, also through symlinks and container path translation. | `TestInspectWithinRejectsPathEscapeAndSymlink`, `TestPublishSymlinkCannotEscapeThroughSymlinkedParent`, `TestValidateRelativeRejectsEscapes`, `TestMoveSymlinkRejectsEscapes`, `TestValidatePlanPinsPlexVisibleTarget` |
+| S11 | A season pack satisfies only the episodes proven present in its inventory; the release name alone never proves coverage. | `TestNumberedInventoryPreservesExactCoverageAndPaths`, `TestCollectionInventoryVerifiesExactRequestedScopeAndKeepsFailures`, `TestAnnualSeasonPackLabelsKeepExactInventoryGate`, `TestRenderEpisodeSetRejectsNonContiguousCoverage` |
+| S12 | An upgrade cannot silently regress a required language or other contract dimension and must be a strict improvement. | `TestUpgradeBaselineRequiresStrictImprovement`, `TestUpgradeSearchContextKeepsVerifiedNoSubtitleEvidence` |
+| S13 | No probe reads or decodes a whole virtual file; every probe has a byte and time budget. | `TestBoundedBufferStopsAtLimit`, `TestInspectWithinDefersAnFFprobeTimeout`, `TestInspectWithinReportsZeroFilledFiles` |
+| S14 | An unavailable mount is not a missing or corrupt file; it defers work and never erases earlier evidence. | `TestMountOutageDefersInsteadOfFailing`, `TestAltMountMountHealthReportsEachEnabledClient` |
+| S15 | A media-server scan acknowledgement is not publication; confirmation needs the exact path and identity. | `TestPlexConfirmationWindowStartsAtRefresh`, `TestConfirmationReportsIdentityMismatchForExactPath`, `TestConfirmationAcceptsExactPathWhenPlexHasNoProviderIdentity` |
+| S16 | Adoption of existing media is planned before it is applied and can be rolled back; original files are preserved. | `TestBuildApplyAndRollbackAdoptionOperations`, `TestCrossRootAdoptionTransfersAndRollsBackVerifiedFiles` |
+| S17 | Backups are verified by an isolated restore; production deploys take a backup first. | `TestCreateAndVerifyUsesIsolatedRestoreLifecycle`, `tests/ci/test_deploy_broker.py` |
+| S18 | Provider credentials and the owner token never appear in API responses, stored observations, logs or client configuration. | `TestSanitizeProviderValueRemovesCredentialQueriesAndPreservesMetadata`, `TestSanitizeObservationWithCredentialRemovesProviderSpecificAliases`, `TestCapabilityProfileDraftNeverContainsProviderSecrets`. **Gap:** the Nuvio addon still holds the owner token (fixed by the client API). |
