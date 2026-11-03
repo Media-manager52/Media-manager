@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strconv"
@@ -201,6 +202,8 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	lanes := make(chan struct{}, browseProviderConcurrency)
+	started := time.Now()
+	var timings []browseTiming
 	for _, integration := range all {
 		var cfg indexerConfig
 		if !integration.Enabled || json.Unmarshal(integration.Config, &cfg) != nil {
@@ -215,6 +218,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 		wg.Add(1)
 		go func(i postgres.Integration, c indexerConfig) {
 			defer wg.Done()
+			providerStarted := time.Now()
 			select {
 			case lanes <- struct{}{}:
 				defer func() { <-lanes }()
@@ -273,6 +277,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			mu.Lock()
 			defer mu.Unlock()
 			result.Providers = append(result.Providers, provider)
+			timings = append(timings, browseTiming{name: i.Name, state: provider.State, elapsed: time.Since(providerStarted)})
 			seen := map[string]bool{}
 			for _, o := range observations {
 				if len(choices) >= 300 {
@@ -303,6 +308,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 		}(integration, cfg)
 	}
 	wg.Wait()
+	logBrowseTimings(in, time.Since(started), timings)
 	sort.Slice(result.Providers, func(i, j int) bool { return result.Providers[i].Name < result.Providers[j].Name })
 	sort.SliceStable(result.Releases, func(i, j int) bool {
 		a, b := result.Releases[i], result.Releases[j]
@@ -841,4 +847,25 @@ func waitBrowsePacing(ctx context.Context, err error) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+// browseTiming is one provider's share of a stream-list search: from the
+// start of the search until its results were in, including any wait for a
+// worker, an in-flight slot or a pacing interval.
+type browseTiming struct {
+	name    string
+	state   string
+	elapsed time.Duration
+}
+
+// logBrowseTimings records how long a fresh (uncached) stream-list search took
+// and which providers it waited for, slowest first. It holds indexer names,
+// states and durations only.
+func logBrowseTimings(in BrowseInput, total time.Duration, timings []browseTiming) {
+	sort.Slice(timings, func(a, b int) bool { return timings[a].elapsed > timings[b].elapsed })
+	parts := make([]string, 0, len(timings))
+	for _, timing := range timings {
+		parts = append(parts, fmt.Sprintf("%s=%dms/%s", timing.name, timing.elapsed.Milliseconds(), timing.state))
+	}
+	slog.Info("stream search", "kind", string(in.Kind), "elapsed_ms", total.Milliseconds(), "providers", strings.Join(parts, ", "))
 }
