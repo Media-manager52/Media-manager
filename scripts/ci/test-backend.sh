@@ -7,8 +7,8 @@ if [[ -z "${MEDIA_MANAGER_TEST_DATABASE_URL:-}" ]]; then
 fi
 
 shards="${BACKEND_TEST_SHARDS:-4}"
-if ! [[ "$shards" =~ ^[1-8]$ ]]; then
-  echo "BACKEND_TEST_SHARDS must be an integer from 1 through 8" >&2
+if ! [[ "$shards" =~ ^([1-9]|1[0-6])$ ]]; then
+  echo "BACKEND_TEST_SHARDS must be an integer from 1 through 16" >&2
   exit 64
 fi
 
