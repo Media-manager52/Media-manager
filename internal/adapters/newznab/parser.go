@@ -367,20 +367,41 @@ func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases
 	values := make(map[string][]string)
 	indices := make(map[string][]int)
 	for index, field := range fields {
-		name, exists := aliases[strings.ToLower(strings.TrimSpace(field.Name))]
+		attribute := strings.ToLower(strings.TrimSpace(field.Name))
+		name, exists := aliases[attribute]
 		if !exists || strings.TrimSpace(field.Value) == "" {
 			continue
 		}
-		if name == "subtitle_languages" || name == "audio_languages" {
-			for _, token := range strings.FieldsFunc(field.Value, func(value rune) bool {
-				return value == ',' || value == ';' || value == '/' || value == '|' || value == ' ' || value == '\t'
-			}) {
-				if canonical, reliable := canonicalProviderLanguage(token); reliable {
-					values[name] = append(values[name], canonical)
-					indices[name] = append(indices[name], index)
-				}
+		addLanguages := func(target string) {
+			for _, canonical := range providerLanguages(field.Value) {
+				values[target] = append(values[target], canonical)
+				indices[target] = append(indices[target], index)
 			}
+		}
+		if name == "subtitle_languages" || name == "audio_languages" {
+			addLanguages(name)
 			continue
+		}
+		// Newznab's language attribute is the audio language list; indexers
+		// fill it from the release's MediaInfo (subtitles go in subs). Keep
+		// the raw fact and also expose it as audio evidence.
+		if attribute == "language" {
+			addLanguages("audio_languages")
+		}
+		// Some indexers put the audio language list in the audio attribute,
+		// others the codec with a channel count ("E-AC-3 6").
+		if attribute == "audio" {
+			if languagesOnly(field.Value) {
+				addLanguages("audio_languages")
+				continue
+			}
+			if codec, channels, ok := splitAudioCodecChannels(field.Value); ok {
+				values["audio_codec"] = append(values["audio_codec"], canonicalMediaValue("audio_codec", codec))
+				indices["audio_codec"] = append(indices["audio_codec"], index)
+				values["audio_channels"] = append(values["audio_channels"], channels)
+				indices["audio_channels"] = append(indices["audio_channels"], index)
+				continue
+			}
 		}
 		value := field.Value
 		if _, media := mediaAliases[strings.ToLower(strings.TrimSpace(field.Name))]; media {
@@ -397,6 +418,19 @@ func normalizeFacts(fields []releases.RawField, observedAt time.Time) []releases
 		}
 		values[name] = append(values[name], value)
 		indices[name] = append(indices[name], index)
+	}
+	if languages := values["audio_languages"]; len(languages) > 0 {
+		seen := map[string]bool{}
+		keptValues, keptIndices := []string{}, []int{}
+		for i, language := range languages {
+			if seen[language] {
+				continue
+			}
+			seen[language] = true
+			keptValues = append(keptValues, language)
+			keptIndices = append(keptIndices, indices["audio_languages"][i])
+		}
+		values["audio_languages"], indices["audio_languages"] = keptValues, keptIndices
 	}
 	names := make([]string, 0, len(values))
 	for name := range values {

@@ -42,6 +42,8 @@ func canonicalMediaValue(name, value string) string {
 			return "eac3"
 		case "dts-hd ma", "dts-hd master audio":
 			return "dts_hd_ma"
+		case "mlp fba", "truehd":
+			return "truehd"
 		}
 	}
 	return v
@@ -190,4 +192,54 @@ func canonicalProviderLanguage(value string) (string, bool) {
 		return mapped, true
 	}
 	return subtitles.CanonicalLanguage(value)
+}
+
+func splitProviderLanguages(value string) []string {
+	return strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '/' || r == '|' || r == ' ' || r == '\t'
+	})
+}
+
+// providerLanguages returns the reliable canonical languages in a provider
+// list such as "English (United States),German (Germany)" or "bg-BG, Danish".
+func providerLanguages(value string) []string {
+	out := []string{}
+	for _, token := range splitProviderLanguages(value) {
+		if canonical, reliable := canonicalProviderLanguage(token); reliable {
+			// "en-us" and "bg-bg" are the same language as "en" and "bg".
+			if base, _, regional := strings.Cut(canonical, "-"); regional && len(base) >= 2 && len(base) <= 3 {
+				canonical = base
+			}
+			out = append(out, canonical)
+		}
+	}
+	return out
+}
+
+// languagesOnly is true when an attribute holds a language list rather than a
+// codec: every word is a language or a parenthesised region/qualifier.
+func languagesOnly(value string) bool {
+	found := false
+	for _, token := range splitProviderLanguages(value) {
+		if _, reliable := canonicalProviderLanguage(token); reliable {
+			found = true
+			continue
+		}
+		if strings.HasPrefix(token, "(") || strings.HasSuffix(token, ")") {
+			continue
+		}
+		return false
+	}
+	return found
+}
+
+var audioCodecChannels = regexp.MustCompile(`^\s*([A-Za-z][A-Za-z0-9 .:+-]*?)\s+([1-9][0-9]?)\s*$`)
+
+// splitAudioCodecChannels reads "E-AC-3 6" as codec E-AC-3 with 6 channels.
+func splitAudioCodecChannels(value string) (string, string, bool) {
+	match := audioCodecChannels.FindStringSubmatch(value)
+	if match == nil {
+		return "", "", false
+	}
+	return match[1], match[2] + " channels", true
 }
