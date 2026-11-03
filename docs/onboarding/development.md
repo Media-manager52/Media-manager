@@ -114,8 +114,8 @@ From `AGENTS.md` plus observed practice:
    `server.requireOwner`.
 3. Handler: parse limit/offset with clamps → call store → `writeJSON`.
 4. Add the type + loader to `web/src/api/client.ts`.
-5. Add a table/screen in the UI (see [05-frontend.md](../architecture/frontend.md#8-adding-or-changing-a-screen)).
-6. Update [04-api.md](../architecture/api.md).
+5. Add a table/screen in the UI (see [frontend.md](../architecture/frontend.md#8-adding-or-changing-a-screen)).
+6. Update [api.md](../architecture/api.md).
 
 ### 5.2 Add a migration + column
 
@@ -125,7 +125,7 @@ From `AGENTS.md` plus observed practice:
 4. Add a migration integration test
    (`*_migration_integration_test.go` pattern) that applies migrations and
    asserts both upgrade and fresh-DB behavior.
-5. Update [03-database.md](../architecture/database.md).
+5. Update [database.md](../architecture/database.md).
 
 ### 5.3 Add/modify a workflow transition
 
@@ -133,7 +133,7 @@ From `AGENTS.md` plus observed practice:
 2. Add/extend `model_test.go` for legal/illegal edges.
 3. Audit every handler that produces or consumes the new edge; add revision
    guards and transitions in the same transaction as the state change.
-4. Update [01-architecture.md](../architecture/overview.md#4-workflow-state-machine).
+4. Update [overview.md](../architecture/overview.md#4-workflow-state-machine).
 
 ### 5.4 Add an outbox event
 
@@ -143,7 +143,7 @@ From `AGENTS.md` plus observed practice:
 3. Make the handler idempotent, revision-checked, and safe to retry. Return
    `SafeCode()` errors; implement `RetryAt()` for paced deferrals.
 4. Add an integration test that exercises the lifecycle; update
-   [01-architecture.md](../architecture/overview.md#3-the-durable-outbox-the-heart-of-the-system).
+   [overview.md](../architecture/overview.md#3-the-durable-outbox-the-heart-of-the-system).
 
 ### 5.5 Add or change a quality-profile policy field
 
@@ -205,7 +205,7 @@ From `AGENTS.md` plus observed practice:
 
 | Need | Go to |
 | --- | --- |
-| Understand a workflow state | `internal/workflows/model.go` + [06-workflows.md](../architecture/workflows.md) |
+| Understand a workflow state | `internal/workflows/model.go` + [workflows.md](../architecture/workflows.md) |
 | Trace a search | `internal/acquisition/search.go` → `search_plan.go` → `internal/adapters/newznab` |
 | Trace a failure | `internal/postgres/acquisition_rounds.go` (`recordAttributableAcquisitionFailure`) |
 | Understand verification | `internal/packs/coverage.go`, `internal/subtitles/verify.go` |
@@ -215,5 +215,5 @@ From `AGENTS.md` plus observed practice:
 | Understand recycle | `internal/recycle/service.go`, `internal/postgres/recycle.go` |
 | Understand Seerr | `internal/intake/`, `internal/adapters/seerr/` |
 | Understand commissioning | `internal/commissioningv2/`, `internal/commissioning/` |
-| Understand the schema | `internal/postgres/migrations/` + [03-database.md](../architecture/database.md) |
-| Understand the UI | `web/src/routes.tsx` + [05-frontend.md](../architecture/frontend.md) |
+| Understand the schema | `internal/postgres/migrations/` + [database.md](../architecture/database.md) |
+| Understand the UI | `web/src/routes.tsx` + [frontend.md](../architecture/frontend.md) |

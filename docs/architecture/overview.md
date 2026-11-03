@@ -12,7 +12,7 @@ touches code. Everything here is grounded in `cmd/media-manager/main.go`,
                       │       │ /api, /health                     │ everything else
                       │       ▼                                   ▼
                       │  media-manager-api-1:8080            media-manager-ui-1:3000
-                      │  (Go: HTTP + outbox worker)          (Node + Vinext/Next UI)
+                      │  (Go: HTTP + outbox worker)          (static React app, web/)
                       │       │  │  │
                       │       │  │  └──────── integration network ────────┐
                       │       │  └─── backend network ───┐                │
@@ -27,7 +27,7 @@ touches code. Everything here is grounded in `cmd/media-manager/main.go`,
   UI container. The `/api` Cosmos route overwrites the inbound `Authorization`
   header with `Bearer <OWNER_TOKEN>` server-side, so browser JavaScript never
   sees the token and cannot forge or read it. See
-  [07-operations.md](../operations/runbook.md#public-edge-cosmos-cloud) for the exact
+  [the runbook](../operations/runbook.md#public-edge-cosmos-cloud) for the exact
   route table and `README.md` § "Public edge routing".
 - **Loopback bypass.** The API is also published on
   `127.0.0.1:${MEDIA_MANAGER_API_PORT}` (default `28081`) for machine checks and
@@ -220,7 +220,7 @@ PostgreSQL is the only durable store. Runtime data on disk is deliberately
 minimal: `/libraries/movies` + `/libraries/tv` (managed symlinks/real files),
 recycle areas, `data/backups`, and read-only `/mnt/altmount`.
 
-Table groups (full catalog in [03-database.md](database.md)):
+Table groups (full catalog in [database.md](database.md)):
 
 - Catalog/metadata: `media_items`, `external_identities`, `media_metadata`,
   `media_collections*`.
@@ -315,5 +315,5 @@ These come from `README.md` and `AGENTS.md`; they are enforced by code and tests
 | How does Seerr intake work? | `internal/intake/`, `internal/adapters/seerr/` |
 | How does adoption work? | `internal/adoption/`, `internal/adoptionexec/` |
 | How does recycle work? | `internal/recycle/`, `internal/postgres/recycle.go` |
-| How do I read the DB? | `internal/postgres/*.go` (see [03-database.md](database.md)) |
+| How do I read the DB? | `internal/postgres/*.go` (see [database.md](database.md)) |
 | How does the UI map routes to screens? | `components/media-manager/app-shell.tsx` |
