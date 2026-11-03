@@ -98,8 +98,6 @@ services:
     build:
       context: .
       target: ui
-      args:
-        NEXT_PUBLIC_MEDIA_MANAGER_MODE: live
       labels:
         org.opencontainers.image.version: ${MEDIA_MANAGER_VERSION:-development}
         org.opencontainers.image.revision: ${MEDIA_MANAGER_COMMIT:-local}

@@ -243,13 +243,11 @@ When adding a method, place it in the domain file, reuse `ErrNotFound` /
 5. **Retention.** Recycle automatic purge planning runs hourly via
    `PlanDueRecyclePurges`; adopted real files are never auto-deleted.
 
-## 6. UI scaffolding warning
+## 6. The UI has no database
 
-`db/schema.ts` is intentionally empty and `db/index.ts` is Cloudflare D1
-boilerplate for the UI template (`drizzle.config.ts` uses SQLite). **The real
-database is PostgreSQL managed by the Go migrations above.** Do not add
-production tables to Drizzle or run `npm run db:generate` expecting a Go
-migration; it only generates into `drizzle/`.
+The web UI (`web/`) has no database of its own. **The only database is
+PostgreSQL managed by the Go migrations above**; the UI reads and writes
+through the HTTP API.
 
 ## Schema 41: bounded NZB retrieval recovery
 

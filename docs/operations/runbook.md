@@ -12,7 +12,7 @@ Docker Compose with three services (`compose.yaml`):
 | --- | --- | --- | --- |
 | `postgres` | `postgres:18.6-alpine3.24` | `backend` | Durable state. |
 | `api` | Dockerfile target `api` (distroless-style alpine, non-root UID/GID) | `backend`, `frontend`, `integrations` | Go API + outbox worker + ticker. |
-| `ui` | Dockerfile target `ui` (Node 24, Vinext) | `frontend` | Owner web UI. |
+| `ui` | Dockerfile target `ui` (Node 24, static server for `web/`) | `frontend` | Owner web UI. |
 
 The API container is hardened: `cap_drop: ALL`, `no-new-privileges`, runs as
 `MEDIA_MANAGER_UID:MEDIA_MANAGER_GID` (default 65532). Networks `frontend` and
@@ -243,7 +243,7 @@ without them the DB cannot reach integrations. Protect all three as secrets.
 | Version | `docker compose exec -T api media-manager version` |
 | Public-edge routing/auth | `scripts/smoke-public-edge.sh https://media-manager.example.com` |
 | Owner API read models (loopback) | `scripts/smoke-api-direct.sh` |
-| Live read-only browser acceptance | `npm run test:live-browser` |
+| Live read-only browser acceptance | `scripts/test-live-website.sh` (needs `npm ci` in `web/`) |
 
 `smoke-public-edge.sh` fails if `/api/v1/*` reaches the UI container (bare 404)
 or the API answers without an auth gate. `smoke-api-direct.sh` resolves the

@@ -11,8 +11,8 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	git archive --format=tar.gz --prefix=media-manager/ --output="$OUT" HEAD
 else
 	tar \
-		--exclude='./.git' --exclude='./node_modules' --exclude='./data' \
-		--exclude='./.next' --exclude='./dist' --exclude='./coverage' \
+		--exclude='./.git' --exclude='./node_modules' --exclude='./web/node_modules' --exclude='./data' \
+		--exclude='./.next' --exclude='./dist' --exclude='./web/dist' --exclude='./coverage' \
 		--exclude='./.sites-runtime' --exclude='./work' --exclude='./outputs' \
 		--exclude='./.env' --exclude='./.env.integrations' --exclude='./.env.local' --exclude='*.log' \
 		--transform='s,^\./,media-manager/,' -czf "$OUT" .

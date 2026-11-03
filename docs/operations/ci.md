@@ -43,7 +43,7 @@ controlled experiment; the workflow default is 4.
 
 ## Caches and reproducibility
 
-- Frontend/browser use the npm cache keyed by `package-lock.json`.
+- Frontend/browser run in `web/` and use the npm cache keyed by `web/package-lock.json`.
 - Backend uses the Go module cache keyed by `go.sum`.
 - The Playwright container remains pinned; browser tests are not moved to an
   unpinned browser install.

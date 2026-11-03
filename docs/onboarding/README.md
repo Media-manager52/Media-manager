@@ -5,7 +5,7 @@ codebase. It is written for an engineer or AI agent with **zero prior
 context** who must safely read, change, test, and operate the repository.
 
 Source checkpoint: Seerr waiting progress and VPS GitHub workflows
-(2026-10-01), database schema 44, Go 1.27, Node 24 / Next 16 (Vinext),
+(2026-10-01), database schema 44, Go 1.27, Node 24 / Vite + React web UI,
 PostgreSQL 18. This includes the earlier bounded NZB retrieval and access-rejection
 recovery, IPv4-only API egress, configurable acquisition budgets, and recorded
 request search schedules. Existing round snapshots remain immutable.
@@ -68,7 +68,7 @@ Nothing is claimed successful until an exact Plex confirmation occurs.
 
 Three processes run from one Go binary (`cmd/media-manager`): the HTTP API, the
 durable outbox worker, and a small scheduler goroutine (recycle purge planning,
-Seerr polling/status sync). The UI is a separate Node/Cloudflare-Worker process
+Seerr polling/status sync). The UI is a separate static web app (`web/`, served by Node)
 that talks to the API **same-origin** (`/api/*`); Cosmos Cloud is the public
 edge and injects the owner bearer token server-side.
 
@@ -137,5 +137,5 @@ When you change behavior:
 - Keep the root `README.md`, `AGENTS.md`, and `CONTRIBUTING.md` pointers valid.
 - Add new design proposals to `archive/` only (they are not behavior).
 - Do not paste large code blocks; link to files and describe invariants.
-- Run `npm run docs:check` to validate links, and refresh the Snapshot line
+- Run `node scripts/check-docs.mjs` to validate links, and refresh the Snapshot line
   above when the commit or schema changes.
