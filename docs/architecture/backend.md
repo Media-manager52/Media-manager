@@ -513,8 +513,11 @@ dependency).
 
 `internal/acquisition/browse.go` reuses SearchService's provider request planning,
 media matching, Newznab transport and durable scheduler for the private addon.
-It keeps bounded expiring choices in memory and permits retrieval only through
-an exact choice. No acquisition workflow or library publication is created.
+It keeps bounded expiring choices in memory, writes each stream list's choices
+to `streaming_choices` (`browse_choices.go`) and reads a choice back from there
+after a restart or eviction, and permits retrieval only through an exact choice.
+A stored choice is usable only while its indexer is enabled with the same
+configuration fingerprint. No acquisition workflow or library publication is created.
 Each provider search runs in its own goroutine (up to nine) so per-indexer
 pacing waits do not serialize the other providers; the scheduler still enforces
 the global and per-indexer limits. Optional details/NFO enrichment is capped at

@@ -110,7 +110,7 @@ func TestSearchPartialRetryMigrationFromPopulatedSchema49(t *testing.T) {
 		t.Fatalf("schema-49 seed baseline version=%d runs=%d observations=%d candidates=%d decisions=%d", baselineVersion, baselineSearchRuns, baselineObservations, baselineCandidates, baselineDecisions)
 	}
 
-	if err := Migrate(ctx, store.Pool); err != nil {
+	if err := migrateThrough(ctx, store.Pool, 50); err != nil {
 		t.Fatalf("apply migration 50: %v", err)
 	}
 	var version int64
@@ -183,6 +183,10 @@ func TestSearchPartialRetryMigrationFromPopulatedSchema49(t *testing.T) {
 	var remaining int
 	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM search_partial_retries WHERE workflow_id=$1`, workflow.ID.String()).Scan(&remaining); err != nil || remaining != 0 {
 		t.Fatalf("remaining migrated states=%d err=%v", remaining, err)
+	}
+	// Application startup applies every later migration before readiness.
+	if err := Migrate(ctx, store.Pool); err != nil {
+		t.Fatalf("apply later migrations: %v", err)
 	}
 	if err := store.Ready(ctx); err != nil {
 		t.Fatalf("schema-50 application startup readiness: %v", err)

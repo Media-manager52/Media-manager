@@ -377,7 +377,11 @@ For the first matching result per provider lacking subtitle fields, a bounded
 DETAILS request and an advertised NFO may supplement the search response. This
 is provider-reported evidence, not local file verification. Unknown values stay
 unknown; Danish audio is not a subtitle badge. Capacity is bounded to 10,000
-choices and 128 cached searches; choices expire after six hours or restart.
+in-memory choices and 128 cached searches. Choices are also stored in
+`streaming_choices` (no credentials: indexer id, configuration fingerprint,
+native id, title, sanitized locator reference), so an open stream list keeps
+working across a restart. A choice expires after six hours, or as soon as its
+indexer is disabled or edited.
 
 `POST /api/v1/streaming/releases/{id}/nzb` retrieves only the selected opaque
 choice through Media Manager's guarded Newznab retrieval adapter and durable
