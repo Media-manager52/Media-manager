@@ -175,8 +175,6 @@ func TestLiveExecutorAbsentFromProductionDependencyGraph(t *testing.T) {
 	// Positive control: the leaf package itself must exist and provide the
 	// test-only constructor, so the absence above is meaningful (not a
 	// renamed-package tautology).
-	var constructor func(LiveExecutorDeps) (*LiveExecutor, error) = NewLocalLiveExecutor
-	if constructor == nil {
-		t.Fatal("test-only live-executor constructor missing")
-	}
+	// Compile-time check: the build fails if the constructor disappears.
+	var _ func(LiveExecutorDeps) (*LiveExecutor, error) = NewLocalLiveExecutor
 }

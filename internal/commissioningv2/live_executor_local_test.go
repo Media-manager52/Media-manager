@@ -10,7 +10,6 @@ import (
 type stubLiveStepStore struct {
 	claimed      int
 	claimErr     error
-	claimState   LiveStepState
 	completeErr  error
 	deferred     int
 	transmitting int
@@ -263,8 +262,6 @@ func TestNoProductionConstructorWiresLiveExecutor(t *testing.T) {
 	// (NewLocalLiveExecutor). It does NOT prove repository-level
 	// production unreachability — no caller-graph or wiring assertion is
 	// made here.
-	var constructor func(LiveExecutorDeps) (*LiveExecutor, error) = NewLocalLiveExecutor
-	if constructor == nil {
-		t.Fatal("test-only constructor missing")
-	}
+	// Compile-time check: the build fails if the constructor disappears.
+	var _ func(LiveExecutorDeps) (*LiveExecutor, error) = NewLocalLiveExecutor
 }

@@ -26,12 +26,6 @@ func (source *stubGateSource) CommissioningGate(_ context.Context, _ string) (Co
 	return source.state, source.ok
 }
 
-func (source *stubGateSource) readCount() int {
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	return source.reads
-}
-
 type stubBudgetStore struct {
 	mu       sync.Mutex
 	snapshot Snapshot

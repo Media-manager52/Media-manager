@@ -126,12 +126,13 @@ func TestPlexReconfirmationRetriesTimedOutVerifiedLinks(t *testing.T) {
 		t.Fatalf("confirmed workflow retry error=%v, want ErrPlexReconfirmationNotTimedOut", err)
 	}
 
-	limited, limitedScan, _, _ := publishTimedOutMovie(t, fixture, "Reconfirm Limit Movie", "560002", "reconfirm-limit")
+	limited, _, _, _ := publishTimedOutMovie(t, fixture, "Reconfirm Limit Movie", "560002", "reconfirm-limit")
 	for retry := 1; retry <= maxPlexReconfirmations; retry++ {
-		if limitedScan, err = fixture.store.RequestPlexReconfirmation(fixture.ctx, limited, "owner", time.Now().UTC()); err != nil {
+		scan, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, limited, "owner", time.Now().UTC())
+		if err != nil {
 			t.Fatalf("limit retry %d: %v", retry, err)
 		}
-		timeOutScan(t, fixture, limitedScan)
+		timeOutScan(t, fixture, scan)
 	}
 	if _, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, limited, "owner", time.Now().UTC()); !errors.Is(err, ErrPlexReconfirmationLimit) {
 		t.Fatalf("retry beyond limit error=%v, want ErrPlexReconfirmationLimit", err)

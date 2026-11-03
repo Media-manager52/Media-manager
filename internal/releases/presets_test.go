@@ -207,7 +207,7 @@ func TestPresetForIsCaseInsensitiveAndDeterministic(t *testing.T) {
 // holds the real ApplyPreset output for every preset over a profile that has
 // required resolution and audio-codec rules, and both the Go test below and the
 // editor's unit and browser tests read it.
-const presetEditorFixturePath = "../../tests/browser/fixtures/quality-preset-applications.json"
+const presetEditorFixturePath = "../../web/src/lib/fixtures/quality-preset-applications.json"
 
 type presetEditorFixture struct {
 	Note    string            `json:"note"`
@@ -256,7 +256,7 @@ func TestQualityPresetEditorFixtureIsCurrent(t *testing.T) {
 		t.Fatalf("read preset editor fixture: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatal("tests/browser/fixtures/quality-preset-applications.json is stale; run: MM_WRITE_PRESET_FIXTURE=1 go test ./internal/releases -run TestQualityPresetEditorFixtureIsCurrent")
+		t.Fatal("web/src/lib/fixtures/quality-preset-applications.json is stale; run: MM_WRITE_PRESET_FIXTURE=1 go test ./internal/releases -run TestQualityPresetEditorFixtureIsCurrent")
 	}
 }
 

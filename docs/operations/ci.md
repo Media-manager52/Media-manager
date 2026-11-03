@@ -15,6 +15,12 @@ by a trusted push after review.
 | `containers` | self-hosted `media-manager-vps` | Requires the owner's separate rootless Docker engine for the disposable stack smoke. |
 | `publish` | self-hosted `media-manager-vps` | Needs the rootless Docker engine and registry credentials; runs only on `main` pushes after every required job succeeds. |
 
+The deployment broker enforces this exact placement (`JOB_PLACEMENT` in
+`deploy/github/deploy-broker.py`): a required job on any other runner, or a
+VPS job moved to a hosted runner, blocks deployment. A contract test in
+`tests/ci/test_deploy_broker.py` fails if `verify.yml` and the broker disagree,
+so moving a job requires changing both and reinstalling the broker.
+
 The self-hosted runner is still a single-job runner. Backend and containers are
 therefore serialized on it. The hosted frontend/browser jobs no longer wait
 behind them. Adding a second self-hosted runner is an owner/infrastructure
@@ -26,18 +32,33 @@ decision, not something this workflow can invent safely.
 
 - runs every non-`internal/postgres` package with `-race`;
 - discovers every top-level PostgreSQL test;
-- partitions those tests into four groups;
-- runs all four PostgreSQL groups concurrently with the full `-race` flag;
+- partitions those tests into `BACKEND_TEST_SHARDS` groups (the workflow sets
+  10; the script default is 4, allowed 1–16);
+- runs all PostgreSQL groups concurrently with the full `-race` flag;
 - fails if any group fails, and prints that group's log.
 
 The PostgreSQL tests create unique schemas, which is what makes concurrent
-groups safe. All 247 PostgreSQL tests are still executed; this is a split of the
-same suite, not a reduction. `BACKEND_TEST_SHARDS` can be set from 1 to 8 for a
-controlled experiment; the workflow default is 4.
+groups safe. Every PostgreSQL test is still executed; this is a split of the
+same suite, not a reduction.
+
+Two things keep the groups from waiting on each other:
+
+- `Migrate` locks per schema. The production schema `public` keeps the single
+  historical advisory key; any other schema locks on its own
+  `(namespace, schema)` key (`internal/postgres/migrate.go`, pinned by
+  `TestMigrationLockKeepsProductionKeyAndIsolatesTestSchemas`). Before this,
+  every test schema queued behind one database-wide lock, and more groups made
+  the suite slower.
+- The workflow raises the throwaway test database's
+  `max_locks_per_transaction` to 1024, because ten groups dropping whole
+  schemas at once overflow the default lock table ("out of shared memory").
+
+Measured on the VPS: 4 groups with the shared lock took about 6 minutes;
+10 groups with per-schema locks take about 2.5 minutes.
 
 ## Caches and reproducibility
 
-- Frontend/browser use the npm cache keyed by `package-lock.json`.
+- Frontend/browser run in `web/` and use the npm cache keyed by `web/package-lock.json`.
 - Backend uses the Go module cache keyed by `go.sum`.
 - The Playwright container remains pinned; browser tests are not moved to an
   unpinned browser install.
@@ -73,11 +94,11 @@ gh run list --repo Media-manager52/Media-manager --workflow Verify \
   --commit "$sha" --limit 1 --json databaseId,url,status,conclusion
 ```
 
-If the run is queued or in progress, mark it **PENDING** and continue with
-independent work on a separate branch/worktree. Do not use `gh run watch`,
-`sleep` loops, repeated polling, or long command timeouts. Recheck only at a
-natural dependency boundary. If no independent work remains, finish the turn and
-report the pending run.
+If nothing depends on the run, mark it **PENDING** and continue with
+independent work on a separate branch/worktree. If the next step depends on it,
+wait with `scripts/ci/wait-for-run.sh <run-id>`: it reads only the run status
+every 30 seconds, returns as soon as the run finishes, and gives up after 45
+minutes. Do not use `gh run watch` or a fixed `sleep`.
 
 A merge is allowed only after the exact approved commit has successful required
 checks and a completed review gate. A newer commit never inherits an older

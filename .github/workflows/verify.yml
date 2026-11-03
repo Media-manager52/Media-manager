@@ -28,6 +28,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -36,22 +39,28 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run docs:check
-      - run: python3 -m unittest discover -s tests/ci -v
       - run: npm test
+      - run: npm run build
+      - run: node scripts/check-docs.mjs
+        working-directory: .
+      - run: python3 -m unittest discover -s tests/ci -v
+        working-directory: .
 
   browser:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # Same pinned image as the GitLab browser job, so browsers match @playwright/test.
+    # Pinned image whose browsers match @playwright/test in web/package.json.
     container: mcr.microsoft.com/playwright:v1.62.1-noble
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -59,16 +68,19 @@ jobs:
       - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
+      - run: npm run build
       - run: npm run test:browser
+        env:
+          CI: "true"
       - if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-results
-          path: .sites-runtime/playwright-results
+          path: web/test-results
           retention-days: 7
 
   backend:
@@ -93,17 +105,41 @@ jobs:
       MEDIA_MANAGER_TEST_DATABASE_URL: postgres://media_manager:media_manager_test@127.0.0.1:35432/media_manager_test?sslmode=disable
       OWNER_TOKEN: 0123456789abcdef0123456789abcdef
       GOFLAGS: -mod=readonly
+      # PostgreSQL tests run in this many parallel groups, each in its own
+      # schema (see scripts/ci/test-backend.sh).
+      BACKEND_TEST_SHARDS: "10"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      # Ten groups dropping whole test schemas at once need more than the
+      # default lock table (64 locks per transaction). Service containers cannot
+      # take server flags, so set it and restart the throwaway test database.
+      - name: Size the test database for parallel schema tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "$POSTGRES_CONTAINER" psql -U media_manager -d media_manager_test -c "ALTER SYSTEM SET max_locks_per_transaction = 1024"
+          docker restart "$POSTGRES_CONTAINER"
+          for attempt in $(seq 1 60); do
+            if docker exec "$POSTGRES_CONTAINER" pg_isready -U media_manager -d media_manager_test -h 127.0.0.1 >/dev/null; then
+              docker exec "$POSTGRES_CONTAINER" psql -U media_manager -d media_manager_test -Atc "SHOW max_locks_per_transaction" | grep -qx 1024
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "test database did not come back after restart" >&2
+          exit 1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: 1.27.0
+          go-version: 1.27.3
           cache: true
           cache-dependency-path: go.sum
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./cmd/... ./internal/...
+      # Pinned analyzers; staticcheck.conf documents the disabled style checks.
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./cmd/... ./internal/...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./cmd/... ./internal/...
       - run: bash scripts/ci/test-backend.sh
       - run: go run ./cmd/media-manager migrate
       - run: git diff --exit-code -- go.mod go.sum

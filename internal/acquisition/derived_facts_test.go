@@ -32,15 +32,13 @@ func TestEpisodeNumberingFactsAreStableAndNormalizeHistoricalDuplicates(t *testi
 	// evaluator must normalize this once and then remain stable.
 	historical := first
 	historical.Facts = append([]releases.Fact(nil), first.Facts...)
-	for _, duplicate := range []releases.Fact{
+	historical.Facts = append(historical.Facts, []releases.Fact{
 		{Name: "season_number", Values: []string{"23"}, State: releases.FactInferred, ObservedAt: now.Add(time.Minute)},
 		{Name: "episode_number", Values: []string{"2"}, State: releases.FactInferred, ObservedAt: now.Add(time.Minute)},
 		{Name: "release_scope", Values: []string{"episode"}, State: releases.FactInferred, ObservedAt: now.Add(time.Minute)},
 		{Name: "episode_numbering", Values: []string{"frozen annual season snapshot"}, State: releases.FactInferred, ObservedAt: now.Add(time.Minute)},
 		{Name: "unmapped_season_number", Values: []string{"2026"}, State: releases.FactInferred, ObservedAt: now.Add(time.Minute)},
-	} {
-		historical.Facts = append(historical.Facts, duplicate)
-	}
+	}...)
 	normalized := applyEpisodeNumbering(historical, search, now.Add(2*time.Hour))
 	repeated := applyEpisodeNumbering(normalized, search, now.Add(3*time.Hour))
 	assertDerivedFactsSingle(t, normalized.Facts)

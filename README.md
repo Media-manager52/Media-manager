@@ -65,7 +65,7 @@ Start with:
 
 - Go 1.27 API and durable outbox workers
 - PostgreSQL 18
-- React 19, TypeScript 5.9, Next 16 UI through Vinext/Vite
+- React 19, TypeScript 5.9 and Vite web UI in `web/` (Danish), served by a dependency-free Node server
 - Cosmos Cloud public edge: owner OpenID authentication with path-direct routing to the UI and the API; the owner token is injected server-side per Cosmos route and never reaches browser JavaScript
 - Docker Compose for the supported deployment
 
@@ -113,7 +113,7 @@ helper resolves the running containers, starts a loopback same-origin proxy
 that reproduces the Cosmos route shape, and runs Playwright:
 
 ```sh
-npm run test:live-browser
+scripts/test-live-website.sh
 ```
 
 The suite visits every static route at desktop, tablet, and mobile sizes, checks
@@ -291,9 +291,12 @@ TVDB is preferred for series naming when verified; TMDB is the fallback. Movies 
 ## Verification
 
 ```sh
+cd web
+npm ci
 npm run lint
 npm run typecheck
 npm test
+npm run build
 npm run test:browser
 GOFLAGS=-mod=readonly go vet ./cmd/... ./internal/...
 GOFLAGS=-mod=readonly go test -count=1 -race ./cmd/... ./internal/...

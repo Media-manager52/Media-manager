@@ -34,46 +34,61 @@ truthful, and safe for an owner-operated production media system.
   generated from it. Add new routes there and regenerate
   `docs/reference/openapi.json`
   (`MM_WRITE_OPENAPI=1 go test ./internal/httpapi -run TestCommittedOpenAPIIsCurrent`).
-- `app`, `components`, `lib`: Vinext/React UI, route screens, and API client.
-- `lib/media-library.ts`: pure movie/series library joins and local filtering.
-- `tests` and `tests/browser`: local UI/unit and browser coverage; unexpected external
-  network access must remain blocked.
+- `web/`: the owner web UI (Vite, React, TypeScript, Tailwind), Danish text.
+  `web/src/api/client.ts` is the API client, `web/src/pages/` one file per
+  screen, `web/src/i18n.ts` the only place API codes become words, and
+  `web/server.mjs` the dependency-free production server. See
+  [docs/architecture/frontend.md](docs/architecture/frontend.md).
+- `web/src/**/*.test.*` and `web/tests/browser`: unit and browser coverage. The
+  browser tests mock the API; unexpected external network access must remain
+  blocked.
+
+## Guardrails
+
+- `docs/invariants.md` lists the guarantees (S01–S18) and the tests that
+  prove them. Never weaken one silently.
+- `docs/architecture/boundaries.md` lists the layer rules.
+  `internal/architecture` fails the build when a change crosses a layer or
+  grows a file past 1,000 lines; its allowlist may only shrink.
+- CI also runs pinned `staticcheck` and `govulncheck`.
 
 Follow an existing nearby pattern before adding a new abstraction. Prefer a
 small pure helper over expanding a screen or handler, and document why a new
 layer is necessary if an existing one cannot serve the change.
 
-## Non-blocking GitHub Actions Policy
+## GitHub Actions Policy
 
-GitHub Actions must never block engineering progress:
+Waiting for CI must never block unrelated work, and it must not add idle time
+when the next step depends on it.
 
-1. Never use `gh run watch`, `sleep` loops, repeated polling, or a long-running shell command merely to wait for GitHub Actions.
-2. Never use a 5–20 minute command timeout for CI status observation.
-3. Check CI status once with a short `gh run view`/API call and record the exact run ID, URL and commit SHA.
-4. If the run is queued or in progress, mark it **PENDING** and continue independent work on a separate branch/worktree.
+1. Record the exact run ID, URL and commit SHA of every run you depend on.
+2. When nothing depends on the run, do not wait: mark it **PENDING** and
+   continue independent work on a separate branch/worktree.
+3. When the next step depends on the run (merge after PR checks, deploy after
+   main Verify, live checks after a deploy), wait with
+   `scripts/ci/wait-for-run.sh <run-id>`. It reads only the run status every
+   30 seconds and returns as soon as the run finishes. Never use
+   `gh run watch` (it streams logs) or a fixed `sleep` sized to a guess.
+4. Prefer `gh pr merge --auto --merge`: GitHub merges by itself once the
+   required checks (`frontend`, `browser`, `backend`, `containers`) pass on the
+   PR's head commit.
 5. Do not modify an already submitted commit merely to keep busy.
-6. Recheck CI only at a natural dependency boundary, never through a polling loop.
-7. If no independent work remains, finish the response and report the pending run.
-8. Never merge a PR until its required checks pass on the exact approved commit.
-9. If a merge depends on unfinished CI and no authorized GitHub-native auto-merge/merge queue is configured, stop that merge and report **WAITING FOR CI**.
-10. Preserve all security, test, review, branch-protection and deployment-authorization boundaries; skipping verification is never permitted.
+6. Never merge a PR until its required checks pass on the exact approved commit.
+7. Preserve all security, test, review, branch-protection and
+   deployment-authorization boundaries; skipping verification is never
+   permitted.
 
 ## Verification
 
-Frontend changes:
+Frontend changes (from `web/`):
 
 ```bash
+npm ci
 npm run lint
 npm run typecheck
 npm test
+npm run build
 npm run test:browser
-```
-
-The library transformation benchmark is local, deterministic, and makes no
-network requests:
-
-```bash
-npm run bench:library
 ```
 
 Go changes:

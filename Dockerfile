@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.9
 
-FROM golang:1.27-alpine AS api-build
+FROM golang:1.27.3-alpine3.23 AS api-build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFLAGS=-mod=readonly
 COPY go.mod go.sum ./
@@ -31,32 +31,15 @@ ENTRYPOINT ["/usr/local/bin/media-manager"]
 CMD ["serve"]
 
 FROM node:24-alpine AS ui-build
-WORKDIR /app
-RUN apk add --no-cache bash coreutils
-COPY package.json package-lock.json .npmrc ./
-COPY scripts ./scripts
+WORKDIR /web
+COPY web/package.json web/package-lock.json web/.npmrc ./
 RUN --mount=type=cache,target=/root/.npm npm ci
-COPY app ./app
-COPY build ./build
-COPY components ./components
-COPY hooks ./hooks
-COPY lib ./lib
-COPY public ./public
-COPY third_party ./third_party
-COPY worker ./worker
-COPY .openai ./.openai
-COPY cloudflare-env.d.ts components.json eslint.config.mjs next.config.ts postcss.config.mjs tsconfig.json vite.config.ts ./
-ARG NEXT_PUBLIC_MEDIA_MANAGER_MODE=live
-ENV NEXT_PUBLIC_MEDIA_MANAGER_MODE=${NEXT_PUBLIC_MEDIA_MANAGER_MODE}
-# CI checks out source with a private umask; runtime assets must also be
-# readable by the non-root user in the final image.
-RUN npm run build \
-    && chmod -R a+rX /app/scripts /app/.openai /app/build /app/dist \
-    && chmod a+r /app/package.json /app/package-lock.json /app/vite.config.ts /app/next.config.ts /app/tsconfig.json
+COPY web/ ./
+# CI checks out source with a private umask; the runtime user must read the build.
+RUN npm run build && chmod -R a+rX /web/dist && chmod a+r /web/server.mjs
 
 FROM ui-build AS ui-test
-COPY tests ./tests
-RUN node --test tests/*.test.mjs
+RUN npx vitest run
 
 FROM node:24-alpine AS ui
 ARG VERSION=development
@@ -68,21 +51,14 @@ LABEL org.opencontainers.image.title="Media Manager UI" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.source="https://github.com/Media-manager52/Media-manager"
 WORKDIR /app
-ENV NODE_ENV=production PORT=3000
-# The built bundle targets Workers and imports cloudflare:workers for optional
-# tracing; the Node runtime loads an inert module for that scheme.
-ENV NODE_OPTIONS=--import=/app/scripts/register-cloudflare-loader.mjs
-COPY --from=ui-build /app/package.json /app/package-lock.json ./
-COPY --from=ui-build /app/node_modules ./node_modules
-COPY --from=ui-build /app/dist ./dist
-COPY --from=ui-build /app/scripts ./scripts
-COPY --from=ui-build /app/.openai ./.openai
-COPY --from=ui-build /app/build ./build
-COPY --from=ui-build /app/vite.config.ts /app/next.config.ts /app/tsconfig.json ./
+ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0
+# The runtime is a dependency-free static server plus the built bundle; no
+# node_modules, build tools or credentials are in the image.
+COPY --from=ui-build /web/server.mjs ./server.mjs
+COPY --from=ui-build /web/dist ./dist
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/media-manager/
 COPY third_party /usr/share/doc/media-manager/third_party
-RUN mkdir -p /app/.wrangler && chown node:node /app/.wrangler
 USER node
 EXPOSE 3000
-HEALTHCHECK --interval=15s --timeout=4s --start-period=15s --retries=4 CMD wget -q -O /dev/null http://127.0.0.1:3000/
-CMD ["npm", "run", "start", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+HEALTHCHECK --interval=15s --timeout=4s --start-period=10s --retries=4 CMD wget -q -O /dev/null http://127.0.0.1:3000/
+CMD ["node", "server.mjs"]

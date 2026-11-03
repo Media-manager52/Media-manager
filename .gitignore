@@ -53,3 +53,9 @@ CLAUDE.local.md
 
 # Python deployment/CI helper bytecode
 __pycache__/
+
+# web UI (web/)
+/web/node_modules/
+/web/dist/
+/web/test-results/
+/web/playwright-report/

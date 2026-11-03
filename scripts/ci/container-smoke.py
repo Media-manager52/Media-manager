@@ -20,8 +20,9 @@ async function expect(path, status, options = {}, base = 'http://api:8080') {
   return response;
 }
 (async () => {
-  const artwork = await expect('/media/movie-placeholder.svg', 200, {}, 'http://127.0.0.1:3000');
-  if (!(await artwork.text()).trimStart().startsWith('<svg ')) throw new Error('UI static artwork is unavailable');
+  const shell = await expect('/bibliotek', 200, {}, 'http://127.0.0.1:3000');
+  if (!(await shell.text()).includes('<div id="root">')) throw new Error('UI app shell is unavailable');
+  if (!(await expect('/favicon.svg', 200, {}, 'http://127.0.0.1:3000')).headers.get('content-security-policy')) throw new Error('UI security headers are missing');
   const owner = {headers: {Authorization: 'Bearer ' + token}};
   await expect('/health/ready', 200, owner);
   await expect('/api/v1/dashboard', 200, owner);

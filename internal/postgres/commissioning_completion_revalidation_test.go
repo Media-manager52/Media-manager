@@ -1,15 +1,15 @@
 package postgres
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"uuid"
+
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/commissioningv2"
-	"uuid"
 )
 
 // readSourceFile returns the source of the named file in this package's
@@ -29,14 +29,6 @@ func readSourceFile(name, marker string) (string, error) {
 		return "", os.ErrNotExist
 	}
 	return source, nil
-}
-
-// commissioningTestAuthorizer is a test-only durable authorizer that
-// authorizes the exact ("indexer-x", "step-x") attempt.
-type commissioningTestAuthorizer struct{}
-
-func (*commissioningTestAuthorizer) AuthorizedTransmittingCommissioningStep(_ context.Context, indexerID, stepID string) bool {
-	return indexerID == "indexer-x" && stepID == "step-x"
 }
 
 // TestAuthorizedTransmittingStepUsesSingleStatement is CP1-7's focused

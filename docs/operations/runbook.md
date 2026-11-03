@@ -12,7 +12,7 @@ Docker Compose with three services (`compose.yaml`):
 | --- | --- | --- | --- |
 | `postgres` | `postgres:18.6-alpine3.24` | `backend` | Durable state. |
 | `api` | Dockerfile target `api` (distroless-style alpine, non-root UID/GID) | `backend`, `frontend`, `integrations` | Go API + outbox worker + ticker. |
-| `ui` | Dockerfile target `ui` (Node 24, Vinext) | `frontend` | Owner web UI. |
+| `ui` | Dockerfile target `ui` (Node 24, static server for `web/`) | `frontend` | Owner web UI. |
 
 The API container is hardened: `cap_drop: ALL`, `no-new-privileges`, runs as
 `MEDIA_MANAGER_UID:MEDIA_MANAGER_GID` (default 65532). Networks `frontend` and
@@ -234,6 +234,39 @@ Restore procedure (manual):
 **Always back up `.env` and `.env.integrations` together with the database**;
 without them the DB cannot reach integrations. Protect all three as secrets.
 
+### Prune repeated release observations
+
+Before observation reuse, every repeated search stored a full new copy of each
+provider result, so `release_observations` grew to about 19 million rows
+(37 GB), most of them copies that differ only in when they were seen. That
+makes every backup, and so every deploy, slow.
+
+`media-manager prune-observations` removes only such repeats
+(`internal/postgres/observation_retention.go`). A row goes only if an earlier
+row of the same provider release has exactly the same content (title,
+operation, parse version, raw fields, problems and facts, ignoring each fact's
+seen-at time), no release candidate or partial-search retry refers to it, and
+it is older than the cutoff (default 14 days, minimum 7). The first copy of
+every distinct piece of evidence and everything still referenced stay.
+
+```sh
+# Count only (read-only):
+docker compose exec -T api media-manager prune-observations
+# Delete, archiving every removed row first (gzip JSON lines on stdout):
+docker compose exec -T api media-manager prune-observations -apply -archive - \
+  > ~/media-manager-backups/observations-$(date -u +%Y%m%d).jsonl.gz
+```
+
+`-indexer <instance-id>` limits a pass to one indexer, so one pass per indexer
+can run in parallel, each with its own archive file.
+
+It works in small transactions (500 releases each), so it can run while the
+service runs; each transaction deletes only after its rows were written to the
+archive. It can be stopped and restarted at any time. Space inside the table is
+reused by PostgreSQL; the database files shrink only after a
+`VACUUM FULL release_observations`, which locks the table and needs a quiet
+moment.
+
 ## 6. Health checks and smoke tests
 
 | Check | Command |
@@ -243,7 +276,7 @@ without them the DB cannot reach integrations. Protect all three as secrets.
 | Version | `docker compose exec -T api media-manager version` |
 | Public-edge routing/auth | `scripts/smoke-public-edge.sh https://media-manager.example.com` |
 | Owner API read models (loopback) | `scripts/smoke-api-direct.sh` |
-| Live read-only browser acceptance | `npm run test:live-browser` |
+| Live read-only browser acceptance | `scripts/test-live-website.sh` (needs `npm ci` in `web/`) |
 
 `smoke-public-edge.sh` fails if `/api/v1/*` reaches the UI container (bare 404)
 or the API answers without an auth gate. `smoke-api-direct.sh` resolves the

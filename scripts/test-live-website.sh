@@ -35,8 +35,8 @@ if ! command -v docker >/dev/null 2>&1; then
   printf 'docker is required to resolve the running Media Manager containers.\n' >&2
   exit 1
 fi
-if [[ ! -x "${repository_dir}/node_modules/.bin/playwright" ]]; then
-  printf 'Playwright is not installed. Run npm ci first.\n' >&2
+if [[ ! -x "${repository_dir}/web/node_modules/.bin/playwright" ]]; then
+  printf 'Playwright is not installed. Run npm ci in web/ first.\n' >&2
   exit 1
 fi
 if ! [[ "${proxy_port}" =~ ^[0-9]+$ ]] || (( 10#${proxy_port} < 1 || 10#${proxy_port} > 65535 )); then
@@ -91,7 +91,7 @@ if [[ "${ready}" != '1' ]]; then
   exit 1
 fi
 
-cd -- "${repository_dir}"
+cd -- "${repository_dir}/web"
 MEDIA_MANAGER_LIVE_PORT="${proxy_port}" \
   node ./node_modules/@playwright/test/cli.js test --config playwright.live.config.ts
 status=$?

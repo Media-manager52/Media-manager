@@ -1,0 +1,76 @@
+import { expect, test } from "@playwright/test"
+
+import { ids, mockApi } from "./mock-api"
+
+test("a workflow action asks first and then sends exactly the server's request", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/handling")
+  await page.getByRole("button", { name: "Tjek AltMount igen" }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toContainText("Henter ikke en ny NZB")
+  expect(writes).toEqual([])
+  await dialog.getByRole("button", { name: "Tjek AltMount igen" }).click()
+  await expect(page.getByRole("status").filter({ hasText: "sat i gang" })).toBeVisible()
+  expect(writes).toEqual([{ method: "POST", path: `/api/v1/workflows/${ids.attention}/reconcile-altmount`, body: null }])
+})
+
+test("unavailable actions are disabled and explain why", async ({ page }) => {
+  await mockApi(page)
+  await page.goto(`/arbejde/${ids.attention}`)
+  await expect(page.getByRole("button", { name: "Søg nu" })).toBeDisabled()
+  await expect(page.getByText("An AltMount job is active; wait for it to settle.")).toBeVisible()
+})
+
+test("cancelling can be abandoned without sending anything", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto(`/arbejde/${ids.attention}`)
+  await page.getByRole("button", { name: "Annullér" }).click()
+  await page.getByRole("dialog").getByRole("button", { name: "Fortryd" }).click()
+  await expect(page.getByRole("dialog")).toBeHidden()
+  expect(writes).toEqual([])
+})
+
+test("a pending Seerr request can be approved after confirming", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/anmodninger")
+  await page.getByRole("radio", { name: /Skal godkendes/ }).click()
+  await page.getByRole("button", { name: "Godkend" }).click()
+  await page.getByRole("dialog").getByRole("button", { name: "Godkend" }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/requests/req-1/approve" })
+})
+
+test("adding a movie sends verified identities from the detail lookup", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/tilfoej")
+  await page.getByLabel("Titel").fill("Nyfilmen")
+  await page.getByRole("button", { name: "Søg", exact: true }).click()
+  await page.getByRole("button", { name: /Nyfilmen/ }).click()
+  await page.getByRole("button", { name: "Tilføj film" }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({
+    method: "POST",
+    path: "/api/v1/media",
+    body: { kind: "movie", title: "Nyfilmen", year: 2025, search_immediately: true, identities: [{ namespace: "tmdb", value: "99", state: "verified", source: "seerr_metadata" }] },
+  })
+  await expect(page).toHaveURL(new RegExp(`/bibliotek/${ids.movie}$`))
+})
+
+test("deleting a Seerr rule needs a confirmation", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/indstillinger/seerr")
+  await page.getByRole("button", { name: "Slet reglen for /media/Movies" }).click()
+  expect(writes).toEqual([])
+  await page.getByRole("dialog").getByRole("button", { name: "Slet regel" }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({ method: "DELETE", path: `/api/v1/settings/integrations/${ids.seerr}/seerr-routes/route-1` })
+})
+
+test("the theme choice is remembered", async ({ page }) => {
+  await mockApi(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto("/")
+  await page.getByRole("radio", { name: "Mørkt tema" }).click()
+  await page.reload()
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+})
