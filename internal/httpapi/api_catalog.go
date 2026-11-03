@@ -38,6 +38,11 @@ const (
 	// can only be driven from the Media Manager settings page.
 	authOwnerBrowser apiAuth = "owner_browser"
 	authSeerrWebhook apiAuth = "seerr_webhook"
+	// authOwnerOrPlayer also accepts the player token (PLAYER_TOKEN), which
+	// the Nuvio/Stremio addon uses instead of the owner token. Only the few
+	// routes a player needs carry it: browsing the library, looking up and
+	// requesting a title, and choosing a release to stream.
+	authOwnerOrPlayer apiAuth = "owner_or_player"
 )
 
 type apiParam struct {
@@ -75,10 +80,10 @@ var (
 )
 
 func (server *Server) apiOperations() []apiOperation {
-	owner, s := authOwner, server
+	owner, player, s := authOwner, authOwnerOrPlayer, server
 	return []apiOperation{
-		{Method: "POST", Path: "/api/v1/streaming/search", Handler: s.streamingSearch, Auth: owner, Effect: effectProvider, Tag: "streaming", Summary: "Browse exact releases without acquiring or publishing", Body: acquisition.BrowseInput{}, Required: []string{"kind", "title", "year"}, Response: acquisition.BrowseResult{}},
-		{Method: "POST", Path: "/api/v1/streaming/releases/{id}/nzb", Handler: s.streamingNZB, Auth: owner, Effect: effectProvider, Tag: "streaming", Summary: "Retrieve the viewer-selected NZB using the shared provider budget", Description: "Binary NZB response. Choice expires after six hours or a server restart. Never chooses a replacement."},
+		{Method: "POST", Path: "/api/v1/streaming/search", Handler: s.streamingSearch, Auth: player, Effect: effectProvider, Tag: "streaming", Summary: "Browse exact releases without acquiring or publishing", Body: acquisition.BrowseInput{}, Required: []string{"kind", "title", "year"}, Response: acquisition.BrowseResult{}},
+		{Method: "POST", Path: "/api/v1/streaming/releases/{id}/nzb", Handler: s.streamingNZB, Auth: player, Effect: effectProvider, Tag: "streaming", Summary: "Retrieve the viewer-selected NZB using the shared provider budget", Description: "Binary NZB response. Choice expires after six hours or a server restart. Never chooses a replacement."},
 		{Method: "GET", Path: "/health/live", Handler: s.live, Auth: authNone, Effect: effectRead, Tag: "system", Summary: "Process liveness"},
 		{Method: "GET", Path: "/health/ready", Handler: s.ready, Auth: authNone, Effect: effectRead, Tag: "system", Summary: "Readiness: database reachable and schema version current"},
 		{Method: "GET", Path: "/api/v1", Handler: s.apiIndex, Auth: owner, Effect: effectRead, Tag: "system", Summary: "API index for agents: conventions, effects, auth and where the OpenAPI document is"},
@@ -89,12 +94,12 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "GET", Path: "/api/v1/calendar", Handler: s.listCalendar, Auth: owner, Effect: effectRead, Tag: "overview", Summary: "Upcoming and recent episode air dates, one row per episode", Query: []apiParam{{Name: "from", Type: "string", Format: "date", Description: "First day (YYYY-MM-DD)."}, {Name: "to", Type: "string", Format: "date", Description: "Last day (YYYY-MM-DD)."}, limitParam}},
 		{Method: "GET", Path: "/api/v1/wanted", Handler: s.listWanted, Auth: owner, Effect: effectRead, Tag: "overview", Summary: "Monitored media that is still missing", Query: []apiParam{limitParam, offsetParam}},
 
-		{Method: "GET", Path: "/api/v1/media", Handler: s.listMedia, Auth: owner, Effect: effectRead, Tag: "media", Summary: "List catalogue media", Query: []apiParam{limitParam, offsetParam}},
-		{Method: "POST", Path: "/api/v1/media", Handler: s.createMedia, Auth: owner, Effect: effectProvider, Tag: "media", Summary: "Add a movie or series to the catalogue and create its workflows", Description: "With search_immediately (default true) the new workflows search the indexers right away.", Body: createMediaInput{}, Required: []string{"kind", "title"}},
+		{Method: "GET", Path: "/api/v1/media", Handler: s.listMedia, Auth: player, Effect: effectRead, Tag: "media", Summary: "List catalogue media", Query: []apiParam{limitParam, offsetParam}},
+		{Method: "POST", Path: "/api/v1/media", Handler: s.createMedia, Auth: player, Effect: effectProvider, Tag: "media", Summary: "Add a movie or series to the catalogue and create its workflows", Description: "With search_immediately (default true) the new workflows search the indexers right away.", Body: createMediaInput{}, Required: []string{"kind", "title"}},
 		{Method: "GET", Path: "/api/v1/media/{id}", Handler: s.getMedia, Auth: owner, Effect: effectRead, Tag: "media", Summary: "One media item"},
-		{Method: "GET", Path: "/api/v1/media/{id}/detail", Handler: s.getMediaDetail, Auth: owner, Effect: effectRead, Tag: "media", Summary: "Media title page: seasons, episodes, workflows, files and Plex state"},
+		{Method: "GET", Path: "/api/v1/media/{id}/detail", Handler: s.getMediaDetail, Auth: player, Effect: effectRead, Tag: "media", Summary: "Media title page: seasons, episodes, workflows, files and Plex state"},
 		{Method: "POST", Path: "/api/v1/media/{id}/metadata/refresh", Handler: s.refreshMediaMetadata, Auth: owner, Effect: effectProvider, Tag: "media", Summary: "Re-read catalogue metadata (TMDB/TVDB) for one media item"},
-		{Method: "POST", Path: "/api/v1/media/{id}/workflows", Handler: s.createMediaWorkflow, Auth: owner, Effect: effectProvider, Tag: "media", Summary: "Create a workflow (for example a season) for existing media", Body: createMediaWorkflowInput{}},
+		{Method: "POST", Path: "/api/v1/media/{id}/workflows", Handler: s.createMediaWorkflow, Auth: player, Effect: effectProvider, Tag: "media", Summary: "Create a workflow (for example a season) for existing media", Body: createMediaWorkflowInput{}},
 		{Method: "POST", Path: "/api/v1/media/{id}/archive", Handler: s.archiveMedia, Auth: owner, Effect: effectWrite, Tag: "media", Summary: "Retire unwanted media from the active catalogue", Description: "Cancels non-terminal workflows and soft-deletes the media row. Never deletes files, AltMount sources or history; refused while files are published or work is in flight."},
 		{Method: "DELETE", Path: "/api/v1/media/{id}", Handler: s.recycleMedia, Auth: owner, Effect: effectDestructive, Tag: "media", Summary: "Move media and its published links to the recycle bin"},
 
@@ -131,7 +136,7 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "DELETE", Path: "/api/v1/blocklist/{id}", Handler: s.deleteReleaseBlock, Auth: owner, Effect: effectWrite, Tag: "releases", Summary: "Remove a release block"},
 
 		{Method: "GET", Path: "/api/v1/files", Handler: s.listManagedFiles, Auth: owner, Effect: effectRead, Tag: "library", Summary: "Managed files (published link generations and adopted files)", Query: []apiParam{limitParam, offsetParam}},
-		{Method: "GET", Path: "/api/v1/files/{id}", Handler: s.getManagedFile, Auth: owner, Effect: effectRead, Tag: "library", Summary: "One managed file with provenance and evidence"},
+		{Method: "GET", Path: "/api/v1/files/{id}", Handler: s.getManagedFile, Auth: player, Effect: effectRead, Tag: "library", Summary: "One managed file with provenance and evidence"},
 		{Method: "GET", Path: "/api/v1/collections", Handler: s.listCollections, Auth: owner, Effect: effectRead, Tag: "library", Summary: "Collections", Query: []apiParam{limitParam}},
 		{Method: "POST", Path: "/api/v1/collections", Handler: s.createCollection, Auth: owner, Effect: effectWrite, Tag: "library", Summary: "Create a collection", Body: createCollectionInput{}, Required: []string{"name", "media_ids"}},
 		{Method: "POST", Path: "/api/v1/collections/preview", Handler: s.previewCollection, Auth: owner, Effect: effectRead, Tag: "library", Summary: "Preview a collection without saving it", Body: previewCollectionInput{}, Required: []string{"media_ids"}},
@@ -148,8 +153,8 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "POST", Path: "/api/v1/adoption/{id}/approve", Handler: s.approveAdoptionBatch, Auth: owner, Effect: effectWrite, Tag: "adoption", Summary: "Approve a reviewed adoption batch"},
 		{Method: "POST", Path: "/api/v1/adoption/{id}/execute", Handler: s.executeAdoptionBatch, Auth: owner, Effect: effectDestructive, Tag: "adoption", Summary: "Execute an approved adoption batch", Body: executeAdoptionBatchInput{}, Required: []string{"confirmation"}, Description: "confirmation must be exactly \"EXECUTE REVIEWED ADOPTION\"; replacing an adopted file also needs adopted_replacement_confirmation \"" + postgres.AdoptedReplacementConfirmation + "\"."},
 
-		{Method: "GET", Path: "/api/v1/discovery/search", Handler: s.discoverySearch, Auth: owner, Effect: effectProvider, Tag: "discovery", Summary: "Search metadata providers for titles to add", Query: []apiParam{{Name: "query", Type: "string", Description: "Title to search for.", Required: true}, {Name: "page", Type: "integer", Description: "Result page (1-based)."}}},
-		{Method: "GET", Path: "/api/v1/discovery/{kind}/{id}", Handler: s.discoveryMetadata, Auth: owner, Effect: effectProvider, Tag: "discovery", Summary: "Provider metadata for one movie or series", Query: []apiParam{{Name: "season", Type: "integer", Description: "Include this season's episodes."}}},
+		{Method: "GET", Path: "/api/v1/discovery/search", Handler: s.discoverySearch, Auth: player, Effect: effectProvider, Tag: "discovery", Summary: "Search metadata providers for titles to add", Query: []apiParam{{Name: "query", Type: "string", Description: "Title to search for.", Required: true}, {Name: "page", Type: "integer", Description: "Result page (1-based)."}}},
+		{Method: "GET", Path: "/api/v1/discovery/{kind}/{id}", Handler: s.discoveryMetadata, Auth: player, Effect: effectProvider, Tag: "discovery", Summary: "Provider metadata for one movie or series", Query: []apiParam{{Name: "season", Type: "integer", Description: "Include this season's episodes."}}},
 		{Method: "GET", Path: "/api/v1/sources", Handler: s.listSources, Auth: owner, Effect: effectRead, Tag: "discovery", Summary: "Request sources (Seerr, import lists) and their status"},
 		{Method: "GET", Path: "/api/v1/import-lists", Handler: s.listImportLists, Auth: owner, Effect: effectRead, Tag: "discovery", Summary: "Import lists"},
 		{Method: "POST", Path: "/api/v1/import-lists", Handler: s.createImportList, Auth: owner, Effect: effectWrite, Tag: "discovery", Summary: "Create an import list", Body: createImportListInput{}, Required: []string{"name", "provider"}},
@@ -223,6 +228,8 @@ func (server *Server) authorize(auth apiAuth, handler http.HandlerFunc) http.Han
 		return server.requireOwner(handler)
 	case authOwnerBrowser:
 		return server.requireOwnerMutation(handler)
+	case authOwnerOrPlayer:
+		return server.requireOwnerOrPlayer(handler)
 	case authNone, authSeerrWebhook:
 		// The webhook checks its own shared secret inside the handler.
 		return handler

@@ -24,10 +24,14 @@ import (
 )
 
 type Config struct {
-	Streaming              *acquisition.BrowseService
-	OldBoysCredentials     *oldboyscredentials.Service
-	CommissionOldBoys      func(context.Context) (postgres.Integration, error)
-	OwnerToken             string
+	Streaming          *acquisition.BrowseService
+	OldBoysCredentials *oldboyscredentials.Service
+	CommissionOldBoys  func(context.Context) (postgres.Integration, error)
+	OwnerToken         string
+	// PlayerToken, when set, authorizes only the routes marked
+	// authOwnerOrPlayer. It lets a playback client (the Nuvio/Stremio addon)
+	// work without holding the owner token.
+	PlayerToken            string
 	SeerrEnabled           bool
 	SeerrWebhookSecret     string
 	SeerrInstanceID        string
@@ -87,6 +91,25 @@ func (server *Server) requireOwner(next http.HandlerFunc) http.HandlerFunc {
 		authorization := request.Header.Get("Authorization")
 		if !strings.HasPrefix(authorization, prefix) || !secureEqual(strings.TrimPrefix(authorization, prefix), server.config.OwnerToken) {
 			writeError(writer, http.StatusUnauthorized, "unauthorized", "owner authorization is required")
+			return
+		}
+		next(writer, request)
+	}
+}
+
+// requireOwnerOrPlayer accepts the owner token or, when configured, the player
+// token. The player token is refused everywhere else (requireOwner never
+// looks at it), so a leaked player token cannot change settings, delete
+// media or read anything beyond the library and streaming routes.
+func (server *Server) requireOwnerOrPlayer(next http.HandlerFunc) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		const prefix = "Bearer "
+		authorization := request.Header.Get("Authorization")
+		token := strings.TrimPrefix(authorization, prefix)
+		owner := secureEqual(token, server.config.OwnerToken)
+		player := server.config.PlayerToken != "" && secureEqual(token, server.config.PlayerToken)
+		if !strings.HasPrefix(authorization, prefix) || (!owner && !player) {
+			writeError(writer, http.StatusUnauthorized, "unauthorized", "owner or player authorization is required")
 			return
 		}
 		next(writer, request)
