@@ -16,6 +16,13 @@ func TestVerifiedProviderIdentityValidation(t *testing.T) {
 	}
 }
 
+func TestEmptyProviderNamespaceIsConflict(t *testing.T) {
+	_, err := New(KindMovie, "Example", pointer(uint16(2026)), []ExternalIdentity{{Namespace: "", Value: "123", State: IdentityVerified, Source: "test"}}, time.Now())
+	if !errors.Is(err, ErrIdentityConflict) {
+		t.Fatalf("empty provider namespace was not reported as a conflict: %v", err)
+	}
+}
+
 func TestNormalizeMetadataBoundsAndPreservesProviderEvidence(t *testing.T) {
 	runtime := uint16(29)
 	value, err := NormalizeMetadata(&MediaMetadata{
