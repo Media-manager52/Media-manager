@@ -37,6 +37,14 @@ func TestOldBoysBrowseMatchesExactEpisode(t *testing.T) {
 	if oldBoysBrowseMatches(observation, media, in) {
 		t.Fatal("wrong episode was accepted")
 	}
+	observation.Title = "SEAL Team S01.E02 NORDiC 720p WEB-DL DANiSH"
+	if oldBoysBrowseMatches(observation, media, in) {
+		t.Fatal("wrong episode with a separated tag was accepted as a pack")
+	}
+	observation.Title = "SEAL Team S01 E01 NORDiC 720p WEB-DL DANiSH"
+	if !oldBoysBrowseMatches(observation, media, in) {
+		t.Fatal("matching episode with a separated tag was rejected")
+	}
 	observation.Title = "Another Show S01E01 NORDiC 720p WEB-DL DANiSH"
 	if oldBoysBrowseMatches(observation, media, in) {
 		t.Fatal("unrelated title was accepted")

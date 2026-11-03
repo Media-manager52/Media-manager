@@ -615,7 +615,7 @@ func oldBoysBrowseRequest(in BrowseInput) oldboys.SearchRequest {
 	return oldboys.SearchRequest{Name: title, Category: category, Page: 1}
 }
 
-var oldBoysEpisodeTag = regexp.MustCompile(`(?i)\bS([0-9]{1,3})E([0-9]{1,3})\b`)
+var oldBoysEpisodeTag = regexp.MustCompile(`(?i)\bS([0-9]{1,3})[ ._-]?E([0-9]{1,3})\b`)
 var oldBoysSeasonTag = regexp.MustCompile(`(?i)(?:^|[.\s_-])S([0-9]{1,2})(?:[.\s_-]|$)`)
 
 func oldBoysBrowseMatches(observation releases.Observation, media catalog.MediaItem, in BrowseInput) bool {

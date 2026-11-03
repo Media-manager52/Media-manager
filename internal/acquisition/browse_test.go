@@ -21,6 +21,9 @@ func TestBrowseExactMovieAndEpisode(t *testing.T) {
 		{"Example.2020.S01E03.1080p", "series", 1, 2, false},
 		{"Example.2020.S02.1080p", "series", 1, 2, false},
 		{"Example.2020.S01.1080p", "series", 1, 2, true},
+		{"Example.2020.S01.E02.1080p", "series", 1, 2, true},
+		{"Example.2020.S01.E03.1080p", "series", 1, 2, false},
+		{"Example 2020 S01 E05 1080p", "series", 1, 2, false},
 	} {
 		t.Run(tc.title, func(t *testing.T) {
 			o := releases.InferTitleFacts(releases.Observation{Title: tc.title}, time.Now())
