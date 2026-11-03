@@ -236,3 +236,29 @@ func TestSearchQueryTitleUsesSceneSpelling(t *testing.T) {
 		}
 	}
 }
+
+func TestInferTitleFactsReadsSeparatedEpisodeTokens(t *testing.T) {
+	for _, test := range []struct{ title, scope, episode string }{
+		{"Peaky.Blinders.S01.E02.REPACK.2160p.UPSCALE.BluRay.DV.HDR10.DTS-HD.MA.2.0.HEVC-RH", "episode", "2"},
+		{"Show S01 E08 1080p WEB-DL", "episode", "8"},
+		{"Show_S07_E02_BluRay_720p", "episode", "2"},
+		{"show.s04.e30.720p.ws.bluray", "episode", "30"},
+		{"Show.S04.E20-Larrys.Birthday.1080p", "episode", "20"},
+		{"Show.S01.E01-E03.1080p.WEB-DL", "season_pack", ""},
+		{"Show.S01.1080p.BluRay.Dts-HDMa2.0.AVC-PiR8", "season_pack", ""},
+		{"Show.S01.EXTRAS.1080p", "season_pack", ""},
+	} {
+		t.Run(test.title, func(t *testing.T) {
+			observation := InferTitleFacts(Observation{Title: test.title}, time.Unix(1, 0))
+			got := map[string]string{}
+			for _, fact := range observation.Facts {
+				if len(fact.Values) == 1 {
+					got[fact.Name] = fact.Values[0]
+				}
+			}
+			if got["release_scope"] != test.scope || got["episode_number"] != test.episode || got["season_number"] == "" {
+				t.Fatalf("scope=%q episode=%q season=%q, want scope=%q episode=%q", got["release_scope"], got["episode_number"], got["season_number"], test.scope, test.episode)
+			}
+		})
+	}
+}

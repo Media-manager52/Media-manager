@@ -7,14 +7,17 @@ import (
 	"time"
 )
 
+// Episode tokens accept one separator between season and episode ("S01.E02",
+// "S01 E02", "S07_E02"), which many uploads use; without it such a single
+// episode read as a season pack.
 var (
 	resolutionPixel = regexp.MustCompile(`(?i)(?:^|[ ._\-])(2160p|1080p|720p|576p|480p)(?:$|[ ._\-])`)
 	resolutionAlias = regexp.MustCompile(`(?i)(?:^|[ ._\-])(4k|uhd)(?:$|[ ._\-])`)
 	resolutionSize  = regexp.MustCompile(`(?i)^\s*(\d{3,4})\s*[x×]\s*(2160|1080|720|576|480)(?:\s|$)`)
 	seasonToken     = regexp.MustCompile(`(?i)(?:^|[ ._\-])S(\d{1,3})(?:$|[ ._\-]|E)`)
-	episodeToken    = regexp.MustCompile(`(?i)S\d{1,3}E\d{1,3}`)
-	episodeRange    = regexp.MustCompile(`(?i)S\d{1,3}E\d{1,3}(?:-E?\d{1,3}|E\d{1,3})(?:$|[ ._\-])`)
-	episodeNumber   = regexp.MustCompile(`(?i)S\d{1,3}E(\d{1,3})`)
+	episodeToken    = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E\d{1,3}`)
+	episodeRange    = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E\d{1,3}(?:-E?\d{1,3}|E\d{1,3})(?:$|[ ._\-])`)
+	episodeNumber   = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E(\d{1,3})`)
 	titleSeparator  = regexp.MustCompile(`[^\pL\pN]+`)
 	audioTrueHD     = regexp.MustCompile(`(?i)(?:^|[ ._\-])true[ ._\-]?hd(?:$|[ ._\-])`)
 	audioDTSHDMA    = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts[ ._\-]?hd[ ._\-]?(?:ma|master[ ._\-]?audio)(?:$|[ ._\-])`)
