@@ -155,20 +155,24 @@ func (store *Store) PruneRepeatedObservations(ctx context.Context, options Obser
 	}
 }
 
+// nextObservationReleases returns the next provider releases in index order.
+// The columns stay uncast: casting the indexer ID to text would sort by an
+// expression the release_observations_native index cannot supply, turning a
+// millisecond index walk into a scan of the whole indexer.
 func (store *Store) nextObservationReleases(ctx context.Context, onlyIndexer string, first bool, afterIndexer, afterGUID string, limit int) ([]string, []string, error) {
-	query := `SELECT DISTINCT indexer_instance_id::text, native_guid FROM release_observations ORDER BY 1, 2 LIMIT $1`
+	query := `SELECT DISTINCT indexer_instance_id, native_guid FROM release_observations ORDER BY 1, 2 LIMIT $1`
 	args := []any{limit}
 	switch {
 	case onlyIndexer != "" && first:
-		query = `SELECT DISTINCT indexer_instance_id::text, native_guid FROM release_observations
+		query = `SELECT DISTINCT indexer_instance_id, native_guid FROM release_observations
 			WHERE indexer_instance_id=$2::uuid ORDER BY 1, 2 LIMIT $1`
 		args = append(args, onlyIndexer)
 	case onlyIndexer != "":
-		query = `SELECT DISTINCT indexer_instance_id::text, native_guid FROM release_observations
+		query = `SELECT DISTINCT indexer_instance_id, native_guid FROM release_observations
 			WHERE indexer_instance_id=$2::uuid AND native_guid > $3 ORDER BY 1, 2 LIMIT $1`
 		args = append(args, onlyIndexer, afterGUID)
 	case !first:
-		query = `SELECT DISTINCT indexer_instance_id::text, native_guid FROM release_observations
+		query = `SELECT DISTINCT indexer_instance_id, native_guid FROM release_observations
 			WHERE (indexer_instance_id, native_guid) > ($2::uuid, $3) ORDER BY 1, 2 LIMIT $1`
 		args = append(args, afterIndexer, afterGUID)
 	}
