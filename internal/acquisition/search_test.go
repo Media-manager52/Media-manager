@@ -524,3 +524,30 @@ func TestApplyRepairExclusionsRejectsOnlyTheBrokenRelease(t *testing.T) {
 		t.Fatalf("without a repair the release must stay eligible: %+v", none)
 	}
 }
+
+// A MULTi kids release rarely says "Danish" in its name, but the indexer's
+// language attribute lists its audio tracks. That evidence must count.
+func TestRequiredAudioAcceptsIndexerReportedDanishAudio(t *testing.T) {
+	t.Parallel()
+	feed := func(languages string) releases.Observation {
+		body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Kim.Possible.S04E08.Clothes.Minded.MULTI.1080p.DSNP.WEB-DL.AAC2.0.x264</title><guid>native-kids</guid>` + languages + `</item></channel></rss>`)
+		items, err := newznab.ParseSearch(body, "", "tvsearch", time.Unix(1, 0))
+		if err != nil || len(items) != 1 {
+			t.Fatalf("parse: %v %#v", err, items)
+		}
+		return items[0]
+	}
+	kids := appendSubtitleRules(nil, subtitles.Policy{RequiredAudio: []string{"da"}}.WithOriginalLanguage("en"))
+	withDanish := feed(`<newznab:attr name="language" value="English"/><newznab:attr name="language" value="Danish"/><newznab:attr name="language" value="Dutch"/>`)
+	if evaluation, err := releases.Evaluate(withDanish, kids); err != nil || evaluation.Verdict != releases.VerdictEligible {
+		t.Fatalf("indexer-reported Danish audio must satisfy required Danish audio: %+v err=%v", evaluation, err)
+	}
+	withoutDanish := feed(`<newznab:attr name="language" value="English"/><newznab:attr name="language" value="German"/>`)
+	if evaluation, err := releases.Evaluate(withoutDanish, kids); err != nil || evaluation.Verdict != releases.VerdictRejected {
+		t.Fatalf("indexer-reported audio without Danish must be rejected, not downloaded: %+v err=%v", evaluation, err)
+	}
+	subs := appendSubtitleRules(nil, subtitles.Policy{Required: []string{"da"}})
+	if evaluation, err := releases.Evaluate(withDanish, subs); err != nil || evaluation.Verdict != releases.VerdictEligible || evaluation.Score < requiredSubtitleEvidenceWeight {
+		t.Fatalf("Danish audio must satisfy and rank a required-Danish profile: %+v err=%v", evaluation, err)
+	}
+}
