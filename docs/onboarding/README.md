@@ -13,24 +13,12 @@ Deployed source can lag this checkout: the authenticated
 `/api/v1/system/info` reports the running commit and schema. See
 [release status](../status/release.md) and the exact-commit GitHub Deploy result
 for dated evidence.
-The agent briefs under
-`agent-briefs/` are dated session prompts and may describe an older snapshot.
-
 > Read `AGENTS.md` in the repository root for the short contributor contract,
 > then follow the read order below. The full documentation index, including
 > status/evidence and archived proposals, is in
-> [`docs/README.md`](../README.md). To start a coding-agent session, paste
-> [agent-briefs/claude-code.md](agent-briefs/claude-code.md) into it first.
-> For the currently open hard problems (policy-change migration, Plex
-> re-confirmation recovery, worker starvation, the two publications made without
-> Danish subtitles, subtitle evidence strategy, provider failures, Seerr scan
-> sync, and adoption), paste
-> [agent-briefs/claude-review-hard-parts.md](agent-briefs/claude-review-hard-parts.md).
-> To prove whether the remaining "missing" titles are truly unavailable or
-> blocked by a pipeline defect, paste
-> [agent-briefs/claude-availability-audit.md](agent-briefs/claude-availability-audit.md).
-> For a full-server-access review session (Codex/GPT-6-Astra or similar) use
-> [agent-briefs/codex-availability-review.md](agent-briefs/codex-availability-review.md).
+> [`docs/README.md`](../README.md). Earlier one-off session prompts are kept in
+> [`docs/archive/agent-briefs/`](../archive/agent-briefs/) for history only;
+> they describe older snapshots and are not instructions.
 
 ## Read order
 

@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"uuid"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/commissioningv2"
-	"uuid"
 )
 
 var (
@@ -446,17 +447,6 @@ func (store *Store) TransitionIndexerCommissioningRun(ctx context.Context, index
 		return IndexerCommissioningRun{}, err
 	}
 	return store.IndexerCommissioningRun(ctx, runID)
-}
-
-func (store *Store) ListIndexerCommissioningSteps(ctx context.Context, runID uuid.UUID) ([]IndexerCommissioningStep, error) {
-	if runID == (uuid.UUID{}) {
-		return nil, ErrInvalidIndexerCommissioning
-	}
-	run, err := store.IndexerCommissioningRun(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-	return append([]IndexerCommissioningStep(nil), run.Steps...), nil
 }
 
 // TransitionIndexerCommissioningStep persists only an explicitly requested

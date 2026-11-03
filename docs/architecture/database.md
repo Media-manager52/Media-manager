@@ -171,7 +171,7 @@ non-obvious.
 
 | Table | Purpose |
 | --- | --- |
-| `seerr_deliveries` | Webhook/poll receipts + processing state (dedup by `ReceiptKey`; `outcome='requeued'` marks an owner-triggered re-evaluation). |
+| `seerr_deliveries` | Webhook/poll receipts + processing state (deduplicated by unique indexes: `(instance, event_id)` for events with an ID, otherwise `(instance, request_id, payload_sha256)`; `outcome='requeued'` marks an owner-triggered re-evaluation). |
 | `seerr_request_snapshots`, `seerr_request_seasons`, `seerr_request_workflows` | Durable request display state, workflow links, and observed `seerr_server_id`/`seerr_profile_id`/`seerr_root_folder`/`seerr_is_4k` routing provenance. |
 | `seerr_library_routes` | Maps a Seerr root folder (instance + media kind + folder) to a Media Manager `library_roots` row and optional `quality_profiles` override. |
 | `notification_destinations`, `notification_deliveries` | Owner webhook subscriptions + attempts. |

@@ -29,7 +29,7 @@ var knownImportViolations = map[string]bool{
 // count they may not exceed. Shrink the number as a file is split; delete the
 // entry once the file is under the limit.
 var oversizedFiles = map[string]int{
-	"internal/postgres/indexer_commissioning.go":      1360,
+	"internal/postgres/indexer_commissioning.go":      1350,
 	"internal/postgres/indexer_commissioning_live.go": 1249,
 	"internal/postgres/publication.go":                1161,
 	"internal/commissioningv2/probe_plan.go":          1139,

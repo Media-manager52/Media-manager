@@ -1566,30 +1566,6 @@ func TestLiveTransactionsNeverMutateIntegrationOrProfiles(t *testing.T) {
 	}
 }
 
-func TestLegacyMigration35AppliesCleanlyFrom34Superseded(t *testing.T) {
-	t.Skip("superseded by Group A migration matrix TestMigration35AppliesCleanlyFrom34 in indexer_commissioning_live_migration_integration_test.go")
-}
-
-func TestLegacyGateTriggerResolvesUnderHostileSearchPathSuperseded(t *testing.T) {
-	t.Skip("superseded by Group A migration matrix TestGateTriggerResolvesUnderHostileSearchPath in indexer_commissioning_live_migration_integration_test.go")
-}
-
-func TestLegacyInvalidHostileSearchPathSuperseded(t *testing.T) {
-	t.Skip("superseded by Group A migration matrix hostile search_path test")
-}
-
-func TestLegacyOneUseTransmissionBindingSuperseded(t *testing.T) {
-	t.Skip("superseded by M-5 matrix tests in internal/adapters/newznab")
-}
-
-func TestLegacyOneUseTransmissionBindingBody(t *testing.T) {
-	t.Skip("superseded body preserved for audit; see git history")
-}
-
-func TestLegacyCloseInterruptedSupersededByExternalC2Test(t *testing.T) {
-	t.Skip("superseded by Group D external test TestCloseInterruptedAfterUncertainFinalizationAgainstDurableStore in internal/commissioningv2/live_executor_c2_test.go")
-}
-
 func envOrEmpty(name string) string {
 	return strings.TrimSpace(os.Getenv(name))
 }

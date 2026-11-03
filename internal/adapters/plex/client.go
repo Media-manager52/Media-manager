@@ -547,28 +547,6 @@ func (client *Client) confirmShow(ctx context.Context, show Item, expected Expec
 	return confirmations, nil
 }
 
-func (client *Client) WaitForConfirmation(ctx context.Context, expected Expected, interval time.Duration) (Confirmation, error) {
-	if interval <= 0 {
-		interval = 3 * time.Second
-	}
-	for {
-		confirmation, err := client.Confirm(ctx, expected)
-		if err == nil {
-			return confirmation, nil
-		}
-		if !errors.Is(err, ErrNotConfirmed) {
-			return Confirmation{}, err
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			timer.Stop()
-			return Confirmation{}, ctx.Err()
-		}
-	}
-}
-
 func (client *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	if !strings.HasPrefix(path, "/library/") || strings.Contains(path, "..") || strings.Contains(path, "//") {
 		return nil, ErrInvalidConfig

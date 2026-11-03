@@ -231,40 +231,12 @@ func (client *Client) Caps(ctx context.Context) (CapsSnapshot, error) {
 	return snapshot, err
 }
 
-func (client *Client) Details(ctx context.Context, nativeID string) ([]releases.Observation, error) {
-	var observations []releases.Observation
-	_, err := client.request(ctx, indexers.WorkloadCommissioning, []Param{{Name: "t", Value: "details"}, {Name: "id", Value: nativeID}}, client.bodyLimit, func(body []byte) (indexers.Outcome, error) {
-		parsed, parseErr := ParseSearch(body, client.config.IndexerID, "details", time.Now().UTC())
-		if parseErr != nil {
-			return validationFailureOutcome(parseErr), parseErr
-		}
-		observations = sanitizeObservationsWithCredential(parsed, client.config.APIKey)
-		if len(parsed) == 0 {
-			return indexers.OutcomeNoResults, nil
-		}
-		return indexers.OutcomeSuccess, nil
-	})
-	return observations, err
-}
-
 func sanitizeObservationsWithCredential(observations []releases.Observation, credential string) []releases.Observation {
 	result := make([]releases.Observation, len(observations))
 	for index, observation := range observations {
 		result[index] = SanitizeObservationWithCredential(observation, credential)
 	}
 	return result
-}
-
-func (client *Client) GetNFO(ctx context.Context, nativeID string) ([]byte, error) {
-	return client.request(ctx, indexers.WorkloadCommissioning, []Param{{Name: "t", Value: "getnfo"}, {Name: "id", Value: nativeID}}, client.bodyLimit, func(body []byte) (indexers.Outcome, error) {
-		if provider, ok := providerErrorDocument(body); ok {
-			return validationFailureOutcome(provider), provider
-		}
-		if len(bytes.TrimSpace(body)) == 0 {
-			return indexers.OutcomeNoResults, ErrNoNFO
-		}
-		return indexers.OutcomeSuccess, nil
-	})
 }
 
 func (client *Client) GetNZB(ctx context.Context, nativeID string) ([]byte, error) {

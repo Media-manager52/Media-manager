@@ -46,19 +46,6 @@ func StructuralRequestFingerprint(configuration SHA256Digest, contract *newznab.
 	return SumSHA256(encoded), nil
 }
 
-func ProbePlanDocumentDigest(plan ProbePlan) (SHA256Digest, error) {
-	document, err := CanonicalProbePlan(plan)
-	if err != nil {
-		return SHA256Digest{}, err
-	}
-	return SumSHA256(document), nil
-}
-
-func CategorySelectionDigest(selection newznab.NewznabCategorySelection) (SHA256Digest, error) {
-	_, digest, err := NormalizeCategorySelection(selection)
-	return digest, err
-}
-
 // NormalizeCategorySelection returns sorted copies and rejects duplicates,
 // non-positive IDs, unresolved review state, and the shared 128-ID bound.
 func NormalizeCategorySelection(selection newznab.NewznabCategorySelection) (newznab.NewznabCategorySelection, SHA256Digest, error) {
