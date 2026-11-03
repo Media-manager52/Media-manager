@@ -431,26 +431,6 @@ func releaseAttributableQueueFailure(detail string) (string, bool) {
 	return "", false
 }
 
-func hasOneDominantMovie(files []altmount.OutputFile) bool {
-	media := make([]altmount.OutputFile, 0, len(files))
-	for _, file := range files {
-		switch strings.ToLower(filepath.Ext(file.RelativePath)) {
-		case ".mkv", ".mp4", ".m4v", ".avi", ".ts":
-			if !strings.Contains(strings.ToLower(file.RelativePath), "sample") {
-				media = append(media, file)
-			}
-		}
-	}
-	if len(media) == 1 {
-		return true
-	}
-	if len(media) == 0 {
-		return false
-	}
-	sort.Slice(media, func(i, j int) bool { return media[i].Size > media[j].Size })
-	return media[0].Size > 0 && media[1].Size*5 < media[0].Size
-}
-
 func selectedMovieAssets(assets []packs.ObservedAsset) []subtitles.Asset {
 	media := make([]packs.ObservedAsset, 0, len(assets))
 	for _, asset := range assets {

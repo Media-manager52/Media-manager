@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -304,14 +303,4 @@ func componentName(t reflect.Type) string {
 	runes := []rune(name)
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
-}
-
-// sortedOperationIDs is used by tests and the index to list operations stably.
-func sortedOperationIDs(operations []apiOperation) []string {
-	ids := make([]string, 0, len(operations))
-	for _, operation := range operations {
-		ids = append(ids, operationID(operation))
-	}
-	sort.Strings(ids)
-	return ids
 }

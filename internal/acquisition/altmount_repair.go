@@ -219,7 +219,7 @@ func (service *AltMountRepairService) audioUpgradeSweep(ctx context.Context, alt
 		if err != nil {
 			return counts, err
 		}
-		upgrade := postgres.AudioUpgrade{Language: target.Language, ProfileID: target.ProfileID}
+		upgrade := postgres.AudioUpgrade(target)
 		sourcePrefix := filepath.Clean(root.SourceVisibleRoot) + string(filepath.Separator)
 		for _, item := range items {
 			for _, media := range item.Media {
