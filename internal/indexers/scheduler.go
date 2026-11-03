@@ -104,6 +104,12 @@ type Scheduler struct {
 	mu     sync.Mutex
 	lanes  map[string]*lane
 	global chan struct{}
+	// browse holds the in-flight slots for viewer stream lists. A list asks
+	// every indexer at once, so sharing the four background slots made it
+	// wait for two or three rounds of requests (6-11 s in production) behind
+	// background searches. Per-indexer pacing, the one-request-per-indexer
+	// lane and the query budgets still apply unchanged.
+	browse chan struct{}
 	store  SnapshotStore
 	now    func() time.Time
 	wait   func(context.Context, time.Duration) error
@@ -129,6 +135,9 @@ type lane struct {
 type Permit struct {
 	scheduler *Scheduler
 	lane      *lane
+	// global is the in-flight pool this permit holds a slot in; nil means
+	// the scheduler's global pool.
+	global    chan struct{}
 	indexerID string
 	workload  Workload
 	// commissioningBudget is populated ONLY by AcquireCommissioningV2. It is
@@ -225,7 +234,7 @@ func NewScheduler(globalLimit int, store SnapshotStore) *Scheduler {
 	if globalLimit < 1 {
 		globalLimit = 1
 	}
-	return &Scheduler{lanes: make(map[string]*lane), global: make(chan struct{}, globalLimit), store: store, now: time.Now, wait: waitForPacing}
+	return &Scheduler{lanes: make(map[string]*lane), global: make(chan struct{}, globalLimit), browse: make(chan struct{}, BrowseConcurrency), store: store, now: time.Now, wait: waitForPacing}
 }
 
 func waitForPacing(ctx context.Context, delay time.Duration) error {
@@ -237,6 +246,18 @@ func waitForPacing(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// BrowseConcurrency is how many viewer stream-list requests may be in flight
+// across all indexers, separately from the global limit for other work.
+const BrowseConcurrency = 16
+
+// slots returns the in-flight pool a workload draws from.
+func (scheduler *Scheduler) slots(workload Workload) chan struct{} {
+	if workload == WorkloadBrowse && scheduler.browse != nil {
+		return scheduler.browse
+	}
+	return scheduler.global
 }
 
 // Maximum time a viewer-facing browse request may hold an indexer lane while
@@ -315,20 +336,21 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		return nil, ErrIndexerIDRequired
 	}
 	lane := scheduler.getLane(indexerID)
+	global := scheduler.slots(workload)
 	select {
 	case lane.gate <- struct{}{}:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 	select {
-	case scheduler.global <- struct{}{}:
+	case global <- struct{}{}:
 	case <-ctx.Done():
 		<-lane.gate
 		return nil, ctx.Err()
 	}
 
 	if err := scheduler.load(ctx, indexerID, lane); err != nil {
-		<-scheduler.global
+		<-global
 		<-lane.gate
 		return nil, err
 	}
@@ -338,7 +360,7 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 	lane.mu.RUnlock()
 	if unknown {
 		if err := scheduler.ReloadLaneCache(ctx, indexerID); err != nil {
-			<-scheduler.global
+			<-global
 			<-lane.gate
 			return nil, err
 		}
@@ -347,7 +369,7 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		lane.mu.RUnlock()
 	}
 	if !gateAllowsTransmission(ctx, source, indexerID) {
-		<-scheduler.global
+		<-global
 		<-lane.gate
 		return nil, CommissioningGateBlockedError{IndexerID: indexerID}
 	}
@@ -365,15 +387,15 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		// failure cooldown, or a pacing interval longer than the browse
 		// budget, is still reported immediately.
 		if workload != WorkloadBrowse || cooldownActive || notBefore.Sub(now) > maxBrowsePacingWait {
-			<-scheduler.global
+			<-global
 			<-lane.gate
 			return nil, CooldownError{Until: notBefore}
 		}
-		<-scheduler.global
+		<-global
 		waitErr := scheduler.wait(ctx, notBefore.Sub(now))
 		if waitErr == nil {
 			select {
-			case scheduler.global <- struct{}{}:
+			case global <- struct{}{}:
 			case <-ctx.Done():
 				waitErr = ctx.Err()
 			}
@@ -383,7 +405,7 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 			return nil, waitErr
 		}
 		if err := ctx.Err(); err != nil {
-			<-scheduler.global
+			<-global
 			<-lane.gate
 			return nil, err
 		}
@@ -398,7 +420,7 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		}
 		lane.mu.RUnlock()
 		if cooldownActive || notBefore.After(now) {
-			<-scheduler.global
+			<-global
 			<-lane.gate
 			return nil, CooldownError{Until: notBefore}
 		}
@@ -411,18 +433,18 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		if reservations, ok := scheduler.store.(ReservationStore); ok {
 			retryAt, err := reservations.ReserveIndexerRequest(ctx, indexerID, family, limit, budget.LimitWindow, now)
 			if err != nil {
-				<-scheduler.global
+				<-global
 				<-lane.gate
 				return nil, err
 			}
 			if !retryAt.IsZero() {
-				<-scheduler.global
+				<-global
 				<-lane.gate
 				return nil, RequestBudgetError{Until: retryAt}
 			}
 		}
 	}
-	return &Permit{scheduler: scheduler, lane: lane, indexerID: indexerID, workload: workload}, nil
+	return &Permit{scheduler: scheduler, lane: lane, global: global, indexerID: indexerID, workload: workload}, nil
 }
 
 // canonicalCommissioningID enforces the commissioning-v2 admission identity
@@ -586,7 +608,7 @@ func (permit *Permit) recordResult(ctx context.Context, result RecordResult, ret
 	// covers callers that mistakenly use Record/RecordResult/Close.
 	if permit != nil && permit.commissioningBudget.Valid() {
 		permit.once.Do(func() {
-			<-permit.scheduler.global
+			<-permit.slots()
 			<-permit.lane.gate
 		})
 		return ErrCommissioningResultPath
@@ -600,7 +622,7 @@ func (permit *Permit) recordResult(ctx context.Context, result RecordResult, ret
 		if permit.scheduler.store != nil {
 			recordErr = permit.scheduler.store.SaveIndexerBudget(ctx, snapshot)
 		}
-		<-permit.scheduler.global
+		<-permit.slots()
 		<-permit.lane.gate
 	})
 	return recordErr
@@ -712,6 +734,13 @@ func requestLimit(workload Workload, budget Budget) (int, string) {
 	return budget.QueryLimit, "query"
 }
 
+func (permit *Permit) slots() chan struct{} {
+	if permit.global != nil {
+		return permit.global
+	}
+	return permit.scheduler.global
+}
+
 func (permit *Permit) Close() { _ = permit.Record(context.Background(), OutcomeCancelled, nil) }
 
 // ReleaseWithoutOutcome releases the lane and global slot without an
@@ -721,7 +750,7 @@ func (permit *Permit) Close() { _ = permit.Record(context.Background(), OutcomeC
 // floor must survive, and the next Acquire must reload authoritative state.
 func (permit *Permit) ReleaseWithoutOutcome() {
 	permit.once.Do(func() {
-		<-permit.scheduler.global
+		<-permit.slots()
 		<-permit.lane.gate
 	})
 }
