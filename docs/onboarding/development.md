@@ -110,7 +110,7 @@ From `AGENTS.md` plus observed practice:
 
 1. Add a store method in the matching `internal/postgres/*.go` file returning a
    typed struct (follow `readmodels.go` patterns). Use bounded `limit`s.
-2. Register the route in `internal/httpapi/server.go` `routes()` with
+2. Register the route in `internal/httpapi/api_catalog.go` `routes()` with
    `server.requireOwner`.
 3. Handler: parse limit/offset with clamps → call store → `writeJSON`.
 4. Add the type + loader to `web/src/api/client.ts`.

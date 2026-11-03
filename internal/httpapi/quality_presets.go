@@ -4,9 +4,10 @@ import (
 	"errors"
 	"net/http"
 
+	"uuid"
+
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
-	"uuid"
 )
 
 func (server *Server) listQualityProfilePresets(writer http.ResponseWriter, request *http.Request) {

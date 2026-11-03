@@ -302,7 +302,7 @@ These come from `README.md` and `AGENTS.md`; they are enforced by code and tests
 | Question | File |
 | --- | --- |
 | How does startup wiring work? | `cmd/media-manager/main.go` |
-| What routes exist and how is auth done? | `internal/httpapi/server.go`, `internal/httpapi/commissioning_v2.go` |
+| What routes exist and how is auth done? | `internal/httpapi/api_catalog.go` (`routes()`), `internal/httpapi/server.go` (auth, errors), one file per area (`workflows.go`, `media.go`, `settings.go`, …) |
 | How does the worker work? | `internal/platform/worker.go`, `internal/postgres/outbox.go` |
 | What are the legal workflow transitions? | `internal/workflows/model.go` |
 | How are searches planned/executed? | `internal/acquisition/search.go`, `search_plan.go`, `internal/adapters/newznab/` |

@@ -1,8 +1,9 @@
 package httpapi
 
 import (
-	"github.com/media-manager/media-manager/internal/acquisition"
 	"net/http"
+
+	"github.com/media-manager/media-manager/internal/acquisition"
 
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/commissioningv2"

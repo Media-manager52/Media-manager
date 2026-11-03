@@ -2,10 +2,11 @@ package httpapi
 
 import (
 	"errors"
-	"github.com/media-manager/media-manager/internal/acquisition"
 	"mime"
 	"net/http"
 	"strconv"
+
+	"github.com/media-manager/media-manager/internal/acquisition"
 )
 
 func (s *Server) streamingSearch(w http.ResponseWriter, r *http.Request) {

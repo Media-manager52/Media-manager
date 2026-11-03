@@ -6,7 +6,8 @@ package architecture
 var knownImportViolations = map[string]bool{
 	"internal/httpapi/api_catalog.go -> internal/adapters/seerr":                    true,
 	"internal/httpapi/request_decisions.go -> internal/adapters/seerr":              true,
-	"internal/httpapi/server.go -> internal/adapters/altmount":                      true,
+	"internal/httpapi/system.go -> internal/adapters/altmount":                      true,
+	"internal/httpapi/seerr_webhook.go -> internal/adapters/seerr":                  true,
 	"internal/httpapi/server.go -> internal/adapters/seerr":                         true,
 	"internal/postgres/altmount.go -> internal/adapters/altmount":                   true,
 	"internal/postgres/commission.go -> internal/adapters/newznab":                  true,
@@ -28,7 +29,6 @@ var knownImportViolations = map[string]bool{
 // count they may not exceed. Shrink the number as a file is split; delete the
 // entry once the file is under the limit.
 var oversizedFiles = map[string]int{
-	"internal/httpapi/server.go":                      2245,
 	"internal/postgres/indexer_commissioning.go":      1360,
 	"internal/postgres/indexer_commissioning_live.go": 1249,
 	"internal/postgres/publication.go":                1161,
