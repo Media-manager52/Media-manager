@@ -138,6 +138,9 @@ type seasonBrowseCache struct {
 type oldBoysBrowseCache struct {
 	observations []releases.Observation
 	until        time.Time
+	// partial marks page one while the remaining pages are still being
+	// fetched in the background.
+	partial bool
 }
 
 func (s *BrowseService) Browse(ctx context.Context, in BrowseInput) (BrowseResult, error) {
@@ -232,6 +235,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			var observations []releases.Observation
 			var client *newznab.Client
 			var e error
+			oldBoysPartial := false
 			if i.Kind == "oldboys" {
 				if budgetErr := s.Search.Scheduler.Configure(i.ID.String(), indexers.NewznabBudget(c.MinimumIntervalMS, c.QueryLimit, c.GrabLimit, c.BudgetWindow)); budgetErr != nil {
 					e = budgetErr
@@ -240,7 +244,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 					if clientErr != nil {
 						e = clientErr
 					} else {
-						observations, e = s.oldBoysBrowseObservations(ctx, native, i.ID.String(), in)
+						observations, oldBoysPartial, e = s.oldBoysBrowseObservations(ctx, native, i.ID.String(), in)
 					}
 				}
 			} else {
@@ -249,7 +253,11 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 					observations, e = s.browseNewznab(ctx, client, i, c, search, media, in)
 				}
 			}
-			if e == nil {
+			if e == nil && oldBoysPartial {
+				// More OldBoys pages are on their way; the list is cached
+				// briefly so the next open includes them.
+				provider.State = "deferred"
+			} else if e == nil {
 				provider.State = "complete"
 			} else {
 				var retry interface{ RetryAt() time.Time }
@@ -540,76 +548,6 @@ func (s *BrowseService) mergeSeasonCache(key string, observations []releases.Obs
 	}
 	s.seasonCache[key] = entry
 	s.mu.Unlock()
-}
-
-// oldBoysBrowseObservations queries the native Danish provider. OldBoys
-// returns at most 25 rows per page and has a small fixed page count; four
-// pages cover the useful catalogue without turning an interactive open into
-// an unbounded scrape. The title-only result is cached across episodes.
-func (s *BrowseService) oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, integrationID string, in BrowseInput) ([]releases.Observation, error) {
-	request := oldBoysBrowseRequest(in)
-	key := integrationID + "|" + request.Name + "|" + strconv.Itoa(request.Category)
-	now := time.Now()
-	s.mu.Lock()
-	if cached, ok := s.oldBoysCache[key]; ok && now.Before(cached.until) {
-		observations := append([]releases.Observation(nil), cached.observations...)
-		s.mu.Unlock()
-		return observations, nil
-	}
-	s.mu.Unlock()
-	value, err, _ := s.flights.Do("oldboys|"+key, func() (any, error) {
-		observations, err := oldBoysBrowseObservations(ctx, client, in)
-		if err != nil {
-			return nil, err
-		}
-		s.mu.Lock()
-		if s.oldBoysCache == nil {
-			s.oldBoysCache = map[string]oldBoysBrowseCache{}
-		}
-		if len(s.oldBoysCache) >= 200 {
-			for oldKey, entry := range s.oldBoysCache {
-				if now.After(entry.until) {
-					delete(s.oldBoysCache, oldKey)
-				}
-			}
-			if len(s.oldBoysCache) >= 200 {
-				for oldKey := range s.oldBoysCache {
-					delete(s.oldBoysCache, oldKey)
-					break
-				}
-			}
-		}
-		s.oldBoysCache[key] = oldBoysBrowseCache{observations: append([]releases.Observation(nil), observations...), until: now.Add(10 * time.Minute)}
-		s.mu.Unlock()
-		return observations, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return append([]releases.Observation(nil), value.([]releases.Observation)...), nil
-}
-
-func oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, in BrowseInput) ([]releases.Observation, error) {
-	request := oldBoysBrowseRequest(in)
-	all := []releases.Observation{}
-	for page := 1; page <= oldboys.MaxPage; page++ {
-		request.Page = page
-		observations, rows, err := client.ProbeSearch(ctx, request, indexers.WorkloadBrowse, nil)
-		if err != nil {
-			if len(all) > 0 {
-				break
-			}
-			return nil, err
-		}
-		all = append(all, observations...)
-		// A page shorter than a full page is the last one. Asking for the
-		// next would only return nothing after OldBoys' five-second pacing
-		// interval, which the viewer's stream list waits for.
-		if rows < oldboys.PageSize {
-			break
-		}
-	}
-	return all, nil
 }
 
 func oldBoysBrowseRequest(in BrowseInput) oldboys.SearchRequest {
