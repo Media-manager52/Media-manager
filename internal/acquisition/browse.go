@@ -592,9 +592,9 @@ func (s *BrowseService) oldBoysBrowseObservations(ctx context.Context, client *o
 func oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, in BrowseInput) ([]releases.Observation, error) {
 	request := oldBoysBrowseRequest(in)
 	all := []releases.Observation{}
-	for page := 1; page <= 4; page++ {
+	for page := 1; page <= oldboys.MaxPage; page++ {
 		request.Page = page
-		observations, err := client.Search(ctx, request, indexers.WorkloadBrowse, nil)
+		observations, rows, err := client.ProbeSearch(ctx, request, indexers.WorkloadBrowse, nil)
 		if err != nil {
 			if len(all) > 0 {
 				break
@@ -602,7 +602,10 @@ func oldBoysBrowseObservations(ctx context.Context, client *oldboys.Client, in B
 			return nil, err
 		}
 		all = append(all, observations...)
-		if len(observations) == 0 {
+		// A page shorter than a full page is the last one. Asking for the
+		// next would only return nothing after OldBoys' five-second pacing
+		// interval, which the viewer's stream list waits for.
+		if rows < oldboys.PageSize {
 			break
 		}
 	}

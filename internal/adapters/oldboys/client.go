@@ -26,6 +26,10 @@ const Origin = "https://oldboys.pw"
 const MovieCategory = 1
 const SeriesCategory = 2
 const MaxPage = 4
+
+// PageSize is how many rows OldBoys returns per full results page. A shorter
+// page is the last one.
+const PageSize = 25
 const searchLimit = 4 << 20
 const nzbLimit = 128 << 20
 
@@ -222,7 +226,7 @@ func (client *Client) parse(body []byte, category int) ([]releases.Observation, 
 		ID         json.RawMessage            `json:"id"`
 		Attributes map[string]json.RawMessage `json:"attributes"`
 	}
-	if json.Unmarshal(payload.Data, &rows) != nil || len(rows) > 25 {
+	if json.Unmarshal(payload.Data, &rows) != nil || len(rows) > PageSize {
 		return nil, 0, Error{"oldboys_invalid_results"}
 	}
 	now := time.Now().UTC()
