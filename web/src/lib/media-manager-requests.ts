@@ -3,9 +3,9 @@ import type { Tone } from "@/lib/tone"
 
 export type RequestFilter = "all" | "active" | "completed" | "attention" | "movie" | "series"
 
-export const requestAttentionStates = new Set(["needs_attention", "held", "blocked", "quarantined", "transport_unknown", "not_approved", "failed"])
-export const requestCompletedStates = new Set(["plex_confirmed", "available"])
-export const requestActiveStates = new Set(["approved_in_seerr", "monitored", "waiting", "searching", "candidate_selected", "submitting", "queued", "streaming_ready", "import_complete", "verifying", "publishing", "plex_scanning"])
+const requestAttentionStates = new Set(["needs_attention", "held", "blocked", "quarantined", "transport_unknown", "not_approved", "failed"])
+const requestCompletedStates = new Set(["plex_confirmed", "available"])
+const requestActiveStates = new Set(["approved_in_seerr", "monitored", "waiting", "searching", "candidate_selected", "submitting", "queued", "streaming_ready", "import_complete", "verifying", "publishing", "plex_scanning"])
 
 export function requestLifecycleTone(lifecycle: string): Tone {
   if (lifecycle === "plex_confirmed" || lifecycle === "available") return "good"
@@ -32,18 +32,6 @@ export function seerrStateLabel(state: string): string {
     case "5": return "Available"
     default: return state ? `State ${state}` : "Unknown"
   }
-}
-
-/** Explain admission separately from acquisition, using the recorded outcome. */
-export function requestProgressMessage(item: APIRequest): string {
-  if (item.attention_detail || item.intake_error) return item.attention_detail || item.intake_error || ""
-  if (item.lifecycle === "waiting") {
-    if (item.waiting_reason === "no eligible release yet") return "Added to Media Manager. No eligible release matched the latest search."
-    if (item.waiting_reason) return item.waiting_reason
-    if (item.workflow_count > 0) return "Added to Media Manager; acquisition is waiting."
-  }
-  if (item.lifecycle === "approved_in_seerr" || (item.lifecycle === "monitored" && item.workflow_count === 0)) return "Approved in Seerr; Media Manager intake has not created a workflow yet."
-  return ""
 }
 
 export function requestMatchesFilter(item: APIRequest, filter: RequestFilter): boolean {

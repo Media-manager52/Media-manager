@@ -89,7 +89,7 @@ function filterByTitle(items: APIWorkflow[], query: string): APIWorkflow[] {
   return items.filter((item) => item.title.toLocaleLowerCase("da").includes(needle))
 }
 
-export function groupByReason(items: APIWorkflow[]): Array<[string, APIWorkflow[]]> {
+function groupByReason(items: APIWorkflow[]): Array<[string, APIWorkflow[]]> {
   const groups = new Map<string, APIWorkflow[]>()
   for (const item of items) {
     const reason = attentionLabel(item.attention_code) || stateLabel(item.state)

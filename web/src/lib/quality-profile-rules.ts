@@ -112,7 +112,7 @@ function editableSourceRule(rules: RuleRecord[]) {
   return preferred.length === 1 && allowedValues(preferred[0]).length === 1 ? preferred[0] : undefined
 }
 
-export function sourceSelection(rules: RuleRecord[]) {
+function sourceSelection(rules: RuleRecord[]) {
   const rule = editableSourceRule(rules)
   return rule ? allowedValues(rule)[0] : "none"
 }
@@ -134,7 +134,7 @@ export function defaultSelections(): QualitySelections {
 }
 
 /** Display text for the values of the required rules the editor cannot name. */
-export function requiredValues(rules: RuleRecord[], fact: QualityFact) {
+function requiredValues(rules: RuleRecord[], fact: QualityFact) {
   const seen: string[] = []
   for (const rule of requiredRules(rules, fact)) for (const value of allowedValues(rule)) if (!seen.includes(value)) seen.push(value)
   return seen
