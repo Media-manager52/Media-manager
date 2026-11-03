@@ -21,7 +21,7 @@ and `x-mm-auth`.
 How the browser gets the owner token: it never does. Cosmos Cloud's `/api`
 route injects the header server-side. The UI issues same-origin `fetch()` calls
 with `credentials: "same-origin"` and no authorization header.
-See [07-operations.md](../operations/runbook.md#public-edge-cosmos-cloud).
+See [runbook.md](../operations/runbook.md#public-edge-cosmos-cloud).
 
 Every response goes through `security()`:
 `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
@@ -315,7 +315,7 @@ that address directly over the integrations network.
    understands "accepted"; use `202` when appropriate.
 5. Add request validation tests in `internal/httpapi/*_test.go` (there are
    existing fakes/in-memory patterns).
-6. Update [04-api.md](api.md) (this file) and the UI client if it is used by
+6. Update [api.md](api.md) (this file) and the UI client if it is used by
    the web app.
 
 ## Access rejection recovery

@@ -60,7 +60,7 @@ func (worker *Worker) Run(ctx context.Context) error
 ```
 
 - Claims one event per iteration, renews the lease while the handler runs,
-  completes/defer/fails as described in [01-architecture.md](overview.md#3-the-durable-outbox-the-heart-of-the-system).
+  completes/defer/fails as described in [overview.md](overview.md#3-the-durable-outbox-the-heart-of-the-system).
 - Unknown event type → failed with "no handler registered" and a 30-minute retry.
 - `safeError()` only persists errors with a valid `SafeCode()` or the Go type
   name — never raw error strings (they may contain secrets/paths).
@@ -260,7 +260,7 @@ If you add a service handler, keep it idempotent: events are at-least-once.
 ## internal/publication — symlink publication and Plex
 
 `service.go`, `plex.go`, `remove.go` + tests. See
-[06-workflows.md](workflows.md#8-publication-and-plex) for the full flow.
+[workflows.md](workflows.md#8-publication-and-plex) for the full flow.
 
 - `Service.Handle`: `LoadPublicationContext` → `buildPlans` → `PreflightBatch`
   → `PreparePublication` → `MarkPublicationPublishing` → `PublishBatch` →
@@ -384,7 +384,7 @@ connection. Owner must place extracted keys into secret env names manually.
   (bounded, explicitly owner-authorized CAPS/search steps).
 - The package is intentionally transport-free at the domain layer; HTTP access
   goes through `httpapi/commissioning_v2.go` and the bridge in
-  `internal/commissioning/live_v2.go`. See [06-workflows.md](workflows.md#14-indexer-commissioning).
+  `internal/commissioning/live_v2.go`. See [workflows.md](workflows.md#14-indexer-commissioning).
 
 ## internal/servarr — Radarr/Sonarr compatibility surface
 
@@ -418,12 +418,12 @@ routes Auto requests by metadata in `internal/postgres/seerr_routes.go`). No I/O
 - `seerrWebhook` is the only unauthenticated-by-owner route and uses
   `seerr.AuthenticateWebhook` with the instance secret.
 
-Full route list: [04-api.md](api.md).
+Full route list: [api.md](api.md).
 
 ## internal/postgres — persistence
 
 76 files, ~29 400 lines, 221 `*Store` methods. The only package that contains
-SQL. See [03-database.md](database.md) for the file → domain map, table
+SQL. See [database.md](database.md) for the file → domain map, table
 catalog, and concurrency rules.
 
 ---

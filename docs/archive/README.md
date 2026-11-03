@@ -15,6 +15,7 @@ and the migrations (`internal/postgres/migrations/`), then read
 | `indexer-commissioning-v2-architecture-proposal.txt` | Owner-authorized commissioning v2 |
 | `indexer-commissioning-v2-live-executor-architecture-proposal.txt` | Commissioning v2 live executor |
 | `agent-briefs/` | One-off AI session prompts from September–October 2026. They describe the system as it was then and are **not** instructions. |
+| `schema-50-deployment.md` | The schema 49→50 deployment plan; schema 50 was deployed on 2026-11-02. |
 
 Related current documentation:
 

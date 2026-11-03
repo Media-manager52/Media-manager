@@ -37,7 +37,6 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
-| [operations/schema-50-deployment.md](operations/schema-50-deployment.md) | Prepared schema-49→50 deployment, backup, failure and rollback plan; not applied |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
 | [releases/v0.1.0-beta.1.md](releases/v0.1.0-beta.1.md) | Prepared public-beta release note, limitations and publication gates |
 

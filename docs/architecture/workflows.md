@@ -4,8 +4,8 @@ Purpose: the end-to-end behavior of Media Manager, in execution order, with the
 exact rules that make each step truthful. This is the document to read before
 changing acquisition, verification, publication, adoption, or recycle code.
 
-Vocabulary is in [09-glossary.md](../reference/glossary.md). State machine is in
-[01-architecture.md](overview.md#4-workflow-state-machine).
+Vocabulary is in [glossary.md](../reference/glossary.md). State machine is in
+[overview.md](overview.md#4-workflow-state-machine).
 
 ## 1. Scope model
 

@@ -1,4 +1,8 @@
-# Schema 50 deployment plan (not authorized, not applied)
+# Schema 50 deployment plan (historical)
+
+> **Archived.** Schema 50 was deployed to production on 2026-11-02 through the
+> normal GitHub Deploy flow (backup first). This page is the plan as it was
+> written before that and is kept for history only.
 
 This plan covers the `0050_search_partial_retries.sql` migration from PR #86.
 It has **not** been run against production. Production remains on schema 49 and
