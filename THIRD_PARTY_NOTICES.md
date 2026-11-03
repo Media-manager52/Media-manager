@@ -7,26 +7,14 @@ text shipped with each dependency.
 
 ## Bundled notices
 
-- **shadcn Tailwind CSS 4.13.0** — MIT. The local notice is
-  [`third_party/shadcn-tailwind-4.13.0.LICENSE.md`](third_party/shadcn-tailwind-4.13.0.LICENSE.md).
-- **Geist Mono and Inter fonts** (`@fontsource-variable/geist-mono`,
-  `@fontsource-variable/inter`) — SIL Open Font License 1.1. The npm packages
-  contain the applicable OFL notices.
-- **sharp / libvips** — the `sharp` JavaScript package is Apache-2.0; the
-  platform `@img/sharp-libvips-*` binaries are LGPL-3.0-or-later. The prebuilt
-  npm packages do not ship a license file, so the LGPL-3.0 text is preserved in
-  [`third_party/LGPL-3.0.txt`](third_party/LGPL-3.0.txt) (with
-  [`GPL-3.0.txt`](third_party/GPL-3.0.txt) by reference); libvips source is at
-  <https://github.com/libvips/libvips> and the prebuilt source at
-  <https://github.com/lovell/sharp-libvips>. Media Manager does not modify
-  libvips; the library remains dynamically loaded.
-- **shadcn/ui and Radix/Base UI components** — MIT; the component packages retain
-  their license notices in `node_modules` and the lockfile.
-- **caniuse-lite / caniuse data** — CC-BY-4.0; data derived from
-  <https://caniuse.com> and BrowserStack. Attribution is retained here; the
-  package retains its own notice.
-- **lightningcss and other MPL-2.0 packages** — MPL-2.0; those source files remain
-  available under MPL-2.0 and retain their notices.
+- **Inter font** (`@fontsource-variable/inter`) — SIL Open Font License 1.1,
+  bundled into the web UI build. The npm package contains the OFL notice.
+- **Web UI runtime libraries** bundled into `web/dist`: React and React DOM
+  (MIT), React Router (MIT), TanStack Query (MIT) and Lucide icons (ISC). Their
+  notices are in the packages pinned by `web/package-lock.json`.
+- **Build-only tooling** (Vite, Tailwind CSS, lightningcss under MPL-2.0,
+  TypeScript, ESLint, Vitest, Playwright) runs at build or test time and is not
+  copied into the UI runtime image.
 - **Alpine runtime packages** — the API image installs `ffmpeg` 8.0.1
   (`GPL-2.0-or-later AND LGPL-2.1-or-later`), `postgresql18-client`
   (`PostgreSQL`), and `ca-certificates` (`MPL-2.0 AND MIT`) from Alpine. The
@@ -41,8 +29,9 @@ text shipped with each dependency.
 ## Dependency inventory
 
 The exact npm dependency graph and versions are pinned in
-[`package-lock.json`](package-lock.json). The full npm graph, including
-dev/build tooling copied into the UI runtime image, uses MIT, Apache-2.0,
+[`web/package-lock.json`](web/package-lock.json). The UI runtime image contains
+only the built bundle and a dependency-free Node server. The full npm graph,
+including dev/build tooling, uses MIT, Apache-2.0,
 BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, LGPL-3.0-or-later, OFL-1.1, CC0-1.0,
 CC-BY-4.0, Python-2.0, BlueOak-1.0.0 and 0BSD components. The Go module graph in
 [`go.mod`](go.mod)/[`go.sum`](go.sum) uses permissive MIT/BSD/Apache-style

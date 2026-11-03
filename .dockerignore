@@ -4,6 +4,10 @@
 .next
 dist
 node_modules
+**/node_modules
+**/dist
+web/test-results
+web/playwright-report
 coverage
 .env
 .env.*

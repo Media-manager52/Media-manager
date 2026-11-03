@@ -11,25 +11,30 @@ Purpose: how to build, test, change, and debug this repository safely. Follow
 - Docker + Docker Compose (for the stack and container smoke tests).
 - PostgreSQL 18 (only needed for Go integration tests; Docker is fine).
 - Playwright browsers are provided by the container image in CI or installed
-  locally for `npm run test:browser`.
+  locally (`npx playwright install chromium` in `web/`) for `npm run test:browser`.
 
 ## 2. Command reference
 
 ### Frontend
 
+All frontend commands run in `web/`:
+
 ```sh
-npm run install:ci       # reproducible install for CI/sandbox
-npm run dev              # Vite/Vinext dev server (UI only, no API)
-npm run build            # bounded production build (3-minute timeout)
-npm run start            # serve the built UI
+npm ci                   # reproducible install
+npm run dev              # Vite dev server; proxies /api to MM_API_URL (default 127.0.0.1:28081)
+npm run build            # type-check + production build into web/dist
+npm run preview          # serve web/dist with the production server (web/server.mjs)
 npm run lint             # ESLint
 npm run typecheck        # tsc --noEmit
-npm run docs:check       # validate Markdown links/anchors in docs/ and root files
-npm test                 # build + node --test tests/*.test.mjs
-npm run test:browser     # build + Playwright Chromium specs (tests/browser)
-npm run test:live-browser# read-only acceptance against a deployed stack
-npm run bench:library    # deterministic library-transform benchmark
-npm run db:generate      # Drizzle generation (UI scaffolding only; see warning)
+npm test                 # Vitest unit tests (src/**/*.test.*)
+npm run test:browser     # Playwright against the built UI with a mocked API (needs a build)
+```
+
+From the repository root:
+
+```sh
+node scripts/check-docs.mjs      # validate Markdown links/anchors
+scripts/test-live-website.sh     # read-only acceptance against the deployed stack
 ```
 
 ### Go
@@ -61,8 +66,8 @@ docker compose up -d
 
 Two equivalent pipelines:
 
-- **GitLab** (`.gitlab-ci.yml`): `frontend` (lint, typecheck, `docs:check`,
-  `npm test`, `npm audit --omit=dev`), `browser` (Playwright image), `backend` (PostgreSQL
+- **GitLab** (`.gitlab-ci.yml`): `frontend` (in `web/`: lint, typecheck,
+  unit tests, build, `npm audit`; then the docs check), `browser` (Playwright image), `backend` (PostgreSQL
   18.6 service; `gofmt -l`, `go vet`, `go test -race`, `migrate`, then
   `git diff --exit-code -- go.mod go.sum`).
 - **GitHub Actions** (`.github/workflows/verify.yml`): a dedicated private VPS
@@ -76,9 +81,8 @@ Two equivalent pipelines:
   the owner starts production updates through the separate Deploy workflow.
   See [GitHub VPS operations](../operations/github-vps.md).
 
-The GitLab `frontend` job additionally runs `npm audit --omit=dev`; a known
-moderate transitive advisory has failed that step historically without blocking
-the V1 gates. Check current CI status before assuming red = broken product.
+Both pipelines fail the frontend job on high-severity `npm audit` findings.
+Check current CI status before assuming red = broken product.
 
 ## 4. Repository conventions
 
@@ -109,7 +113,7 @@ From `AGENTS.md` plus observed practice:
 2. Register the route in `internal/httpapi/server.go` `routes()` with
    `server.requireOwner`.
 3. Handler: parse limit/offset with clamps → call store → `writeJSON`.
-4. Add the type + loader to `lib/media-manager-api.ts`.
+4. Add the type + loader to `web/src/api/client.ts`.
 5. Add a table/screen in the UI (see [05-frontend.md](../architecture/frontend.md#8-adding-or-changing-a-screen)).
 6. Update [04-api.md](../architecture/api.md).
 
@@ -177,7 +181,7 @@ From `AGENTS.md` plus observed practice:
   `retryDiscoveryAt`; read the test (`acquisition_rounds_test.go`) to compute
   expected times rather than guessing.
 - **Frontend data issues**: check the API response first (network tab / curl),
-  then the loader types in `lib/media-manager-api.ts`.
+  then the loader types in `web/src/api/client.ts`.
 
 ## 6. Never do these
 
@@ -212,4 +216,4 @@ From `AGENTS.md` plus observed practice:
 | Understand Seerr | `internal/intake/`, `internal/adapters/seerr/` |
 | Understand commissioning | `internal/commissioningv2/`, `internal/commissioning/` |
 | Understand the schema | `internal/postgres/migrations/` + [03-database.md](../architecture/database.md) |
-| Understand the UI | `components/media-manager/app-shell.tsx` + [05-frontend.md](../architecture/frontend.md) |
+| Understand the UI | `web/src/routes.tsx` + [05-frontend.md](../architecture/frontend.md) |

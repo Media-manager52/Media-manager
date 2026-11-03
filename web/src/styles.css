@@ -1,0 +1,119 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/* Design tokens. Light is the default; dark follows the system unless the
+   owner picked a theme (data-theme on <html>). */
+:root {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --surface-2: #f0eee9;
+  --surface-3: #e7e4dd;
+  --line: #e2dfd8;
+  --text: #1c1b19;
+  --text-2: #5d5a53;
+  --text-3: #6b675f;
+  --accent: #b7791f;
+  --accent-strong: #8a5a10;
+  --accent-soft: #f7ead2;
+  --good: #17663f;
+  --good-soft: #dcf1e5;
+  --warn: #7a4d00;
+  --warn-soft: #fbeccb;
+  --bad: #a11d13;
+  --bad-soft: #fbe1de;
+  --info: #1f4f96;
+  --info-soft: #dfe9f9;
+  --focus: #1f4f96;
+  --shadow: 0 1px 2px rgb(28 27 25 / 6%), 0 4px 16px rgb(28 27 25 / 5%);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115;
+    --surface: #171a20;
+    --surface-2: #1d2128;
+    --surface-3: #262b34;
+    --line: #2a2f38;
+    --text: #eceae6;
+    --text-2: #a9a59d;
+    --text-3: #928e86;
+    --accent: #e5a50a;
+    --accent-strong: #f2c04d;
+    --accent-soft: #3a2e12;
+    --good: #4ccb8a;
+    --good-soft: #15301f;
+    --warn: #f0b443;
+    --warn-soft: #362a12;
+    --bad: #ff7b6e;
+    --bad-soft: #3a1a17;
+    --info: #7fb0ff;
+    --info-soft: #18243a;
+    --focus: #7fb0ff;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 25%);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #171a20;
+  --surface-2: #1d2128;
+  --surface-3: #262b34;
+  --line: #2a2f38;
+  --text: #eceae6;
+  --text-2: #a9a59d;
+  --text-3: #928e86;
+  --accent: #e5a50a;
+  --accent-strong: #f2c04d;
+  --accent-soft: #3a2e12;
+  --good: #4ccb8a;
+  --good-soft: #15301f;
+  --warn: #f0b443;
+  --warn-soft: #362a12;
+  --bad: #ff7b6e;
+  --bad-soft: #3a1a17;
+  --info: #7fb0ff;
+  --info-soft: #18243a;
+  --focus: #7fb0ff;
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 25%);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --shadow-card: var(--shadow);
+}
+
+html { background: var(--bg); }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+::selection { background: var(--accent-soft); }
+.tabular { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

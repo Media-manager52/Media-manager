@@ -236,7 +236,7 @@ The opt-in V2 test routes `/v2`, `/v2/library`, `/v2/requests` and
 `/v2/attention` provide a new shell and read-only views of existing live data.
 They preserve V1 routes and link detailed recovery actions back to that console;
 this initial preview does not replace the complete owner interface. See the
-[frontend reference](../architecture/frontend.md#v2-test-ui).
+[frontend reference](../architecture/frontend.md).
 
 | Route | Status | Current live behavior | Required work |
 | --- | --- | --- | --- |

@@ -32,18 +32,19 @@ frontend:
   cache:
     key:
       files:
-        - package-lock.json
+        - web/package-lock.json
     paths:
       - .cache/npm/
   before_script:
-    - npm ci
+    - cd web && npm ci
   script:
     - npm run lint
     - npm run typecheck
-    - npm run docs:check
     - npm test
+    - npm run build
     - npm audit --audit-level=high
     - npm audit --omit=dev --audit-level=high
+    - cd .. && node scripts/check-docs.mjs
 
 browser:
   stage: verify
@@ -55,13 +56,14 @@ browser:
   cache:
     key:
       files:
-        - package-lock.json
+        - web/package-lock.json
     paths:
       - .cache/npm/
   before_script:
-    - npm ci
+    - cd web && npm ci
   script:
-    - npm run test:browser
+    - npm run build
+    - CI=true npm run test:browser
 
 backend:
   stage: verify

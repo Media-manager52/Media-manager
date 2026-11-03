@@ -34,10 +34,14 @@ truthful, and safe for an owner-operated production media system.
   generated from it. Add new routes there and regenerate
   `docs/reference/openapi.json`
   (`MM_WRITE_OPENAPI=1 go test ./internal/httpapi -run TestCommittedOpenAPIIsCurrent`).
-- `app`, `components`, `lib`: Vinext/React UI, route screens, and API client.
-- `lib/media-library.ts`: pure movie/series library joins and local filtering.
-- `tests` and `tests/browser`: local UI/unit and browser coverage; unexpected external
-  network access must remain blocked.
+- `web/`: the owner web UI (Vite, React, TypeScript, Tailwind), Danish text.
+  `web/src/api/client.ts` is the API client, `web/src/pages/` one file per
+  screen, `web/src/i18n.ts` the only place API codes become words, and
+  `web/server.mjs` the dependency-free production server. See
+  [docs/architecture/frontend.md](docs/architecture/frontend.md).
+- `web/src/**/*.test.*` and `web/tests/browser`: unit and browser coverage. The
+  browser tests mock the API; unexpected external network access must remain
+  blocked.
 
 Follow an existing nearby pattern before adding a new abstraction. Prefer a
 small pure helper over expanding a screen or handler, and document why a new
@@ -60,20 +64,15 @@ GitHub Actions must never block engineering progress:
 
 ## Verification
 
-Frontend changes:
+Frontend changes (from `web/`):
 
 ```bash
+npm ci
 npm run lint
 npm run typecheck
 npm test
+npm run build
 npm run test:browser
-```
-
-The library transformation benchmark is local, deterministic, and makes no
-network requests:
-
-```bash
-npm run bench:library
 ```
 
 Go changes:

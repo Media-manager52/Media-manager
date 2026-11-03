@@ -25,11 +25,13 @@ guides under `docs/` (start with [`docs/onboarding/README.md`](docs/onboarding/R
 Frontend changes:
 
 ```sh
+cd web
 npm ci
 npx playwright install chromium
 npm run lint
 npm run typecheck
 npm test
+npm run build
 npm run test:browser
 ```
 

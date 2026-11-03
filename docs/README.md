@@ -27,7 +27,7 @@ behavioral truth is always the code and the SQL migrations.
 | [architecture/database.md](architecture/database.md) | Migrations, conventions, table catalog, `*Store` file map, concurrency rules |
 | [architecture/api.md](architecture/api.md) | Every HTTP route, auth model, envelopes, write-path protections |
 | [reference/openapi.json](reference/openapi.json) | Generated OpenAPI 3.1 description of every route (also served at `GET /api/v1/openapi.json`) |
-| [architecture/frontend.md](architecture/frontend.md) | Vinext/Next UI, route→screen map, API client, tests, styling |
+| [architecture/frontend.md](architecture/frontend.md) | Web UI in `web/`: pages, API client, Danish labels, tests, styling |
 | [architecture/workflows.md](architecture/workflows.md) | Domain lifecycle: intake → search → AltMount → verify → publish → Plex → Seerr, plus rounds, upgrades, adoption, recycle |
 | [reference/glossary.md](reference/glossary.md) | Exact domain vocabulary |
 
@@ -76,6 +76,6 @@ behavior; see [archive/README.md](archive/README.md).
   and superseded proposals in `archive/`.
 - Every Go package carries a `doc.go` package comment; keep it accurate when the
   package's role changes.
-- `npm run docs:check` validates every relative link and anchor in Markdown.
+- `node scripts/check-docs.mjs` validates every relative link and anchor in Markdown.
 - Prefer linking to files (with relative paths) over pasting code. Keep paths
   relative so the tree can move.
