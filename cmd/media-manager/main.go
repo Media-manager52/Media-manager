@@ -103,6 +103,9 @@ func run() error {
 	if command == "migrate" {
 		return postgres.Migrate(context.Background(), store.Pool)
 	}
+	if command == "prune-observations" {
+		return pruneObservations(context.Background(), store, os.Args[2:], os.Stdout, os.Stderr)
+	}
 	if command != "serve" {
 		return fmt.Errorf("unknown command %q", command)
 	}
