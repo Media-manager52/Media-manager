@@ -151,6 +151,14 @@ const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
     () => "Der er ingen sæsonpakke, så afsnittene hentes hver for sig."],
   [/^Airing season: released episodes are acquired individually as they air; future episodes are not searched before their release date\.$/,
     () => "Sæsonen sendes stadig: afsnit hentes, efterhånden som de bliver sendt."],
+  [/^The next eligible release resolved to an exact package already submitted in this workflow, and no unexcluded eligible candidate remains\.$/,
+    () => "Den næste egnede udgivelse er præcis den samme pakke, som allerede er prøvet, og der er ingen andre egnede kandidater tilbage."],
+  [/^AltMount reported completion, but its read-only output was still unavailable after five minutes\. Verify the shared-folder mount before retrying\.$/,
+    () => "AltMount meldte færdig, men filen kunne stadig ikke læses efter fem minutter. Tjek den delte mappe, før du prøver igen."],
+  [/^(\d+) failed outputs are retained \(limit (\d+)\); owner storage review is required before another NZB request\.$/,
+    (m) => `${m[1]} fejlede downloads er gemt (grænse ${m[2]}). Ryd op i lageret, før der hentes igen.`],
+  [/^bounded media-info inspection failed for (.+): media-info probe failed$/,
+    (m) => `Filen kunne ikke undersøges (media-info fejlede): ${m[1]}`],
 ]
 
 export function translateDetail(text: string | undefined | null): string {

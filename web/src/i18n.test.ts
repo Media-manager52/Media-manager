@@ -32,6 +32,17 @@ describe("translateDetail", () => {
     expect(translateDetail("no eligible release yet")).toBe("Ingen egnet udgivelse fundet endnu.")
   })
 
+  it("translates the most common attention explanations and keeps file names and counts", () => {
+    expect(translateDetail("8 failed outputs are retained (limit 8); owner storage review is required before another NZB request."))
+      .toBe("8 fejlede downloads er gemt (grænse 8). Ryd op i lageret, før der hentes igen.")
+    expect(translateDetail("bounded media-info inspection failed for Show.S01E02.mkv: media-info probe failed"))
+      .toBe("Filen kunne ikke undersøges (media-info fejlede): Show.S01E02.mkv")
+    expect(translateDetail("The next eligible release resolved to an exact package already submitted in this workflow, and no unexcluded eligible candidate remains."))
+      .toMatch(/^Den næste egnede udgivelse/)
+    expect(translateDetail("AltMount reported completion, but its read-only output was still unavailable after five minutes. Verify the shared-folder mount before retrying."))
+      .toMatch(/^AltMount meldte færdig/)
+  })
+
   it("shows unknown server text unchanged, so no detail is lost", () => {
     expect(translateDetail("bounded media-info inspection failed for x.mkv")).toBe("bounded media-info inspection failed for x.mkv")
     expect(translateDetail(undefined)).toBe("")
