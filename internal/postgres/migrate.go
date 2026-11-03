@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -32,10 +33,14 @@ func migrateThrough(ctx context.Context, pool *pgxpool.Pool, maximumVersion int6
 		return err
 	}
 	defer connection.Release()
-	if _, err := connection.Exec(ctx, `SELECT pg_advisory_lock(473652773271)`); err != nil {
+	lock, unlock, err := migrationLock(ctx, connection.Conn())
+	if err != nil {
 		return err
 	}
-	defer connection.Exec(context.Background(), `SELECT pg_advisory_unlock(473652773271)`)
+	if _, err := connection.Exec(ctx, lock.sql, lock.args...); err != nil {
+		return err
+	}
+	defer connection.Exec(context.Background(), unlock.sql, unlock.args...)
 	if _, err := connection.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version bigint PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return err
 	}
@@ -85,4 +90,34 @@ func SchemaVersion(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
 	var version int64
 	err := pool.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&version)
 	return version, err
+}
+
+// migrationLockKey is the advisory lock that serializes migrations of the
+// production schema. Every binary that has ever migrated production uses it,
+// so it must never change.
+const migrationLockKey int64 = 473652773271
+
+type lockStatement struct {
+	sql  string
+	args []any
+}
+
+// migrationLock returns the advisory lock and unlock statements for the
+// connection's current schema. The production schema ("public") keeps the
+// single historical key, so old and new binaries still exclude each other.
+// Any other schema (isolated test schemas) is locked on the two-key form
+// (namespace, schema), which PostgreSQL keeps in a separate key space. Two
+// migrations of the same schema still exclude each other, but migrations of
+// different test schemas no longer queue behind one database-wide lock.
+func migrationLock(ctx context.Context, connection *pgx.Conn) (lockStatement, lockStatement, error) {
+	var schema string
+	if err := connection.QueryRow(ctx, `SELECT COALESCE(current_schema(), '')`).Scan(&schema); err != nil {
+		return lockStatement{}, lockStatement{}, err
+	}
+	if schema == "public" || schema == "" {
+		return lockStatement{sql: `SELECT pg_advisory_lock($1)`, args: []any{migrationLockKey}},
+			lockStatement{sql: `SELECT pg_advisory_unlock($1)`, args: []any{migrationLockKey}}, nil
+	}
+	return lockStatement{sql: `SELECT pg_advisory_lock(hashtext('media-manager-migrate'), hashtext($1))`, args: []any{schema}},
+		lockStatement{sql: `SELECT pg_advisory_unlock(hashtext('media-manager-migrate'), hashtext($1))`, args: []any{schema}}, nil
 }
