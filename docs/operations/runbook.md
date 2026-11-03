@@ -257,6 +257,9 @@ docker compose exec -T api media-manager prune-observations -apply -archive - \
   > ~/media-manager-backups/observations-$(date -u +%Y%m%d).jsonl.gz
 ```
 
+`-indexer <instance-id>` limits a pass to one indexer, so one pass per indexer
+can run in parallel, each with its own archive file.
+
 It works in small transactions (500 releases each), so it can run while the
 service runs; each transaction deletes only after its rows were written to the
 archive. It can be stopped and restarted at any time. Space inside the table is
