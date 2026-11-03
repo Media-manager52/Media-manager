@@ -312,7 +312,8 @@ scanning never moves files.
 `seerr.go`, `seerr_status.go` + tests.
 
 - `SeerrService.Handle`: reads the webhook/poll payload, fetches the Seerr
-  request, deduplicates by `ReceiptKey`, verifies TMDB/TVDB/IMDb identities,
+  request, relies on the delivery's unique keys for deduplication (see
+  `seerr_deliveries`), verifies TMDB/TVDB/IMDb identities,
   enriches through `metadata.Service`, then persists request + seasons +
   workflows transactionally (movies `default`, series per selected season).
 - Handles deletion/revocation: a deleted request, or one whose Seerr status
@@ -484,8 +485,7 @@ dependency).
 ### seerr
 
 - `Client` for requests, seasons, media status; `ParseWebhook`,
-  `AuthenticateWebhook` (constant-time secret check), `ReceiptKey`
-  (dedup hash), `Identity`/`ExternalIDs` for TMDB/TVDB/IMDb.
+  `AuthenticateWebhook` (constant-time secret check), `Identity`/`ExternalIDs` for TMDB/TVDB/IMDb.
 - `MediaStatus` values (`available`, `partial`, ...). Status updates go through
   the supported media-status API only after exact Plex confirmation.
 

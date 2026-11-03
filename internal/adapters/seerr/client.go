@@ -532,8 +532,3 @@ func ParseWebhook(body []byte) (Webhook, error) {
 	}
 	return event, nil
 }
-
-func ReceiptKey(body []byte) string {
-	digest := sha256.Sum256(body)
-	return fmt.Sprintf("%x", digest[:])
-}

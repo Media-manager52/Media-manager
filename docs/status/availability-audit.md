@@ -1,7 +1,7 @@
 # Availability audit — 2026-09-28
 
 Answers the owner's question from
-[the availability brief](../onboarding/agent-briefs/claude-availability-audit.md):
+[the availability brief](../archive/agent-briefs/claude-availability-audit.md):
 are the missing titles truly unavailable with Danish subtitles, or blocked by
 the pipeline? Everything below was measured read-only against the live
 database, AltMount logs, and Plex on 2026-09-28 at about 19:50–21:30 UTC

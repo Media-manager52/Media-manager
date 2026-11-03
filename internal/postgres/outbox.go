@@ -4,12 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 	"uuid"
-
-	"github.com/jackc/pgx/v5"
 )
 
 type OutboxEvent struct {
@@ -280,13 +277,4 @@ func (store *Store) QueueActiveSeerrPolls(ctx context.Context, instanceID string
 		queued++
 	}
 	return queued, transaction.Commit(ctx)
-}
-
-func (store *Store) OutboxPending(ctx context.Context) (int64, error) {
-	var count int64
-	err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE completed_at IS NULL`).Scan(&count)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
-	}
-	return count, err
 }
