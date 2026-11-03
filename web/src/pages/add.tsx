@@ -117,7 +117,7 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
   return (
     <Card>
       <CardHeader title={`${detail.title}${detail.year ? ` (${detail.year})` : ""}`} description={[kindLabel(kind), meta?.original_language ? `Original: ${languageName(meta.original_language)}` : null].filter(Boolean).join(" · ")} action={<Button variant="ghost" onClick={onBack}>Tilbage til resultater</Button>} />
-      <div className="grid gap-6 p-5 md:grid-cols-[10rem_1fr]">
+      <div className="grid grid-cols-1 gap-6 p-5 md:grid-cols-[10rem_minmax(0,1fr)]">
         <Poster src={sizedArtwork(meta?.poster_url, "w342")} title={detail.title} kind={kind} className="w-32 md:w-40" />
         <form onSubmit={(event) => { event.preventDefault(); mutation.mutate() }} className="flex min-w-0 flex-col gap-5">
           {meta?.overview ? <p className="text-text-2">{meta.overview}</p> : null}
@@ -135,7 +135,7 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
               )}
             </fieldset>
           ) : null}
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1 block font-medium">Bibliotek</span>
               <select value={rootId} onChange={(event) => setRootId(event.target.value)} className="h-10 w-full rounded-lg border border-line bg-surface px-3">

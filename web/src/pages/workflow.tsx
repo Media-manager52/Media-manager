@@ -34,7 +34,7 @@ export function WorkflowPage() {
           {item.attention_detail ? <p className="mt-1 break-words text-sm text-text">{translateDetail(item.attention_detail)}</p> : null}
         </div>
       ) : null}
-      <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-6">
           <Card>
             <CardHeader title="Hvad kan du gøre?" description="Serveren tjekker alt igen, når du trykker." />
