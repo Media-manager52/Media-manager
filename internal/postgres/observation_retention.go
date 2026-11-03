@@ -46,6 +46,9 @@ type ObservationPruneOptions struct {
 	// must return only once they are durably stored. It is required when
 	// Apply is set.
 	Archive func([]ArchivedObservation) error
+	// IndexerInstanceID, when set, limits the pass to one indexer's
+	// releases, so separate passes can run in parallel without overlapping.
+	IndexerInstanceID string
 	// Progress, when set, is called after every batch.
 	Progress func(ObservationPruneProgress)
 }
@@ -128,7 +131,7 @@ func (store *Store) PruneRepeatedObservations(ctx context.Context, options Obser
 		if err := ctx.Err(); err != nil {
 			return progress, err
 		}
-		indexers, guids, err := store.nextObservationReleases(ctx, first, afterIndexer, afterGUID, options.ReleasesPerBatch)
+		indexers, guids, err := store.nextObservationReleases(ctx, options.IndexerInstanceID, first, afterIndexer, afterGUID, options.ReleasesPerBatch)
 		if err != nil {
 			return progress, err
 		}
@@ -152,10 +155,19 @@ func (store *Store) PruneRepeatedObservations(ctx context.Context, options Obser
 	}
 }
 
-func (store *Store) nextObservationReleases(ctx context.Context, first bool, afterIndexer, afterGUID string, limit int) ([]string, []string, error) {
+func (store *Store) nextObservationReleases(ctx context.Context, onlyIndexer string, first bool, afterIndexer, afterGUID string, limit int) ([]string, []string, error) {
 	query := `SELECT DISTINCT indexer_instance_id::text, native_guid FROM release_observations ORDER BY 1, 2 LIMIT $1`
 	args := []any{limit}
-	if !first {
+	switch {
+	case onlyIndexer != "" && first:
+		query = `SELECT DISTINCT indexer_instance_id::text, native_guid FROM release_observations
+			WHERE indexer_instance_id=$2::uuid ORDER BY 1, 2 LIMIT $1`
+		args = append(args, onlyIndexer)
+	case onlyIndexer != "":
+		query = `SELECT DISTINCT indexer_instance_id::text, native_guid FROM release_observations
+			WHERE indexer_instance_id=$2::uuid AND native_guid > $3 ORDER BY 1, 2 LIMIT $1`
+		args = append(args, onlyIndexer, afterGUID)
+	case !first:
 		query = `SELECT DISTINCT indexer_instance_id::text, native_guid FROM release_observations
 			WHERE (indexer_instance_id, native_guid) > ($2::uuid, $3) ORDER BY 1, 2 LIMIT $1`
 		args = append(args, afterIndexer, afterGUID)

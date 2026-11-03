@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"time"
+	"uuid"
 
 	"github.com/media-manager/media-manager/internal/postgres"
 )
@@ -30,6 +31,7 @@ func pruneObservations(ctx context.Context, store *postgres.Store, args []string
 	apply := flags.Bool("apply", false, "delete repeats (default: only count them)")
 	olderThanDays := flags.Int("older-than-days", 14, "keep every observation newer than this many days (minimum 7)")
 	batch := flags.Int("batch", 500, "provider releases per transaction (1-5000)")
+	indexer := flags.String("indexer", "", "only this indexer instance ID (lets several passes run in parallel)")
 	archivePath := flags.String("archive", "", `gzip JSON-lines archive of removed rows; "-" writes to standard output (required with -apply)`)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -46,6 +48,12 @@ func pruneObservations(ctx context.Context, store *postgres.Store, args []string
 		ReleasesPerBatch: *batch,
 		Apply:            *apply,
 	}
+	if *indexer != "" {
+		if _, err := uuid.Parse(*indexer); err != nil {
+			return fmt.Errorf("-indexer must be an indexer instance ID: %w", err)
+		}
+		options.IndexerInstanceID = *indexer
+	}
 	var archive *observationArchive
 	if *apply {
 		var err error
@@ -56,7 +64,7 @@ func pruneObservations(ctx context.Context, store *postgres.Store, args []string
 		defer archive.Close()
 		options.Archive = archive.Write
 	}
-	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	logger := slog.New(slog.NewTextHandler(stderr, nil)).With("indexer", *indexer)
 	started := time.Now()
 	options.Progress = func(progress postgres.ObservationPruneProgress) {
 		if progress.Batches%50 == 0 {
