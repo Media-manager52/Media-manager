@@ -233,11 +233,14 @@ func run() error {
 	oldBoysCommission := &commissioning.OldBoysService{Store: store, Scheduler: scheduler, Credentials: oldBoysCredentials}
 	liveCAPSService := &commissioning.LiveCAPSService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
 	browseService := &acquisition.BrowseService{Search: &acquisition.SearchService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret, OldBoysCredentials: oldBoysCredentials}, EnrichDetails: strings.EqualFold(os.Getenv("BROWSE_ENRICH_DETAILS"), "true")}
+	// Viewer playback preparation needs AltMount's API key: its stream endpoint
+	// accepts nothing else. Without the key the route answers 503.
+	streamPreparer := &acquisition.StreamPreparer{Browse: browseService, APIKey: optionalSecret("ALTMOUNT_API_KEY"), Category: acquisition.DefaultStreamCategory, Timeout: 100 * time.Second}
 	playerToken, err := playerTokenFrom(optionalSecret("PLAYER_TOKEN"), ownerToken)
 	if err != nil {
 		return err
 	}
-	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
+	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
 	if err != nil {
 		return err
 	}
