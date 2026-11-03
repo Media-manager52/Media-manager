@@ -115,6 +115,7 @@ non-obvious.
 
 | Table | Purpose |
 | --- | --- |
+| `streaming_choices` | Viewer release choices behind an addon stream list (indexer id, configuration fingerprint, native id, title, sanitized locator ref; no credential), kept for six hours so a list survives a restart. |
 | `altmount_jobs` | Submission intent, upload name, queue id, job revision/state, attempts, and the latest AltMount-reported progress (display only). |
 | `altmount_job_observations` | Queue observations over time. |
 | `altmount_output_inventories` | Frozen inventory per job (local relative, completeness). |

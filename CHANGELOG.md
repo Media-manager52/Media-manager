@@ -12,6 +12,8 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 
 - **Viewer playback preparation moved into Media Manager.** `POST /api/v1/streaming/releases/{id}/prepare` (player token) fetches the chosen NZB and submits it to AltMount's stream endpoint with `ALTMOUNT_API_KEY` (category `nuvio`). It answers with only the prepared file's path on the read-only AltMount mount, so the Nuvio/Stremio addon no longer needs any AltMount credential. Dead releases answer 422, an expired choice 410, a deferred NZB request 503 and an unfinished preparation 504.
 
+- **Stream lists survive a Media Manager restart.** Release choices behind the addon's stream list lived only in memory, so after every deploy a list the player still showed answered "release choice expired" until the viewer reopened the title. Choices are now also stored in `streaming_choices` (migration 51) for their six hours. A row holds no credential: the indexer id and a fingerprint of its configuration, the release's native id and title, and the sanitized locator reference. Editing or disabling the indexer still invalidates its open lists, and a failed database write leaves the list working in memory as before.
+
 - **`media-manager prune-observations`** removes stored release observations that are exact repeats of an earlier, kept copy and that nothing refers to, archiving every removed row first. It makes backups (and so deploys) much faster; see the runbook.
 
 ### Fixed

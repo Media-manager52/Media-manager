@@ -99,7 +99,10 @@ type browseChoice struct {
 	input       BrowseInput
 	integration postgres.Integration
 	observation releases.Observation
-	expires     time.Time
+	// locator is the sanitized download locator reference; it is what a
+	// stored choice keeps instead of the provider's raw download URL.
+	locator string
+	expires time.Time
 }
 type browseCache struct {
 	result BrowseResult
@@ -294,7 +297,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 				}
 				o.Fields = nil // Only exact identity, locator and normalized display facts are retained.
 				token := uuid.NewV4().String()
-				choices[token] = browseChoice{input: in, integration: i, observation: o, expires: result.ExpiresAt}
+				choices[token] = browseChoice{input: in, integration: i, observation: o, locator: newznab.DownloadLocatorReference(o.DownloadURL, o.NativeGUID), expires: result.ExpiresAt}
 				result.Releases = append(result.Releases, BrowseRelease{ID: token, Title: o.Title, Indexer: i.Name, Facts: o.Facts, ObservedAt: o.ObservedAt})
 			}
 		}(integration, cfg)
@@ -312,6 +315,7 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 		}
 		return a.Indexer < b.Indexer
 	})
+	s.persistChoices(ctx, choices)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.choices == nil {
@@ -329,9 +333,9 @@ func (s *BrowseService) search(ctx context.Context, in BrowseInput) (BrowseResul
 			delete(s.cache, k)
 		}
 	}
-	// Keep the caches bounded without making the next search fail. Removing
-	// the oldest entries can invalidate a stale player URL, but that is
-	// preferable to turning every later search into a hard 503.
+	// Keep the in-memory copy bounded without making the next search fail. An
+	// evicted choice is still read back from streaming_choices, so this only
+	// costs one database read for a stale player URL.
 	for len(s.choices)+len(choices) > maxBrowseChoices {
 		oldestKey := ""
 		var oldest time.Time
@@ -655,6 +659,13 @@ func (s *BrowseService) Download(ctx context.Context, token string) ([]byte, str
 	s.mu.Lock()
 	choice, ok := s.choices[token]
 	s.mu.Unlock()
+	if !ok {
+		var err error
+		choice, ok, err = s.storedChoice(ctx, token)
+		if err != nil {
+			return nil, "", BrowseInput{}, err
+		}
+	}
 	if !ok || time.Now().After(choice.expires) {
 		return nil, "", BrowseInput{}, ErrBrowseExpired
 	}
@@ -694,8 +705,7 @@ func (s *BrowseService) Download(ctx context.Context, token string) ([]byte, str
 		if idErr != nil {
 			return nil, "", BrowseInput{}, idErr
 		}
-		locator := newznab.DownloadLocatorReference(choice.observation.DownloadURL, choice.observation.NativeGUID)
-		nzb, e = client.GetNZBPackageFromLocatorGuarded(ctx, native, locator, guard)
+		nzb, e = client.GetNZBPackageFromLocatorGuarded(ctx, native, choice.locator, guard)
 	}
 	if e != nil {
 		return nil, "", BrowseInput{}, e
