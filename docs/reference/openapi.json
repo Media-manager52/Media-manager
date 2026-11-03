@@ -2028,6 +2028,11 @@
         "scheme": "bearer",
         "type": "http"
       },
+      "playerToken": {
+        "description": "PLAYER_TOKEN from the server environment; accepted only on owner_or_player routes (library browsing, title lookup and requests, streaming).",
+        "scheme": "bearer",
+        "type": "http"
+      },
       "seerrWebhook": {
         "description": "SEERR_WEBHOOK_SECRET; used by Seerr only.",
         "scheme": "bearer",
@@ -2036,7 +2041,7 @@
     }
   },
   "info": {
-    "description": "All /api/v1 routes except the Seerr webhook need \"Authorization: Bearer \u003cOWNER_TOKEN\u003e\".\nSuccess bodies are {\"data\": ..., \"meta\": ...}; errors are {\"error\": {\"code\": \"snake_case\", \"message\": \"...\"}} with a 4xx/5xx status.\nRequest bodies are JSON (Content-Type: application/json) and unknown fields are rejected with 400.\nEvery operation has x-mm-effect: \"read\" (no change), \"write\" (changes Media Manager state or queues local work),\n\"provider\" (contacts or queues requests to indexers, Seerr, Plex or metadata services and can spend provider budget)\nor \"destructive\" (removes or replaces data; ask the owner first). x-mm-auth \"owner_browser\" routes can only be used\nfrom the Media Manager settings page. Workflow actions are guarded by state and revision. GET /api/v1/workflows/{id} lists available_actions (route, effect,\navailable or the reason why not, and a ready body). A 409 means the action does not apply right now; error.hint says what\nto do instead. Background work is paced: a 202 means queued, not finished.",
+    "description": "All /api/v1 routes except the Seerr webhook need \"Authorization: Bearer \u003cOWNER_TOKEN\u003e\".\nSuccess bodies are {\"data\": ..., \"meta\": ...}; errors are {\"error\": {\"code\": \"snake_case\", \"message\": \"...\"}} with a 4xx/5xx status.\nRequest bodies are JSON (Content-Type: application/json) and unknown fields are rejected with 400.\nEvery operation has x-mm-effect: \"read\" (no change), \"write\" (changes Media Manager state or queues local work),\n\"provider\" (contacts or queues requests to indexers, Seerr, Plex or metadata services and can spend provider budget)\nor \"destructive\" (removes or replaces data; ask the owner first). x-mm-auth \"owner_browser\" routes can only be used\nfrom the Media Manager settings page; \"owner_or_player\" routes also accept the player token. Workflow actions are guarded by state and revision. GET /api/v1/workflows/{id} lists available_actions (route, effect,\navailable or the reason why not, and a ready body). A 409 means the action does not apply right now; error.hint says what\nto do instead. Background work is paced: a 202 means queued, not finished.",
     "title": "Media Manager API",
     "version": "repository"
   },
@@ -3108,11 +3113,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "Search metadata providers for titles to add",
         "tags": [
           "discovery"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "provider"
       }
     },
@@ -3169,11 +3182,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "Provider metadata for one movie or series",
         "tags": [
           "discovery"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "provider"
       }
     },
@@ -3267,11 +3288,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "One managed file with provenance and evidence",
         "tags": [
           "library"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "read"
       }
     },
@@ -3792,11 +3821,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "List catalogue media",
         "tags": [
           "media"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "read"
       },
       "post": {
@@ -3842,11 +3879,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "Add a movie or series to the catalogue and create its workflows",
         "tags": [
           "media"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "provider"
       }
     },
@@ -4016,11 +4061,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "Media title page: seasons, episodes, workflows, files and Plex state",
         "tags": [
           "media"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "read"
       }
     },
@@ -4114,11 +4167,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "Create a workflow (for example a season) for existing media",
         "tags": [
           "media"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "provider"
       }
     },
@@ -6468,11 +6529,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "Retrieve the viewer-selected NZB using the shared provider budget",
         "tags": [
           "streaming"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "provider"
       }
     },
@@ -6533,11 +6602,19 @@
             "description": "Error with a stable code."
           }
         },
+        "security": [
+          {
+            "ownerToken": []
+          },
+          {
+            "playerToken": []
+          }
+        ],
         "summary": "Browse exact releases without acquiring or publishing",
         "tags": [
           "streaming"
         ],
-        "x-mm-auth": "owner",
+        "x-mm-auth": "owner_or_player",
         "x-mm-effect": "provider"
       }
     },

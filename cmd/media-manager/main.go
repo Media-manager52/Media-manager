@@ -233,7 +233,11 @@ func run() error {
 	oldBoysCommission := &commissioning.OldBoysService{Store: store, Scheduler: scheduler, Credentials: oldBoysCredentials}
 	liveCAPSService := &commissioning.LiveCAPSService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret}
 	browseService := &acquisition.BrowseService{Search: &acquisition.SearchService{Store: store, Scheduler: scheduler, ResolveSecret: resolveSecret, OldBoysCredentials: oldBoysCredentials}, EnrichDetails: strings.EqualFold(os.Getenv("BROWSE_ENRICH_DETAILS"), "true")}
-	api, err := httpapi.New(httpapi.Config{Streaming: browseService, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
+	playerToken, err := playerTokenFrom(optionalSecret("PLAYER_TOKEN"), ownerToken)
+	if err != nil {
+		return err
+	}
+	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
 	if err != nil {
 		return err
 	}
@@ -457,4 +461,20 @@ func newMetadataService(tmdb *metadataproviders.TMDBClient, tvdb *metadataprovid
 		service.Simkl = simkl
 	}
 	return service
+}
+
+// playerTokenFrom validates the optional PLAYER_TOKEN: the narrow credential a
+// playback client uses instead of the owner token.
+func playerTokenFrom(value, ownerToken string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if len(value) < 32 {
+		return "", errors.New("PLAYER_TOKEN must contain at least 32 characters")
+	}
+	if value == strings.TrimSpace(ownerToken) {
+		return "", errors.New("PLAYER_TOKEN must differ from OWNER_TOKEN")
+	}
+	return value, nil
 }

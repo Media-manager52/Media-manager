@@ -125,3 +125,19 @@ func TestDecryptBackupLeavesNoPartialOutputOnTamper(t *testing.T) {
 		t.Fatalf("temporary plaintext files remain: %v", matches)
 	}
 }
+
+func TestPlayerTokenIsOptionalLongAndDistinctFromOwner(t *testing.T) {
+	owner := strings.Repeat("o", 32)
+	if value, err := playerTokenFrom("  ", owner); err != nil || value != "" {
+		t.Fatalf("empty player token: %q %v", value, err)
+	}
+	if _, err := playerTokenFrom(strings.Repeat("p", 31), owner); err == nil {
+		t.Fatal("a short player token must be refused")
+	}
+	if _, err := playerTokenFrom(owner, owner); err == nil {
+		t.Fatal("the owner token must not be reused as the player token")
+	}
+	if value, err := playerTokenFrom(" "+strings.Repeat("p", 40)+"\n", owner); err != nil || value != strings.Repeat("p", 40) {
+		t.Fatalf("valid player token: %q %v", value, err)
+	}
+}

@@ -84,6 +84,7 @@ Runtime variables in `.env` (Compose interpolation):
 | `ACQUISITION_ATTEMPTS_PER_ROUND` | no (2) | Distinct submissions per newly opened acquisition round, integer 1–6. Existing round snapshots remain unchanged. |
 | `ACQUISITION_RETAINED_OUTPUT_LIMIT` | no (4) | Retained failed-output jobs per workflow before owner review, integer 1–12. Raising it never deletes failures or queues work. |
 | `OWNER_TOKEN` | yes, ≥32 bytes | Owner bearer. Cosmos injects it; loopback clients use it. |
+| `PLAYER_TOKEN` | no, ≥32 bytes, ≠ `OWNER_TOKEN` | Narrow bearer for a playback client such as the Nuvio/Stremio addon. Accepted only on the `owner_or_player` routes: library list, title detail, file detail, discovery search/metadata, adding a title or season, streaming search and the selected NZB. Refused everywhere else. |
 | `MEDIA_MANAGER_API_PORT` | no (28081) | Loopback port for direct API. Never expose. |
 | `COMMISSIONING_V2_OWNER_ORIGIN` | for v2 UI | Trusted `Origin` for commissioning-v2 mutations. |
 | `MEDIA_NETWORK` | no (`media-manager`) | External integrations network name. |

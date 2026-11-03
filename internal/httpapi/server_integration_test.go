@@ -13,12 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
-	"uuid"
 )
 
 const testOwnerToken = "test-only-owner-token-0123456789abcdef"
