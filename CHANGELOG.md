@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **The owner can replace a published file that plays badly.** A file can play yet seek slowly when many of its Usenet articles must come from a backup provider; AltMount does not report it, so no sweep replaces it. `POST /api/v1/repairs` with the file's AltMount path opens an `owner_requested` repair (migration 53) that acquires a replacement exactly like a corrupted file's: the current release is excluded and the old file keeps playing until Plex confirms the new one. The System page labels it "Ønsket erstattet".
+
 ### Fixed
 
 - **Titles whose file AltMount removed are repaired.** When AltMount finds a file's Usenet articles missing during playback, its own repair moves the file aside and asks Radarr or Sonarr for a replacement. With Media Manager nothing replaced it and AltMount stopped reporting it as corrupted, so the Plex item pointed at nothing and never played again. The half-hourly repair sweep now also checks that every current publication's AltMount file still exists, and opens a replacement (`missing_file`, migration 52) for one that is missing on two sweeps in a row. Nothing is repaired while the mount is unavailable, when a file does not answer, or when more than 25 files and more than 2 % of publications vanish at once. Production had five such titles.

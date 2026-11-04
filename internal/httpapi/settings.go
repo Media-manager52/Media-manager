@@ -8,6 +8,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/media-manager/media-manager/internal/library"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
@@ -72,6 +73,30 @@ func (server *Server) listAltMountRepairs(writer http.ResponseWriter, request *h
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
+func (server *Server) requestAltMountReplacement(writer http.ResponseWriter, request *http.Request) {
+	var input requestReplacementInput
+	if err := decodeJSON(request, &input, 8<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	path := strings.Trim(strings.TrimSpace(input.AltMountFilePath), "/")
+	if _, err := library.ValidateRelative(path); err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid_path", "altmount_file_path must be a relative path inside the AltMount mount")
+		return
+	}
+	outcome, err := server.store.RequestAltMountReplacement(request.Context(), path, time.Now().UTC())
+	switch {
+	case err != nil:
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not open the replacement")
+	case outcome == postgres.RepairUnmanaged:
+		writeError(writer, http.StatusNotFound, "not_published", "no current publication uses this AltMount file")
+	case outcome == postgres.RepairBusy:
+		writeError(writer, http.StatusConflict, "publication_in_flight", "the workflow that published this file is still running; try again when it finishes")
+	default:
+		writeJSON(writer, http.StatusOK, dataEnvelope{Data: replacementResult{Outcome: outcome}})
+	}
 }
 
 func (server *Server) listLibraryRoots(writer http.ResponseWriter, request *http.Request) {

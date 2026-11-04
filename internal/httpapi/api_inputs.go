@@ -68,6 +68,14 @@ type applyQualityProfilePresetInput struct {
 	PolicyVersion uint64 `json:"policy_version"`
 }
 
+type requestReplacementInput struct {
+	AltMountFilePath string `json:"altmount_file_path"`
+}
+
+type replacementResult struct {
+	Outcome string `json:"outcome"`
+}
+
 type createReleaseBlockInput struct {
 	CandidateID   string `json:"candidate_id"`
 	Scope         string `json:"scope"`

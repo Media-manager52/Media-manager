@@ -33,6 +33,7 @@ const (
 	RepairReasonCorrupted    = "corrupted"
 	RepairReasonMissingAudio = "missing_required_audio"
 	RepairReasonMissingFile  = "missing_file"
+	RepairReasonOwner        = "owner_requested"
 )
 
 // AudioUpgrade describes a published file that lacks the audio language its
@@ -68,7 +69,7 @@ type AltMountRepair struct {
 // broken link is displaced once Plex confirms the replacement. AltMount
 // content is never modified. Planning is idempotent per broken link.
 func (store *Store) PlanAltMountRepair(ctx context.Context, altMountID uuid.UUID, healthID int64, filePath string, now time.Time) (string, error) {
-	return store.planManagedRepair(ctx, altMountID, healthID, filePath, nil, false, now)
+	return store.planManagedRepair(ctx, altMountID, healthID, filePath, nil, RepairReasonCorrupted, now)
 }
 
 // PlanMissingAltMountFile opens a repair for a current publication whose
@@ -78,7 +79,37 @@ func (store *Store) PlanAltMountRepair(ctx context.Context, altMountID uuid.UUID
 // nothing. Media Manager acquires the replacement exactly like a corrupted
 // file's.
 func (store *Store) PlanMissingAltMountFile(ctx context.Context, altMountID uuid.UUID, filePath string, now time.Time) (string, error) {
-	return store.planManagedRepair(ctx, altMountID, 0, filePath, nil, true, now)
+	return store.planManagedRepair(ctx, altMountID, 0, filePath, nil, RepairReasonMissingFile, now)
+}
+
+// RequestAltMountReplacement opens a repair the owner asked for: a current
+// publication that plays but badly (for example every seek waits seconds
+// because many of its Usenet articles must be fetched from a backup
+// provider). The replacement is acquired exactly like a corrupted file's: the
+// current release title is excluded, and the old file keeps playing until
+// Plex confirms the replacement. A path that backs no current publication is
+// RepairUnmanaged.
+func (store *Store) RequestAltMountReplacement(ctx context.Context, filePath string, now time.Time) (string, error) {
+	filePath = strings.Trim(strings.TrimSpace(filePath), "/")
+	var altMountID string
+	err := store.Pool.QueryRow(ctx, `SELECT job.altmount_instance_id::text
+		FROM altmount_output_inventories inventory
+		JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id AND inventory.root_relative || '/' || asset.relative_path=$1
+		JOIN library_link_versions version ON version.source_asset_id=asset.id AND version.state='current'
+		JOIN altmount_jobs job ON job.id=inventory.job_id
+		WHERE $1 LIKE inventory.root_relative || '/%'
+		ORDER BY version.id LIMIT 1`, filePath).Scan(&altMountID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RepairUnmanaged, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	id, err := uuid.Parse(altMountID)
+	if err != nil {
+		return "", errors.New("publication has an invalid AltMount client")
+	}
+	return store.planManagedRepair(ctx, id, 0, filePath, nil, RepairReasonOwner, now)
 }
 
 // CurrentAltMountPublications returns the AltMount file path, as AltMount
@@ -113,10 +144,10 @@ func (store *Store) CurrentAltMountPublications(ctx context.Context, altMountID 
 // title originally in the required language needs none, and a file whose
 // last upgrade found nothing is not retried before its retry time.
 func (store *Store) PlanAudioUpgrade(ctx context.Context, altMountID uuid.UUID, filePath string, upgrade AudioUpgrade, now time.Time) (string, error) {
-	return store.planManagedRepair(ctx, altMountID, 0, filePath, &upgrade, false, now)
+	return store.planManagedRepair(ctx, altMountID, 0, filePath, &upgrade, RepairReasonMissingAudio, now)
 }
 
-func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID, healthID int64, filePath string, upgrade *AudioUpgrade, missingFile bool, now time.Time) (string, error) {
+func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID, healthID int64, filePath string, upgrade *AudioUpgrade, reason string, now time.Time) (string, error) {
 	filePath = strings.Trim(strings.TrimSpace(filePath), "/")
 	if filePath == "" {
 		return "", errors.New("AltMount health item has no file path")
@@ -158,9 +189,12 @@ func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID,
 	if exists {
 		return RepairAlreadyOpen, nil
 	}
-	reason, openDetail := RepairReasonCorrupted, "AltMount reports missing Usenet articles; a replacement is being acquired"
-	if missingFile {
-		reason, openDetail = RepairReasonMissingFile, "AltMount no longer has the published file (its Usenet articles went missing); a replacement is being acquired"
+	openDetail, actor := "AltMount reports missing Usenet articles; a replacement is being acquired", "worker"
+	switch reason {
+	case RepairReasonMissingFile:
+		openDetail = "AltMount no longer has the published file (its Usenet articles went missing); a replacement is being acquired"
+	case RepairReasonOwner:
+		openDetail, actor = "the owner asked for this file to be replaced; it keeps playing until the replacement is confirmed", "owner"
 	}
 	if upgrade != nil {
 		reason, openDetail = RepairReasonMissingAudio, "the file has no "+upgrade.Language+" audio track; a dubbed replacement is being acquired"
@@ -247,7 +281,7 @@ func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID,
 		return "", err
 	}
 	auditDetail, _ := json.Marshal(map[string]any{"repair_id": repairID.String(), "file": filePath, "variant": scopeVariant, "workflow_id": activeWorkflow, "broken_release": releaseTitle, "outcome": outcome, "reason": reason})
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'worker','library.repair_opened','media',$2,$3,$4)`, uuid.NewV7().String(), mediaID, string(auditDetail), now.UTC()); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,$2,'library.repair_opened','media',$3,$4,$5)`, uuid.NewV7().String(), actor, mediaID, string(auditDetail), now.UTC()); err != nil {
 		return "", err
 	}
 	return outcome, tx.Commit(ctx)

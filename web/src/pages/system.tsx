@@ -173,7 +173,7 @@ function Backups() {
 }
 
 const repairState: Record<string, string> = { open: "Åben", searching: "Søger", resolved: "Repareret", not_found: "Intet fundet", cancelled: "Annulleret" }
-const repairReason: Record<string, string> = { corrupted: "Ødelagt fil", missing_required_audio: "Mangler dansk tale", missing_file: "Fil forsvundet" }
+const repairReason: Record<string, string> = { corrupted: "Ødelagt fil", missing_required_audio: "Mangler dansk tale", missing_file: "Fil forsvundet", owner_requested: "Ønsket erstattet" }
 
 function Repairs() {
   const query = useQuery({ queryKey: ["repairs"], queryFn: ({ signal }) => loadRepairs(signal), refetchInterval: 60_000 })
