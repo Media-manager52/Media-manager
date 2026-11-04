@@ -28,7 +28,7 @@ It replaces Radarr and Sonarr in this setup: Seerr talks to Media Manager throug
 - **Season packs done properly.** A pack is one download job, and publication waits until every expected episode maps to exactly one file.
 - **Polite to indexers.** Each indexer gets one request at a time, persisted pacing, rolling daily query and download budgets, and `Retry-After` handling.
 - **Explains itself.** Every search, candidate, verdict and attempt is stored, so the UI can show why a title is waiting and which owner actions are safe right now.
-- **Repairs itself.** Files that AltMount reports as corrupted are re-acquired automatically and swapped in after Plex confirms the replacement.
+- **Repairs itself.** Files that AltMount reports as corrupted, or has removed because their Usenet articles are gone, are re-acquired automatically and swapped in after Plex confirms the replacement.
 - **Danish sources built in.** Includes a native client for the OldBoys Danish-original provider alongside standard Newznab indexers.
 - **Streaming API.** A scoped player token lets a Stremio or Nuvio addon search for and play releases. The addon never holds indexer or AltMount credentials.
 - **Built for automation.** It has a single route table, a generated [OpenAPI document](docs/reference/openapi.json) and an MCP server for AI agents.

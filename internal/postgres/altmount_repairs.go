@@ -32,6 +32,7 @@ const (
 const (
 	RepairReasonCorrupted    = "corrupted"
 	RepairReasonMissingAudio = "missing_required_audio"
+	RepairReasonMissingFile  = "missing_file"
 )
 
 // AudioUpgrade describes a published file that lacks the audio language its
@@ -67,7 +68,43 @@ type AltMountRepair struct {
 // broken link is displaced once Plex confirms the replacement. AltMount
 // content is never modified. Planning is idempotent per broken link.
 func (store *Store) PlanAltMountRepair(ctx context.Context, altMountID uuid.UUID, healthID int64, filePath string, now time.Time) (string, error) {
-	return store.planManagedRepair(ctx, altMountID, healthID, filePath, nil, now)
+	return store.planManagedRepair(ctx, altMountID, healthID, filePath, nil, false, now)
+}
+
+// PlanMissingAltMountFile opens a repair for a current publication whose
+// AltMount file is gone from the mount. AltMount removes a file whose Usenet
+// articles went missing and asks Radarr or Sonarr to replace it; nothing does,
+// and AltMount stops reporting it, so the Plex item is left pointing at
+// nothing. Media Manager acquires the replacement exactly like a corrupted
+// file's.
+func (store *Store) PlanMissingAltMountFile(ctx context.Context, altMountID uuid.UUID, filePath string, now time.Time) (string, error) {
+	return store.planManagedRepair(ctx, altMountID, 0, filePath, nil, true, now)
+}
+
+// CurrentAltMountPublications returns the AltMount file path, as AltMount
+// reports it, of every current publication from one AltMount client whose
+// publishing workflow has finished.
+func (store *Store) CurrentAltMountPublications(ctx context.Context, altMountID uuid.UUID) ([]string, error) {
+	rows, err := store.Pool.Query(ctx, `SELECT DISTINCT inventory.root_relative || '/' || asset.relative_path
+		FROM library_link_versions version
+		JOIN altmount_output_assets asset ON asset.id=version.source_asset_id
+		JOIN altmount_output_inventories inventory ON inventory.id=asset.inventory_id
+		JOIN altmount_jobs job ON job.id=inventory.job_id AND job.altmount_instance_id=$1
+		JOIN workflows workflow ON workflow.id=version.workflow_id AND workflow.terminal_at IS NOT NULL
+		WHERE version.state='current' ORDER BY 1`, altMountID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	paths := []string{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
 }
 
 // PlanAudioUpgrade opens an upgrade for a published Media Manager file that
@@ -76,10 +113,10 @@ func (store *Store) PlanAltMountRepair(ctx context.Context, altMountID uuid.UUID
 // title originally in the required language needs none, and a file whose
 // last upgrade found nothing is not retried before its retry time.
 func (store *Store) PlanAudioUpgrade(ctx context.Context, altMountID uuid.UUID, filePath string, upgrade AudioUpgrade, now time.Time) (string, error) {
-	return store.planManagedRepair(ctx, altMountID, 0, filePath, &upgrade, now)
+	return store.planManagedRepair(ctx, altMountID, 0, filePath, &upgrade, false, now)
 }
 
-func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID, healthID int64, filePath string, upgrade *AudioUpgrade, now time.Time) (string, error) {
+func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID, healthID int64, filePath string, upgrade *AudioUpgrade, missingFile bool, now time.Time) (string, error) {
 	filePath = strings.Trim(strings.TrimSpace(filePath), "/")
 	if filePath == "" {
 		return "", errors.New("AltMount health item has no file path")
@@ -122,6 +159,9 @@ func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID,
 		return RepairAlreadyOpen, nil
 	}
 	reason, openDetail := RepairReasonCorrupted, "AltMount reports missing Usenet articles; a replacement is being acquired"
+	if missingFile {
+		reason, openDetail = RepairReasonMissingFile, "AltMount no longer has the published file (its Usenet articles went missing); a replacement is being acquired"
+	}
 	if upgrade != nil {
 		reason, openDetail = RepairReasonMissingAudio, "the file has no "+upgrade.Language+" audio track; a dubbed replacement is being acquired"
 		if language, _ := languages.Canonical(originalLanguage); language == upgrade.Language {
