@@ -774,7 +774,7 @@ the persisted failure detail instead of retrying that reconcile forever.
 | --- | --- | --- |
 | `round_exhausted_waiting_new_identity` | All configured round slots used; discovery waiting for a new eligible release. | Wait for discovery `ready`, then open a new round; or open one from known eligible releases with `POST /api/v1/workflows/{id}/acquisition-rounds/from-known` (§5b). |
 | `altmount_identity_unresolved` | Upload name not visible within 30 min. | Confirm the original upload was not accepted, then re-search. |
-| Archive/unplayable/missing-segment release | RAR set AltMount cannot stream (compressed or corrupt), zip/tar archive, ISO/DVD structure, no playable media, Usenet articles absent from the providers, or a video far shorter than the expected runtime. | Exact release + package excluded; next slot auto-searches. |
+| Archive/unplayable/missing-segment release | RAR set AltMount cannot stream (compressed or corrupt), zip/tar archive, ISO/DVD structure, no playable media, Usenet articles absent from the providers, or a video far shorter than the expected runtime (the title's TMDB runtime, or the exact episode's when that is shorter). | Exact release + package excluded; next slot auto-searches. |
 | `altmount_identity_ambiguous` | Multiple queue jobs match. | Resolve queue manually; do not resubmit. |
 | `altmount_output_unavailable` | Completion but output unreadable for 5 min. | Verify shared mount, then reconcile. |
 | `output_inspection_failed` | ffprobe/containment failed. | Fix probe/mount, reverify retained output once. |

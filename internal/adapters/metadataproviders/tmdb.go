@@ -355,3 +355,40 @@ func identitiesConflict(existing, returned []catalog.ExternalIdentity) bool {
 	}
 	return false
 }
+
+// SeasonEpisodeRuntimes returns TMDB's runtime in minutes for each episode of
+// one season, keyed "tmdb:<episode id>" the way frozen episode snapshots store
+// provider episode IDs. Episodes TMDB gives no runtime for are left out.
+func (client *TMDBClient) SeasonEpisodeRuntimes(ctx context.Context, seriesID string, season uint16) (map[string]uint16, error) {
+	seriesID = strings.TrimSpace(seriesID)
+	if !positiveID(seriesID) {
+		return nil, ErrIdentityUnavailable
+	}
+	endpoint := client.client.endpoint("/3/tv/" + seriesID + "/season/" + strconv.Itoa(int(season)))
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, ErrProviderUnavailable
+	}
+	request.Header.Set("Authorization", "Bearer "+client.token)
+	request.Header.Set("Accept", "application/json")
+	response, err := client.client.http.Do(request)
+	if err != nil {
+		return nil, ErrProviderUnavailable
+	}
+	var payload struct {
+		Episodes []struct {
+			ID      int64 `json:"id"`
+			Runtime int   `json:"runtime"`
+		} `json:"episodes"`
+	}
+	if err := client.client.decode(response, &payload); err != nil {
+		return nil, err
+	}
+	runtimes := make(map[string]uint16, len(payload.Episodes))
+	for _, episode := range payload.Episodes {
+		if episode.ID > 0 && episode.Runtime > 0 && episode.Runtime <= 1_440 {
+			runtimes["tmdb:"+strconv.FormatInt(episode.ID, 10)] = uint16(episode.Runtime)
+		}
+	}
+	return runtimes, nil
+}

@@ -6,8 +6,10 @@ import (
 
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/mediainfo"
+	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/subtitles"
+	"github.com/media-manager/media-manager/internal/workflows"
 )
 
 func runtimeJob(kind catalog.MediaKind, variant string, runtime *uint16) postgres.AltMountJobContext {
@@ -32,6 +34,8 @@ func TestOutputTooShortDetail(t *testing.T) {
 		videos   []subtitles.VideoEvidence
 		want     bool
 		contains string
+		// episodeMinutes is the provider's runtime for the exact episode.
+		episodeMinutes uint16
 	}{
 		{
 			name:     "movie far below runtime",
@@ -80,6 +84,40 @@ func TestOutputTooShortDetail(t *testing.T) {
 			videos: []subtitles.VideoEvidence{runtimeVideo(44*60, "Show/Show S01E01.mkv")},
 		},
 		{
+			name:           "a short-segment episode is judged by its own runtime",
+			job:            runtimeJob(catalog.KindSeries, "season:03:episode:05", uint16Ptr(30)),
+			videos:         []subtitles.VideoEvidence{runtimeVideo(12*60+30, "Show/Show S03E05.mkv")},
+			episodeMinutes: 12,
+		},
+		{
+			name:           "a longer episode runtime never makes the check stricter",
+			job:            runtimeJob(catalog.KindSeries, "season:03:episode:01", uint16Ptr(30)),
+			videos:         []subtitles.VideoEvidence{runtimeVideo(16*60, "Show/Show S03E01 Part 1.mkv")},
+			episodeMinutes: 48,
+		},
+		{
+			name:           "a longer episode runtime keeps the series runtime",
+			job:            runtimeJob(catalog.KindSeries, "season:03:episode:01", uint16Ptr(30)),
+			videos:         []subtitles.VideoEvidence{runtimeVideo(60, "Show/Show S03E01.mkv")},
+			want:           true,
+			episodeMinutes: 48,
+			contains:       "the episode is about 30 min",
+		},
+		{
+			name:           "an episode runtime is not used without a series runtime",
+			job:            runtimeJob(catalog.KindSeries, "season:03:episode:05", nil),
+			videos:         []subtitles.VideoEvidence{runtimeVideo(5*60, "Show/Show S03E05.mkv")},
+			episodeMinutes: 12,
+		},
+		{
+			name:           "a movie ignores an episode runtime",
+			job:            runtimeJob(catalog.KindMovie, "default", &ninetyFive),
+			videos:         []subtitles.VideoEvidence{runtimeVideo(12*60, "Film/Film.mkv")},
+			want:           true,
+			episodeMinutes: 12,
+			contains:       "the movie is about 95 min",
+		},
+		{
 			name:   "episode without a parseable scope is not judged",
 			job:    runtimeJob(catalog.KindSeries, "default", &fortyFive),
 			videos: []subtitles.VideoEvidence{runtimeVideo(60, "Show/Show S01E01.mkv")},
@@ -99,7 +137,7 @@ func TestOutputTooShortDetail(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			detail, got := outputTooShortDetail(test.job, subtitles.Verification{Videos: test.videos})
+			detail, got := outputTooShortDetail(test.job, subtitles.Verification{Videos: test.videos}, test.episodeMinutes)
 			if got != test.want {
 				t.Fatalf("got too-short=%v detail=%q, want %v", got, detail, test.want)
 			}
@@ -111,3 +149,35 @@ func TestOutputTooShortDetail(t *testing.T) {
 }
 
 func uint16Ptr(value uint16) *uint16 { return &value }
+
+func TestEpisodeRuntimeFromSnapshotMatchesTheProviderEpisodeID(t *testing.T) {
+	expected := []packs.ExpectedEpisode{
+		{Key: packs.EpisodeKey{SeriesID: "tvdb:145371", Season: 3, Episode: 1}, ProviderEpisodeID: "tmdb:564091"},
+		{Key: packs.EpisodeKey{SeriesID: "tvdb:145371", Season: 3, Episode: 2}, ProviderEpisodeID: "tmdb:564095"},
+		{Key: packs.EpisodeKey{SeriesID: "tvdb:145371", Season: 3, Episode: 3}},
+	}
+	calls := 0
+	season := func(seriesID string, number uint16) map[string]uint16 {
+		calls++
+		if seriesID != "18352" || number != 3 {
+			t.Fatalf("lookup %s season %d", seriesID, number)
+		}
+		return map[string]uint16{"tmdb:564091": 48, "tmdb:564095": 12}
+	}
+	scope := func(episode uint16) workflows.VariantScope {
+		return workflows.VariantScope{Kind: workflows.VariantEpisode, Season: 3, Episode: episode}
+	}
+	if got := episodeRuntimeFromSnapshot(scope(2), "18352", expected, season); got != 12 {
+		t.Fatalf("episode 2 runtime = %d", got)
+	}
+	if got := episodeRuntimeFromSnapshot(scope(1), "18352", expected, season); got != 48 {
+		t.Fatalf("episode 1 runtime = %d", got)
+	}
+	before := calls
+	if got := episodeRuntimeFromSnapshot(scope(3), "18352", expected, season); got != 0 || calls != before {
+		t.Fatalf("an episode without a TMDB ID must stay unknown without a lookup: %d", got)
+	}
+	if got := episodeRuntimeFromSnapshot(scope(9), "18352", expected, season); got != 0 {
+		t.Fatalf("an episode outside the snapshot must stay unknown: %d", got)
+	}
+}

@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **Episodes are judged by their own runtime.** The check that excludes a video far shorter than expected (a fake, sample or cut-off release) used one runtime for a whole series, so real 12-minute episodes of a show TMDB lists at 30 minutes were excluded as fakes (The Garfield Show), and so were older episodes of shows whose format grew longer. A single-episode workflow is now judged by TMDB's runtime for that exact episode when it is shorter than the series runtime, matched by the episode ID in its frozen snapshot. Because release numbering can differ from TMDB's, the episode runtime only ever relaxes the check, never makes it stricter; without TMDB the series runtime is used as before. Movies and season packs are judged as before.
+
 ## [0.1.0-beta.2] - 2026-11-04
 
 The second public beta: `main` at `bb24c65`, database schema 55. Setup from scratch now happens on the website.
