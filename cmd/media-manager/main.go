@@ -119,6 +119,27 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Secrets entered on the website are stored encrypted; references to
+	// environment variables keep working unchanged.
+	secretKey := optionalSecret(integrationsecrets.KeyReference)
+	if secretKey == "" {
+		secretKey = optionalSecret(oldboyscredentials.KeyReference)
+	}
+	var integrationSecrets *integrationsecrets.Service
+	if secretKey != "" {
+		integrationSecrets, err = integrationsecrets.New(store, secretKey)
+		if err != nil {
+			return err
+		}
+	}
+	resolveSecret := func(reference string) (string, error) {
+		if integrationsecrets.IsReference(reference) {
+			resolveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return integrationSecrets.Resolve(resolveCtx, reference)
+		}
+		return requiredSecret(reference)
+	}
 	seerrURL, seerrKey := strings.TrimSpace(os.Getenv("SEERR_BASE_URL")), optionalSecret("SEERR_API_KEY")
 	seerrInstance, seerrWebhookSecret := strings.TrimSpace(os.Getenv("SEERR_INSTANCE_ID")), optionalSecret("SEERR_WEBHOOK_SECRET")
 	seerrValues := []string{seerrURL, seerrKey, seerrInstance, seerrWebhookSecret}
@@ -132,6 +153,17 @@ func run() error {
 		return errors.New("Seerr requires SEERR_BASE_URL, SEERR_API_KEY, SEERR_INSTANCE_ID, and SEERR_WEBHOOK_SECRET together")
 	}
 	seerrEnabled := configuredValues == len(seerrValues)
+	seerrAllowHTTP := strings.EqualFold(os.Getenv("SEERR_ALLOW_HTTP"), "true")
+	if configuredValues == 0 {
+		// Without SEERR_* settings, Seerr connected on the website is used.
+		website, reason := seerrFromWebsite(context.Background(), store, resolveSecret, integrationSecrets)
+		if website.enabled {
+			seerrURL, seerrKey, seerrInstance, seerrWebhookSecret, seerrAllowHTTP = website.baseURL, website.apiKey, website.instanceID, website.webhookSecret, website.allowHTTP
+			seerrEnabled = true
+		} else if reason != "" {
+			slog.Warn("Seerr intake is off", "reason", reason)
+		}
+	}
 	if seerrEnabled && len(seerrWebhookSecret) < 32 {
 		return errors.New("SEERR_WEBHOOK_SECRET must contain at least 32 bytes")
 	}
@@ -147,7 +179,7 @@ func run() error {
 	}
 	var seerrClient *seerradapter.Client
 	if seerrEnabled {
-		seerrClient, err = seerradapter.New(seerradapter.Config{BaseURL: seerrURL, APIKey: seerrKey, AllowHTTP: strings.EqualFold(os.Getenv("SEERR_ALLOW_HTTP"), "true")}, nil)
+		seerrClient, err = seerradapter.New(seerradapter.Config{BaseURL: seerrURL, APIKey: seerrKey, AllowHTTP: seerrAllowHTTP}, nil)
 		if err != nil {
 			return err
 		}
@@ -192,27 +224,6 @@ func run() error {
 		metadataProviderStates["simkl"], metadataProviderStates["imdb"] = "direct_configured", "via_simkl_when_available"
 	}
 	scheduler := indexers.NewScheduler(4, store)
-	// Secrets entered on the website are stored encrypted; references to
-	// environment variables keep working unchanged.
-	secretKey := optionalSecret(integrationsecrets.KeyReference)
-	if secretKey == "" {
-		secretKey = optionalSecret(oldboyscredentials.KeyReference)
-	}
-	var integrationSecrets *integrationsecrets.Service
-	if secretKey != "" {
-		integrationSecrets, err = integrationsecrets.New(store, secretKey)
-		if err != nil {
-			return err
-		}
-	}
-	resolveSecret := func(reference string) (string, error) {
-		if integrationsecrets.IsReference(reference) {
-			resolveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			return integrationSecrets.Resolve(resolveCtx, reference)
-		}
-		return requiredSecret(reference)
-	}
 	var oldBoysCredentials *oldboyscredentials.Service
 	if key := optionalSecret(oldboyscredentials.KeyReference); key != "" {
 		oldBoysCredentials, err = oldboyscredentials.New(store, key)

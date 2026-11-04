@@ -128,3 +128,14 @@ func (store *Store) UpdateIntegrationConnection(ctx context.Context, id uuid.UUI
 	}
 	return store.Integration(ctx, id)
 }
+
+// RecordSeerrWebhookConfigured audits that the owner pointed Seerr's webhook
+// at Media Manager. Only the address is recorded, never the secret.
+func (store *Store) RecordSeerrWebhookConfigured(ctx context.Context, integrationID uuid.UUID, webhookURL string, now time.Time) error {
+	detail, err := json.Marshal(map[string]string{"webhook_url": webhookURL})
+	if err != nil {
+		return err
+	}
+	_, err = store.Pool.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','integration.seerr_webhook_configured','integration',$2,$3,$4)`, uuid.NewV7().String(), integrationID.String(), detail, now.UTC())
+	return err
+}

@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -41,8 +42,9 @@ type Store interface {
 }
 
 type Service struct {
-	store Store
-	aead  cipher.AEAD
+	store  Store
+	aead   cipher.AEAD
+	derive []byte
 }
 
 // New takes a 64-character hexadecimal key, or a random passphrase of at least
@@ -70,7 +72,21 @@ func New(store Store, key string) (*Service, error) {
 	if err != nil {
 		return nil, errors.New("integration secret encryption is unavailable")
 	}
-	return &Service{store: store, aead: aead}, nil
+	deriveKey := sha256.Sum256(append([]byte("media-manager:derived-secret-key:v1:"), decoded...))
+	return &Service{store: store, aead: aead, derive: deriveKey[:]}, nil
+}
+
+// Derive returns a stable 64-character secret for label, computed from the
+// server key, so a secret such as the Seerr webhook's needs no storage. It is
+// the same after every restart and differs per label; it is empty for a nil
+// service.
+func (service *Service) Derive(label string) string {
+	if service == nil || len(service.derive) == 0 {
+		return ""
+	}
+	mac := hmac.New(sha256.New, service.derive)
+	_, _ = mac.Write([]byte("media-manager:derived-secret:v1:" + label))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // Reference is the secret_ref an integration gets once its secret is stored.

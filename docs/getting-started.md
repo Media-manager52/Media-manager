@@ -299,40 +299,34 @@ confirms the exact path and provider identity before the title is success.
 
 ### Seerr (optional)
 
-Seerr is a second request entry point. Media Manager's Seerr intake needs an
-enabled Seerr integration and matching environment values. Create the Seerr
-integration in **Settings → Connections** and copy its integration UUID from
-the API, then put these in `.env`:
+Seerr is a second request entry point. In **Indstillinger → Forbindelser**
+choose **Tilføj Seerr**, enter its address (for example `http://seerr:5055`)
+and its API key (Seerr → Settings → General). Then restart the Media Manager
+API once (in Cosmos: restart the API container). On start, when no `SEERR_*`
+environment values are set, the API takes Seerr intake from the enabled default
+Seerr connection; its webhook secret is derived from `SECRET_ENCRYPTION_KEY`, so
+nothing else has to be stored.
 
-```sh
-# On the Media Manager host; the API is loopback-only. The token is read from
-# .env and is never printed.
-OWNER_TOKEN=$(sed -n 's/^OWNER_TOKEN=//p' .env)
-curl -sS -H "Authorization: Bearer $OWNER_TOKEN" \
-  http://127.0.0.1:28081/api/v1/settings/integrations
-unset OWNER_TOKEN
-# Find the Seerr integration's "id" and use it as SEERR_INSTANCE_ID.
+Then press **Webhook** on the Seerr connection. Media Manager suggests
+`http://media-manager-api:8080/api/v1/integrations/seerr/webhook` (or the
+address Seerr already uses); change it to the address Seerr reaches the API at
+on the shared Docker network. Seerr first sends a test notification with the
+new settings and saves them only when this API answered it, so a wrong address
+never replaces a working webhook. Other Seerr notification types and custom
+headers are kept.
 
-SEERR_BASE_URL=http://seerr:5055
-SEERR_API_KEY=...
-SEERR_INSTANCE_ID=<the integration UUID>
-SEERR_WEBHOOK_SECRET=<at least 32 random characters>
-SEERR_ALLOW_HTTP=true   # only for a local HTTP Seerr
-```
-
-Recreate the API after changing `.env`:
-
-```sh
-docker compose up -d --force-recreate api
-```
-
-Configure Seerr's webhook to
-`http://media-manager-api-1:8080/api/v1/integrations/seerr/webhook` with the
-same secret. If Seerr is configured to use Radarr/Sonarr services, point them at
-`http://media-manager-api-1:8080/radarr` and `/sonarr` with `SERVARR_API_KEY`
-from `.env` as the API key. The detailed Seerr and root-routing workflow is in
+If Seerr is configured to use Radarr/Sonarr services, point them at
+`http://media-manager-api:8080/radarr` and `/sonarr` (`/radarr4k` and
+`/sonarr4k` for 4K servers) with `SERVARR_API_KEY` from `.env` as the API key.
+The detailed Seerr and root-routing workflow is in
 [the runbook](operations/runbook.md). Seerr is optional; manual requests work
 without it.
+
+The older environment setup still works and takes precedence: when
+`SEERR_BASE_URL`, `SEERR_API_KEY`, `SEERR_INSTANCE_ID` and
+`SEERR_WEBHOOK_SECRET` are all set in `.env`, the API uses them (with
+`SEERR_ALLOW_HTTP=true` for a local HTTP Seerr) and the website's **Webhook**
+button configures Seerr with that secret.
 
 ## Folder and permission contract
 

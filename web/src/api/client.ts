@@ -44,6 +44,7 @@ export type APISetupStep = { id: "plex" | "altmount" | "indexer" | "movie_root" 
 export type APISetupStatus = { complete: boolean; secret_storage_enabled: boolean; servarr_enabled: boolean; seerr_intake_enabled: boolean; steps: APISetupStep[] }
 export type APIConnectionCheck = { ok: boolean; detail: string }
 export type APIPlexLibrary = { key: string; title: string; type: string; locations: string[] }
+export type APISeerrWebhookStatus = { intake_running: boolean; webhook?: { webhook_url: string; enabled: boolean; managed: boolean }; detail?: string; suggested_url: string }
 export type APIConnectionPatch = { name?: string; base_url?: string; allow_http?: boolean; enabled?: boolean; is_default?: boolean; category?: string; local_read_only_root?: string; authentication?: "session" | "anonymous_admin" }
 export type APIQualityProfilePreset = { preset: string; name: string; description: string; managed_facts: string[]; rules: Array<Record<string, unknown>> }
 export type APISubtitleVerification = { id: string; workflow_id: string; altmount_job_id: string; candidate_id: string; media_title: string; release_title: string; attempt_generation: number; status: "verified" | "unverified"; required_languages: string[]; preferred_languages: string[]; observed_languages: string[]; evidence: Record<string, unknown>; failure_reasons: string[]; retry_state: "not_needed" | "queued" | "succeeded" | "exhausted" | "no_alternate"; can_reverify: boolean; created_at: string }
@@ -266,6 +267,8 @@ export const saveIntegrationSecret = (id: string, value: string) => requestJSON<
 export const updateIntegrationConnection = (id: string, patch: APIConnectionPatch) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/connection`, { method: "PATCH", body: JSON.stringify(patch) })
 export const checkIntegration = (id: string) => requestJSON<APIConnectionCheck>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/check`, { method: "POST" })
 export const loadPlexLibraries = async (id: string, signal?: AbortSignal) => await requestJSON<APIPlexLibrary[] | null>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/plex-libraries`, { signal }) ?? []
+export const loadSeerrWebhook = (id: string, signal?: AbortSignal) => requestJSON<APISeerrWebhookStatus>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/seerr-webhook`, { signal })
+export const configureSeerrWebhook = (id: string, webhookURL: string) => requestJSON<APISeerrWebhookStatus>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/seerr-webhook`, { method: "POST", body: JSON.stringify({ webhook_url: webhookURL }) })
 export const commissionIntegration = (id: string) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/commission`, { method: "POST" })
 export type APIOldBoysCredentialStatus = { available: boolean; configured: boolean; enabled?: boolean; updated_at?: string }
 export const commissionOldBoys = () => requestJSON<APIIntegration>("/api/v1/settings/oldboys/commission", { method: "POST" })
