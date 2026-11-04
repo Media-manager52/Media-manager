@@ -246,7 +246,23 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 			return IntakeResult{}, err
 		}
 		if deletedAt != nil {
-			return IntakeResult{}, ErrMediaRecycled
+			// Archived media that Seerr requested again after the archive is
+			// wanted again: the request is the owner's newer decision. Older
+			// requests and media in the recycle bin keep refusing.
+			if intake.RequestedAt.IsZero() || !intake.RequestedAt.After(*deletedAt) {
+				return IntakeResult{}, ErrMediaRecycled
+			}
+			parsed, parseErr := uuid.Parse(mediaText)
+			if parseErr != nil {
+				return IntakeResult{}, parseErr
+			}
+			reviveErr := reviveArchivedMedia(ctx, transaction, parsed, "seerr", map[string]any{"seerr_instance_id": intake.InstanceID, "request_id": intake.RequestID, "requested_at": intake.RequestedAt.UTC(), "archived_at": deletedAt.UTC()}, now)
+			if errors.Is(reviveErr, ErrMediaInRecycleBin) {
+				return IntakeResult{}, ErrMediaRecycled
+			}
+			if reviveErr != nil {
+				return IntakeResult{}, reviveErr
+			}
 		}
 		parsed, err := uuid.Parse(mediaText)
 		if err != nil {

@@ -147,3 +147,71 @@ func (store *Store) ArchiveMedia(ctx context.Context, mediaID uuid.UUID, now tim
 	}
 	return result, transaction.Commit(ctx)
 }
+
+// ErrMediaInRecycleBin refuses an unarchive while the media still has recycle
+// bin entries that are not restored: those are restored from the recycle bin,
+// which also brings their files back.
+var ErrMediaInRecycleBin = errors.New("media is in the recycle bin; restore it from there")
+
+// MediaUnarchiveResult reports the effect of returning archived media to the
+// active catalog.
+type MediaUnarchiveResult struct {
+	MediaID       uuid.UUID `json:"media_id"`
+	Title         string    `json:"title"`
+	AlreadyActive bool      `json:"already_active"`
+}
+
+// UnarchiveMedia returns archived media to the active catalog. It only clears
+// the archive mark: workflows cancelled by the archive stay cancelled with
+// their history, and acquisition starts again only when the owner or a new
+// Seerr request asks for it. Media in the recycle bin is refused, because the
+// recycle restore is what brings its files back.
+func (store *Store) UnarchiveMedia(ctx context.Context, mediaID uuid.UUID, now time.Time) (MediaUnarchiveResult, error) {
+	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return MediaUnarchiveResult{}, err
+	}
+	defer transaction.Rollback(ctx)
+
+	var title string
+	var deletedAt *time.Time
+	if err := transaction.QueryRow(ctx, `SELECT title,deleted_at FROM media_items WHERE id=$1 FOR UPDATE`, mediaID.String()).Scan(&title, &deletedAt); errors.Is(err, pgx.ErrNoRows) {
+		return MediaUnarchiveResult{}, ErrNotFound
+	} else if err != nil {
+		return MediaUnarchiveResult{}, err
+	}
+	result := MediaUnarchiveResult{MediaID: mediaID, Title: title}
+	if deletedAt == nil {
+		result.AlreadyActive = true
+		return result, transaction.Commit(ctx)
+	}
+	if err := reviveArchivedMedia(ctx, transaction, mediaID, "owner", map[string]any{"title": title, "archived_at": deletedAt.UTC()}, now); err != nil {
+		return MediaUnarchiveResult{}, err
+	}
+	return result, transaction.Commit(ctx)
+}
+
+// reviveArchivedMedia clears the archive mark of media that is archived, not
+// recycled, inside the caller's transaction and records who did it.
+func reviveArchivedMedia(ctx context.Context, transaction pgx.Tx, mediaID uuid.UUID, actor string, detail map[string]any, now time.Time) error {
+	var inRecycleBin bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM recycle_entries WHERE media_id=$1 AND state<>'restored')`, mediaID.String()).Scan(&inRecycleBin); err != nil {
+		return err
+	}
+	if inRecycleBin {
+		return ErrMediaInRecycleBin
+	}
+	command, err := transaction.Exec(ctx, `UPDATE media_items SET deleted_at=NULL,revision=revision+1,updated_at=$2 WHERE id=$1 AND deleted_at IS NOT NULL`, mediaID.String(), now.UTC())
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrConcurrentModification
+	}
+	payload, err := json.Marshal(detail)
+	if err != nil {
+		return err
+	}
+	_, err = transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,$2,'media.unarchived','media',$3,$4,$5)`, uuid.NewV7().String(), actor, mediaID.String(), string(payload), now.UTC())
+	return err
+}

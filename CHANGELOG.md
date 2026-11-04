@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Archived media can come back.** `POST /api/v1/media/{id}/unarchive` returns archived media to the active catalogue; the workflows the archive cancelled stay cancelled with their history, and media in the recycle bin is refused (it is restored from there). A Seerr request made *after* the archive now revives the media and starts a fresh workflow by itself (audited as `media.unarchived` by `seerr`), because the request is the owner's newer decision; requests made before the archive keep being refused. Before, a re-requested archived title (Lucky Strike) stayed in *needs attention* with no way out.
+
 ### Changed
 
 - **Library and quality profile are chosen from described choices.** On **Tilføj film eller serie** and in Seerr rules, the two plain menus are replaced by a field that shows the choice with one explaining line and opens a list (a sheet from the bottom on a phone): each library shows its Plex folder, a *Standard* or *4K* badge and 4K folders in their own group; each profile says in Danish what it demands (Danish subtitles or speech, Danish speech, no language demand, required resolution, chosen automatically for a language). *Automatisk* names the library and profile it means today. What is sent to the API is unchanged.
