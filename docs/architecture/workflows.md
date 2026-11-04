@@ -18,7 +18,22 @@ A **workflow** is one media item + one acquisition scope:
 | `season:NN:episode:NN` | One airing episode, its own expectation/job/round/publication. | `season:01:episode:02` |
 
 `internal/workflows/scope.go` is the only parser/renderer. Unknown variants fail
-closed. A series that is currently airing gets per-episode workflows dispatched
+closed.
+
+A workflow also has an **edition**, copied from its library root: `standard`
+(every root unless marked otherwise) or `4k` (schema 54). One media item can
+have one active workflow per variant *and* edition, so the standard and 4K
+copies of a title are acquired, published, displaced, upgraded, repaired and
+reported to Seerr independently. A composite foreign key keeps a workflow's
+edition equal to its root's. Edition rules at evaluation: a `4k` workflow
+rejects every release whose resolution evidence is not exactly `2160p`
+(unknown or conflicting evidence included); a `standard` workflow rejects
+`2160p` releases while the same title has an active or Plex-confirmed 4K
+workflow of an overlapping scope. After download, a `4k` workflow's primary
+video must be at least 3200 pixels wide or 2000 high, otherwise the release
+fails with `resolution_mismatch`. A 4K root can never be a kind's default;
+Seerr 4K requests (`is4k`) go to it, adoption and adopted files are standard
+only, and relocation never crosses editions (`library_root_wrong_edition`). A series that is currently airing gets per-episode workflows dispatched
 from the season workflow (`DispatchAiringSeason`); the pack workflow does not
 search until the season is complete and entirely missing. A completed season
 that is entirely missing but whose searches have only ever observed episode
@@ -358,7 +373,9 @@ Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
   newly created rounds only; existing snapshots and exclusions stay intact.
 - **Release-attributable failures** are only these codes:
   `season_pack_incomplete`, `movie_primary_ambiguous`, `output_empty`,
-  `media_identity_mismatch`, `media_corrupt`, `password_protected`.
+  `media_identity_mismatch`, `media_corrupt`, `password_protected`,
+  `archive_unsupported`, `no_playable_media`, `release_incomplete`,
+  `resolution_mismatch` (a 4K edition file that is not 4K).
   They atomically:
   - insert exact `workflow_release_exclusions` (indexer + native key) and
     `workflow_package_exclusions` (NZB SHA-256);
@@ -693,7 +710,10 @@ when at least one enabled, Plex-backed root of that kind exists; see §3.2),
 profiles come from `quality_profiles`, and availability from Plex-confirmed
 publications (`ServarrMovie.HasFile`, season `episodeFileCount`). Adds are
 acknowledged, not duplicated: Seerr's own request (webhook/poll) remains the
-single intake path into the workflow engine.
+single intake path into the workflow engine. `/radarr` and `/sonarr` answer
+for the standard edition; `/radarr4k` and `/sonarr4k` answer for the 4K edition
+(availability from 4K publications only, root folder only when a 4K root of
+that kind exists), so Seerr's separate 4K servers see the 4K copy alone.
 
 ## 14. Indexer commissioning
 

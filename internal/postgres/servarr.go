@@ -38,10 +38,10 @@ const servarrMovieSelect = `SELECT media.id::text,media.title,media.year,identit
 		SELECT 1 FROM library_link_versions version
 		JOIN library_links link ON link.id=version.library_link_id
 		JOIN workflows workflow ON workflow.id=version.workflow_id
-		WHERE workflow.media_id=media.id AND version.state='current'
-	) OR EXISTS(
+		WHERE workflow.media_id=media.id AND workflow.edition=$1 AND version.state='current'
+	) OR ($1='standard' AND EXISTS(
 		SELECT 1 FROM adopted_files adopted WHERE adopted.media_id=media.id AND adopted.state='current'
-	) AS has_file
+	)) AS has_file
 	FROM media_items media
 	JOIN external_identities identity ON identity.media_id=media.id AND identity.namespace='tmdb' AND identity.state='verified'
 	WHERE media.kind='movie' AND media.deleted_at IS NULL`
@@ -79,8 +79,8 @@ func scanServarrMovies(rows interface {
 	return result, rows.Err()
 }
 
-func (store *Store) ListServarrMovies(ctx context.Context) ([]ServarrMovie, error) {
-	rows, err := store.Pool.Query(ctx, servarrMovieSelect+` ORDER BY media.title,media.id`)
+func (store *Store) ListServarrMovies(ctx context.Context, edition string) ([]ServarrMovie, error) {
+	rows, err := store.Pool.Query(ctx, servarrMovieSelect+` ORDER BY media.title,media.id`, edition)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +88,8 @@ func (store *Store) ListServarrMovies(ctx context.Context) ([]ServarrMovie, erro
 	return scanServarrMovies(rows)
 }
 
-func (store *Store) ServarrMovieByTMDB(ctx context.Context, tmdbID string) (ServarrMovie, error) {
-	rows, err := store.Pool.Query(ctx, servarrMovieSelect+` AND identity.value=$1 ORDER BY media.id LIMIT 1`, tmdbID)
+func (store *Store) ServarrMovieByTMDB(ctx context.Context, tmdbID, edition string) (ServarrMovie, error) {
+	rows, err := store.Pool.Query(ctx, servarrMovieSelect+` AND identity.value=$2 ORDER BY media.id LIMIT 1`, edition, tmdbID)
 	if err != nil {
 		return ServarrMovie{}, err
 	}
@@ -108,7 +108,7 @@ func (store *Store) ServarrMovieByTMDB(ctx context.Context, tmdbID string) (Serv
 // the frozen expectation size and how many episode files Plex has confirmed.
 // A confirmed complete-season workflow counts all its expected episodes;
 // confirmed per-episode workflows count individually.
-func (store *Store) servarrSeasons(ctx context.Context) (map[string][]ServarrSeriesSeason, error) {
+func (store *Store) servarrSeasons(ctx context.Context, edition string) (map[string][]ServarrSeriesSeason, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT monitoring.media_id::text,monitoring.season_number,monitoring.monitored,
 		COALESCE(expectation.expected_episodes,0),
 		(CASE WHEN workflow.state='plex_confirmed' THEN COALESCE(expectation.expected_episodes,0) ELSE 0 END) + COALESCE(episodes.confirmed_episodes,0)
@@ -116,7 +116,7 @@ func (store *Store) servarrSeasons(ctx context.Context) (map[string][]ServarrSer
 		JOIN media_items media ON media.id=monitoring.media_id AND media.kind='series' AND media.deleted_at IS NULL
 		LEFT JOIN LATERAL (
 			SELECT item.id,item.state FROM workflows item
-			WHERE item.media_id=monitoring.media_id AND item.variant='season:' || lpad(monitoring.season_number::text,2,'0')
+			WHERE item.media_id=monitoring.media_id AND item.edition=$1 AND item.variant='season:' || lpad(monitoring.season_number::text,2,'0')
 			ORDER BY item.updated_at DESC,item.id DESC LIMIT 1
 		) workflow ON true
 		LEFT JOIN LATERAL (
@@ -126,11 +126,11 @@ func (store *Store) servarrSeasons(ctx context.Context) (map[string][]ServarrSer
 		) expectation ON true
 		LEFT JOIN LATERAL (
 			SELECT count(*)::int AS confirmed_episodes FROM workflows episode
-			WHERE episode.media_id=monitoring.media_id
+			WHERE episode.media_id=monitoring.media_id AND episode.edition=$1
 				AND episode.variant LIKE 'season:' || lpad(monitoring.season_number::text,2,'0') || ':episode:%'
 				AND episode.state='plex_confirmed'
 		) episodes ON true
-		ORDER BY monitoring.media_id,monitoring.season_number`)
+		ORDER BY monitoring.media_id,monitoring.season_number`, edition)
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +180,8 @@ func scanServarrSeries(rows interface {
 	return result, rows.Err()
 }
 
-func (store *Store) ListServarrSeries(ctx context.Context) ([]ServarrSeries, error) {
-	seasons, err := store.servarrSeasons(ctx)
+func (store *Store) ListServarrSeries(ctx context.Context, edition string) ([]ServarrSeries, error) {
+	seasons, err := store.servarrSeasons(ctx, edition)
 	if err != nil {
 		return nil, err
 	}
@@ -193,8 +193,8 @@ func (store *Store) ListServarrSeries(ctx context.Context) ([]ServarrSeries, err
 	return scanServarrSeries(rows, seasons)
 }
 
-func (store *Store) ServarrSeriesByTVDB(ctx context.Context, tvdbID string) (ServarrSeries, error) {
-	seasons, err := store.servarrSeasons(ctx)
+func (store *Store) ServarrSeriesByTVDB(ctx context.Context, tvdbID, edition string) (ServarrSeries, error) {
+	seasons, err := store.servarrSeasons(ctx, edition)
 	if err != nil {
 		return ServarrSeries{}, err
 	}

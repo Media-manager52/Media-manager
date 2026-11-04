@@ -140,7 +140,7 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
               <span className="mb-1 block font-medium">Bibliotek</span>
               <select value={rootId} onChange={(event) => setRootId(event.target.value)} className="h-10 w-full rounded-lg border border-line bg-surface px-3">
                 <option value="">Standard (eller Seerr-regel)</option>
-                {compatibleRoots.map((root) => <option key={root.id} value={root.id}>{root.name}{root.is_default ? " · standard" : ""}</option>)}
+                {compatibleRoots.map((root) => <option key={root.id} value={root.id}>{root.name}{root.edition === "4k" ? " · 4K-udgave" : ""}{root.is_default ? " · standard" : ""}</option>)}
               </select>
             </label>
             <label className="text-sm">

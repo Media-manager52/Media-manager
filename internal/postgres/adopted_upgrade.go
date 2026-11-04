@@ -23,7 +23,7 @@ func (store *Store) planAdoptedUpgradeDisplacements(ctx context.Context, transac
 	rows, err := transaction.Query(ctx, `SELECT adopted.id::text,adopted.media_id::text,adopted.root_id::text,adopted.destination_relative,adopted.source_size,adopted.source_modtime_ns,
 		replacement_auth.destination_relative,replacement_auth.source_size,replacement_auth.source_modtime_ns
 		FROM workflows workflow
-		JOIN adopted_files adopted ON adopted.media_id=workflow.media_id AND adopted.variant=workflow.variant AND adopted.state='current'
+		JOIN adopted_files adopted ON workflow.edition='standard' AND adopted.media_id=workflow.media_id AND adopted.variant=workflow.variant AND adopted.state='current'
 		LEFT JOIN adopted_replacement_authorizations replacement_auth ON replacement_auth.workflow_id=workflow.id AND replacement_auth.adopted_file_id=adopted.id
 		WHERE workflow.id=$1 ORDER BY adopted.id FOR UPDATE OF adopted`, workflowID.String())
 	if err != nil {

@@ -91,7 +91,7 @@ func (store *Store) validateAdoptionMonitoring(ctx context.Context, transaction 
 			oldBoysAllowed = oldBoysAllowed && danish
 		}
 		var activeWorkflow bool
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL)`, scope.MediaID.String(), scope.Variant).Scan(&activeWorkflow); err != nil {
+		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflows WHERE media_id=$1 AND variant=$2 AND edition='standard' AND terminal_at IS NULL)`, scope.MediaID.String(), scope.Variant).Scan(&activeWorkflow); err != nil {
 			return err
 		}
 		if activeWorkflow {

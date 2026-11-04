@@ -21,14 +21,15 @@ type seerrStatusCall struct {
 	id      int64
 	status  seerradapter.MediaStatus
 	seasons []int16
+	is4k    bool
 }
 
 func (client *fakeSeerrStatusClient) Request(context.Context, int64) (seerradapter.Request, error) {
 	return client.request, client.err
 }
 
-func (client *fakeSeerrStatusClient) SetMediaStatus(_ context.Context, id int64, status seerradapter.MediaStatus, seasons []int16) (seerradapter.Media, error) {
-	client.calls = append(client.calls, seerrStatusCall{id: id, status: status, seasons: append([]int16(nil), seasons...)})
+func (client *fakeSeerrStatusClient) SetMediaStatus(_ context.Context, id int64, status seerradapter.MediaStatus, seasons []int16, is4k bool) (seerradapter.Media, error) {
+	client.calls = append(client.calls, seerrStatusCall{id: id, status: status, seasons: append([]int16(nil), seasons...), is4k: is4k})
 	return seerradapter.Media{ID: id}, nil
 }
 
@@ -123,5 +124,31 @@ func TestSeerrStatusServiceStopsBeforeMutationOnIdentityMismatch(t *testing.T) {
 	}
 	if len(client.calls) != 0 {
 		t.Fatalf("identity mismatch reached status endpoint: %+v", client.calls)
+	}
+}
+
+// TestSeerrStatusServiceAnswersEachEditionSeparately proves a confirmed 4K
+// workflow marks a 4K request available through Seerr's 4K status, and that a
+// standard request is never answered from a 4K workflow (or the reverse).
+func TestSeerrStatusServiceAnswersEachEditionSeparately(t *testing.T) {
+	tmdbID := int64(654)
+	identities := []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "654", State: catalog.IdentityVerified}}
+	payload := []byte(`{"workflow_id":"` + uuid.NewV7().String() + `"}`)
+	fourK := &fakeSeerrStatusClient{request: seerradapter.Request{ID: 20, Status: 2, Type: "movie", Is4K: true, Media: seerradapter.Media{ID: 90, TMDBID: &tmdbID, MediaType: "movie"}}}
+	store := fakeSeerrStatusStore{value: postgres.SeerrStatusSyncContext{Kind: catalog.KindMovie, RequestIDs: []string{"20"}, AllAvailable: true, Identities: identities, Edition: postgres.Edition4K}}
+	if err := (&SeerrStatusService{Client: fourK, Store: store, InstanceID: uuid.NewV7().String()}).Handle(context.Background(), postgres.OutboxEvent{Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fourK.calls) != 1 || fourK.calls[0].status != seerradapter.MediaStatusAvailable || !fourK.calls[0].is4k {
+		t.Fatalf("4K status calls: %+v, want one 4K available", fourK.calls)
+	}
+	standard := &fakeSeerrStatusClient{request: seerradapter.Request{ID: 21, Status: 2, Type: "movie", Media: seerradapter.Media{ID: 90, TMDBID: &tmdbID, MediaType: "movie"}}}
+	store.value.RequestIDs = []string{"21"}
+	if err := (&SeerrStatusService{Client: standard, Store: store, InstanceID: uuid.NewV7().String()}).Handle(context.Background(), postgres.OutboxEvent{Payload: payload}); err == nil || len(standard.calls) != 0 {
+		t.Fatalf("standard request answered from a 4K workflow: err=%v calls=%+v", err, standard.calls)
+	}
+	store.value.Edition = postgres.EditionStandard
+	if err := (&SeerrStatusService{Client: fourK, Store: store, InstanceID: uuid.NewV7().String()}).Handle(context.Background(), postgres.OutboxEvent{Payload: payload}); err == nil || len(fourK.calls) != 1 {
+		t.Fatalf("4K request answered from a standard workflow: err=%v calls=%+v", err, fourK.calls)
 	}
 }

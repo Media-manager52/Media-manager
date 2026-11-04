@@ -68,7 +68,9 @@ func TestConfiguredRoundBudgetAndRetainedOutputLimit(t *testing.T) {
 
 func TestConfiguredLimitsDoNotRewriteExistingRound(t *testing.T) {
 	f := newFailureRecoveryFixture(t, 42)
+	addLegacyEditionShim(t, f.ctx, f.store)
 	w := f.newMovieWorkflow(t, "Immutable attempt snapshot", "943002")
+	dropLegacyEditionShim(t, f.ctx, f.store)
 	if err := Migrate(f.ctx, f.store.Pool); err != nil {
 		t.Fatal(err)
 	}

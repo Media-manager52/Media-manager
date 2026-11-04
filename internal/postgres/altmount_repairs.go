@@ -157,12 +157,12 @@ func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID,
 		return "", err
 	}
 	defer tx.Rollback(ctx)
-	var linkVersionID, workflowID, mediaID, variant, rootID, profileID, assetID, releaseTitle, kind, originalLanguage string
+	var linkVersionID, workflowID, mediaID, variant, rootID, profileID, assetID, releaseTitle, kind, originalLanguage, edition string
 	var clientID *string
 	var terminal bool
 	err = tx.QueryRow(ctx, `SELECT version.id::text,workflow.id::text,workflow.media_id::text,workflow.variant,workflow.root_id::text,workflow.quality_profile_id::text,
 			workflow.download_client_id::text,asset.id::text,COALESCE(candidate.title,''),media.kind,workflow.terminal_at IS NOT NULL,
-			COALESCE((SELECT data->>'original_language' FROM media_metadata WHERE media_id=media.id),'')
+			COALESCE((SELECT data->>'original_language' FROM media_metadata WHERE media_id=media.id),''),workflow.edition
 		FROM altmount_output_inventories inventory
 		JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id AND inventory.root_relative || '/' || asset.relative_path=$1
 		JOIN library_link_versions version ON version.source_asset_id=asset.id AND version.state='current'
@@ -171,7 +171,7 @@ func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID,
 		LEFT JOIN altmount_jobs job ON job.id=version.altmount_job_id
 		LEFT JOIN release_candidates candidate ON candidate.id=job.candidate_id
 		WHERE $1 LIKE inventory.root_relative || '/%'
-		ORDER BY version.id LIMIT 1`, filePath).Scan(&linkVersionID, &workflowID, &mediaID, &variant, &rootID, &profileID, &clientID, &assetID, &releaseTitle, &kind, &terminal, &originalLanguage)
+		ORDER BY version.id LIMIT 1`, filePath).Scan(&linkVersionID, &workflowID, &mediaID, &variant, &rootID, &profileID, &clientID, &assetID, &releaseTitle, &kind, &terminal, &originalLanguage, &edition)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RepairUnmanaged, nil
 	}
@@ -224,7 +224,7 @@ func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID,
 		return RepairNeedsAttention, tx.Commit(ctx)
 	}
 	var activeWorkflow string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL`, mediaID, scopeVariant).Scan(&activeWorkflow)
+	err = tx.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND edition=$3 AND terminal_at IS NULL`, mediaID, scopeVariant, edition).Scan(&activeWorkflow)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
@@ -548,7 +548,7 @@ func (store *Store) PlanUnmanagedRepair(ctx context.Context, repair UnmanagedRep
 	}
 	variant := unmanagedVariant(repair)
 	var activeWorkflow string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL`, repair.MediaID.String(), variant).Scan(&activeWorkflow)
+	err = tx.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL AND edition=(SELECT edition FROM library_roots WHERE id=$3)`, repair.MediaID.String(), variant, repair.RootID.String()).Scan(&activeWorkflow)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}

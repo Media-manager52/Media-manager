@@ -89,7 +89,7 @@ non-obvious.
 
 | Table | Purpose |
 | --- | --- |
-| `workflows` | One row per media+scope workflow: state, root/profile/client, selected release, attention, revision. |
+| `workflows` | One row per media+scope+edition workflow: state, root/profile/client, edition (equal to its root's, enforced by a composite foreign key), selected release, attention, revision. At most one active workflow per media, variant and edition. |
 | `workflow_transitions` | Append-only `from`/`to`/reason/actor log. |
 | `acquisition_rounds` | Durable rounds with immutable bounded attempt limits, policy/upgrade snapshots, ordinal, state. |
 | `workflow_attempted_releases` | Lifetime attempt registry (monotonic). |
@@ -161,7 +161,7 @@ non-obvious.
 | Table | Purpose |
 | --- | --- |
 | `integration_instances` | Plex/Seerr/AltMount/Newznab config (sanitized) + `secret_ref`. |
-| `library_roots` | Movie/TV roots with Plex/source visible mappings and defaults. |
+| `library_roots` | Movie/TV roots with Plex/source visible mappings and defaults. `edition` is `standard` or `4k` (schema 54); a 4K root is never a default. |
 | `quality_profiles` | Policy JSON, version, upgrades/default/enabled flags. |
 | `indexer_capability_profiles` | Immutable commissioned capability profile (versioned). |
 | `indexer_commissioning_runs`, `indexer_commissioning_steps` | v1/v2 commissioning lifecycle + steps. |

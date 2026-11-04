@@ -525,14 +525,14 @@ func (store *Store) ListWantedPage(ctx context.Context, limit, offset int) ([]Wa
 		JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
 		LEFT JOIN LATERAL (
 			SELECT true AS present FROM (
-				SELECT published_workflow.media_id,published_workflow.variant
+				SELECT published_workflow.media_id,published_workflow.variant,published_workflow.edition
 				FROM library_link_versions version
 				JOIN workflows published_workflow ON published_workflow.id=version.workflow_id
 				WHERE version.state='current'
 				UNION ALL
-				SELECT adopted.media_id,adopted.variant FROM adopted_files adopted WHERE adopted.state='current'
+				SELECT adopted.media_id,adopted.variant,'standard' FROM adopted_files adopted WHERE adopted.state='current'
 			) current_file
-			WHERE current_file.media_id=workflow.media_id AND current_file.variant=workflow.variant
+			WHERE current_file.media_id=workflow.media_id AND current_file.variant=workflow.variant AND current_file.edition=workflow.edition
 			LIMIT 1
 		) current_link ON true
 		WHERE workflow.terminal_at IS NULL AND media.deleted_at IS NULL

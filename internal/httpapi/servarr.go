@@ -15,7 +15,8 @@ import (
 
 // Media Manager implements the subset of the Radarr and Sonarr APIs that Seerr
 // uses to configure a server, add requests, and scan availability. Seerr talks
-// to /radarr/api/v3 and /sonarr/api/v3 on the API container, so Radarr and
+// to /radarr/api/v3 and /sonarr/api/v3 (and /radarr4k, /sonarr4k for its 4K
+// servers) on the API container, so Radarr and
 // Sonarr are no longer part of the stack. The actual acquisition stays in
 // Media Manager's own workflow engine: Seerr still records the request and the
 // existing Seerr intake (webhook/poll) turns it into a workflow.
@@ -40,14 +41,25 @@ func (server *Server) requireServarr(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func servarrFlavor(request *http.Request) string {
-	if strings.HasPrefix(request.URL.Path, "/sonarr/") {
+	if strings.HasPrefix(request.URL.Path, "/sonarr") {
 		return "sonarr"
 	}
 	return "radarr"
 }
 
+// servarrEdition is the library edition a Servarr endpoint answers for. Seerr
+// keeps a separate 4K Radarr/Sonarr server; pointing it at /radarr4k and
+// /sonarr4k makes its availability scan see only the 4K edition, while the
+// standard server at /radarr and /sonarr sees only the standard edition.
+func servarrEdition(request *http.Request) string {
+	if strings.HasPrefix(request.URL.Path, "/radarr4k/") || strings.HasPrefix(request.URL.Path, "/sonarr4k/") {
+		return postgres.Edition4K
+	}
+	return postgres.EditionStandard
+}
+
 func (server *Server) registerServarrRoutes() {
-	for _, prefix := range []string{"/radarr", "/sonarr"} {
+	for _, prefix := range []string{"/radarr", "/sonarr", "/radarr4k", "/sonarr4k"} {
 		server.mux.HandleFunc("GET "+prefix+"/api/v3/system/status", server.requireServarr(server.servarrSystemStatus))
 		server.mux.HandleFunc("GET "+prefix+"/api/v3/qualityProfile", server.requireServarr(server.servarrQualityProfiles))
 		server.mux.HandleFunc("GET "+prefix+"/api/v3/qualityprofile", server.requireServarr(server.servarrQualityProfiles))
@@ -56,22 +68,25 @@ func (server *Server) registerServarrRoutes() {
 		server.mux.HandleFunc("GET "+prefix+"/api/v3/queue", server.requireServarr(server.servarrQueue))
 		server.mux.HandleFunc("POST "+prefix+"/api/v3/command", server.requireServarr(server.servarrCommand))
 	}
-	server.mux.HandleFunc("GET /radarr/api/v3/movie", server.requireServarr(server.servarrMovies))
-	server.mux.HandleFunc("GET /radarr/api/v3/movie/lookup", server.requireServarr(server.servarrMovieLookup))
-	server.mux.HandleFunc("GET /radarr/api/v3/movie/{id}", server.requireServarr(server.servarrMovieByID))
-	server.mux.HandleFunc("POST /radarr/api/v3/movie", server.requireServarr(server.servarrAddMovie))
-	server.mux.HandleFunc("PUT /radarr/api/v3/movie", server.requireServarr(server.servarrUpdateMovie))
-	server.mux.HandleFunc("DELETE /radarr/api/v3/movie/{id}", server.requireServarr(server.servarrDeleteMovie))
-
-	server.mux.HandleFunc("GET /sonarr/api/v3/languageprofile", server.requireServarr(server.servarrLanguageProfiles))
-	server.mux.HandleFunc("GET /sonarr/api/v3/series", server.requireServarr(server.servarrSeries))
-	server.mux.HandleFunc("GET /sonarr/api/v3/series/lookup", server.requireServarr(server.servarrSeriesLookup))
-	server.mux.HandleFunc("GET /sonarr/api/v3/series/{id}", server.requireServarr(server.servarrSeriesByID))
-	server.mux.HandleFunc("POST /sonarr/api/v3/series", server.requireServarr(server.servarrAddSeries))
-	server.mux.HandleFunc("PUT /sonarr/api/v3/series", server.requireServarr(server.servarrUpdateSeries))
-	server.mux.HandleFunc("DELETE /sonarr/api/v3/series/{id}", server.requireServarr(server.servarrDeleteSeries))
-	server.mux.HandleFunc("GET /sonarr/api/v3/episode", server.requireServarr(server.servarrEpisodes))
-	server.mux.HandleFunc("PUT /sonarr/api/v3/episode/monitor", server.requireServarr(server.servarrMonitorEpisodes))
+	for _, prefix := range []string{"/radarr", "/radarr4k"} {
+		server.mux.HandleFunc("GET "+prefix+"/api/v3/movie", server.requireServarr(server.servarrMovies))
+		server.mux.HandleFunc("GET "+prefix+"/api/v3/movie/lookup", server.requireServarr(server.servarrMovieLookup))
+		server.mux.HandleFunc("GET "+prefix+"/api/v3/movie/{id}", server.requireServarr(server.servarrMovieByID))
+		server.mux.HandleFunc("POST "+prefix+"/api/v3/movie", server.requireServarr(server.servarrAddMovie))
+		server.mux.HandleFunc("PUT "+prefix+"/api/v3/movie", server.requireServarr(server.servarrUpdateMovie))
+		server.mux.HandleFunc("DELETE "+prefix+"/api/v3/movie/{id}", server.requireServarr(server.servarrDeleteMovie))
+	}
+	for _, prefix := range []string{"/sonarr", "/sonarr4k"} {
+		server.mux.HandleFunc("GET "+prefix+"/api/v3/languageprofile", server.requireServarr(server.servarrLanguageProfiles))
+		server.mux.HandleFunc("GET "+prefix+"/api/v3/series", server.requireServarr(server.servarrSeries))
+		server.mux.HandleFunc("GET "+prefix+"/api/v3/series/lookup", server.requireServarr(server.servarrSeriesLookup))
+		server.mux.HandleFunc("GET "+prefix+"/api/v3/series/{id}", server.requireServarr(server.servarrSeriesByID))
+		server.mux.HandleFunc("POST "+prefix+"/api/v3/series", server.requireServarr(server.servarrAddSeries))
+		server.mux.HandleFunc("PUT "+prefix+"/api/v3/series", server.requireServarr(server.servarrUpdateSeries))
+		server.mux.HandleFunc("DELETE "+prefix+"/api/v3/series/{id}", server.requireServarr(server.servarrDeleteSeries))
+		server.mux.HandleFunc("GET "+prefix+"/api/v3/episode", server.requireServarr(server.servarrEpisodes))
+		server.mux.HandleFunc("PUT "+prefix+"/api/v3/episode/monitor", server.requireServarr(server.servarrMonitorEpisodes))
+	}
 }
 
 func (server *Server) servarrSystemStatus(writer http.ResponseWriter, request *http.Request) {
@@ -120,7 +135,7 @@ func (server *Server) servarrRootFolders(writer http.ResponseWriter, request *ht
 	}
 	usable := false
 	for _, root := range roots {
-		if root.Enabled && root.MediaKind == kind && strings.TrimSpace(root.PlexLibraryID) != "" {
+		if root.Enabled && root.MediaKind == kind && root.Edition == servarrEdition(request) && strings.TrimSpace(root.PlexLibraryID) != "" {
 			usable = true
 			break
 		}
@@ -196,7 +211,7 @@ func servarrMovie(movie postgres.ServarrMovie) servarr.Movie {
 
 func (server *Server) servarrMovies(writer http.ResponseWriter, request *http.Request) {
 	if tmdbID := strings.TrimSpace(request.URL.Query().Get("tmdbId")); tmdbID != "" {
-		movie, err := server.store.ServarrMovieByTMDB(request.Context(), tmdbID)
+		movie, err := server.store.ServarrMovieByTMDB(request.Context(), tmdbID, servarrEdition(request))
 		if errors.Is(err, postgres.ErrNotFound) {
 			writeJSON(writer, http.StatusOK, []servarr.Movie{})
 			return
@@ -208,7 +223,7 @@ func (server *Server) servarrMovies(writer http.ResponseWriter, request *http.Re
 		writeJSON(writer, http.StatusOK, []servarr.Movie{servarrMovie(movie)})
 		return
 	}
-	movies, err := server.store.ListServarrMovies(request.Context())
+	movies, err := server.store.ListServarrMovies(request.Context(), servarrEdition(request))
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "internal_error", "could not load movies")
 		return
@@ -228,7 +243,7 @@ func (server *Server) servarrMovieLookup(writer http.ResponseWriter, request *ht
 		writeJSON(writer, http.StatusOK, []servarr.Movie{})
 		return
 	}
-	movie, err := server.store.ServarrMovieByTMDB(request.Context(), tmdbID)
+	movie, err := server.store.ServarrMovieByTMDB(request.Context(), tmdbID, servarrEdition(request))
 	if errors.Is(err, postgres.ErrNotFound) {
 		number, _ := strconv.ParseInt(tmdbID, 10, 64)
 		writeJSON(writer, http.StatusOK, []servarr.Movie{{ID: 0, TMDBID: number, Monitored: false, HasFile: false, Tags: []servarr.Tag{}}})
@@ -247,7 +262,7 @@ func (server *Server) servarrMovieByID(writer http.ResponseWriter, request *http
 		writeError(writer, http.StatusBadRequest, "invalid_request", "movie id is invalid")
 		return
 	}
-	movies, err := server.store.ListServarrMovies(request.Context())
+	movies, err := server.store.ListServarrMovies(request.Context(), servarrEdition(request))
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "internal_error", "could not load movies")
 		return
@@ -342,7 +357,7 @@ func servarrSeries(series postgres.ServarrSeries) servarr.Series {
 
 func (server *Server) servarrSeries(writer http.ResponseWriter, request *http.Request) {
 	if tvdbID := strings.TrimSpace(request.URL.Query().Get("tvdbId")); tvdbID != "" {
-		series, err := server.store.ServarrSeriesByTVDB(request.Context(), tvdbID)
+		series, err := server.store.ServarrSeriesByTVDB(request.Context(), tvdbID, servarrEdition(request))
 		if errors.Is(err, postgres.ErrNotFound) {
 			writeJSON(writer, http.StatusOK, []servarr.Series{})
 			return
@@ -354,7 +369,7 @@ func (server *Server) servarrSeries(writer http.ResponseWriter, request *http.Re
 		writeJSON(writer, http.StatusOK, []servarr.Series{servarrSeries(series)})
 		return
 	}
-	series, err := server.store.ListServarrSeries(request.Context())
+	series, err := server.store.ListServarrSeries(request.Context(), servarrEdition(request))
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "internal_error", "could not load series")
 		return
@@ -374,7 +389,7 @@ func (server *Server) servarrSeriesLookup(writer http.ResponseWriter, request *h
 		writeJSON(writer, http.StatusOK, []servarr.Series{})
 		return
 	}
-	series, err := server.store.ServarrSeriesByTVDB(request.Context(), tvdbID)
+	series, err := server.store.ServarrSeriesByTVDB(request.Context(), tvdbID, servarrEdition(request))
 	if errors.Is(err, postgres.ErrNotFound) {
 		number, _ := strconv.ParseInt(tvdbID, 10, 64)
 		writeJSON(writer, http.StatusOK, []servarr.Series{{ID: 0, TVDBID: number, Monitored: false, Seasons: []servarr.SeriesSeason{}, Tags: []servarr.Tag{}}})
@@ -393,7 +408,7 @@ func (server *Server) servarrSeriesByID(writer http.ResponseWriter, request *htt
 		writeError(writer, http.StatusBadRequest, "invalid_request", "series id is invalid")
 		return
 	}
-	series, err := server.store.ListServarrSeries(request.Context())
+	series, err := server.store.ListServarrSeries(request.Context(), servarrEdition(request))
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "internal_error", "could not load series")
 		return

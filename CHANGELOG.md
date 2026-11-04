@@ -6,6 +6,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Added
 
+- **A title can be kept in two editions: standard and 4K.** A library root now has an `edition` (`standard` or `4k`, migration 54), and a workflow takes its root's edition, so a movie or series can have one active workflow per edition. Each edition is searched, published, upgraded, repaired and reported to Seerr on its own: a 4K publication never replaces the standard file. A 4K edition only acquires releases that are clearly 2160p, and its downloaded file must be 4K wide or high, or the release is excluded (`resolution_mismatch`) and the next candidate is tried. Once a title has a 4K edition, its standard edition acquires at most 1080p; files already published are kept. A 4K root is never a default and only receives 4K requests: Seerr's 4K button (its 4K Radarr/Sonarr servers point at the new `/radarr4k` and `/sonarr4k` endpoints, which report only the 4K edition) or a manual add into the 4K root. Adopted files stay standard. The UI marks 4K roots and 4K workflows.
+
 - **The owner can replace a published file that plays badly.** A file can play yet seek slowly when many of its Usenet articles must come from a backup provider; AltMount does not report it, so no sweep replaces it. `POST /api/v1/repairs` with the file's AltMount path opens an `owner_requested` repair (migration 53) that acquires a replacement exactly like a corrupted file's: the current release is excluded and the old file keeps playing until Plex confirms the new one. The System page labels it "Ønsket erstattet".
 
 ### Fixed

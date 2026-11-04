@@ -48,6 +48,13 @@ type SearchContext struct {
 	// repair). Search rejects these exact titles and does not require the
 	// replacement to improve on the broken publication.
 	RepairBrokenTitles []string
+	// Edition is the workflow's library edition ("standard" or "4k"). A 4K
+	// edition accepts only 2160p releases.
+	Edition string
+	// FourKEditionExists reports, for a standard workflow, that the same movie
+	// or season is also kept in a 4K edition. The standard copy is then kept
+	// at 1080p or lower instead of becoming a second 4K copy.
+	FourKEditionExists bool
 }
 
 type SearchIndexerOutcome struct {
@@ -114,7 +121,10 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	var workflowRevision, mediaRevision, policyVersion int64
 	var year *int16
 	var policy []byte
-	err := store.Pool.QueryRow(ctx, `SELECT w.id::text,w.media_id::text,w.state,w.root_id::text,w.quality_profile_id::text,w.download_client_id::text,w.selected_release_id::text,w.grab_attempt_id::text,w.revision,w.created_at,w.updated_at,w.variant,m.kind,m.title,m.year,m.revision,m.created_at,m.updated_at,p.policy_version,p.policy FROM workflows w JOIN media_items m ON m.id=w.media_id JOIN quality_profiles p ON p.id=w.quality_profile_id WHERE w.id=$1`, workflowID.String()).Scan(&workflowText, &mediaText, &result.Workflow.State, &rootText, &profileText, &clientText, &selectedText, &attemptText, &workflowRevision, &result.Workflow.CreatedAt, &result.Workflow.UpdatedAt, &result.Variant, &result.Media.Kind, &result.Media.Title, &year, &mediaRevision, &result.Media.CreatedAt, &result.Media.UpdatedAt, &policyVersion, &policy)
+	err := store.Pool.QueryRow(ctx, `SELECT w.id::text,w.media_id::text,w.state,w.root_id::text,w.quality_profile_id::text,w.download_client_id::text,w.selected_release_id::text,w.grab_attempt_id::text,w.revision,w.created_at,w.updated_at,w.variant,m.kind,m.title,m.year,m.revision,m.created_at,m.updated_at,p.policy_version,p.policy,w.edition,
+		w.edition='standard' AND EXISTS(SELECT 1 FROM workflows other WHERE other.media_id=w.media_id AND other.edition='4k' AND (other.terminal_at IS NULL OR other.state='plex_confirmed')
+			AND (other.variant=w.variant OR (other.variant LIKE 'season:%' AND w.variant LIKE 'season:%' AND left(other.variant,9)=left(w.variant,9))))
+		FROM workflows w JOIN media_items m ON m.id=w.media_id JOIN quality_profiles p ON p.id=w.quality_profile_id WHERE w.id=$1`, workflowID.String()).Scan(&workflowText, &mediaText, &result.Workflow.State, &rootText, &profileText, &clientText, &selectedText, &attemptText, &workflowRevision, &result.Workflow.CreatedAt, &result.Workflow.UpdatedAt, &result.Variant, &result.Media.Kind, &result.Media.Title, &year, &mediaRevision, &result.Media.CreatedAt, &result.Media.UpdatedAt, &policyVersion, &policy, &result.Edition, &result.FourKEditionExists)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SearchContext{}, ErrNotFound
 	}
@@ -177,8 +187,8 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 		JOIN workflows current_workflow ON current_workflow.id=version.workflow_id
 		JOIN release_candidates candidate ON candidate.id=current_workflow.selected_release_id
 		JOIN release_observations observation ON observation.id=candidate.observation_id
-		WHERE current_workflow.media_id=$1 AND current_workflow.variant=$2 AND version.state='current'
-		ORDER BY version.verified_at DESC,version.id LIMIT 1`, result.Media.ID.String(), result.Variant).Scan(&currentObservationText, &currentIndexerText, &currentObservation.NativeGUID, &currentObservation.Title, &currentFacts, &currentWorkflowText)
+		WHERE current_workflow.media_id=$1 AND current_workflow.variant=$2 AND current_workflow.edition=$3 AND version.state='current'
+		ORDER BY version.verified_at DESC,version.id LIMIT 1`, result.Media.ID.String(), result.Variant, result.Edition).Scan(&currentObservationText, &currentIndexerText, &currentObservation.NativeGUID, &currentObservation.Title, &currentFacts, &currentWorkflowText)
 	if err == nil {
 		currentObservation.ID, _ = uuid.Parse(currentObservationText)
 		currentObservation.IndexerID, _ = uuid.Parse(currentIndexerText)
@@ -214,7 +224,7 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	}
 	if err := store.Pool.QueryRow(ctx, `SELECT COALESCE(string_agg(version.id::text,',' ORDER BY version.id),'')
 		FROM workflows published JOIN library_link_versions version ON version.workflow_id=published.id AND version.state='current'
-		WHERE published.media_id=$1 AND published.variant=$2`, result.Media.ID.String(), result.Variant).Scan(&result.CurrentLinkVersions); err != nil {
+		WHERE published.media_id=$1 AND published.variant=$2 AND published.edition=$3`, result.Media.ID.String(), result.Variant, result.Edition).Scan(&result.CurrentLinkVersions); err != nil {
 		return SearchContext{}, err
 	}
 	all, err := store.ListIntegrations(ctx)
@@ -429,7 +439,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		}
 		var currentBaseline string
 		if err := transaction.QueryRow(ctx, `SELECT COALESCE(string_agg(version.id::text,',' ORDER BY version.id),'') FROM workflows requested
-			LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant
+			LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant AND published.edition=requested.edition
 			LEFT JOIN library_link_versions version ON version.workflow_id=published.id AND version.state='current'
 			WHERE requested.id=$1`, search.Workflow.ID.String()).Scan(&currentBaseline); err != nil {
 			return workflows.Workflow{}, err

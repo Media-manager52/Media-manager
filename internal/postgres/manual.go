@@ -215,15 +215,24 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	if deletedAt != nil || kind != item.Kind {
 		return workflows.Workflow{}, errors.New("media is not active")
 	}
+	// The root's edition scopes everything below: adopted files and their
+	// adoption belong to the standard edition, and a 4K root keeps its own
+	// copy next to it.
+	var edition string
+	if err := transaction.QueryRow(ctx, `SELECT edition FROM library_roots WHERE id=$1`, rootID.String()).Scan(&edition); errors.Is(err, pgx.ErrNoRows) {
+		return workflows.Workflow{}, ErrDefaultsMissing
+	} else if err != nil {
+		return workflows.Workflow{}, err
+	}
 	var adoptionMonitoringReserved bool
-	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adoption_items adoption_item JOIN adoption_batches batch ON batch.id=adoption_item.batch_id WHERE adoption_item.media_id=$1 AND adoption_item.variant=$2 AND adoption_item.review_state='approved' AND COALESCE(adoption_item.monitoring_enabled,false) AND batch.state='executing')`, item.ID.String(), variant).Scan(&adoptionMonitoringReserved); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT $3='standard' AND EXISTS(SELECT 1 FROM adoption_items adoption_item JOIN adoption_batches batch ON batch.id=adoption_item.batch_id WHERE adoption_item.media_id=$1 AND adoption_item.variant=$2 AND adoption_item.review_state='approved' AND COALESCE(adoption_item.monitoring_enabled,false) AND batch.state='executing')`, item.ID.String(), variant, edition).Scan(&adoptionMonitoringReserved); err != nil {
 		return workflows.Workflow{}, err
 	}
 	if adoptionMonitoringReserved {
 		return workflows.Workflow{}, errors.New("reviewed adoption monitoring owns this scope until Plex verification finishes")
 	}
 	var adoptedLifecycleActive bool
-	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state IN ('recycle_planned','retained','restore_confirming','restore_attention'))`, item.ID.String(), variant).Scan(&adoptedLifecycleActive); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT $3='standard' AND EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state IN ('recycle_planned','retained','restore_confirming','restore_attention'))`, item.ID.String(), variant, edition).Scan(&adoptedLifecycleActive); err != nil {
 		return workflows.Workflow{}, err
 	}
 	if adoptedLifecycleActive {
@@ -237,8 +246,8 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	}
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id
-		WHERE workflow.media_id=$1 AND workflow.variant=$2 AND version.state='current'
-	)`, item.ID.String(), variant).Scan(&hasCurrentLink); err != nil {
+		WHERE workflow.media_id=$1 AND workflow.variant=$2 AND workflow.edition=$3 AND version.state='current'
+	)`, item.ID.String(), variant, edition).Scan(&hasCurrentLink); err != nil {
 		return workflows.Workflow{}, err
 	}
 	type adoptedCurrent struct {
@@ -246,7 +255,7 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 		destinationRelative string
 		size, modtimeNS     int64
 	}
-	rows, err := transaction.Query(ctx, `SELECT id::text,destination_relative,source_size,source_modtime_ns FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state='current' ORDER BY id FOR UPDATE`, item.ID.String(), variant)
+	rows, err := transaction.Query(ctx, `SELECT id::text,destination_relative,source_size,source_modtime_ns FROM adopted_files WHERE $3='standard' AND media_id=$1 AND variant=$2 AND state='current' ORDER BY id FOR UPDATE`, item.ID.String(), variant, edition)
 	if err != nil {
 		return workflows.Workflow{}, err
 	}
@@ -433,7 +442,8 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 	}
 	rows, err := transaction.Query(ctx, `SELECT adopted.id::text,adopted.destination_relative,adopted.source_size,adopted.source_modtime_ns,
 		EXISTS(SELECT 1 FROM adopted_replacement_authorizations replacement_auth WHERE replacement_auth.workflow_id=$1 AND replacement_auth.adopted_file_id=adopted.id AND replacement_auth.destination_relative=adopted.destination_relative AND replacement_auth.source_size=adopted.source_size AND replacement_auth.source_modtime_ns=adopted.source_modtime_ns)
-		FROM adopted_files adopted WHERE adopted.media_id=$2 AND adopted.variant=$3 AND adopted.state='current' ORDER BY adopted.id FOR UPDATE`, workflowID.String(), mediaText, variant)
+		FROM adopted_files adopted WHERE adopted.media_id=$2 AND adopted.variant=$3 AND adopted.state='current'
+		  AND (SELECT edition FROM workflows WHERE id=$1)='standard' ORDER BY adopted.id FOR UPDATE`, workflowID.String(), mediaText, variant)
 	if err != nil {
 		return err
 	}

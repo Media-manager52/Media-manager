@@ -21,6 +21,12 @@ import (
 var (
 	ErrSeerrRouteUnmapped          = errors.New("Seerr request root folder has no Media Manager library route")
 	ErrSeerrRouteTargetUnavailable = errors.New("the library root or quality profile mapped to this Seerr folder is unavailable")
+	// ErrSeerrEditionMismatch: a 4K request's folder maps to a standard
+	// library root, or a standard request's folder to a 4K root.
+	ErrSeerrEditionMismatch = errors.New("the Seerr request and its library root are different editions (4K or standard)")
+	// ErrSeerr4KRootMissing: a 4K request arrived but no enabled 4K library
+	// root exists for its media kind.
+	ErrSeerr4KRootMissing = errors.New("a 4K request needs an enabled 4K library root for its media kind")
 )
 
 type SeerrLibraryRoute struct {

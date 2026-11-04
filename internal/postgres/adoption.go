@@ -65,7 +65,9 @@ func (store *Store) AdoptionConfiguration(ctx context.Context, rootID, profileID
 	err := store.Pool.QueryRow(ctx, `SELECT root.id::text,root.media_kind,root.name,root.destination_root,root.plex_visible_root,root.source_visible_root,root.plex_instance_id::text,COALESCE(root.plex_library_id,''),root.is_default,root.enabled,
 		profile.id::text,profile.media_kind,profile.name,profile.policy_version,profile.policy,profile.upgrades_enabled,profile.is_default,profile.enabled
 		FROM library_roots root JOIN quality_profiles profile ON profile.id=$2
-		WHERE root.id=$1 AND root.enabled AND profile.enabled AND root.media_kind=profile.media_kind`, rootID.String(), profileID.String()).Scan(
+		WHERE root.id=$1 AND root.enabled AND profile.enabled AND root.media_kind=profile.media_kind
+		  -- Adopted files are the standard edition; a 4K root only receives 4K acquisitions.
+		  AND root.edition='standard'`, rootID.String(), profileID.String()).Scan(
 		&rootText, &result.Root.MediaKind, &result.Root.Name, &result.Root.DestinationRoot, &result.Root.PlexVisibleRoot, &result.Root.SourceVisibleRoot, &plexText, &result.Root.PlexLibraryID, &result.Root.Default, &result.Root.Enabled,
 		&profileText, &result.Profile.MediaKind, &result.Profile.Name, &policyVersion, &policy, &result.Profile.UpgradesEnabled, &result.Profile.Default, &result.Profile.Enabled)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -238,7 +240,7 @@ func (store *Store) ReviewAdoptionItem(ctx context.Context, batchID, itemID uuid
 		if review.MediaID == nil || review.RootID == nil || review.QualityProfileID == nil || !safeRelative(review.ProposedRelative) || !validAdoptionVariant(kind, review.Variant) || review.SearchImmediately && !review.MonitoringEnabled {
 			return errors.New("approved adoption item is incomplete")
 		}
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM media_items media,library_roots root,quality_profiles profile WHERE media.id=$1 AND media.kind=$4 AND media.deleted_at IS NULL AND root.id=$2 AND root.media_kind=$4 AND root.enabled AND profile.id=$3 AND profile.media_kind=$4 AND profile.enabled)`, review.MediaID.String(), review.RootID.String(), review.QualityProfileID.String(), kind).Scan(&exists); err != nil {
+		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM media_items media,library_roots root,quality_profiles profile WHERE media.id=$1 AND media.kind=$4 AND media.deleted_at IS NULL AND root.id=$2 AND root.media_kind=$4 AND root.enabled AND root.edition='standard' AND profile.id=$3 AND profile.media_kind=$4 AND profile.enabled)`, review.MediaID.String(), review.RootID.String(), review.QualityProfileID.String(), kind).Scan(&exists); err != nil {
 			return err
 		}
 		if !exists {

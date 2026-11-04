@@ -899,7 +899,7 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 		JOIN workflows old_workflow ON old_workflow.id=old.workflow_id
 		JOIN workflows current_workflow ON current_workflow.id=$1
 		WHERE old.state='current' AND old.altmount_job_id<>(SELECT altmount_job_id FROM plex_scan_requests WHERE id=$2)
-		  AND ((old_workflow.media_id=current_workflow.media_id AND old_workflow.variant=current_workflow.variant)
+		  AND ((old_workflow.media_id=current_workflow.media_id AND old_workflow.variant=current_workflow.variant AND old_workflow.edition=current_workflow.edition)
 		    -- An AltMount repair also retires the broken file it replaces, which
 		    -- can belong to another scope (an episode inside a season pack).
 		    OR old.id IN (SELECT broken_link_version_id FROM altmount_repairs WHERE repair_workflow_id=$1 AND state='open'))
@@ -1016,7 +1016,7 @@ func (store *Store) ConfirmPlexScan(ctx context.Context, scan PlexScanContext, c
 		-- needs availability feedback for each confirmed episode.
 		OR EXISTS(
 			SELECT 1 FROM workflows episode
-			JOIN workflows season ON season.media_id=episode.media_id
+			JOIN workflows season ON season.media_id=episode.media_id AND season.edition=episode.edition
 			  AND season.variant LIKE 'season:%' AND season.variant NOT LIKE '%:episode:%'
 			  AND episode.variant LIKE season.variant || ':episode:%'
 			JOIN seerr_request_workflows provenance ON provenance.workflow_id=season.id

@@ -37,7 +37,7 @@ func (store *Store) RequestRetainedMovieInspection(ctx context.Context, workflow
 		 AND NOT EXISTS(SELECT 1 FROM subtitle_verifications verification WHERE verification.altmount_job_id=job.id)
 		 AND NOT EXISTS(SELECT 1 FROM audit_events audit WHERE audit.action='output.movie_reinspection_requested' AND audit.aggregate_type='altmount_job' AND audit.aggregate_id=job.id)
 		 AND NOT EXISTS(SELECT 1 FROM altmount_jobs active WHERE active.workflow_id=workflow.id AND active.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))
-		 AND NOT EXISTS(SELECT 1 FROM library_link_versions version JOIN workflows published ON published.id=version.workflow_id WHERE published.media_id=workflow.media_id AND published.variant=workflow.variant AND version.state='current')
+		 AND NOT EXISTS(SELECT 1 FROM library_link_versions version JOIN workflows published ON published.id=version.workflow_id WHERE published.media_id=workflow.media_id AND published.variant=workflow.variant AND published.edition=workflow.edition AND version.state='current')
 		 AND NOT EXISTS(SELECT 1 FROM library_link_versions version WHERE version.workflow_id=workflow.id)
 		FOR UPDATE OF workflow,job,round`, workflowID.String(), jobID.String()).Scan(&revision, &candidateText)
 	if errors.Is(err, pgx.ErrNoRows) {

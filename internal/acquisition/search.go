@@ -426,6 +426,7 @@ func evaluateCandidateObservation(observation releases.Observation, search postg
 	evaluation = applyReleaseBlocks(observation, evaluation, search)
 	evaluation = applyWorkflowExclusions(observation, evaluation, search)
 	evaluation = applyRepairExclusions(observation, evaluation, search.RepairBrokenTitles)
+	evaluation = applyEditionRules(observation, evaluation, search)
 	if len(search.RepairBrokenTitles) == 0 {
 		// A repair replaces a broken publication: any eligible release is an
 		// improvement, so the upgrade baseline does not apply.
@@ -498,6 +499,58 @@ func appendSubtitleRules(rules []releases.Rule, policy subtitles.Policy) []relea
 		rules = append(rules, releases.Rule{Name: "Preferred subtitle " + language, Fact: "subtitle_languages", AllowedValues: []string{language}, Kind: releases.RulePreferred, Weight: 250, Unknown: releases.UnknownAllow})
 	}
 	return rules
+}
+
+// applyEditionRules keeps each edition in its own resolution: a 4K edition
+// only acquires releases that show 2160p, and once a title has a 4K edition the
+// standard edition acquires at most 1080p (its existing publication is kept).
+// Conflicting evidence that includes 2160p is never trusted either way.
+func applyEditionRules(observation releases.Observation, evaluation releases.Evaluation, search postgres.SearchContext) releases.Evaluation {
+	fourK := search.Edition == postgres.Edition4K
+	if !fourK && !search.FourKEditionExists {
+		return evaluation
+	}
+	values, state := releaseResolution(observation)
+	has2160 := containsFold(values, "2160p")
+	only2160 := has2160 && len(values) == 1 && state != releases.FactConflicting && state != releases.FactUnknown
+	if fourK && !only2160 {
+		evaluation.Verdict = releases.VerdictRejected
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "4K edition", Fact: "resolution", Decision: releases.DecisionFail, Values: values, Category: releases.CategoryResolutionCodec, Reason: "the 4K edition only acquires releases that are clearly 2160p"})
+		return evaluation
+	}
+	if !fourK && has2160 {
+		evaluation.Verdict = releases.VerdictRejected
+		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "standard edition", Fact: "resolution", Decision: releases.DecisionFail, Values: values, Category: releases.CategoryResolutionCodec, Reason: "this title has a 4K edition, so the standard edition stays at 1080p or lower"})
+	}
+	return evaluation
+}
+
+// releaseResolution returns the resolution fact the release rules use: the
+// last fact with that name, exactly as Evaluate resolves it.
+func releaseResolution(observation releases.Observation) ([]string, releases.FactState) {
+	var values []string
+	state := releases.FactUnknown
+	for _, fact := range observation.Facts {
+		if strings.EqualFold(strings.TrimSpace(fact.Name), "resolution") {
+			values, state = nil, fact.State
+			for _, value := range fact.Values {
+				if canonical, ok := releases.CanonicalResolution(value); ok {
+					value = canonical
+				}
+				values = append(values, strings.ToLower(strings.TrimSpace(value)))
+			}
+		}
+	}
+	return values, state
+}
+
+func containsFold(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyRepairExclusions rejects the exact releases whose published files lost

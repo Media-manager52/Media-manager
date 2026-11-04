@@ -10,7 +10,12 @@ export function titleHref(mediaId: string): string {
 }
 
 /** "Film", "Sæson 2", "S02E05" — the scope one workflow covers. */
-export function describeVariant(workflow: Pick<APIWorkflow, "variant" | "media_kind">): string {
+export function describeVariant(workflow: Pick<APIWorkflow, "variant" | "media_kind" | "edition">): string {
+  const label = describeScope(workflow)
+  return workflow.edition === "4k" ? `${label} · 4K` : label
+}
+
+function describeScope(workflow: Pick<APIWorkflow, "variant" | "media_kind">): string {
   if (workflow.media_kind === "movie") return "Film"
   const parsed = parseSeriesVariant(workflow.variant)
   if (parsed.kind === "season") return `Sæson ${parsed.season}`

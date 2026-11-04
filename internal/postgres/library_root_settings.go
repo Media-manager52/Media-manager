@@ -32,9 +32,9 @@ func (store *Store) UpdateLibraryRoot(ctx context.Context, id uuid.UUID, patch L
 		return LibraryRoot{}, err
 	}
 	defer tx.Rollback(ctx)
-	var kind string
+	var kind, edition string
 	var isDefault, enabled bool
-	if err := tx.QueryRow(ctx, `SELECT media_kind,is_default,enabled FROM library_roots WHERE id=$1 FOR UPDATE`, id.String()).Scan(&kind, &isDefault, &enabled); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `SELECT media_kind,is_default,enabled,edition FROM library_roots WHERE id=$1 FOR UPDATE`, id.String()).Scan(&kind, &isDefault, &enabled, &edition); errors.Is(err, pgx.ErrNoRows) {
 		return LibraryRoot{}, ErrNotFound
 	} else if err != nil {
 		return LibraryRoot{}, err
@@ -48,6 +48,9 @@ func (store *Store) UpdateLibraryRoot(ctx context.Context, id uuid.UUID, patch L
 	}
 	if isDefault && !wantDefault {
 		return LibraryRoot{}, refuse("invalid_default_change", "a media kind always needs a default root", "Make another root of the same media kind the default instead.")
+	}
+	if wantDefault && edition == Edition4K {
+		return LibraryRoot{}, refuse("invalid_default_change", "a 4K root cannot be the default", "4K roots are only used for 4K requests; choose a standard root as the default.")
 	}
 	if wantDefault && !wantEnabled {
 		return LibraryRoot{}, refuse("invalid_default_change", "a disabled root cannot be the default", "Enable the root, or choose an enabled root as the default.")
