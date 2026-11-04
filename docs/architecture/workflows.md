@@ -243,6 +243,17 @@ provenanced aliases. Partial coverage keeps the same title. This adds no extra
 requests per scan, leaves commissioned parameters/categories and immutable
 capability recipes intact, and retains canonical identity/year/scope checks.
 
+Because one scan's name rarely returns the releases found under another, a
+targeted search also re-evaluates the workflow's remembered eligible releases:
+candidates eligible under the round's policy version that a provider returned
+in the last 14 days (at most 100, best score first). They go through the same
+exclusions, blocks, edition and upgrade rules and the same attempted-release
+check as fresh results, and are persisted as reused evidence, so their
+freshness, observation and download locator stay as the provider last returned
+them. After a failed download the next slot can therefore try the next good
+release at once instead of waiting until the rotation reaches the same name
+again. Recovery discovery does not use them.
+
 ### 4.3 Evaluation
 
 Each observation is normalized (`InferTitleFacts`) then evaluated by pure rules

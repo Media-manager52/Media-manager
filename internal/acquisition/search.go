@@ -52,6 +52,13 @@ type indexerConfig struct {
 
 const requiredSubtitleEvidenceWeight = 100_000
 
+// A remembered eligible release is offered again for this long after a
+// provider last returned it, and at most this many per search.
+const (
+	rememberedEligibleWindow = 14 * 24 * time.Hour
+	rememberedEligibleLimit  = 100
+)
+
 type recoveryIndexersUnavailableError struct{ until time.Time }
 
 func (err recoveryIndexersUnavailableError) Error() string {
@@ -361,6 +368,37 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				return evaluateErr
 			}
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
+		}
+	}
+	// Each scan searches one of the title's names, so the good releases found
+	// under the English title are rarely returned by the next scan under an
+	// alias. Re-evaluate recently seen eligible releases so the next slot of a
+	// round can try the next one; exclusions, blocks and attempts still apply.
+	if !recovery {
+		returned := map[string]bool{}
+		for _, entry := range evaluated {
+			returned[entry.Observation.IndexerID.String()+"\x00"+entry.Observation.NativeGUID] = true
+		}
+		remembered, rememberErr := service.Store.RememberedEligibleObservations(ctx, search.Workflow.ID, search.PolicyVersion, searchNow.Add(-rememberedEligibleWindow), rememberedEligibleLimit)
+		if rememberErr != nil {
+			return rememberErr
+		}
+		for _, observation := range remembered {
+			if reusedObservationIDs[observation.ID] || returned[observation.IndexerID.String()+"\x00"+observation.NativeGUID] {
+				continue
+			}
+			oldboys, planned := indexerKinds[observation.IndexerID]
+			if !planned {
+				continue
+			}
+			observation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, oldboys, searchNow)
+			if evaluateErr != nil {
+				return evaluateErr
+			}
+			// Reused keeps the candidate's provider freshness, observation and
+			// download locator exactly as the provider last returned them.
+			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation, Reused: true})
+			returned[observation.IndexerID.String()+"\x00"+observation.NativeGUID] = true
 		}
 	}
 	var state *postgres.SearchPartialRetry
