@@ -197,17 +197,31 @@ publish it.
 ## 4. Connect the pieces
 
 The application is running but intentionally starts without integrations.
-Work through this checklist in the UI.
+Open **Kom i gang** (`/kom-i-gang`) in the UI: it lists every required step,
+marks it green once it is set up, and links to the page where it is done. The
+overview shows a banner until the required steps are complete.
+
+API keys, tokens and logins entered on the website are stored encrypted in
+PostgreSQL (AES-256-GCM, `integration_secrets`) under `SECRET_ENCRYPTION_KEY`,
+which `scripts/setup-cosmos.sh` generates; an existing
+`OLDBOYS_CREDENTIAL_ENCRYPTION_KEY` is used when it is unset. They are never
+returned by the API or shown again. Secret refs that name an environment
+variable (`PLEX_TOKEN`, `NEWZNAB_*_API_KEY`, …) keep working unchanged.
 
 ### AltMount
 
-Open **Sources → Download clients** and add an AltMount integration:
+Open **Indstillinger → Forbindelser** and choose **Tilføj AltMount**:
 
-- Base URL: `http://altmount:8080` when the container is on the shared network.
+- Address: `http://altmount:8080` when the container is on the shared network.
+- Login: username and password, or "without password" (`anonymous_admin`) when
+  AltMount has no login.
+- Folder with AltMount files: `/mnt/altmount` (the path inside the API
+  container).
 - Category: `media-manager`.
-- Local read-only root: `/mnt/altmount` (the path inside the API container).
-- Authentication: `anonymous_admin` if AltMount has no API secret, otherwise
-  create a secret ref whose value is in `.env.integrations`.
+
+**Tilføj og test** saves the connection, stores the login encrypted, logs in
+once and checks that the folder is visible. **Test forbindelse** repeats the
+check at any time.
 
 The API mounts the **parent** of AltMount's FUSE mount at `/mnt` read-only with
 `rslave` propagation, so an AltMount restart or remount reaches the running API.
@@ -234,16 +248,18 @@ publishes.
 
 ### Plex
 
-Add a Plex integration with its URL and token. Put the token in
-`.env.integrations` as `PLEX_TOKEN=` and use `PLEX_TOKEN` as the secret ref.
-For a local HTTP Plex, allow HTTP on the integration; use HTTPS when possible.
+In **Indstillinger → Forbindelser** choose **Tilføj Plex**, enter its address
+(for example `http://plex:32400`) and the Plex token. The test lists Plex's
+libraries. Use HTTPS when possible; an `http://` address is accepted for a
+local Plex.
 
 ### Indexers
 
-Open **Sources → Indexers**, add a Newznab indexer, and commission it. Put its
-API key in `.env.integrations` under a name such as
-`NEWZNAB_PRIMARY_API_KEY=` and use that name as the secret ref. Only
-commissioned indexers search.
+Open **Kilder** and choose **Tilføj indexer**: name, Newznab API address, API
+key and the limits your account allows. Media Manager stores the key encrypted
+and commissions the indexer with one random query that cannot match. Only
+commissioned indexers search; an indexer whose commissioning failed shows
+**Godkend** to retry, and **Nøgle** replaces its key.
 
 ### Metadata providers
 
@@ -256,16 +272,23 @@ discovery and descriptive metadata are limited.
 
 ### Library root and profile
 
-Open **Settings → Storage** and add one root per media kind:
+Create the libraries in Plex first. Then open **Indstillinger → Biblioteker**
+and choose **Tilføj mappe** once per library Media Manager should fill:
 
-- Destination root: `/libraries/movies` or `/libraries/tv` (inside the API).
-- Plex-visible root: the path Plex uses for the same folder.
+- Pick the Plex library; its folder becomes the Plex-visible root.
+- The destination root (the same folder inside the API container) is suggested
+  from your other roots; check it. With the default Compose file it is
+  `/libraries/movies` or `/libraries/tv`.
 - Source-visible root: the path Plex uses to see AltMount output.
-- Plex instance and library ID.
+- Edition: normal, or 4K for a separate 4K library (never the default).
+- Make one normal folder per media kind the default.
 
-Then open **Settings → Quality profiles**, create or enable a profile, and set
-the required/preferred audio and subtitle languages. The profile is what links
-requests to a root and controls acquisition evidence.
+Then open **Indstillinger → Kvalitetsprofiler** and choose **Ny profil**: start
+from a preset or a copy of an existing profile, tick the required subtitle and
+audio languages, and make one profile per media kind the default.
+
+Notifications (**Indstillinger → Notifikationer → Tilføj**) send a JSON webhook
+for every event or for the events you list.
 
 ### Add a title
 

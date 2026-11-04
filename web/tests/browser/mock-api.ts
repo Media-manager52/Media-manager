@@ -9,6 +9,7 @@ export const ids = {
   seerr: "66666666-6666-4666-8666-666666666666",
   root: "77777777-7777-4777-8777-777777777777",
   profile: "88888888-8888-4888-8888-888888888888",
+  plex: "99999999-9999-4999-8999-999999999999",
 }
 
 const now = "2026-11-03T12:00:00Z"
@@ -60,7 +61,24 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   [/^\/api\/v1\/settings\/oldboys\/credentials$/, () => ({ available: true, configured: true, enabled: true, updated_at: now })],
   [/^\/api\/v1\/settings\/quality-profiles$/, () => [{ id: ids.profile, media_kind: "movie", name: "Movie Danish Subs", policy_version: 1, policy: { rules: [], required_subtitle_languages: ["da"] }, upgrades_enabled: true, is_default: true, enabled: true }]],
   [/^\/api\/v1\/settings\/library-roots$/, () => [{ id: ids.root, media_kind: "movie", name: "Film", destination_root: "/media/Movies", plex_visible_root: "/media/Movies", source_visible_root: "/mnt/altmount", is_default: true, enabled: true }]],
-  [/^\/api\/v1\/settings\/integrations$/, () => [{ id: ids.seerr, kind: "seerr", name: "Seerr", enabled: true, is_default: true, config: {}, created_at: now, updated_at: now }]],
+  [/^\/api\/v1\/settings\/integrations$/, () => [
+    { id: ids.seerr, kind: "seerr", name: "Seerr", enabled: true, is_default: true, config: {}, created_at: now, updated_at: now },
+    { id: ids.plex, kind: "plex", name: "Plex", enabled: true, is_default: true, config: { base_url: "http://plex:32400", allow_http: true }, secret_ref: `sealed:integration:${ids.plex}`, created_at: now, updated_at: now },
+  ]],
+  [/^\/api\/v1\/settings\/integrations\/[0-9a-f-]+\/plex-libraries$/, () => [
+    { key: "7", title: "Film 4K", type: "movie", locations: ["/media/Film 4K"] },
+    { key: "8", title: "Serier", type: "show", locations: ["/media/Serier"] },
+  ]],
+  [/^\/api\/v1\/setup\/status$/, () => ({
+    complete: false, secret_storage_enabled: true, servarr_enabled: false, seerr_intake_enabled: true,
+    steps: [
+      { id: "plex", done: true, optional: false, detail: "Plex" }, { id: "altmount", done: false, optional: false, detail: "Add AltMount" },
+      { id: "indexer", done: true, optional: false, detail: "1 commissioned" }, { id: "movie_root", done: true, optional: false, detail: "Film" },
+      { id: "series_root", done: false, optional: false, detail: "Add a library folder and make it the default" }, { id: "movie_profile", done: true, optional: false, detail: "Movie Danish Subs" },
+      { id: "series_profile", done: false, optional: false, detail: "Choose a default quality profile" }, { id: "metadata", done: false, optional: true, detail: "Set TMDB_ACCESS_TOKEN" },
+      { id: "seerr", done: true, optional: true, detail: "Seerr" },
+    ],
+  })],
   [/^\/api\/v1\/settings\/integrations\/[0-9a-f-]+\/seerr-routes$/, () => ({ routes: [{ id: "route-1", seerr_instance_id: ids.seerr, media_kind: "movie", root_folder: "/media/Movies", library_root_id: ids.root, enabled: true, created_at: now, updated_at: now }], observed_folders: [] })],
   [/^\/api\/v1\/settings\/notifications$/, () => []],
   [/^\/api\/v1\/backups$/, () => ({ configured: true, format: "mmbackup", restore_verification: "isolated", automatic_deletion: false, production_restore: false, offsite: { configured: false, kind: "", prefix: "" }, records: [{ id: "b1", state: "verified", format: "mmbackup", size_bytes: 1_000_000, attempts: 1, created_at: now, completed_at: now }] })],
@@ -80,6 +98,7 @@ export async function mockApi(page: Page): Promise<Recorded[]> {
     const url = new URL(request.url())
     if (request.method() !== "GET") {
       writes.push({ method: request.method(), path: url.pathname, body: request.postData() ? JSON.parse(request.postData()!) : null })
+      if (url.pathname.endsWith("/check")) return route.fulfill({ json: { data: { ok: true, detail: "Plex answered and shows 2 libraries" } } })
       if (url.pathname === "/api/v1/media") return route.fulfill({ status: 201, json: { data: { media: { ...media[0], id: ids.movie }, workflows: [] } } })
       return route.fulfill({ status: 202, json: { data: { status: "queued", id: ids.attention } } })
     }

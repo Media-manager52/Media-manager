@@ -8,6 +8,7 @@ import {
   setNotificationDestinationEnabled, updateLibraryRoot,
   type APIIntegration, type APILibraryRoot, type APIQualityProfile,
 } from "@/api/client"
+import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dialog, Empty, ErrorBox, PageHeader } from "@/components/ui"
 import { formatRelative } from "@/format"
@@ -20,6 +21,7 @@ const sections = [
   { id: "biblioteker", label: "Biblioteker" },
   { id: "seerr", label: "Seerr-regler" },
   { id: "notifikationer", label: "Notifikationer" },
+  { id: "forbindelser", label: "Forbindelser" },
 ]
 
 export function SettingsPage() {
@@ -38,6 +40,7 @@ export function SettingsPage() {
       {section === "biblioteker" ? <Roots /> : null}
       {section === "seerr" ? <SeerrRoutes /> : null}
       {section === "notifikationer" ? <Notifications /> : null}
+      {section === "forbindelser" ? <ConnectionsSection /> : null}
     </>
   )
 }
@@ -57,12 +60,17 @@ function languages(values: unknown): string {
 
 function Profiles() {
   const query = useQuery({ queryKey: ["settings", "profiles"], queryFn: ({ signal }) => loadQualityProfiles(signal) })
+  const [adding, setAdding] = useState(false)
   if (query.error) return <ErrorBox error={query.error} retry={() => query.refetch()} />
   if (query.isPending) return <Card><ListSkeleton /></Card>
   const groups: Array<[string, APIQualityProfile[]]> = [["Film", query.data.filter((p) => p.media_kind === "movie")], ["Serier", query.data.filter((p) => p.media_kind === "series")]]
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-sm text-text-2">En profil afgør, hvilke udgivelser der er gode nok. Krav er faste; præferencer bruges kun til at vælge den bedste blandt de egnede.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-0 flex-1 text-sm text-text-2">En profil afgør, hvilke udgivelser der er gode nok. Krav er faste; præferencer bruges kun til at vælge den bedste blandt de egnede.</p>
+        <Button onClick={() => setAdding(true)}>Ny profil</Button>
+      </div>
+      {adding ? <AddProfileDialog onClose={() => setAdding(false)} /> : null}
       {groups.map(([title, profiles]) => (
         <Card key={title}>
           <CardHeader title={title} />
@@ -102,6 +110,7 @@ function Roots() {
   const queryClient = useQueryClient()
   const toast = useToast()
   const query = useQuery({ queryKey: ["settings", "roots"], queryFn: ({ signal }) => loadLibraryRoots(signal) })
+  const [adding, setAdding] = useState(false)
   const mutation = useMutation({
     mutationFn: ({ root, patch }: { root: APILibraryRoot; patch: { is_default?: boolean; enabled?: boolean } }) => updateLibraryRoot(root.id, patch),
     onSuccess: async (_, { root }) => {
@@ -115,7 +124,9 @@ function Roots() {
   const sorted = [...query.data].sort((a, b) => a.media_kind.localeCompare(b.media_kind) || a.name.localeCompare(b.name, "da"))
   return (
     <Card>
-      <CardHeader title="Biblioteksmapper" description="Hver mappe svarer til et bibliotek i Plex. Standardmappen bruges, når hverken du eller en Seerr-regel vælger en anden. En 4K-mappe holder en ekstra 4K-udgave og bruges kun, når 4K bestilles." />
+      <CardHeader title="Biblioteksmapper" description="Hver mappe svarer til et bibliotek i Plex. Standardmappen bruges, når hverken du eller en Seerr-regel vælger en anden. En 4K-mappe holder en ekstra 4K-udgave og bruges kun, når 4K bestilles." action={<Button onClick={() => setAdding(true)}>Tilføj mappe</Button>} />
+      {adding ? <AddRootDialog onClose={() => setAdding(false)} /> : null}
+      {sorted.length === 0 ? <Empty title="Ingen biblioteksmapper endnu">Tilføj en mappe for hvert Plex-bibliotek, Media Manager skal lægge film eller serier i.</Empty> : null}
       <ul className="divide-y divide-line">
         {sorted.map((root) => (
           <li key={root.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
@@ -234,6 +245,7 @@ function Notifications() {
   const queryClient = useQueryClient()
   const toast = useToast()
   const query = useQuery({ queryKey: ["settings", "notifications"], queryFn: ({ signal }) => loadNotificationDestinations(signal) })
+  const [adding, setAdding] = useState(false)
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => setNotificationDestinationEnabled(id, enabled),
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["settings", "notifications"] }) },
@@ -243,7 +255,8 @@ function Notifications() {
   if (query.isPending) return <Card><ListSkeleton /></Card>
   return (
     <Card>
-      <CardHeader title="Notifikationer" description="Steder, Media Manager sender besked til, når noget sker." />
+      <CardHeader title="Notifikationer" description="Steder, Media Manager sender besked til, når noget sker." action={<Button onClick={() => setAdding(true)}>Tilføj</Button>} />
+      {adding ? <AddNotificationDialog onClose={() => setAdding(false)} /> : null}
       {query.data.length === 0 ? <Empty title="Ingen notifikationer sat op">Media Manager sender ingen beskeder lige nu.</Empty> : null}
       <ul className="divide-y divide-line">
         {query.data.map((destination) => (

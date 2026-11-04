@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { CheckCircle2, ChevronRight } from "lucide-react"
 import { Link } from "react-router"
 
-import { loadAttentionWorkflows, loadCalendar, loadDashboard, loadSystemHealth, type APIWorkflow } from "@/api/client"
+import { loadAttentionWorkflows, loadCalendar, loadDashboard, loadSetupStatus, loadSystemHealth, type APIWorkflow } from "@/api/client"
 import { Badge, Card, CardHeader, Dot, Empty, ErrorBox, PageHeader, Skeleton, Stat } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative, formatWeekday } from "@/format"
 import { attentionLabel, stateLabel, stateTone } from "@/i18n"
@@ -15,6 +15,7 @@ export function OverviewPage() {
     <>
       <PageHeader title="Oversigt" description="Hvad der sker i dit bibliotek lige nu, og hvad der kræver dig." />
       {dashboard.error ? <ErrorBox error={dashboard.error} retry={() => dashboard.refetch()} /> : null}
+      <SetupBanner />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Kræver handling" value={counts ? formatNumber(counts.needs_attention) : <Skeleton className="h-9 w-16" />} tone={counts?.needs_attention ? "warn" : "good"} to="/handling" />
         <Stat label="Arbejde i gang" value={counts ? formatNumber(counts.active_workflows) : <Skeleton className="h-9 w-16" />} tone="info" to="/arbejde" />
@@ -32,6 +33,22 @@ export function OverviewPage() {
         </div>
       </div>
     </>
+  )
+}
+
+/** Shown only while a required setup step is missing. */
+function SetupBanner() {
+  const query = useQuery({ queryKey: ["setup", "status"], queryFn: ({ signal }) => loadSetupStatus(signal) })
+  if (!query.data || query.data.complete) return null
+  const required = query.data.steps.filter((step) => !step.optional)
+  return (
+    <Link to="/kom-i-gang" className="mb-6 flex items-center gap-3 rounded-xl border border-info/30 bg-info-soft p-4 text-sm hover:bg-surface-2">
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">Opsætningen er ikke færdig</div>
+        <div className="text-text-2">{required.filter((step) => step.done).length} af {required.length} trin er klaret. Se, hvad der mangler.</div>
+      </div>
+      <ChevronRight aria-hidden className="size-4 shrink-0" />
+    </Link>
   )
 }
 

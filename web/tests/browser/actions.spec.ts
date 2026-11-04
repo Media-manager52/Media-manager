@@ -74,3 +74,40 @@ test("the theme choice is remembered", async ({ page }) => {
   await page.reload()
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
 })
+
+test("adding Plex saves the token encrypted and tests the connection", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/indstillinger/forbindelser")
+  await page.getByRole("button", { name: "Tilføj Plex" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByLabel("Plex-token").fill("plex-token-123")
+  await dialog.getByRole("button", { name: "Tilføj og test" }).click()
+  await expect(dialog.getByText("Forbindelsen virker.", { exact: false })).toBeVisible()
+  expect(writes.map((write) => `${write.method} ${write.path}`)).toEqual([
+    "POST /api/v1/settings/integrations",
+    `PUT /api/v1/settings/integrations/${ids.attention}/secret`,
+    `POST /api/v1/settings/integrations/${ids.attention}/check`,
+  ])
+  expect(writes[0].body).toMatchObject({ kind: "plex", is_default: false, config: { base_url: "http://plex:32400", allow_http: true } })
+  expect(writes[1].body).toEqual({ value: "plex-token-123" })
+})
+
+test("a library folder is added by picking a Plex library", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/indstillinger/biblioteker")
+  await page.getByRole("button", { name: "Tilføj mappe" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByLabel("Plex-bibliotek").selectOption("7")
+  await expect(dialog.getByLabel("Mappen som Media Manager ser den")).toHaveValue("/media/Film 4K")
+  await dialog.getByRole("button", { name: "Tilføj", exact: true }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/settings/library-roots", body: { media_kind: "movie", name: "Film 4K", plex_instance_id: ids.plex, plex_library_id: "7", plex_visible_root: "/media/Film 4K", edition: "4k", is_default: false } })
+})
+
+test("the setup checklist links to what is missing", async ({ page }) => {
+  await mockApi(page)
+  await page.goto("/kom-i-gang")
+  await expect(page.getByRole("heading", { name: "4 af 7 trin klaret" })).toBeVisible()
+  await page.getByRole("link", { name: "Sæt op: Forbind AltMount" }).click()
+  await expect(page).toHaveURL(/\/indstillinger\/forbindelser$/)
+})
