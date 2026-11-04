@@ -90,12 +90,24 @@ func TestOutputTooShortDetail(t *testing.T) {
 			episodeMinutes: 12,
 		},
 		{
-			name:           "a long episode is judged by its own runtime",
+			name:           "a longer episode runtime never makes the check stricter",
 			job:            runtimeJob(catalog.KindSeries, "season:03:episode:01", uint16Ptr(30)),
-			videos:         []subtitles.VideoEvidence{runtimeVideo(13*60, "Show/Show S03E01 Part 1.mkv")},
+			videos:         []subtitles.VideoEvidence{runtimeVideo(16*60, "Show/Show S03E01 Part 1.mkv")},
+			episodeMinutes: 48,
+		},
+		{
+			name:           "a longer episode runtime keeps the series runtime",
+			job:            runtimeJob(catalog.KindSeries, "season:03:episode:01", uint16Ptr(30)),
+			videos:         []subtitles.VideoEvidence{runtimeVideo(60, "Show/Show S03E01.mkv")},
 			want:           true,
 			episodeMinutes: 48,
-			contains:       "the episode is about 48 min",
+			contains:       "the episode is about 30 min",
+		},
+		{
+			name:           "an episode runtime is not used without a series runtime",
+			job:            runtimeJob(catalog.KindSeries, "season:03:episode:05", nil),
+			videos:         []subtitles.VideoEvidence{runtimeVideo(5*60, "Show/Show S03E05.mkv")},
+			episodeMinutes: 12,
 		},
 		{
 			name:           "a movie ignores an episode runtime",

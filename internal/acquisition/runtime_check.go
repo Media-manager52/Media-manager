@@ -21,10 +21,10 @@ import (
 // already runs for subtitle and playable-media evidence, so the duration is
 // free; a fake, sample or cut-off download must not be published as a success.
 //
-// The expected runtime is TMDB's runtime for the exact episode when it is
-// known (episodeMinutes), otherwise TMDB's runtime for the title (a series
-// runtime is its usual episode length, which can be far off for seasons with
-// short segments or for a show whose format changed). When neither is known,
+// The expected runtime is TMDB's runtime for the title (a series runtime is
+// its usual episode length, which can be far off for seasons with short
+// segments or for a show whose format changed); a shorter runtime TMDB gives
+// for the exact episode (episodeMinutes) replaces it. When neither is known,
 // only an implausibly short file is refused. Specials (season 0) and short
 // subjects are never judged by runtime because their lengths vary legitimately.
 func outputTooShortDetail(job postgres.AltMountJobContext, verification subtitles.Verification, episodeMinutes uint16) (string, bool) {
@@ -36,7 +36,11 @@ func outputTooShortDetail(job postgres.AltMountJobContext, verification subtitle
 	if job.Media.Metadata != nil && job.Media.Metadata.RuntimeMinutes != nil {
 		expectedMinutes = float64(*job.Media.Metadata.RuntimeMinutes)
 	}
-	if kind == mediainfo.LengthEpisode && episodeMinutes > 0 {
+	// The episode's own runtime only ever lowers the expectation: release
+	// numbering can differ from TMDB's (a 48-minute TMDB episode can be four
+	// 12-minute releases), so it must never refuse a file the series runtime
+	// accepts.
+	if kind == mediainfo.LengthEpisode && episodeMinutes > 0 && float64(episodeMinutes) < expectedMinutes {
 		expectedMinutes = float64(episodeMinutes)
 	}
 	for _, video := range verification.Videos {
