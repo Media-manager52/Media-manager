@@ -79,7 +79,12 @@ const seerrRelatedWorkflowsCTE = `WITH related_workflows AS (
   AND episode.variant=('season:' || lpad(expected.season::text,2,'0') || ':episode:' || lpad(expected.episode::text,2,'0')))
 ) `
 
-const seerrWorkflowConfirmedSQL = `(workflow.state='plex_confirmed' OR (
+// seasonCoveredByEpisodesSQL is true for a season workflow (alias workflow)
+// whose latest frozen expectation is non-empty and whose every expected
+// episode is Plex-confirmed as its own episode workflow of the same edition: a
+// season acquired episode by episode is complete although its pack workflow
+// never published anything and stays waiting.
+const seasonCoveredByEpisodesSQL = `(
  workflow.variant ~ '^season:[0-9]+$'
  AND EXISTS (SELECT 1 FROM pack_expected_episodes expected WHERE expected.expectation_id=(
   SELECT id FROM pack_expectation_sets WHERE workflow_id=workflow.id ORDER BY frozen_at DESC,id DESC LIMIT 1))
@@ -88,7 +93,9 @@ const seerrWorkflowConfirmedSQL = `(workflow.state='plex_confirmed' OR (
    SELECT id FROM pack_expectation_sets WHERE workflow_id=workflow.id ORDER BY frozen_at DESC,id DESC LIMIT 1)
   AND NOT EXISTS (SELECT 1 FROM workflows child WHERE child.media_id=workflow.media_id AND child.edition=workflow.edition AND child.state='plex_confirmed'
    AND child.variant=('season:' || lpad(expected.season::text,2,'0') || ':episode:' || lpad(expected.episode::text,2,'0'))))
-))`
+)`
+
+const seerrWorkflowConfirmedSQL = `(workflow.state='plex_confirmed' OR ` + seasonCoveredByEpisodesSQL + `)`
 
 const seerrRequestSummaryColumns = `s.seerr_instance_id::text,COALESCE(instance.name,''),s.request_id,
 	COALESCE(NULLIF(s.title,''),media.title,''),

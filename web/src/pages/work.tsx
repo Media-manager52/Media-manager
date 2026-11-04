@@ -6,7 +6,7 @@ import { Link, useSearchParams } from "react-router"
 import { loadAttentionWorkflows, loadWorkflowsByState, type APIWorkflow } from "@/api/client"
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, SearchField, Segmented } from "@/components/ui"
 import { formatRelative } from "@/format"
-import { attentionLabel, stateLabel, stateTone } from "@/i18n"
+import { attentionLabel, stateLabel, stateTone, workflowDisplayState } from "@/i18n"
 import { describeVariant, workflowHref } from "@/lib/links"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -81,7 +81,7 @@ export function WorkPage() {
                   </div>
                 </div>
                 <span className="hidden text-xs text-text-3 sm:block">{formatRelative(workflow.updated_at)}</span>
-                <Badge tone={stateTone(workflow.state)}>{stateLabel(workflow.state)}</Badge>
+                <Badge tone={stateTone(workflowDisplayState(workflow))}>{stateLabel(workflowDisplayState(workflow))}</Badge>
                 <ChevronRight aria-hidden className="size-4 shrink-0 text-text-3" />
               </Link>
             </li>

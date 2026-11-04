@@ -5,7 +5,7 @@ import { Link } from "react-router"
 import { loadAttentionWorkflows, loadCalendar, loadDashboard, loadSetupStatus, loadSystemHealth, type APIWorkflow } from "@/api/client"
 import { Badge, Card, CardHeader, Dot, Empty, ErrorBox, PageHeader, Skeleton, Stat } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative, formatWeekday } from "@/format"
-import { attentionLabel, stateLabel, stateTone } from "@/i18n"
+import { attentionLabel, stateLabel, stateTone, workflowDisplayState } from "@/i18n"
 import { describeVariant, workflowHref } from "@/lib/links"
 
 export function OverviewPage() {
@@ -98,7 +98,7 @@ function RecentWork({ workflows, loading }: { workflows?: APIWorkflow[]; loading
                 <div className="truncate font-medium">{workflow.title}</div>
                 <div className="truncate text-sm text-text-2">{describeVariant(workflow)} · {formatRelative(workflow.updated_at)}</div>
               </div>
-              <Badge tone={stateTone(workflow.state)}>{stateLabel(workflow.state)}</Badge>
+              <Badge tone={stateTone(workflowDisplayState(workflow))}>{stateLabel(workflowDisplayState(workflow))}</Badge>
             </Link>
           </li>
         ))}

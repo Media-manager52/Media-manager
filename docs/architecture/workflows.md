@@ -40,6 +40,12 @@ that is entirely missing but whose searches have only ever observed episode
 releases (and no season pack) dispatches the same per-episode path, because
 Danish TV is posted per episode and otherwise waits forever for a pack that is
 never posted.
+Such a season workflow never publishes anything itself and stays `waiting`.
+Once every episode of its frozen expectation is Plex-confirmed as its own
+episode workflow (same edition), the read models report it as
+`covered_by_episodes`: it is left out of active work and the overview's active
+count, and the UI shows it as in Plex. Its state is deliberately unchanged, so
+Seerr/servarr episode counts and intake idempotency stay exactly as before.
 
 ## 2. End-to-end map
 

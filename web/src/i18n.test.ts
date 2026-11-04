@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { actionLabel, attentionLabel, humanize, stateLabel, stateTone, translateDetail } from "@/i18n"
+import { actionLabel, attentionLabel, humanize, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
 
 describe("labels", () => {
   it("translates known workflow states and keeps unknown codes readable", () => {
@@ -46,5 +46,13 @@ describe("translateDetail", () => {
   it("shows unknown server text unchanged, so no detail is lost", () => {
     expect(translateDetail("bounded media-info inspection failed for x.mkv")).toBe("bounded media-info inspection failed for x.mkv")
     expect(translateDetail(undefined)).toBe("")
+  })
+})
+
+describe("workflowDisplayState", () => {
+  it("shows a season whose every episode is in Plex as in Plex", () => {
+    expect(workflowDisplayState({ state: "waiting", covered_by_episodes: true })).toBe("plex_confirmed")
+    expect(workflowDisplayState({ state: "waiting" })).toBe("waiting")
+    expect(workflowDisplayState({ state: "needs_attention", covered_by_episodes: true })).toBe("needs_attention")
   })
 })

@@ -35,7 +35,7 @@ func (store *Store) Dashboard(ctx context.Context, now time.Time) (DashboardSnap
 	err := store.Pool.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE kind='movie' AND deleted_at IS NULL),
 		count(*) FILTER (WHERE kind='series' AND deleted_at IS NULL),
-		(SELECT count(*) FROM workflows WHERE terminal_at IS NULL),
+		(SELECT count(*) FROM workflows workflow WHERE workflow.terminal_at IS NULL AND NOT (workflow.state='waiting' AND `+seasonCoveredByEpisodesSQL+`)),
 		(SELECT count(*) FROM workflows WHERE terminal_at IS NULL AND (
 			state IN ('needs_attention','blocked','quarantined','transport_unknown')
 			OR (state='waiting' AND EXISTS(SELECT 1 FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=workflows.id AND discovery.state='ready'))

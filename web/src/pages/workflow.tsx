@@ -6,7 +6,7 @@ import { loadWorkflow, loadWorkflowCandidates, loadWorkflowSearches, type APIWor
 import { Badge, Card, CardHeader, cx, Empty, ErrorBox, KeyValue, PageHeader, Progress, Skeleton } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDateTime, formatRelative } from "@/format"
-import { attentionLabel, humanize, stateLabel, stateTone, translateDetail } from "@/i18n"
+import { attentionLabel, humanize, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
 import { candidateReasonText } from "@/lib/candidate-reasons"
 import { describeVariant, titleHref } from "@/lib/links"
 import type { Tone } from "@/lib/tone"
@@ -26,9 +26,9 @@ export function WorkflowPage() {
       <PageHeader
         eyebrow={<Link to={titleHref(item.media_id)} className="hover:underline">← {item.title}{item.year ? ` (${item.year})` : ""}</Link>}
         title={`${item.title} · ${describeVariant(item)}`}
-        actions={<Badge tone={stateTone(item.state)} className="h-7 px-3 text-sm">{stateLabel(item.state)}</Badge>}
+        actions={<Badge tone={stateTone(workflowDisplayState(item))} className="h-7 px-3 text-sm">{stateLabel(workflowDisplayState(item))}</Badge>}
       />
-      <Stepper state={item.state} />
+      <Stepper state={workflowDisplayState(item)} />
       {item.attention_code || item.attention_detail ? (
         <div className="mb-6 rounded-2xl border border-warn/30 bg-warn-soft p-4">
           <div className="font-medium text-warn">{attentionLabel(item.attention_code) || "Kræver handling"}</div>

@@ -1579,6 +1579,9 @@
           "complete_no_new_scans": {
             "type": "integer"
           },
+          "covered_by_episodes": {
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"

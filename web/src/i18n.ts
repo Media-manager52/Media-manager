@@ -33,6 +33,15 @@ const stateLabels: Record<string, string> = {
   deleted: "Slettet i Seerr",
 }
 
+/**
+ * The state an owner sees for a workflow. A season acquired episode by episode
+ * is complete once every episode is in Plex, although its season workflow
+ * itself stays waiting.
+ */
+export function workflowDisplayState(workflow: { state: string; covered_by_episodes?: boolean }): string {
+  return workflow.state === "waiting" && workflow.covered_by_episodes ? "plex_confirmed" : workflow.state
+}
+
 export function stateLabel(state: string | undefined | null): string {
   if (!state) return "Ukendt"
   return stateLabels[state] ?? humanize(state)

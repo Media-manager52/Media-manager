@@ -9,7 +9,7 @@ import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, Skeleton } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDate, formatRelative } from "@/format"
-import { attentionLabel, kindLabel, languageName, stateLabel, stateTone, translateDetail } from "@/i18n"
+import { attentionLabel, kindLabel, languageName, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
 import { describeVariant, workflowHref } from "@/lib/links"
 import { episodeStatus, rollupSeriesSeasons, type EpisodeStatus, type SeriesSeasonRollup } from "@/lib/series-variants"
 import type { Tone } from "@/lib/tone"
@@ -97,7 +97,7 @@ function WorkflowRow({ workflow }: { workflow: APIWorkflow }) {
   return (
     <li className="px-5 py-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Badge tone={stateTone(workflow.state)}>{stateLabel(workflow.state)}</Badge>
+        <Badge tone={stateTone(workflowDisplayState(workflow))}>{stateLabel(workflowDisplayState(workflow))}</Badge>
         <span className="text-sm text-text-2">{describeVariant(workflow)}{workflow.quality_profile ? ` · ${workflow.quality_profile}` : ""}</span>
         <span className="text-sm text-text-3">ændret {formatRelative(workflow.updated_at)}</span>
         <Link to={workflowHref(workflow)} className="ml-auto text-sm font-medium text-accent-strong hover:underline">Detaljer</Link>
