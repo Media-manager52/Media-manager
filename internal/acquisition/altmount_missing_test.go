@@ -32,11 +32,7 @@ func newFakeMissingSweep(publications ...string) *fakeMissingSweep {
 			return fs.ErrNotExist
 		},
 		ListPublications: func(context.Context, uuid.UUID) ([]string, error) {
-			paths := []string{}
-			for _, path := range publications {
-				paths = append(paths, path)
-			}
-			return paths, nil
+			return append([]string(nil), publications...), nil
 		},
 		PlanMissing: func(_ context.Context, _ uuid.UUID, path string, _ time.Time) (string, error) {
 			fake.planned = append(fake.planned, path)
