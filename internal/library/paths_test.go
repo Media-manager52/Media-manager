@@ -80,9 +80,21 @@ func TestRenderMovieRejectsUnboundedExtensionAndIdentityInjection(t *testing.T) 
 }
 
 func TestValidateRelativeRejectsWindowsAndNoncanonicalPaths(t *testing.T) {
-	for _, value := range []string{"C:/movie.mkv", "a//b.mkv", "a/../b.mkv", "a/./b.mkv"} {
+	for _, value := range []string{"C:/movie.mkv", "c:movie.mkv", "Z:", "a//b.mkv", "a/../b.mkv", "a/./b.mkv"} {
 		if _, err := ValidateRelative(value); err == nil {
 			t.Fatalf("expected %q to fail", value)
+		}
+	}
+}
+
+func TestValidateRelativeAllowsColonsInLinuxFileNames(t *testing.T) {
+	for _, value := range []string{
+		"Miraculous:.Tales.of.Ladybug.and.Cat.Noir.S05E05.1080p.mkv",
+		"release--mm-01a14ec6/Miraculous:.Tales.S05E05.mkv",
+		"Star Trek: Picard/S01E01.mkv",
+	} {
+		if got, err := ValidateRelative(value); err != nil || got != value {
+			t.Fatalf("ValidateRelative(%q) = %q, %v", value, got, err)
 		}
 	}
 }

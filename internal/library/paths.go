@@ -39,8 +39,11 @@ func ValidateRelative(name string) (string, error) {
 			return "", ErrUnsafePath
 		}
 	}
+	// A Windows drive prefix ("C:", "C:movie.mkv") is never a relative path.
+	// A colon anywhere else is an ordinary Linux file-name character: release
+	// files such as "Miraculous:.Tales.of.Ladybug….mkv" use one.
 	first := strings.SplitN(filepath.ToSlash(name), "/", 2)[0]
-	if strings.Contains(first, ":") || strings.HasPrefix(name, "//") {
+	if windowsDrivePrefix(first) || strings.HasPrefix(name, "//") {
 		return "", ErrUnsafePath
 	}
 	clean := filepath.Clean(name)
@@ -48,6 +51,14 @@ func ValidateRelative(name string) (string, error) {
 		return "", ErrUnsafePath
 	}
 	return clean, nil
+}
+
+func windowsDrivePrefix(component string) bool {
+	if len(component) < 2 || component[1] != ':' {
+		return false
+	}
+	letter := component[0] | 0x20
+	return letter >= 'a' && letter <= 'z'
 }
 
 func ValidatePlan(plan LinkPlan) (LinkPlan, error) {
