@@ -18,6 +18,7 @@ import (
 	"github.com/media-manager/media-manager/internal/acquisition"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/backups"
+	"github.com/media-manager/media-manager/internal/integrationsecrets"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -52,6 +53,12 @@ type Config struct {
 	// ServarrAPIKey enables the Radarr/Sonarr-compatible API Seerr uses when
 	// Media Manager replaces the *arr applications. Empty disables it.
 	ServarrAPIKey string
+	// IntegrationSecrets stores secrets entered on the website; nil when no
+	// encryption key is configured.
+	IntegrationSecrets *integrationsecrets.Service
+	// ResolveSecret resolves an integration's secret_ref exactly as the
+	// workers do, for connection checks.
+	ResolveSecret func(string) (string, error)
 }
 
 type Server struct {

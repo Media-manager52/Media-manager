@@ -222,6 +222,7 @@
         "ALTMOUNT_SECRET={Context.altmountSecret}",
         "BACKUP_ENCRYPTION_KEY={Context.backupKey}",
         "SERVARR_API_KEY={Passwords.3}",
+        "SECRET_ENCRYPTION_KEY={Passwords.4}",
         "SEERR_BASE_URL=",
         "SEERR_API_KEY=",
         "SEERR_INSTANCE_ID=",
@@ -233,7 +234,7 @@
       "labels": {
         "cosmos-force-network-secured": "true",
         "cosmos-auto-update": "true",
-        "cosmos-persistent-env": "PGPASSWORD, OWNER_TOKEN, TMDB_ACCESS_TOKEN, PLEX_TOKEN, NEWZNAB_PRIMARY_API_KEY, ALTMOUNT_SECRET, BACKUP_ENCRYPTION_KEY, SERVARR_API_KEY",
+        "cosmos-persistent-env": "PGPASSWORD, OWNER_TOKEN, TMDB_ACCESS_TOKEN, PLEX_TOKEN, NEWZNAB_PRIMARY_API_KEY, ALTMOUNT_SECRET, BACKUP_ENCRYPTION_KEY, SERVARR_API_KEY, SECRET_ENCRYPTION_KEY",
         "cosmos-stack": "{ServiceName}",
         "cosmos-stack-main": "{ServiceName}"
       },
