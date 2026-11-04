@@ -1,10 +1,14 @@
 # Changelog
 
-Notable Media Manager changes are recorded here. The project has not published a tagged release yet, so the completed work remains under **Unreleased** until the owner cuts the first release.
-
-The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions will use semantic versioning once release tags begin.
+Notable Media Manager changes are recorded here. The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions use [semantic versioning](https://semver.org/). Each release is a Git tag with a [GitHub release](https://github.com/Media-manager52/Media-manager/releases) that records its image digests.
 
 ## Unreleased
+
+Nothing yet.
+
+## [0.1.0-beta.1] - 2026-11-04
+
+The first public beta: `main` at `0041902`, database schema 51. Everything Media Manager has gained since the project started is listed below.
 
 ### Changed
 
@@ -224,3 +228,5 @@ The structure follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). 
 - One real movie workflow and one real complete-season-pack workflow completed exact Danish-subtitle, publication-generation, and Plex identity/path verification.
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
+
+[0.1.0-beta.1]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.1
