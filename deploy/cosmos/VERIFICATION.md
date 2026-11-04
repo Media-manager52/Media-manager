@@ -2,7 +2,7 @@
 
 Date: 2026-10-26
 Host: duck-vps
-Cosmos: live instance, public host `36u82kye7m7gsu3ruc15a7pkahq89mbq9r6javu8vswjjg32p1zchvag80bhv9s.pro`
+Cosmos: live instance (public host name omitted)
 Canonical source: https://github.com/Media-manager52/Media-manager
 Main commit used: `6e2d0c84ba8562487d1eaecd7b45a4602c9d9a12`
 Market source: https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/index.json

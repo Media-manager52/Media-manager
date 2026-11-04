@@ -18,7 +18,7 @@ guides under `docs/` (start with [`docs/onboarding/README.md`](docs/onboarding/R
 4. Run the relevant checks below.
 5. Update `CHANGELOG.md` for user-visible, operational, or security-relevant changes.
 6. Use a clear conventional commit such as `fix(ui): ...`, `feat(indexers): ...`, `security: ...`, or `docs: ...`.
-7. Open a merge request with the problem, evidence, safety impact, checks performed, and any remaining limitation. Never describe synthetic evidence as live verification.
+7. Open a pull request with the problem, evidence, safety impact, checks performed, and any remaining limitation. Never describe synthetic evidence as live verification.
 
 ## Verification
 
@@ -41,6 +41,21 @@ Go changes:
 test -z "$(gofmt -l cmd internal)"
 GOFLAGS=-mod=readonly go vet ./cmd/... ./internal/...
 GOFLAGS=-mod=readonly go test -count=1 -race ./cmd/... ./internal/...
+```
+
+The browser suite runs the production bundle against a mocked API, blocks
+unexpected network access, and checks every page at desktop and mobile sizes
+with Playwright and axe. GitHub Actions (`.github/workflows/verify.yml`) runs the
+same frontend, browser and PostgreSQL-backed Go jobs on every pull request (the
+backend job also applies every migration to a disposable PostgreSQL 18
+database), plus a `containers` job that builds and smoke-tests both images.
+
+README screenshots come from invented demo data, never from a real library:
+
+```sh
+cd web
+npm run build
+npm run screenshots   # writes docs/images/*.png
 ```
 
 Compose or deployment changes:

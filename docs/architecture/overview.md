@@ -28,7 +28,7 @@ touches code. Everything here is grounded in `cmd/media-manager/main.go`,
   header with `Bearer <OWNER_TOKEN>` server-side, so browser JavaScript never
   sees the token and cannot forge or read it. See
   [the runbook](../operations/runbook.md#public-edge-cosmos-cloud) for the exact
-  route table and `README.md` § "Public edge routing".
+  route table and [manual installation § Public edge routing](../operations/manual-install.md#public-edge-routing).
 - **Loopback bypass.** The API is also published on
   `127.0.0.1:${MEDIA_MANAGER_API_PORT}` (default `28081`) for machine checks and
   the live-acceptance proxy. It must never be exposed to a LAN or public address.
@@ -253,7 +253,7 @@ Table groups (full catalog in [database.md](database.md)):
 
 ## 7. Safety invariants
 
-These come from `README.md` and `AGENTS.md`; they are enforced by code and tests.
+These summarize [acquisition-safety.md](acquisition-safety.md), [../invariants.md](../invariants.md) and `AGENTS.md`; they are enforced by code and tests.
 
 1. **Read-only AltMount.** `internal/adapters/altmount.Enumerate` maps reported
    paths under `local_read_only_root` and refuses anything outside it. Nothing

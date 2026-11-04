@@ -274,7 +274,7 @@ the notice change has its own focused render/browser regressions and full
 frontend gates. Required Danish subtitles, failed-output retention, exact
 release/job identities, shared pacing and publication verification remain
 enforced. Only MediaManager uses current indexer keys on this VPS, through
-IPv4 egress `159.195.149.137`; other machines' historical activity remains
+a single IPv4 egress address; other machines' historical activity remains
 unverified. Off-server backups are still outstanding.
 
 The older assessments below are historical evidence.

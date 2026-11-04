@@ -11,7 +11,8 @@ behavioral truth is always the code and the SQL migrations.
 | New engineer or AI agent | [onboarding/README.md](onboarding/README.md) — overview, read order, hard rules |
 | AI agent operating or reviewing the running server | [operations/ai-agents.md](operations/ai-agents.md) — API discovery (`GET /api/v1`, OpenAPI), effects, safe calling, the loopback read-only inspector, and common tasks |
 | Contributor workflow | [../CONTRIBUTING.md](../CONTRIBUTING.md) and [../AGENTS.md](../AGENTS.md) |
-| Product contract | [../README.md](../README.md) — deployment, commands, safety invariants |
+| Product overview | [../README.md](../README.md) — what it does, how it works, how to install |
+| Manual installation | [operations/manual-install.md](operations/manual-install.md) — Compose install, acceptance checks, public edge routing, mount contract, integration settings, Seerr without Radarr/Sonarr, operations |
 | Change history | [../CHANGELOG.md](../CHANGELOG.md) |
 
 ## Architecture and reference
@@ -24,6 +25,7 @@ behavioral truth is always the code and the SQL migrations.
 | [architecture/api.md](architecture/api.md) | Every HTTP route, auth model, envelopes, write-path protections |
 | [reference/openapi.json](reference/openapi.json) | Generated OpenAPI 3.1 description of every route (also served at `GET /api/v1/openapi.json`) |
 | [architecture/frontend.md](architecture/frontend.md) | Web UI in `web/`: pages, API client, Danish labels, tests, styling |
+| [architecture/acquisition-safety.md](architecture/acquisition-safety.md) | Acquisition and publication safety rules (pacing, verification, rounds, upgrades, adoption) |
 | [architecture/workflows.md](architecture/workflows.md) | Domain lifecycle: intake → search → AltMount → verify → publish → Plex → Seerr, plus rounds, upgrades, adoption, recycle |
 | [reference/glossary.md](reference/glossary.md) | Exact domain vocabulary |
 

@@ -12,7 +12,9 @@ truthful, and safe for an owner-operated production media system.
 - To inspect or operate a running Media Manager, use its API, not SQL: see
   `docs/operations/ai-agents.md` (`GET /api/v1`, `GET /api/v1/openapi.json`,
   or the MCP server: `docker exec -i media-manager-api-1 media-manager mcp`).
-- Read `README.md` for the product contract, local commands, and safety invariants.
+- Read `README.md` for the product overview, `docs/invariants.md` and
+  `docs/architecture/acquisition-safety.md` for the guarantees, and
+  `docs/operations/manual-install.md` for configuration and operations.
 - Read `docs/status/release.md` for release evidence and
   `docs/status/implementation.md` before changing a partial feature.
 - Read `docs/status/indexer-conformance.md` before touching Newznab behavior.
@@ -69,7 +71,8 @@ when the next step depends on it.
    `scripts/ci/wait-for-run.sh <run-id>`. It reads only the run status every
    30 seconds and returns as soon as the run finishes. Never use
    `gh run watch` (it streams logs) or a fixed `sleep` sized to a guess.
-4. Prefer `gh pr merge --auto --merge`: GitHub merges by itself once the
+4. Prefer `gh pr merge --auto --squash` (the repository allows only squash
+   merges, so `main` reads as one commit per pull request): GitHub merges by itself once the
    required checks (`frontend`, `browser`, `backend`, `containers`) pass on the
    PR's head commit.
 5. Do not modify an already submitted commit merely to keep busy.
