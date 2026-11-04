@@ -552,7 +552,11 @@ Handler: `acquisition.AltMountReconcileService` (`reconcile_altmount.go`).
   7. `verified` → `CompleteImport(true)` and queue publication. Anything else →
      a recorded verification result (retry state, `can_reverify`) with the
      output retained and undeleted.
-- Inspection failures (probe unavailable, containment error, timeout) →
+- A file ffprobe reads but rejects as no media container ("Invalid data found
+  when processing input", e.g. an MP4 without its moov atom) is
+  release-attributable `no_playable_media`: the exact release is excluded and
+  the next candidate is tried. A read error from the mount is not.
+- Other inspection failures (probe unavailable, containment error, timeout) →
   `output_inspection_failed` attention; never a false success.
 
 ## 8. Publication and Plex

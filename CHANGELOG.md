@@ -10,6 +10,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **A downloaded file that is not a playable video is replaced automatically.** When ffprobe could read a file but found no valid media container (for example an MP4 without its moov atom), the workflow stopped in `output_inspection_failed` and waited for the owner, although no player could open the file. It is now a release failure (`no_playable_media`): that release is excluded and the next candidate is tried. A read error from the AltMount mount still raises attention. Production had a WWE Raw repair stuck this way.
+
 - **Titles whose file AltMount removed are repaired.** When AltMount finds a file's Usenet articles missing during playback, its own repair moves the file aside and asks Radarr or Sonarr for a replacement. With Media Manager nothing replaced it and AltMount stopped reporting it as corrupted, so the Plex item pointed at nothing and never played again. The half-hourly repair sweep now also checks that every current publication's AltMount file still exists, and opens a replacement (`missing_file`, migration 52) for one that is missing on two sweeps in a row. Nothing is repaired while the mount is unavailable, when a file does not answer, or when more than 25 files and more than 2 % of publications vanish at once. Production had five such titles.
 
 ## [0.1.0-beta.1] - 2026-11-04

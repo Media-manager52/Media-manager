@@ -265,7 +265,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 				}
 				return deferral
 			}
-			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) || errors.Is(inspectionErr, mediainfo.ErrEncryptedVideo) {
+			if errors.Is(inspectionErr, mediainfo.ErrNoVideoTrack) || errors.Is(inspectionErr, mediainfo.ErrEncryptedVideo) || errors.Is(inspectionErr, mediainfo.ErrInvalidContainer) {
 				return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureNoPlayableMedia, inspectionErr.Error(), time.Now().UTC())
 			}
 			if errors.Is(inspectionErr, mediainfo.ErrZeroFilledOutput) {
