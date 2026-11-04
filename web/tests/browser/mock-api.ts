@@ -60,7 +60,10 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   [/^\/api\/v1\/indexers$/, () => [{ id: ids.indexer, name: "TestIndexer {DK}", kind: "newznab", enabled: true, commissioned: true, budget: { query_limit: 1000, grab_limit: 100, background_query_limit: 200, minimum_interval_ms: 2000, window_seconds: 86400, source: "owner_stated" }, usage: { queries_used: 400, queries_remaining: 600, background_queries_remaining: 50, grabs_used: 3, grabs_remaining: 97 }, pacing: { consecutive_failures: 0, last_outcome: "success", last_outcome_at: now }, search_outcomes_24h: [{ state: "succeeded", count: 380 }, { state: "deferred", count: 20 }] }]],
   [/^\/api\/v1\/settings\/oldboys\/credentials$/, () => ({ available: true, configured: true, enabled: true, updated_at: now })],
   [/^\/api\/v1\/settings\/quality-profiles$/, () => [{ id: ids.profile, media_kind: "movie", name: "Movie Danish Subs", policy_version: 1, policy: { rules: [], required_subtitle_languages: ["da"] }, upgrades_enabled: true, is_default: true, enabled: true }]],
-  [/^\/api\/v1\/settings\/library-roots$/, () => [{ id: ids.root, media_kind: "movie", name: "Film", destination_root: "/media/Movies", plex_visible_root: "/media/Movies", source_visible_root: "/mnt/altmount", is_default: true, enabled: true }]],
+  [/^\/api\/v1\/settings\/library-roots$/, () => [
+    { id: ids.root, media_kind: "movie", name: "Film", destination_root: "/media/Movies", plex_visible_root: "/media/Movies", source_visible_root: "/mnt/altmount", is_default: true, enabled: true },
+    { id: "root-4k", media_kind: "movie", name: "Film 4K", destination_root: "/media/Film 4K", plex_visible_root: "/media/Film 4K", source_visible_root: "/mnt/altmount", edition: "4k", is_default: false, enabled: true },
+  ]],
   [/^\/api\/v1\/settings\/integrations$/, () => [
     { id: ids.seerr, kind: "seerr", name: "Seerr", enabled: true, is_default: true, config: {}, created_at: now, updated_at: now },
     { id: ids.plex, kind: "plex", name: "Plex", enabled: true, is_default: true, config: { base_url: "http://plex:32400", allow_http: true }, secret_ref: `sealed:integration:${ids.plex}`, created_at: now, updated_at: now },
