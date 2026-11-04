@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.2] - 2026-11-04
+
+The second public beta: `main` at `bb24c65`, database schema 55. Setup from scratch now happens on the website.
+
 ### Added
 
 - **Seerr can be connected without `.env`.** When no `SEERR_*` values are set, the API starts Seerr intake from the enabled default Seerr connection saved on the website (its API key resolved like every connection secret, its webhook secret derived from `SECRET_ENCRYPTION_KEY`); a restart is needed once after saving it. The new **Webhook** button (`GET`/`POST /api/v1/settings/integrations/{id}/seerr-webhook`) points Seerr's webhook at Media Manager: Seerr sends a test notification with the new settings first and saves them only when this API answered it, then they are read back; other notification types and custom headers are kept and the authorization header is never returned. Seerr's test notification is now answered with 204 instead of being rejected as an invalid event. Environment configuration keeps working and takes precedence.
@@ -245,4 +249,5 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.2]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.1
