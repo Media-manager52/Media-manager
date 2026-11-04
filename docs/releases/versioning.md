@@ -1,9 +1,9 @@
 # Versioning and image identity
 
-Media Manager v0.1.0-beta.1 is prepared but has not been tagged or published.
-This document defines the contract to use when the owner approves a release; it
-does not create a tag. The candidate note is
-[`v0.1.0-beta.1.md`](v0.1.0-beta.1.md).
+This document defines the contract every Media Manager release follows. The
+first release, `v0.1.0-beta.1`, was published on 2026-11-04; see
+[`v0.1.0-beta.1.md`](v0.1.0-beta.1.md) and its
+[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.1).
 
 ## Versions
 
@@ -41,15 +41,18 @@ under `/usr/share/doc/media-manager/`, and carries the
 source is <https://github.com/Media-manager52/Media-manager>. Release checks must
 verify the label and both files in the published image.
 
-Current published baseline (main merge `c82d44ab08afe24b34d3f8c4105d61d22e45a5ec`,
-from source, not a release tag):
+Released images (`v0.1.0-beta.1`, commit `0041902eb32e1a5d3aa1d983fe61329e7c5c487c`):
 
 ```text
-api index sha256:941690e3980a2b3809585fee396c793aeffcb41d7171942f8083283465e6bf4b
-api linux/amd64 sha256:ebe64a2fe1ab5295f6dfbf49458dedf099ab8f579d3230ebb3813fe55fd31fdc
-ui  index sha256:f9c6fe02f4a287c05b79b38727ad27568768bd61e02430d48df5e209b9f1eb22
-ui  linux/amd64 sha256:0a4fb936ed3fe5584fa5b94c1bacd04a6d5fdac806ed453160621971dec39035
+api index         sha256:971d073a1d5083745ffd495ea12acda2c4293d16e584f6dd5769cc5e743535a5
+api linux/amd64   sha256:9b60c4e2870e9c857ee86463b5e1a2931f36c0653a12ad964fc3c673cc582a94
+ui  index         sha256:6051f4ff129dc276f3530360446a1d79270b4ff33c9f4a768a2300274efe78d2
+ui  linux/amd64   sha256:41ddf532a57df8c25efbc76d8786408851d890dcd0f20645c8d57fe289c62837
 ```
+
+The earlier unreleased baseline (main merge `c82d44ab08afe24b34d3f8c4105d61d22e45a5ec`)
+used api index `sha256:941690e3980a2b3809585fee396c793aeffcb41d7171942f8083283465e6bf4b`
+and ui index `sha256:f9c6fe02f4a287c05b79b38727ad27568768bd61e02430d48df5e209b9f1eb22`.
 
 ## Supported platform for beta
 

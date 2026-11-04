@@ -1,6 +1,9 @@
 # Media Manager v0.1.0 Beta readiness
 
-Status: **BLOCKED — not release-ready and not published.**
+Status: **historical.** This ledger tracked the candidate before publication.
+`v0.1.0-beta.1` was published on 2026-11-04 from `0041902`; the release record,
+including how each publication gate was closed, is
+[../releases/v0.1.0-beta.1.md](../releases/v0.1.0-beta.1.md).
 
 This is the release-candidate evidence ledger, not a claim of completion. It is
 based on `main` after PR #91's merge
