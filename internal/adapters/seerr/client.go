@@ -536,3 +536,29 @@ func ParseWebhook(body []byte) (Webhook, error) {
 	}
 	return event, nil
 }
+
+// CheckAccess confirms the API key is accepted: Seerr answers
+// GET /api/v1/auth/me with the key's user. It changes nothing.
+func (client *Client) CheckAccess(ctx context.Context) error {
+	endpoint := *client.base
+	endpoint.Path = strings.TrimSuffix(client.base.Path, "/") + "/api/v1/auth/me"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("X-Api-Key", client.apiKey)
+	request.Header.Set("Accept", "application/json")
+	response, err := client.http.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, client.responseLimit))
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return errors.New("Seerr refused the API key")
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("Seerr returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}

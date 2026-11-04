@@ -168,6 +168,26 @@
         },
         "type": "object"
       },
+      "Acquisition_PlexLibrary": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "locations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Altmount_PreparedStream": {
         "properties": {
           "cached": {
@@ -575,6 +595,17 @@
         "properties": {
           "confirmation": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ConnectionCheck": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -1066,6 +1097,35 @@
           },
           "updated_at": {
             "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IntegrationConnectionPatch": {
+        "properties": {
+          "allow_http": {
+            "type": "boolean"
+          },
+          "authentication": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "local_read_only_root": {
+            "type": "string"
+          },
+          "name": {
             "type": "string"
           }
         },
@@ -1914,6 +1974,14 @@
         },
         "type": "object"
       },
+      "SaveSecretInput": {
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "SaveSeerrRouteInput": {
         "properties": {
           "library_root_id": {
@@ -1980,6 +2048,46 @@
           },
           "query_limit": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "SetupStatus": {
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "secret_storage_enabled": {
+            "type": "boolean"
+          },
+          "seerr_intake_enabled": {
+            "type": "boolean"
+          },
+          "servarr_enabled": {
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/SetupStep"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "SetupStep": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -5046,6 +5154,62 @@
         "x-mm-effect": "write"
       }
     },
+    "/api/v1/settings/integrations/{id}/check": {
+      "post": {
+        "description": "Plex: lists its libraries. AltMount: logs in and checks local_read_only_root is visible. Seerr: checks the API key. Changes nothing; ok is false with a detail when it does not work.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "checkIntegration",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ConnectionCheck"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Check that a Plex, AltMount or Seerr connection works",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
     "/api/v1/settings/integrations/{id}/commission": {
       "post": {
         "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
@@ -5649,6 +5813,180 @@
         ],
         "x-mm-auth": "owner_browser",
         "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/connection": {
+      "patch": {
+        "description": "Changes name, base_url, allow_http, enabled, is_default and, for AltMount, category, local_read_only_root and authentication. Indexers are changed with PATCH /api/v1/settings/integrations/{id}.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "updateIntegrationConnection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Postgres_IntegrationConnectionPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Edit a Plex, AltMount or Seerr connection",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/plex-libraries": {
+      "get": {
+        "description": "Sends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "listPlexLibraries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Acquisition_PlexLibrary"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "The Plex libraries of a Plex connection, for creating a library root",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/secret": {
+      "put": {
+        "description": "Stores the value AES-256-GCM encrypted and sets the integration's secret_ref to sealed:integration:\u003cid\u003e. AltMount session login takes {\"username\":\"...\",\"password\":\"...\"} as the value. 503 secret_storage_unavailable when SECRET_ENCRYPTION_KEY (or the OldBoys key) is not configured. OldBoys keeps its own credentials route.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "saveIntegrationSecret",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SaveSecretInput"
+                  }
+                ],
+                "required": [
+                  "value"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Save a connection's secret (Plex token, API key) encrypted; it is never returned",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
       }
     },
     "/api/v1/settings/integrations/{id}/seerr-routes": {
@@ -6557,6 +6895,52 @@
         ],
         "x-mm-auth": "owner",
         "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/setup/status": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "setupStatus",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SetupStatus"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "What is still missing before Media Manager can acquire titles",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
       }
     },
     "/api/v1/sources": {

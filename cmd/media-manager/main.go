@@ -23,6 +23,7 @@ import (
 	"github.com/media-manager/media-manager/internal/httpapi"
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/intake"
+	"github.com/media-manager/media-manager/internal/integrationsecrets"
 	"github.com/media-manager/media-manager/internal/mcpserver"
 	"github.com/media-manager/media-manager/internal/mediainfo"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
@@ -191,7 +192,27 @@ func run() error {
 		metadataProviderStates["simkl"], metadataProviderStates["imdb"] = "direct_configured", "via_simkl_when_available"
 	}
 	scheduler := indexers.NewScheduler(4, store)
-	resolveSecret := func(reference string) (string, error) { return requiredSecret(reference) }
+	// Secrets entered on the website are stored encrypted; references to
+	// environment variables keep working unchanged.
+	secretKey := optionalSecret(integrationsecrets.KeyReference)
+	if secretKey == "" {
+		secretKey = optionalSecret(oldboyscredentials.KeyReference)
+	}
+	var integrationSecrets *integrationsecrets.Service
+	if secretKey != "" {
+		integrationSecrets, err = integrationsecrets.New(store, secretKey)
+		if err != nil {
+			return err
+		}
+	}
+	resolveSecret := func(reference string) (string, error) {
+		if integrationsecrets.IsReference(reference) {
+			resolveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return integrationSecrets.Resolve(resolveCtx, reference)
+		}
+		return requiredSecret(reference)
+	}
 	var oldBoysCredentials *oldboyscredentials.Service
 	if key := optionalSecret(oldboyscredentials.KeyReference); key != "" {
 		oldBoysCredentials, err = oldboyscredentials.New(store, key)
@@ -240,7 +261,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY")}, store)
+	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret}, store)
 	if err != nil {
 		return err
 	}

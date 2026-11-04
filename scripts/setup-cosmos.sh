@@ -109,6 +109,7 @@ OWNER_TOKEN=$(openssl rand -hex 32)
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 BACKUP_KEY=$(openssl rand -base64 32 | tr -d '\n')
 OLDBOYS_KEY=$(openssl rand -hex 32)
+SECRET_KEY=$(openssl rand -hex 32)
 SERVARR_API_KEY=$(openssl rand -hex 24)
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo shared)
 
@@ -157,6 +158,9 @@ TVDB_API_KEY=
 TVDB_SUBSCRIBER_PIN=
 SIMKL_CLIENT_ID=
 OLDBOYS_CREDENTIAL_ENCRYPTION_KEY=$OLDBOYS_KEY
+# Encrypts keys and tokens entered on the website. Keep it with your backups:
+# without it, saved connection secrets must be entered again.
+SECRET_ENCRYPTION_KEY=$SECRET_KEY
 BACKUP_ENCRYPTION_KEY=$BACKUP_KEY
 BACKUP_OFFSITE_KIND=
 BACKUP_OFFSITE_PREFIX=media-manager/backups
