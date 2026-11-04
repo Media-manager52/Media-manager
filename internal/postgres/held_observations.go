@@ -7,6 +7,8 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/media-manager/media-manager/internal/releases"
 )
 
@@ -30,6 +32,35 @@ func (store *Store) HeldCandidateObservations(ctx context.Context, workflowID uu
 	if err != nil {
 		return nil, err
 	}
+	return scanStoredObservations(rows)
+}
+
+// RememberedEligibleObservations returns the stored observations behind
+// candidates that were eligible under policyVersion when last decided and were
+// returned by a provider at or after since, best score first. Searches rotate
+// through the title's names one per scan, so the releases found under one name
+// are usually not returned by the next scan; remembering them lets the next
+// slot of a round try the next good release instead of waiting a whole
+// rotation. Attempts, exclusions and blocks are applied by the caller's
+// re-evaluation and selection exactly as for fresh results.
+func (store *Store) RememberedEligibleObservations(ctx context.Context, workflowID uuid.UUID, policyVersion uint64, since time.Time, limit int) ([]releases.Observation, error) {
+	rows, err := store.Pool.Query(ctx, `SELECT observation.id::text,observation.indexer_instance_id::text,
+		observation.operation_key,observation.native_guid,observation.title,
+		observation.raw_fields,observation.normalized_facts,observation.body_sha256,
+		observation.observed_at,observation.parse_version,observation.problems
+		FROM release_candidates candidate
+		JOIN release_observations observation ON observation.id=candidate.observation_id
+		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id AND decision.policy_version=$2
+		WHERE candidate.workflow_id=$1 AND decision.verdict='eligible' AND candidate.last_observed_at>=$3
+		ORDER BY decision.score DESC,candidate.last_observed_at DESC,candidate.id
+		LIMIT $4`, workflowID.String(), int64(policyVersion), since.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanStoredObservations(rows)
+}
+
+func scanStoredObservations(rows pgx.Rows) ([]releases.Observation, error) {
 	defer rows.Close()
 	result := []releases.Observation{}
 	for rows.Next() {
