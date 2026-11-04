@@ -33,6 +33,10 @@ type AltMountReconcileService struct {
 	// CheckMount reports whether the read-only AltMount root is usable;
 	// nil uses altmount.CheckMount.
 	CheckMount func(root string) error
+	// EpisodeRuntimes gives the exact episode's runtime for the fake/truncated
+	// check; nil (or a failed lookup) uses the series runtime.
+	EpisodeRuntimes EpisodeRuntimeSource
+	runtimeCache    episodeRuntimeCache
 }
 
 const (
@@ -273,7 +277,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			}
 			return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", inspectionErr.Error(), time.Now().UTC())
 		}
-		if detail, tooShort := outputTooShortDetail(job, verification); tooShort {
+		if detail, tooShort := outputTooShortDetail(job, verification, service.expectedEpisodeRuntime(ctx, job)); tooShort {
 			return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureReleaseIncomplete, detail, time.Now().UTC())
 		}
 		if detail, mismatch := editionResolutionMismatch(job, verification); mismatch {

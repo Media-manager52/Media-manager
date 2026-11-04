@@ -286,6 +286,9 @@ func run() error {
 	handlers["release.retrieve_requested"] = retrievalService.Handle
 	mediaInfoProbe := mediainfo.NewProbe()
 	altMountReconciler := &acquisition.AltMountReconcileService{Store: store, ResolveSecret: resolveSecret, MediaInfoProbe: mediaInfoProbe}
+	if tmdbClient != nil {
+		altMountReconciler.EpisodeRuntimes = tmdbClient
+	}
 	handlers["altmount.reconcile_requested"] = altMountReconciler.Handle
 	handlers["altmount.output_reverify_requested"] = altMountReconciler.HandleRetainedOutputReverification
 	handlers["altmount.movie_reinspect_requested"] = altMountReconciler.HandleRetainedMovieInspection

@@ -143,3 +143,28 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
 }
+
+func TestTMDBSeasonEpisodeRuntimesKeysByEpisodeID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/3/tv/18352/season/3" || request.Header.Get("Authorization") != "Bearer private-token" {
+			t.Fatalf("unexpected request %s", request.URL.Path)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"episodes":[{"id":564091,"episode_number":1,"runtime":48},{"id":564095,"episode_number":2,"runtime":12},{"id":564096,"episode_number":3,"runtime":null},{"id":0,"runtime":20}]}`))
+	}))
+	defer server.Close()
+	client, err := NewTMDB(TMDBConfig{AccessToken: "private-token", BaseURL: server.URL, AllowHTTP: true}, server.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimes, err := client.SeasonEpisodeRuntimes(context.Background(), "18352", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runtimes) != 2 || runtimes["tmdb:564091"] != 48 || runtimes["tmdb:564095"] != 12 {
+		t.Fatalf("runtimes = %v", runtimes)
+	}
+	if _, err := client.SeasonEpisodeRuntimes(context.Background(), "x", 3); !errors.Is(err, ErrIdentityUnavailable) {
+		t.Fatalf("invalid series ID: %v", err)
+	}
+}
