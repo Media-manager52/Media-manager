@@ -7,6 +7,7 @@ import { Badge, Card, CardHeader, cx, Empty, ErrorBox, KeyValue, PageHeader, Pro
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDateTime, formatRelative } from "@/format"
 import { attentionLabel, humanize, stateLabel, stateTone, translateDetail } from "@/i18n"
+import { candidateReasonText } from "@/lib/candidate-reasons"
 import { describeVariant, titleHref } from "@/lib/links"
 import type { Tone } from "@/lib/tone"
 import { workflowStep } from "@/lib/workflow-presentation"
@@ -183,9 +184,7 @@ function CandidateRow({ candidate: c }: { candidate: APIWorkflowCandidate }) {
 }
 
 function reasonText(candidate: APIWorkflowCandidate): string {
-  const reasons = candidate.decision?.decision_explanation?.reasons ?? []
-  const blocking = reasons.filter((reason) => reason.decision === "fail" || (candidate.decision?.verdict === "held" && reason.decision === "unknown"))
-  return blocking.slice(0, 2).map((reason) => reason.reason).join(" · ")
+  return candidateReasonText(candidate.decision?.verdict, candidate.decision?.decision_explanation?.reasons ?? [])
 }
 
 function candidateOrder(a: APIWorkflowCandidate, b: APIWorkflowCandidate): number {
