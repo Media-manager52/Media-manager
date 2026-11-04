@@ -404,3 +404,71 @@ func TestAudioUpgradeReplacesPublishedMovieUnderLibraryProfile(t *testing.T) {
 		t.Fatalf("retry after retry_after=%q err=%v, want opened", retried, err)
 	}
 }
+
+// TestMissingAltMountFileRepairReplacesMovie proves a published movie whose
+// AltMount file is gone is listed as a current publication and gets exactly
+// one repair, recorded as a missing file without an AltMount health record.
+func TestMissingAltMountFileRepairReplacesMovie(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	item, movieWorkflow := fixture.movieWorkflow(t, "Missing Movie", "770003")
+	job, inventoryID, _ := fixture.seedVerifiedMovieOutput(t, movieWorkflow, 1, "missing-movie")
+	source := filepath.Join(fixture.localRoot, "completed", "missing-movie", "Movie.mkv")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("movie"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	publicationContext, err := fixture.store.LoadPublicationContext(fixture.ctx, movieWorkflow, job.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanID, _, _, destination := fixture.publishMoviePlans(t, movieWorkflow, job.JobID, publicationContext)
+	scan, err := fixture.store.LoadPlexScan(fixture.ctx, scanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.MarkPlexRefreshRequested(fixture.ctx, scan, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if scan, err = fixture.store.LoadPlexScan(fixture.ctx, scanID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.ConfirmPlexScan(fixture.ctx, scan, []plexadapter.Confirmation{{RatingKey: "missing-movie-1", Path: filepath.Join(fixture.plexVisibleRoot, destination), ProviderGUID: "tmdb://770003"}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var root string
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT root_relative FROM altmount_output_inventories WHERE id=$1`, inventoryID.String()).Scan(&root); err != nil {
+		t.Fatal(err)
+	}
+	file := root + "/Movie.mkv"
+	publications, err := fixture.store.CurrentAltMountPublications(fixture.ctx, fixture.altMount.ID)
+	if err != nil || len(publications) != 1 || publications[0] != file {
+		t.Fatalf("current publications=%v err=%v, want [%s]", publications, err, file)
+	}
+	if other, err := fixture.store.CurrentAltMountPublications(fixture.ctx, uuid.NewV7()); err != nil || len(other) != 0 {
+		t.Fatalf("another AltMount client's publications=%v err=%v, want none", other, err)
+	}
+	outcome, err := fixture.store.PlanMissingAltMountFile(fixture.ctx, fixture.altMount.ID, file, time.Now().UTC())
+	if err != nil || outcome != RepairOpened {
+		t.Fatalf("missing-file repair outcome=%q err=%v, want opened", outcome, err)
+	}
+	var reason, state string
+	var healthID *int64
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT reason,state,altmount_health_id FROM altmount_repairs WHERE media_id=$1`, item.ID.String()).Scan(&reason, &state, &healthID); err != nil {
+		t.Fatal(err)
+	}
+	if reason != RepairReasonMissingFile || state != "open" || healthID != nil {
+		t.Fatalf("repair reason=%q state=%q health=%v, want an open missing_file repair without a health record", reason, state, healthID)
+	}
+	var repairWorkflows int
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT count(*) FROM workflows WHERE media_id=$1 AND variant='default' AND terminal_at IS NULL`, item.ID.String()).Scan(&repairWorkflows); err != nil || repairWorkflows != 1 {
+		t.Fatalf("open repair workflows=%d err=%v, want 1", repairWorkflows, err)
+	}
+	if again, err := fixture.store.PlanMissingAltMountFile(fixture.ctx, fixture.altMount.ID, file, time.Now().UTC()); err != nil || again != RepairAlreadyOpen {
+		t.Fatalf("repeated missing-file repair outcome=%q err=%v, want already_open", again, err)
+	}
+	if corrupted, err := fixture.store.PlanAltMountRepair(fixture.ctx, fixture.altMount.ID, 52, file, time.Now().UTC()); err != nil || corrupted != RepairAlreadyOpen {
+		t.Fatalf("AltMount later reporting the file corrupted: outcome=%q err=%v, want already_open", corrupted, err)
+	}
+}

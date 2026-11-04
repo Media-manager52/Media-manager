@@ -173,6 +173,7 @@ function Backups() {
 }
 
 const repairState: Record<string, string> = { open: "Åben", searching: "Søger", resolved: "Repareret", not_found: "Intet fundet", cancelled: "Annulleret" }
+const repairReason: Record<string, string> = { corrupted: "Ødelagt fil", missing_required_audio: "Mangler dansk tale", missing_file: "Fil forsvundet" }
 
 function Repairs() {
   const query = useQuery({ queryKey: ["repairs"], queryFn: ({ signal }) => loadRepairs(signal), refetchInterval: 60_000 })
@@ -180,7 +181,7 @@ function Repairs() {
   if (!query.data) return <Card><ListSkeleton /></Card>
   return (
     <Card>
-      <CardHeader title="Reparationer" description="Filer, som AltMount har meldt ødelagte, eller som mangler dansk tale. Media Manager finder selv en erstatning." />
+      <CardHeader title="Reparationer" description="Filer, som AltMount har meldt ødelagte eller har fjernet, eller som mangler dansk tale. Media Manager finder selv en erstatning." />
       {query.data.length === 0 ? <Empty title="Ingen reparationer" /> : null}
       <ul className="divide-y divide-line">
         {query.data.slice(0, 200).map((repair) => (
@@ -188,7 +189,7 @@ function Repairs() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{repair.title || repair.altmount_file_path.split("/").pop()}</span>
               <Badge tone={repair.state === "resolved" ? "good" : repair.state === "not_found" ? "warn" : "info"}>{repairState[repair.state] ?? humanize(repair.state)}</Badge>
-              <Badge>{repair.reason === "missing_required_audio" ? "Mangler dansk tale" : "Ødelagt fil"}</Badge>
+              <Badge>{repairReason[repair.reason] ?? "Ødelagt fil"}</Badge>
               {repair.repair_workflow_id ? <Link to={workflowHref({ id: repair.repair_workflow_id })} className="ml-auto font-medium text-accent-strong hover:underline">Arbejde</Link> : null}
             </div>
             <div className="mt-0.5 text-xs text-text-3">Oprettet {formatRelative(repair.created_at)}{repair.detail ? ` · ${repair.detail}` : ""}</div>

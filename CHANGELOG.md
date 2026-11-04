@@ -4,7 +4,9 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
-Nothing yet.
+### Fixed
+
+- **Titles whose file AltMount removed are repaired.** When AltMount finds a file's Usenet articles missing during playback, its own repair moves the file aside and asks Radarr or Sonarr for a replacement. With Media Manager nothing replaced it and AltMount stopped reporting it as corrupted, so the Plex item pointed at nothing and never played again. The half-hourly repair sweep now also checks that every current publication's AltMount file still exists, and opens a replacement (`missing_file`, migration 52) for one that is missing on two sweeps in a row. Nothing is repaired while the mount is unavailable, when a file does not answer, or when more than 25 files (or 2 % of publications) vanish at once. Production had five such titles.
 
 ## [0.1.0-beta.1] - 2026-11-04
 

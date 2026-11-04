@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"uuid"
 
@@ -44,6 +45,17 @@ type AltMountRepairService struct {
 	PlexClientFor func(postgres.Integration) (*plex.Client, error)
 	Seerr         SeerrMetadata
 	Metadata      *metadataservice.Service
+	// CheckMount, StatFile, ListPublications and PlanMissing override the
+	// mount and store calls of the missing-file sweep in tests.
+	CheckMount       func(root string) error
+	StatFile         func(path string) error
+	ListPublications func(ctx context.Context, altMountID uuid.UUID) ([]string, error)
+	PlanMissing      func(ctx context.Context, altMountID uuid.UUID, filePath string, now time.Time) (string, error)
+
+	missingMu sync.Mutex
+	// missingSeen holds, per AltMount client, the publications whose file was
+	// missing on the previous sweep.
+	missingSeen map[uuid.UUID]map[string]bool
 }
 
 // SeerrMetadata is the Seerr lookup unmanaged repairs need.
@@ -130,6 +142,11 @@ func (service *AltMountRepairService) HandleSweep(ctx context.Context, event pos
 		counts[outcome]++
 	}
 	slog.Info("AltMount repair sweep", "integration", integration.Name, "corrupted", len(items), "outcomes", counts)
+	if missing, err := service.missingFileSweep(ctx, integration.ID, config.LocalReadOnlyRoot); err != nil {
+		return err
+	} else if len(missing) > 0 {
+		slog.Info("AltMount missing-file sweep", "integration", integration.Name, "outcomes", missing)
+	}
 	if integration.Default {
 		upgrades, err := service.audioUpgradeSweep(ctx, integration.ID)
 		if err != nil {
@@ -140,6 +157,144 @@ func (service *AltMountRepairService) HandleSweep(ctx context.Context, event pos
 		}
 	}
 	return nil
+}
+
+// Missing-file repairs. A publication's file must be missing on two sweeps
+// in a row (sweeps run every half hour), so a file AltMount is briefly not
+// listing is not replaced. When more than missingFileLimit files, or more
+// than missingFileShare of all publications, are missing at once, that is a
+// mount or AltMount fault rather than lost releases, and nothing is repaired.
+const (
+	missingFileLimit       = 25
+	missingFileShare       = 0.02
+	missingFileStatTimeout = 10 * time.Second
+)
+
+// missingFileSweep opens a repair for every current publication whose
+// AltMount file is gone from the read-only mount. AltMount removes a file
+// whose Usenet articles went missing and stops reporting it as corrupted, so
+// without this check the Plex item would point at nothing indefinitely.
+func (service *AltMountRepairService) missingFileSweep(ctx context.Context, altMountID uuid.UUID, root string) (map[string]int, error) {
+	counts := map[string]int{}
+	root = strings.TrimSpace(root)
+	if root == "" || !filepath.IsAbs(root) {
+		return counts, nil
+	}
+	check := service.CheckMount
+	if check == nil {
+		check = altmount.CheckMount
+	}
+	if err := check(root); err != nil {
+		slog.Warn("AltMount missing-file sweep skipped: the mount is unavailable", "root", root, "error", err)
+		service.rememberMissing(altMountID, nil)
+		counts["mount_unavailable"]++
+		return counts, nil
+	}
+	listPublications, planMissing := service.ListPublications, service.PlanMissing
+	if listPublications == nil {
+		listPublications = service.Store.CurrentAltMountPublications
+	}
+	if planMissing == nil {
+		planMissing = service.Store.PlanMissingAltMountFile
+	}
+	paths, err := listPublications(ctx, altMountID)
+	if err != nil {
+		return counts, err
+	}
+	missing := map[string]bool{}
+	for _, path := range paths {
+		if ctx.Err() != nil {
+			return counts, ctx.Err()
+		}
+		relative, err := library.ValidateRelative(filepath.Clean(path))
+		if err != nil || relative != path {
+			counts["unsafe_path"]++
+			continue
+		}
+		err = service.statFile(filepath.Join(root, relative))
+		switch {
+		case err == nil:
+		case errors.Is(err, fs.ErrNotExist):
+			missing[path] = true
+		case errors.Is(err, errStatTimeout):
+			// A file that does not answer says nothing about whether it exists,
+			// and the next stat would likely block too.
+			slog.Warn("AltMount missing-file sweep stopped: a file did not answer", "file", path)
+			counts["unresponsive"]++
+			return counts, nil
+		default:
+			// Other errors (for example EIO on a corrupted file) belong to
+			// AltMount's corruption reports, not to this check.
+			counts["stat_error"]++
+		}
+	}
+	if len(missing) > missingFileLimit || float64(len(missing)) > missingFileShare*float64(len(paths)) {
+		slog.Warn("AltMount missing-file sweep skipped: too many files are missing at once", "missing", len(missing), "publications", len(paths))
+		service.rememberMissing(altMountID, nil)
+		counts["too_many_missing"] = len(missing)
+		return counts, nil
+	}
+	previous := service.rememberMissing(altMountID, missing)
+	now := time.Now().UTC()
+	for _, path := range sortedKeys(missing) {
+		if !previous[path] {
+			counts["missing_once"]++
+			continue
+		}
+		outcome, err := planMissing(ctx, altMountID, path, now)
+		if errors.Is(err, postgres.ErrConcurrentModification) {
+			counts["retry_next_sweep"]++
+			continue
+		}
+		if err != nil {
+			return counts, err
+		}
+		counts[outcome]++
+	}
+	return counts, nil
+}
+
+// rememberMissing stores this sweep's missing files for one AltMount client
+// and returns the previous sweep's.
+func (service *AltMountRepairService) rememberMissing(altMountID uuid.UUID, missing map[string]bool) map[string]bool {
+	service.missingMu.Lock()
+	defer service.missingMu.Unlock()
+	if service.missingSeen == nil {
+		service.missingSeen = map[uuid.UUID]map[string]bool{}
+	}
+	previous := service.missingSeen[altMountID]
+	service.missingSeen[altMountID] = missing
+	return previous
+}
+
+var errStatTimeout = errors.New("the file did not answer in time")
+
+// statFile reports whether a file exists on the mount, bounded in time: a
+// FUSE call can block indefinitely when AltMount hangs.
+func (service *AltMountRepairService) statFile(path string) error {
+	if service.StatFile != nil {
+		return service.StatFile(path)
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, err := os.Lstat(path)
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(missingFileStatTimeout):
+		return errStatTimeout
+	}
+}
+
+func sortedKeys(set map[string]bool) []string {
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Audio upgrades are paced: at most maxOpenAudioUpgrades search at a time,

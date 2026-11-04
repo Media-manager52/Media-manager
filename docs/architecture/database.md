@@ -142,6 +142,7 @@ non-obvious.
 | `plex_scan_requests` | Refresh/scan + exact confirmation polling state. |
 | `plex_confirmations` | Exact GUID/path confirmations. |
 | `recycle_entries` | Retention cycles for links and adopted real files. |
+| `altmount_repairs` | One broken published file and its replacement workflow. `reason` is `corrupted` (AltMount health reports missing articles; carries the health id), `missing_file` (the file is gone from the AltMount mount; no health id) or `missing_required_audio` (the library requires an audio language the file lacks). |
 
 ### Adoption
 
