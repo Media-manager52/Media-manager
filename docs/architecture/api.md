@@ -91,6 +91,7 @@ Notes:
 | POST | `/api/v1/media/{id}/workflows` | Create another scope workflow for existing media. |
 | DELETE | `/api/v1/media/{id}` | Recycle/archive a media item (safe delete path). |
 | POST | `/api/v1/media/{id}/archive` | Safe archive operation for unwanted media. |
+| POST | `/api/v1/media/{id}/unarchive` | Returns archived media to the active catalogue; cancelled workflows stay cancelled. |
 
 ### Workflows
 

@@ -325,6 +325,32 @@ func (server *Server) archiveMedia(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: result})
 }
 
+// unarchiveMedia returns archived media to the active catalog. Workflows the
+// archive cancelled stay cancelled; acquisition starts again only when asked.
+func (server *Server) unarchiveMedia(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "media ID is invalid")
+		return
+	}
+	result, err := server.store.UnarchiveMedia(request.Context(), id, time.Now().UTC())
+	switch {
+	case errors.Is(err, postgres.ErrNotFound):
+		writeError(writer, http.StatusNotFound, "not_found", "media was not found")
+		return
+	case errors.Is(err, postgres.ErrMediaInRecycleBin):
+		writeError(writer, http.StatusConflict, "unarchive_refused", "media is in the recycle bin; restore it from there")
+		return
+	case errors.Is(err, postgres.ErrConcurrentModification):
+		writeError(writer, http.StatusConflict, "concurrent_modification", "media changed while it was being restored; try again")
+		return
+	case err != nil:
+		writeError(writer, http.StatusInternalServerError, "database_error", "media could not be restored")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: result})
+}
+
 func (server *Server) recycleMedia(writer http.ResponseWriter, request *http.Request) {
 	id, err := uuid.Parse(request.PathValue("id"))
 	if err != nil {
