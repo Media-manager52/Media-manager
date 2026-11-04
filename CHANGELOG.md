@@ -6,6 +6,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **A release's list line shows only what held it back.** Under each found release the workflow page showed the first failed rules, including preferences that only rank releases, so a correctly chosen 2160p release read "observed evidence does not satisfy the rule" twice (it did not match the 1080p and 720p preferences). Only failed required rules (and unknown ones on a held release) are shown now, named and in Danish.
+
 - **Episodes are judged by their own runtime.** The check that excludes a video far shorter than expected (a fake, sample or cut-off release) used one runtime for a whole series, so real 12-minute episodes of a show TMDB lists at 30 minutes were excluded as fakes (The Garfield Show), and so were older episodes of shows whose format grew longer. A single-episode workflow is now judged by TMDB's runtime for that exact episode when it is shorter than the series runtime, matched by the episode ID in its frozen snapshot. Because release numbering can differ from TMDB's, the episode runtime only ever relaxes the check, never makes it stricter; without TMDB the series runtime is used as before. Movies and season packs are judged as before.
 - **Release files with a colon in their name can be imported.** The path guard refused any file whose name contained a colon as if it were a Windows drive (`C:`), so AltMount output such as `Miraculous:.Tales.of.Ladybug….mkv` was reported as unavailable even though it was there (12 episodes waited in *needs attention*). Only a real drive prefix (a letter followed by a colon) is refused now; every other path check is unchanged.
 
