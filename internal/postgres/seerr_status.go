@@ -22,12 +22,17 @@ type SeerrStatusSyncContext struct {
 	// PartialContent reports that a requested season that is not yet
 	// available already has at least one Plex-confirmed episode workflow.
 	PartialContent bool
+	// Edition is the confirmed workflow's edition. Seerr keeps 4K availability
+	// apart from standard availability, so only 4K requests and 4K workflows
+	// count towards a 4K status, and only standard ones towards the standard.
+	Edition string
 }
 
 // seerrSeasonAvailableSQL decides whether one requested Seerr season is
 // available. It expects the enclosing query to alias seerr_request_seasons as
 // season and to bind the media ID as $2. A season is available when Seerr
 // already reports it available, when the season workflow tracked by the request
+// (of edition $3)
 // is Plex-confirmed, or when every episode frozen in that season workflow's
 // latest expectation has its own Plex-confirmed single-episode workflow.
 // Airing seasons and seasons whose releases are only posted per episode are
@@ -42,7 +47,7 @@ const seerrSeasonAvailableSQL = `(season.availability_status=5 OR EXISTS(
 			ORDER BY expectation_set.frozen_at DESC,expectation_set.id DESC LIMIT 1
 		) expectation ON true
 		WHERE provenance.seerr_instance_id=season.seerr_instance_id
-		AND provenance.request_id=season.request_id AND workflow.media_id=$2
+		AND provenance.request_id=season.request_id AND workflow.media_id=$2 AND workflow.edition=$3
 		AND workflow.variant=('season:' || lpad(season.season_number::text,2,'0'))
 		AND (workflow.state='plex_confirmed' OR (
 			expectation.id IS NOT NULL
@@ -52,7 +57,7 @@ const seerrSeasonAvailableSQL = `(season.availability_status=5 OR EXISTS(
 				WHERE expected.expectation_id=expectation.id
 				AND NOT EXISTS(
 					SELECT 1 FROM workflows episode
-					WHERE episode.media_id=$2 AND episode.state='plex_confirmed'
+					WHERE episode.media_id=$2 AND episode.edition=$3 AND episode.state='plex_confirmed'
 					AND episode.variant=('season:' || lpad(expected.season::text,2,'0') || ':episode:' || lpad(expected.episode::text,2,'0'))
 				)
 			)
@@ -64,7 +69,7 @@ const seerrSeasonAvailableSQL = `(season.availability_status=5 OR EXISTS(
 // seerrSeasonAvailableSQL.
 const seerrSeasonPartialSQL = `EXISTS(
 		SELECT 1 FROM workflows episode
-		WHERE episode.media_id=$2 AND episode.state='plex_confirmed'
+		WHERE episode.media_id=$2 AND episode.edition=$3 AND episode.state='plex_confirmed'
 		AND episode.variant LIKE ('season:' || lpad(season.season_number::text,2,'0') || ':episode:%')
 	)`
 
@@ -72,9 +77,9 @@ func (store *Store) LoadSeerrStatusSyncContext(ctx context.Context, instanceID s
 	var result SeerrStatusSyncContext
 	var mediaText string
 	var state workflows.State
-	err := store.Pool.QueryRow(ctx, `SELECT workflow.media_id::text,media.kind,workflow.state
+	err := store.Pool.QueryRow(ctx, `SELECT workflow.media_id::text,media.kind,workflow.state,workflow.edition
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
-		WHERE workflow.id=$1`, workflowID.String()).Scan(&mediaText, &result.Kind, &state)
+		WHERE workflow.id=$1`, workflowID.String()).Scan(&mediaText, &result.Kind, &state, &result.Edition)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SeerrStatusSyncContext{}, ErrNotFound
 	}
@@ -100,9 +105,9 @@ func (store *Store) LoadSeerrStatusSyncContext(ctx context.Context, instanceID s
 			SELECT 1 FROM seerr_request_workflows provenance
 			JOIN workflows mapped ON mapped.id=provenance.workflow_id
 			WHERE provenance.seerr_instance_id=snapshot.seerr_instance_id
-			AND provenance.request_id=snapshot.request_id AND mapped.media_id=$2
+			AND provenance.request_id=snapshot.request_id AND mapped.media_id=$2 AND mapped.edition=$3
 		)
-		ORDER BY snapshot.request_id`, instanceID, result.MediaID.String())
+		ORDER BY snapshot.request_id`, instanceID, result.MediaID.String(), result.Edition)
 	if err != nil {
 		return SeerrStatusSyncContext{}, err
 	}
@@ -135,9 +140,9 @@ func (store *Store) LoadSeerrStatusSyncContext(ctx context.Context, instanceID s
 			SELECT 1 FROM seerr_request_workflows provenance
 			JOIN workflows mapped ON mapped.id=provenance.workflow_id
 			WHERE provenance.seerr_instance_id=season.seerr_instance_id
-			AND provenance.request_id=season.request_id AND mapped.media_id=$2
+			AND provenance.request_id=season.request_id AND mapped.media_id=$2 AND mapped.edition=$3
 		)
-		GROUP BY season.season_number ORDER BY season.season_number`, instanceID, result.MediaID.String())
+		GROUP BY season.season_number ORDER BY season.season_number`, instanceID, result.MediaID.String(), result.Edition)
 	if err != nil {
 		return SeerrStatusSyncContext{}, err
 	}
@@ -191,7 +196,7 @@ func (store *Store) QueueConfirmedSeerrStatusSyncs(ctx context.Context, instance
 			JOIN workflows tracked ON tracked.id=provenance.workflow_id
 			WHERE provenance.seerr_instance_id=$1 AND snapshot.state='2'
 			AND (tracked.id=workflow.id OR (
-				tracked.media_id=workflow.media_id AND tracked.variant LIKE 'season:%'
+				tracked.media_id=workflow.media_id AND tracked.edition=workflow.edition AND tracked.variant LIKE 'season:%'
 				AND tracked.variant NOT LIKE '%:episode:%'
 				AND workflow.variant LIKE tracked.variant || ':episode:%'
 			))
@@ -204,7 +209,7 @@ func (store *Store) QueueConfirmedSeerrStatusSyncs(ctx context.Context, instance
 		AND (workflow.variant NOT LIKE '%:episode:%' OR NOT EXISTS(
 			SELECT 1 FROM workflows sibling
 			JOIN outbox_events event ON event.aggregate_type='workflow' AND event.aggregate_id=sibling.id
-			WHERE sibling.media_id=workflow.media_id AND event.event_type='seerr.status_sync_requested'
+			WHERE sibling.media_id=workflow.media_id AND sibling.edition=workflow.edition AND event.event_type='seerr.status_sync_requested'
 			AND event.occurred_at>=workflow.terminal_at
 		))
 		ORDER BY workflow.terminal_at,workflow.id LIMIT $2`, instanceID, limit)
@@ -261,20 +266,20 @@ func (store *Store) QueueConfirmedSeerrStatusSyncs(ctx context.Context, instance
 // already synced for an earlier request still reaches Seerr, while replaying
 // the same snapshot stays idempotent. The payload names one confirmed workflow
 // because the status handler loads the media's state through it.
-func queueSeerrRequestStatusSync(ctx context.Context, transaction pgx.Tx, instanceID, requestID string, snapshotRevision int64, mediaID uuid.UUID, variants []string, now time.Time) error {
+func queueSeerrRequestStatusSync(ctx context.Context, transaction pgx.Tx, instanceID, requestID string, snapshotRevision int64, mediaID uuid.UUID, edition string, variants []string, now time.Time) error {
 	if len(variants) == 0 {
 		return nil
 	}
 	_, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		SELECT $1,'seerr_request',md5($2::text || ':' || $3::text)::uuid,$4,'seerr.status_sync_requested',jsonb_build_object('workflow_id',workflow.id::text),$5,$5
 		FROM workflows workflow
-		WHERE workflow.media_id=$6 AND workflow.state='plex_confirmed'
+		WHERE workflow.media_id=$6 AND workflow.edition=$8 AND workflow.state='plex_confirmed'
 		AND (workflow.variant=ANY($7::text[]) OR EXISTS(
 			SELECT 1 FROM unnest($7::text[]) requested(variant)
 			WHERE requested.variant LIKE 'season:%' AND workflow.variant LIKE requested.variant || ':episode:%'
 		))
 		ORDER BY workflow.terminal_at DESC NULLS LAST,workflow.id LIMIT 1
-		ON CONFLICT DO NOTHING`, uuid.NewV7().String(), instanceID, requestID, snapshotRevision, now.UTC(), mediaID.String(), variants)
+		ON CONFLICT DO NOTHING`, uuid.NewV7().String(), instanceID, requestID, snapshotRevision, now.UTC(), mediaID.String(), variants, edition)
 	return err
 }
 

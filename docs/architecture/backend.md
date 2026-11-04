@@ -412,7 +412,8 @@ routes Auto requests by metadata in `internal/postgres/seerr_routes.go`). No I/O
   `subtle.ConstantTimeCompare`.
 - `requireOwnerMutation` (commissioning v2) additionally requires configured
   service + trusted `Origin`, same-origin Fetch Metadata, and JSON content type.
-- `requireServarr` guards `/radarr/api/v3/*` and `/sonarr/api/v3/*` with the
+- `requireServarr` guards `/radarr/api/v3/*` and `/sonarr/api/v3/*` (and the
+  4K-edition `/radarr4k` and `/sonarr4k` twins) with the
   dedicated `SERVARR_API_KEY` (`X-Api-Key` header or `apikey` query parameter);
   an empty key disables the surface with `503`.
 - Helpers: `writeJSON` wraps success in `{ "data": ... }`; `writeError` emits

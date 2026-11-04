@@ -39,7 +39,7 @@ func TestSetMediaStatusUsesSupportedBoundedEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	media, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, []int16{2, 4, 2})
+	media, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, []int16{2, 4, 2}, false)
 	if err != nil || media.ID != 77 || calls != 1 {
 		t.Fatalf("status result=%+v calls=%d err=%v", media, calls, err)
 	}
@@ -61,7 +61,7 @@ func TestSetMediaStatusRejectsRedirectAndMismatchedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, nil); err == nil || redirectTargetCalls != 0 {
+	if _, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, nil, false); err == nil || redirectTargetCalls != 0 {
 		t.Fatalf("redirect followed or accepted: calls=%d err=%v", redirectTargetCalls, err)
 	}
 
@@ -73,7 +73,7 @@ func TestSetMediaStatusRejectsRedirectAndMismatchedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, nil); err == nil {
+	if _, err := client.SetMediaStatus(context.Background(), 77, MediaStatusAvailable, nil, false); err == nil {
 		t.Fatal("mismatched response media identity was accepted")
 	}
 }

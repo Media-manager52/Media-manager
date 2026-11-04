@@ -115,7 +115,7 @@ function Roots() {
   const sorted = [...query.data].sort((a, b) => a.media_kind.localeCompare(b.media_kind) || a.name.localeCompare(b.name, "da"))
   return (
     <Card>
-      <CardHeader title="Biblioteksmapper" description="Hver mappe svarer til et bibliotek i Plex. Standardmappen bruges, når hverken du eller en Seerr-regel vælger en anden." />
+      <CardHeader title="Biblioteksmapper" description="Hver mappe svarer til et bibliotek i Plex. Standardmappen bruges, når hverken du eller en Seerr-regel vælger en anden. En 4K-mappe holder en ekstra 4K-udgave og bruges kun, når 4K bestilles." />
       <ul className="divide-y divide-line">
         {sorted.map((root) => (
           <li key={root.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
@@ -123,13 +123,14 @@ function Roots() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{root.name}</span>
                 <Badge>{kindLabel(root.media_kind)}</Badge>
+                {root.edition === "4k" ? <Badge tone="info">4K</Badge> : null}
                 {root.is_default ? <Badge tone="info">Standard</Badge> : null}
                 {!root.enabled ? <Badge>Slået fra</Badge> : null}
               </div>
               <div className="mt-0.5 break-all text-xs text-text-3">{root.plex_visible_root || root.destination_root}</div>
             </div>
             <div className="flex gap-2">
-              {!root.is_default && root.enabled ? <Button className="h-8 text-xs" busy={mutation.isPending} onClick={() => mutation.mutate({ root, patch: { is_default: true } })}>Gør til standard</Button> : null}
+              {!root.is_default && root.enabled && root.edition !== "4k" ? <Button className="h-8 text-xs" busy={mutation.isPending} onClick={() => mutation.mutate({ root, patch: { is_default: true } })}>Gør til standard</Button> : null}
               {!root.is_default ? <Button variant="ghost" className="h-8 text-xs" busy={mutation.isPending} onClick={() => mutation.mutate({ root, patch: { enabled: !root.enabled } })}>{root.enabled ? "Slå fra" : "Slå til"}</Button> : null}
             </div>
           </li>

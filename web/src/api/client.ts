@@ -22,7 +22,7 @@ export type APIWorkflow = {
   available_actions?: APIWorkflowAction[]
   root_id?: string; quality_profile_id?: string
   access_rejected_candidate_id?: string; access_rejected_release_title?: string; access_rejected_indexer_name?: string
-  id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; state: string; revision: number
+  id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; variant: string; edition?: "standard" | "4k"; state: string; revision: number
   attention_code?: string; attention_detail?: string; acquisition_attempts?: number
   round_ordinal?: number; round_state?: string; round_slots_used?: number; round_attempt_limit?: number
   retry_discovery_state?: "waiting" | "ready" | "paused"; next_rescan_at?: string; last_discovery_at?: string; last_discovery_complete?: boolean
@@ -38,7 +38,7 @@ export type APIIntegration = { id: string; kind: string; name: string; enabled: 
 export type APISeerrRoute = { id: string; seerr_instance_id: string; media_kind: "movie" | "series"; root_folder: string; library_root_id: string; quality_profile_id?: string; enabled: boolean; created_at: string; updated_at: string }
 export type APISeerrObservedFolder = { media_kind: "movie" | "series"; root_folder: string; request_count: number; latest_at: string; route_id?: string; library_root_id?: string; quality_profile_id?: string; routed: boolean }
 export type APISeerrRouting = { routes: APISeerrRoute[]; observed_folders: APISeerrObservedFolder[] }
-export type APILibraryRoot = { id: string; media_kind: "movie" | "series"; name: string; destination_root: string; plex_visible_root: string; source_visible_root: string; plex_instance_id?: string; plex_library_id?: string; is_default: boolean; enabled: boolean }
+export type APILibraryRoot = { id: string; media_kind: "movie" | "series"; name: string; destination_root: string; plex_visible_root: string; source_visible_root: string; plex_instance_id?: string; plex_library_id?: string; edition?: "standard" | "4k"; is_default: boolean; enabled: boolean }
 export type APIQualityProfile = { id: string; media_kind: "movie" | "series"; name: string; policy_version: number; policy: Record<string, unknown>; upgrades_enabled: boolean; is_default: boolean; enabled: boolean }
 export type APIQualityProfilePreset = { preset: string; name: string; description: string; managed_facts: string[]; rules: Array<Record<string, unknown>> }
 export type APISubtitleVerification = { id: string; workflow_id: string; altmount_job_id: string; candidate_id: string; media_title: string; release_title: string; attempt_generation: number; status: "verified" | "unverified"; required_languages: string[]; preferred_languages: string[]; observed_languages: string[]; evidence: Record<string, unknown>; failure_reasons: string[]; retry_state: "not_needed" | "queued" | "succeeded" | "exhausted" | "no_alternate"; can_reverify: boolean; created_at: string }

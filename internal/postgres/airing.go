@@ -53,9 +53,9 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 
 	var mediaText, variant, workflowState string
 	var revision int64
-	var rootText, profileText string
+	var rootText, profileText, edition string
 	var clientText *string
-	if err := transaction.QueryRow(ctx, `SELECT media_id::text,variant,state,revision,root_id::text,quality_profile_id::text,download_client_id::text FROM workflows WHERE id=$1 FOR UPDATE`, workflowID.String()).Scan(&mediaText, &variant, &workflowState, &revision, &rootText, &profileText, &clientText); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT media_id::text,variant,state,revision,root_id::text,quality_profile_id::text,download_client_id::text,edition FROM workflows WHERE id=$1 FOR UPDATE`, workflowID.String()).Scan(&mediaText, &variant, &workflowState, &revision, &rootText, &profileText, &clientText, &edition); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, ErrNotFound
 		}
@@ -139,7 +139,7 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 		}
 	}
 
-	existing, err := loadEpisodeWorkflowStates(ctx, transaction, mediaID, scope.Season)
+	existing, err := loadEpisodeWorkflowStates(ctx, transaction, mediaID, scope.Season, edition)
 	if err != nil {
 		return false, err
 	}
@@ -193,7 +193,7 @@ func (store *Store) DispatchAiringSeason(ctx context.Context, workflowID uuid.UU
 		episodeWorkflowID := uuid.NewV7()
 		command, insertErr := transaction.Exec(ctx, `INSERT INTO workflows(id,media_id,state,root_id,quality_profile_id,download_client_id,variant,revision,created_at,updated_at)
 			VALUES($1,$2,'monitored',$3,$4,$5,$6,1,$7,$7)
-			ON CONFLICT (media_id,variant) WHERE terminal_at IS NULL DO NOTHING`, episodeWorkflowID.String(), mediaID.String(), rootID.String(), profileID.String(), nullableUUID(clientID), episodeVariant, now.UTC())
+			ON CONFLICT DO NOTHING`, episodeWorkflowID.String(), mediaID.String(), rootID.String(), profileID.String(), nullableUUID(clientID), episodeVariant, now.UTC())
 		if insertErr != nil {
 			return true, insertErr
 		}
@@ -298,8 +298,8 @@ func observedSeasonReleaseScopes(ctx context.Context, transaction pgx.Tx, workfl
 	return packs, episodes, rows.Err()
 }
 
-func loadEpisodeWorkflowStates(ctx context.Context, transaction pgx.Tx, mediaID uuid.UUID, season uint16) (map[uint16]string, error) {
-	rows, err := transaction.Query(ctx, `SELECT variant,state FROM workflows WHERE media_id=$1 AND variant LIKE $2`, mediaID.String(), fmt.Sprintf("season:%02d:episode:%%", season))
+func loadEpisodeWorkflowStates(ctx context.Context, transaction pgx.Tx, mediaID uuid.UUID, season uint16, edition string) (map[uint16]string, error) {
+	rows, err := transaction.Query(ctx, `SELECT variant,state FROM workflows WHERE media_id=$1 AND variant LIKE $2 AND edition=$3`, mediaID.String(), fmt.Sprintf("season:%02d:episode:%%", season), edition)
 	if err != nil {
 		return nil, err
 	}

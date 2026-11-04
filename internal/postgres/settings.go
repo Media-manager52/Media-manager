@@ -45,7 +45,23 @@ type LibraryRoot struct {
 	PlexLibraryID     string            `json:"plex_library_id,omitempty"`
 	Default           bool              `json:"is_default"`
 	Enabled           bool              `json:"enabled"`
+	// Edition is "standard" (every ordinary library) or "4k". A title can be
+	// kept once per edition; a 4K root is only used for 4K requests, cannot be
+	// a default and keeps its edition for life.
+	Edition string `json:"edition,omitempty"`
 }
+
+// Library editions.
+const (
+	EditionStandard = "standard"
+	Edition4K       = "4k"
+)
+
+// ValidEdition reports whether edition names a library edition.
+func ValidEdition(edition string) bool {
+	return edition == EditionStandard || edition == Edition4K
+}
+
 type QualityProfile struct {
 	ID              uuid.UUID         `json:"id"`
 	MediaKind       catalog.MediaKind `json:"media_kind"`
@@ -278,6 +294,13 @@ func (store *Store) CreateLibraryRoot(ctx context.Context, root LibraryRoot) (Li
 	if root.ID == (uuid.UUID{}) {
 		root.ID = uuid.NewV7()
 	}
+	root.Edition = strings.TrimSpace(root.Edition)
+	if root.Edition == "" {
+		root.Edition = EditionStandard
+	}
+	if !ValidEdition(root.Edition) || root.Edition == Edition4K && root.Default {
+		return LibraryRoot{}, errors.New("invalid library root edition: use standard or 4k, and a 4k root cannot be the default")
+	}
 	plexLibraryID, plexLibraryErr := strconv.ParseInt(strings.TrimSpace(root.PlexLibraryID), 10, 64)
 	if root.MediaKind != catalog.KindMovie && root.MediaKind != catalog.KindSeries || strings.TrimSpace(root.Name) == "" || !filepath.IsAbs(root.DestinationRoot) || !filepath.IsAbs(root.PlexVisibleRoot) || !filepath.IsAbs(root.SourceVisibleRoot) || root.PlexInstanceID == nil || plexLibraryErr != nil || plexLibraryID <= 0 {
 		return LibraryRoot{}, errors.New("invalid library root")
@@ -304,14 +327,22 @@ func (store *Store) CreateLibraryRoot(ctx context.Context, root LibraryRoot) (Li
 	root.PlexVisibleRoot = filepath.Clean(root.PlexVisibleRoot)
 	root.SourceVisibleRoot = filepath.Clean(root.SourceVisibleRoot)
 	root.PlexLibraryID = strings.TrimSpace(root.PlexLibraryID)
-	if _, err := transaction.Exec(ctx, `INSERT INTO library_roots(id,media_kind,name,destination_root,plex_visible_root,source_visible_root,plex_instance_id,plex_library_id,is_default,enabled) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9,$10)`, root.ID.String(), root.MediaKind, strings.TrimSpace(root.Name), filepath.Clean(root.DestinationRoot), filepath.Clean(root.PlexVisibleRoot), filepath.Clean(root.SourceVisibleRoot), plexInstance, root.PlexLibraryID, root.Default, root.Enabled); err != nil {
+	// The edition column is written only for a 4K root; a standard root takes
+	// the column default, so the same insert works on schemas before 54.
+	insert := `INSERT INTO library_roots(id,media_kind,name,destination_root,plex_visible_root,source_visible_root,plex_instance_id,plex_library_id,is_default,enabled) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9,$10)`
+	arguments := []any{root.ID.String(), root.MediaKind, strings.TrimSpace(root.Name), filepath.Clean(root.DestinationRoot), filepath.Clean(root.PlexVisibleRoot), filepath.Clean(root.SourceVisibleRoot), plexInstance, root.PlexLibraryID, root.Default, root.Enabled}
+	if root.Edition != EditionStandard {
+		insert = `INSERT INTO library_roots(id,media_kind,name,destination_root,plex_visible_root,source_visible_root,plex_instance_id,plex_library_id,is_default,enabled,edition) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9,$10,$11)`
+		arguments = append(arguments, root.Edition)
+	}
+	if _, err := transaction.Exec(ctx, insert, arguments...); err != nil {
 		return LibraryRoot{}, err
 	}
 	return root, transaction.Commit(ctx)
 }
 
 func (store *Store) ListLibraryRoots(ctx context.Context) ([]LibraryRoot, error) {
-	rows, err := store.Pool.Query(ctx, `SELECT id::text,media_kind,name,destination_root,plex_visible_root,source_visible_root,plex_instance_id::text,COALESCE(plex_library_id,''),is_default,enabled FROM library_roots ORDER BY media_kind,is_default DESC,name`)
+	rows, err := store.Pool.Query(ctx, `SELECT id::text,media_kind,name,destination_root,plex_visible_root,source_visible_root,plex_instance_id::text,COALESCE(plex_library_id,''),is_default,enabled,edition FROM library_roots ORDER BY media_kind,is_default DESC,name`)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +352,7 @@ func (store *Store) ListLibraryRoots(ctx context.Context) ([]LibraryRoot, error)
 		var root LibraryRoot
 		var idText string
 		var plexText *string
-		if err := rows.Scan(&idText, &root.MediaKind, &root.Name, &root.DestinationRoot, &root.PlexVisibleRoot, &root.SourceVisibleRoot, &plexText, &root.PlexLibraryID, &root.Default, &root.Enabled); err != nil {
+		if err := rows.Scan(&idText, &root.MediaKind, &root.Name, &root.DestinationRoot, &root.PlexVisibleRoot, &root.SourceVisibleRoot, &plexText, &root.PlexLibraryID, &root.Default, &root.Enabled, &root.Edition); err != nil {
 			return nil, err
 		}
 		root.ID, _ = uuid.Parse(idText)

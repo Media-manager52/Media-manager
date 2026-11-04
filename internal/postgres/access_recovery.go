@@ -36,7 +36,7 @@ const accessRejectedRetryQuery = `FROM workflows w
  AND (SELECT count(DISTINCT j.id) FROM altmount_jobs j JOIN altmount_output_inventories v ON v.job_id=j.id
   WHERE j.workflow_id=w.id AND j.acquisition_outcome IS NOT NULL AND j.acquisition_outcome<>'output_verified')<%d
  AND r.upgrade_baseline_link_versions=(SELECT COALESCE(string_agg(v.id::text,',' ORDER BY v.id),'') FROM workflows published
-  JOIN library_link_versions v ON v.workflow_id=published.id AND v.state='current' WHERE published.media_id=w.media_id AND published.variant=w.variant)
+  JOIN library_link_versions v ON v.workflow_id=published.id AND v.state='current' WHERE published.media_id=w.media_id AND published.variant=w.variant AND published.edition=w.edition)
  AND NOT EXISTS(SELECT 1 FROM workflow_attempted_releases a JOIN release_candidates attempted ON attempted.id=a.candidate_id
   WHERE a.workflow_id=w.id AND attempted.indexer_instance_id=c.indexer_instance_id AND attempted.native_key=c.native_key)
  AND NOT EXISTS(SELECT 1 FROM altmount_jobs j WHERE j.workflow_id=w.id AND
@@ -47,7 +47,7 @@ const accessRejectedRetryQuery = `FROM workflows w
  AND NOT EXISTS(SELECT 1 FROM release_blocks b WHERE (b.expires_at IS NULL OR b.expires_at>now()) AND
   ((b.scope='native_release' AND b.indexer_instance_id=c.indexer_instance_id AND b.native_key=c.native_key)
    OR (b.scope='pack_release' AND b.media_id=w.media_id AND b.variant=w.variant AND lower(b.release_title)=lower(c.title))))
- AND NOT EXISTS(SELECT 1 FROM adopted_files a WHERE a.media_id=w.media_id AND a.variant=w.variant AND a.state='current'
+ AND NOT EXISTS(SELECT 1 FROM adopted_files a WHERE w.edition='standard' AND a.media_id=w.media_id AND a.variant=w.variant AND a.state='current'
   AND NOT EXISTS(SELECT 1 FROM adopted_replacement_authorizations auth WHERE auth.workflow_id=w.id AND auth.adopted_file_id=a.id
    AND auth.destination_relative=a.destination_relative AND auth.source_size=a.source_size AND auth.source_modtime_ns=a.source_modtime_ns))`
 

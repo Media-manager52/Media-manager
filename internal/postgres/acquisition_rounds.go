@@ -39,7 +39,8 @@ func (store *Store) insertInitialAcquisitionRound(ctx context.Context, transacti
 		SELECT $1,$2,1,'open',$7,0,profile.policy_version,profile.policy,
 		COALESCE((SELECT string_agg(version.id::text,',' ORDER BY version.id) FROM library_link_versions version
 		 JOIN workflows published ON published.id=version.workflow_id
-		 WHERE published.media_id=$3 AND published.variant=$5 AND version.state='current'),''),$6
+		 WHERE published.media_id=$3 AND published.variant=$5 AND version.state='current'
+		   AND published.edition=(SELECT edition FROM workflows WHERE id=$2)),''),$6
 		FROM quality_profiles profile WHERE profile.id=$4`, roundID.String(), workflowID.String(), mediaID.String(), profileID.String(), variant, now.UTC(), store.AcquisitionLimits().AttemptsPerRound)
 	if err != nil {
 		return err
@@ -136,7 +137,7 @@ func (store *Store) ensureOpenAcquisitionRound(ctx context.Context, transaction 
 		return AcquisitionRound{}, err
 	}
 	err = transaction.QueryRow(ctx, `SELECT COALESCE(string_agg(version.id::text,',' ORDER BY version.id),'') FROM workflows requested
-		LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant
+		LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant AND published.edition=requested.edition
 		LEFT JOIN library_link_versions version ON version.workflow_id=published.id AND version.state='current'
 		WHERE requested.id=$1`, workflowID.String()).Scan(&result.UpgradeBaseline)
 	if err != nil {
@@ -266,7 +267,7 @@ func (store *Store) CompleteReleaseFailure(ctx context.Context, job AltMountJobC
 	failureKind := failureCode
 	switch failureCode {
 	case "season_pack_incomplete", "movie_primary_ambiguous", "output_empty", "media_identity_mismatch", "media_corrupt", "password_protected",
-		"archive_unsupported", "no_playable_media", "release_incomplete":
+		"archive_unsupported", "no_playable_media", "release_incomplete", "resolution_mismatch":
 	default:
 		return errors.New("failure is not safely classified as release-attributable")
 	}
@@ -347,7 +348,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 	}
 	var baseline string
 	err = transaction.QueryRow(ctx, `SELECT COALESCE(string_agg(version.id::text,',' ORDER BY version.id),'') FROM workflows requested
-		LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant
+		LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant AND published.edition=requested.edition
 		LEFT JOIN library_link_versions version ON version.workflow_id=published.id AND version.state='current'
 		WHERE requested.id=$1`, workflowID.String()).Scan(&baseline)
 	if err != nil {

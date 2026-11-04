@@ -116,12 +116,16 @@ docs.
 - **Acquisition round** — a durable period with an immutable configured
   submission limit (default two, range one–six), policy snapshot and upgrade
   baseline. Only the owner opens the next one.
+- **Edition** — `standard` or `4k`, set on a library root and copied to its
+  workflows. A title can have one active workflow per edition; the 4K edition
+  only keeps 2160p files and only receives 4K requests.
 - **Slot** — one of the round's bounded attempts. Only a release-attributable
   failure consumes a slot.
 - **Release-attributable failure** — a failure that can be blamed on the
   release itself: `season_pack_incomplete`, `movie_primary_ambiguous`,
   `output_empty`, `media_identity_mismatch`, `media_corrupt`,
-  `password_protected`. Excludes the exact release + package inside the
+  `password_protected`, `archive_unsupported`, `no_playable_media`,
+  `release_incomplete`, `resolution_mismatch`. Excludes the exact release + package inside the
   workflow.
 - **Infrastructure failure** — network/auth/mount/probe failures; the same job
   is reconciled and no release is blamed.

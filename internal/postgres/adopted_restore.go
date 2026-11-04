@@ -56,7 +56,7 @@ func (store *Store) RequestAdoptedRestore(ctx context.Context, entryID uuid.UUID
 		return err
 	}
 	var active int
-	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM workflows WHERE media_id=$1 AND variant=(SELECT variant FROM workflows WHERE id=$2) AND terminal_at IS NULL`, mediaText, replacementWorkflowText).Scan(&active); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM workflows WHERE media_id=$1 AND (variant,edition)=(SELECT variant,edition FROM workflows WHERE id=$2) AND terminal_at IS NULL`, mediaText, replacementWorkflowText).Scan(&active); err != nil {
 		return err
 	}
 	if active != 0 {

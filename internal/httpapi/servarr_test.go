@@ -192,6 +192,27 @@ func TestServarrCompatibilityAPI(t *testing.T) {
 		t.Fatalf("library movie=%+v", library)
 	}
 
+	// Seerr's 4K servers use the /radarr4k and /sonarr4k twins: they offer a
+	// root folder only once a 4K root exists and report the 4K edition alone.
+	status, payload = call(http.MethodGet, "/radarr4k/api/v3/rootfolder?apikey="+testServarrKey, nil, "")
+	if status != http.StatusOK || strings.TrimSpace(string(payload)) != "[]" {
+		t.Fatalf("4K rootfolder without a 4K root status=%d body=%s", status, payload)
+	}
+	if _, err := store.CreateLibraryRoot(ctx, postgres.LibraryRoot{MediaKind: catalog.KindMovie, Name: "Movies 4K", DestinationRoot: "/libraries/movies-4k", PlexVisibleRoot: "/media/movies-4k", SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: movieRoot.PlexInstanceID, PlexLibraryID: "3", Edition: postgres.Edition4K, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	status, payload = call(http.MethodGet, "/radarr4k/api/v3/rootfolder?apikey="+testServarrKey, nil, "")
+	if status != http.StatusOK || !strings.Contains(string(payload), servarr.AutoRootPath) {
+		t.Fatalf("4K rootfolder status=%d body=%s", status, payload)
+	}
+	status, payload = call(http.MethodGet, "/radarr4k/api/v3/movie?apikey="+testServarrKey+"&tmdbId=555002", nil, "")
+	if status != http.StatusOK || !strings.Contains(string(payload), `"hasFile":false`) {
+		t.Fatalf("4K library movie status=%d body=%s", status, payload)
+	}
+	if status, payload = call(http.MethodGet, "/sonarr4k/api/v3/rootfolder?apikey="+testServarrKey, nil, ""); status != http.StatusOK || strings.TrimSpace(string(payload)) != "[]" {
+		t.Fatalf("4K series rootfolder without a 4K series root status=%d body=%s", status, payload)
+	}
+
 	status, payload = call(http.MethodGet, "/sonarr/api/v3/languageprofile?apikey="+testServarrKey, nil, "")
 	if status != http.StatusOK || !strings.Contains(string(payload), "English") {
 		t.Fatalf("language profiles status=%d body=%s", status, payload)

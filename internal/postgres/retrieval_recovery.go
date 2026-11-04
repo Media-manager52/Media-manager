@@ -84,7 +84,7 @@ func (store *Store) inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, re
 		(SELECT count(DISTINCT j.id) FROM altmount_jobs j JOIN altmount_output_inventories i ON i.job_id=j.id
 		 WHERE j.workflow_id=r.workflow_id AND j.acquisition_outcome IS NOT NULL AND j.acquisition_outcome<>'output_verified'),
 		(SELECT COALESCE(string_agg(v.id::text,',' ORDER BY v.id),'') FROM workflows requested
-		 JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant
+		 JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant AND published.edition=requested.edition
 		 JOIN library_link_versions v ON v.workflow_id=published.id AND v.state='current' WHERE requested.id=r.workflow_id)
 		FROM acquisition_rounds r WHERE r.workflow_id=$1 AND r.state='open' FOR UPDATE OF r`, retrieval.Workflow.ID.String()).Scan(
 		&result.roundID, &roundPolicy, &result.policy, &limit, &baseline, &used, &result.failures, &retained, &currentBaseline)

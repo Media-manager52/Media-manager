@@ -166,7 +166,13 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		}
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "observed_not_approved", "")
 	}
-	if request.Media.Status == 5 {
+	mediaStatus := request.Media.Status
+	if request.Is4K {
+		// Seerr tracks 4K availability separately; a title available in
+		// standard quality can still be requested in 4K.
+		mediaStatus = request.Media.Status4K
+	}
+	if mediaStatus == 5 {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "already_available", "")
 	}
 	if intake.Kind == catalog.KindSeries {
@@ -210,6 +216,10 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", "multiple enabled quality profiles route this original language")
 	} else if errors.Is(err, postgres.ErrSeerrRouteUnmapped) {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", fmt.Sprintf("Seerr chose root folder %q; map it to a Media Manager library root in Settings → Connections", intake.RootFolder))
+	} else if errors.Is(err, postgres.ErrSeerrEditionMismatch) {
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", fmt.Sprintf("Seerr folder %q maps to a library root of the other edition; 4K requests need a 4K library root and standard requests a standard one", intake.RootFolder))
+	} else if errors.Is(err, postgres.ErrSeerr4KRootMissing) {
+		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", "this is a 4K request; create an enabled 4K library root for its media kind in Settings → Libraries")
 	} else if errors.Is(err, postgres.ErrSeerrRouteTargetUnavailable) {
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "needs_configuration", fmt.Sprintf("the Media Manager root or quality profile mapped to Seerr folder %q is disabled or unavailable", intake.RootFolder))
 	} else if err != nil {
@@ -240,6 +250,9 @@ func seerrIntakeHash(request seerradapter.Request, intake postgres.SeerrIntake) 
 	// change after a Seerr request is created.
 	hashable := request
 	hashable.ServerID, hashable.ProfileID, hashable.RootFolder = 0, 0, ""
+	// The 4K media status is read for 4K requests only; leaving it out keeps
+	// the stored hash of every existing snapshot unchanged.
+	hashable.Media.Status4K = 0
 	canonical, _ := json.Marshal(struct {
 		Request    seerradapter.Request       `json:"request"`
 		Title      string                     `json:"title"`

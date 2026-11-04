@@ -16,7 +16,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-const CurrentSchemaVersion int64 = 53
+const CurrentSchemaVersion int64 = 54
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return migrateThrough(ctx, pool, CurrentSchemaVersion)

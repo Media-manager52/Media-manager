@@ -12,38 +12,40 @@ import (
 )
 
 type WorkflowSummary struct {
-	ID                    uuid.UUID         `json:"id"`
-	MediaID               uuid.UUID         `json:"media_id"`
-	MediaKind             catalog.MediaKind `json:"media_kind"`
-	Title                 string            `json:"title"`
-	Year                  *uint16           `json:"year,omitempty"`
-	Variant               string            `json:"variant"`
-	State                 workflows.State   `json:"state"`
-	Revision              uint64            `json:"revision"`
-	AttentionCode         string            `json:"attention_code,omitempty"`
-	AttentionDetail       string            `json:"attention_detail,omitempty"`
-	AcquisitionAttempts   int               `json:"acquisition_attempts"`
-	RoundOrdinal          int               `json:"round_ordinal"`
-	RoundState            string            `json:"round_state,omitempty"`
-	RoundSlotsUsed        int               `json:"round_slots_used"`
-	RoundAttemptLimit     int               `json:"round_attempt_limit"`
-	RetryDiscoveryState   string            `json:"retry_discovery_state,omitempty"`
-	NextRescanAt          *time.Time        `json:"next_rescan_at,omitempty"`
-	LastDiscoveryAt       *time.Time        `json:"last_discovery_at,omitempty"`
-	LastDiscoveryComplete *bool             `json:"last_discovery_complete,omitempty"`
-	CompleteNoNewScans    int               `json:"complete_no_new_scans"`
-	NewReleaseReady       bool              `json:"new_release_ready"`
-	ReadyCandidateID      *uuid.UUID        `json:"ready_candidate_id,omitempty"`
-	ReadyReleaseTitle     string            `json:"ready_release_title,omitempty"`
-	ReadyIndexerName      string            `json:"ready_indexer_name,omitempty"`
-	ReadyFirstObservedAt  *time.Time        `json:"ready_first_observed_at,omitempty"`
-	OpenNextRoundAllowed  bool              `json:"open_next_round_allowed"`
-	RetainedOutputLimit   int               `json:"retained_output_limit"`
-	RetainedOutputCount   int               `json:"retained_output_count"`
-	RetainedOutputBytes   int64             `json:"retained_output_bytes"`
-	ExcludedReleaseCount  int               `json:"excluded_release_count"`
-	SearchAllowed         bool              `json:"search_allowed"`
-	SearchBlockedReason   string            `json:"search_blocked_reason,omitempty"`
+	ID        uuid.UUID         `json:"id"`
+	MediaID   uuid.UUID         `json:"media_id"`
+	MediaKind catalog.MediaKind `json:"media_kind"`
+	Title     string            `json:"title"`
+	Year      *uint16           `json:"year,omitempty"`
+	Variant   string            `json:"variant"`
+	// Edition is "standard" or "4k"; a title can have one workflow of each.
+	Edition               string          `json:"edition"`
+	State                 workflows.State `json:"state"`
+	Revision              uint64          `json:"revision"`
+	AttentionCode         string          `json:"attention_code,omitempty"`
+	AttentionDetail       string          `json:"attention_detail,omitempty"`
+	AcquisitionAttempts   int             `json:"acquisition_attempts"`
+	RoundOrdinal          int             `json:"round_ordinal"`
+	RoundState            string          `json:"round_state,omitempty"`
+	RoundSlotsUsed        int             `json:"round_slots_used"`
+	RoundAttemptLimit     int             `json:"round_attempt_limit"`
+	RetryDiscoveryState   string          `json:"retry_discovery_state,omitempty"`
+	NextRescanAt          *time.Time      `json:"next_rescan_at,omitempty"`
+	LastDiscoveryAt       *time.Time      `json:"last_discovery_at,omitempty"`
+	LastDiscoveryComplete *bool           `json:"last_discovery_complete,omitempty"`
+	CompleteNoNewScans    int             `json:"complete_no_new_scans"`
+	NewReleaseReady       bool            `json:"new_release_ready"`
+	ReadyCandidateID      *uuid.UUID      `json:"ready_candidate_id,omitempty"`
+	ReadyReleaseTitle     string          `json:"ready_release_title,omitempty"`
+	ReadyIndexerName      string          `json:"ready_indexer_name,omitempty"`
+	ReadyFirstObservedAt  *time.Time      `json:"ready_first_observed_at,omitempty"`
+	OpenNextRoundAllowed  bool            `json:"open_next_round_allowed"`
+	RetainedOutputLimit   int             `json:"retained_output_limit"`
+	RetainedOutputCount   int             `json:"retained_output_count"`
+	RetainedOutputBytes   int64           `json:"retained_output_bytes"`
+	ExcludedReleaseCount  int             `json:"excluded_release_count"`
+	SearchAllowed         bool            `json:"search_allowed"`
+	SearchBlockedReason   string          `json:"search_blocked_reason,omitempty"`
 
 	// Exact eligible access rejection the owner can retry after repairing provider access.
 	AccessRejectedCandidateID  *uuid.UUID `json:"access_rejected_candidate_id,omitempty"`
@@ -146,7 +148,7 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 	if workflowID != nil {
 		workflowIDValue = workflowID.String()
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(NULLIF(workflow.attention_detail,''),(SELECT transition.reason FROM workflow_transitions transition WHERE transition.workflow_id=workflow.id AND transition.to_state='needs_attention' ORDER BY transition.to_revision DESC LIMIT 1),''),
+	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.media_id::text,media.kind,media.title,media.year,workflow.variant,workflow.edition,workflow.state,workflow.revision,COALESCE(workflow.attention_code,''),COALESCE(NULLIF(workflow.attention_detail,''),(SELECT transition.reason FROM workflow_transitions transition WHERE transition.workflow_id=workflow.id AND transition.to_state='needs_attention' ORDER BY transition.to_revision DESC LIMIT 1),''),
 		COALESCE((SELECT max(job.attempt_generation) FROM altmount_jobs job WHERE job.workflow_id=workflow.id),0),
 		COALESCE((SELECT round.round_ordinal FROM acquisition_rounds round WHERE round.workflow_id=workflow.id ORDER BY round.round_ordinal DESC LIMIT 1),0),
 		COALESCE((SELECT round.state FROM acquisition_rounds round WHERE round.workflow_id=workflow.id ORDER BY round.round_ordinal DESC LIMIT 1),''),
@@ -167,7 +169,7 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		(SELECT count(*) FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=workflow.id),
 		EXISTS(SELECT 1 FROM library_link_versions version WHERE version.workflow_id=workflow.id AND version.state IN ('publishing','verified','current','quarantined')),
 		COALESCE((SELECT job.state='needs_attention' FROM altmount_jobs job WHERE job.id=workflow.grab_attempt_id),false),
-		EXISTS(SELECT 1 FROM adopted_files adopted WHERE adopted.media_id=workflow.media_id AND adopted.variant=workflow.variant AND adopted.state='current' AND NOT EXISTS(SELECT 1 FROM adopted_replacement_authorizations replacement_auth WHERE replacement_auth.workflow_id=workflow.id AND replacement_auth.adopted_file_id=adopted.id AND replacement_auth.destination_relative=adopted.destination_relative AND replacement_auth.source_size=adopted.source_size AND replacement_auth.source_modtime_ns=adopted.source_modtime_ns)),
+		EXISTS(SELECT 1 FROM adopted_files adopted WHERE workflow.edition='standard' AND adopted.media_id=workflow.media_id AND adopted.variant=workflow.variant AND adopted.state='current' AND NOT EXISTS(SELECT 1 FROM adopted_replacement_authorizations replacement_auth WHERE replacement_auth.workflow_id=workflow.id AND replacement_auth.adopted_file_id=adopted.id AND replacement_auth.destination_relative=adopted.destination_relative AND replacement_auth.source_size=adopted.source_size AND replacement_auth.source_modtime_ns=adopted.source_modtime_ns)),
 		workflow.terminal_at,workflow.created_at,workflow.updated_at,
 		progress.progress_percent,COALESCE(progress.progress_stage,''),progress.progress_observed_at,
 		COALESCE(profile.name,''),access_retry.id,COALESCE(access_retry.title,''),COALESCE(access_retry.indexer_name,''),
@@ -197,7 +199,7 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		var revision int64
 		var publicationStarted, currentJobNeedsAttention bool
 		var downloadPercent *int16
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Edition, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

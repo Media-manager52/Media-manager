@@ -41,6 +41,8 @@ type Media struct {
 	IMDbID    string `json:"imdbId"`
 	MediaType string `json:"mediaType"`
 	Status    int    `json:"status"`
+	// Status4K is the media's 4K availability, kept apart from Status.
+	Status4K int `json:"status4k,omitempty"`
 }
 type Season struct {
 	ID           int64 `json:"id"`
@@ -59,6 +61,8 @@ type statusSeason struct {
 }
 type statusRequest struct {
 	Seasons []statusSeason `json:"seasons,omitempty"`
+	// Is4K sets the media's 4K status instead of its standard status.
+	Is4K bool `json:"is4k,omitempty"`
 }
 type RequestedBy struct {
 	DisplayName string `json:"displayName"`
@@ -325,11 +329,11 @@ func (client *Client) DecideRequest(ctx context.Context, id int64, decision Requ
 	return result, nil
 }
 
-func (client *Client) SetMediaStatus(ctx context.Context, id int64, status MediaStatus, seasons []int16) (Media, error) {
+func (client *Client) SetMediaStatus(ctx context.Context, id int64, status MediaStatus, seasons []int16, is4k bool) (Media, error) {
 	if id <= 0 || (status != MediaStatusAvailable && status != MediaStatusPartial) {
 		return Media{}, ErrInvalidConfig
 	}
-	payload := statusRequest{}
+	payload := statusRequest{Is4K: is4k}
 	if status == MediaStatusAvailable {
 		seen := make(map[int16]struct{}, len(seasons))
 		for _, season := range seasons {

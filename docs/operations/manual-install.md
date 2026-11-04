@@ -223,6 +223,18 @@ Plex-confirmed publications. Requests created while Seerr still pointed at an
 older server keep working through the Seerr root-folder routes in Settings →
 Connections. Radarr and Sonarr are then not part of the stack at all.
 
+### A 4K edition
+
+To keep a 4K copy beside the standard one, create a separate Plex library for
+it (for example `Film 4K` on `/media/Film 4K`), then a Media Manager library
+root with `"edition": "4k"` for it (`POST /api/v1/settings/library-roots`; a 4K
+root cannot be the default). In Seerr, add a second Radarr and Sonarr server
+with **4K** enabled, the same settings as above but base URL `/radarr4k` and
+`/sonarr4k`, and the Auto root folder. A request made with Seerr's 4K button
+then goes to the 4K root, acquires only 2160p releases, and is reported back
+to Seerr as 4K. While a title has a 4K edition its standard edition acquires at
+most 1080p.
+
 ## Operations
 
 - Liveness: `GET /health/live`

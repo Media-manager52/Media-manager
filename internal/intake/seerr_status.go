@@ -17,7 +17,7 @@ var ErrSeerrStatusIdentityMismatch = errors.New("Seerr status target identity do
 
 type seerrStatusClient interface {
 	Request(context.Context, int64) (seerradapter.Request, error)
-	SetMediaStatus(context.Context, int64, seerradapter.MediaStatus, []int16) (seerradapter.Media, error)
+	SetMediaStatus(context.Context, int64, seerradapter.MediaStatus, []int16, bool) (seerradapter.Media, error)
 }
 
 type seerrStatusStore interface {
@@ -72,7 +72,10 @@ func (service *SeerrStatusService) Handle(ctx context.Context, event postgres.Ou
 	if !found {
 		return seerradapter.ErrRequestNotFound
 	}
-	if current.Media.ID <= 0 || current.Is4K || !seerrStatusIdentityMatches(statusContext, current) {
+	// A 4K request is answered with the 4K edition's state and a standard
+	// request with the standard edition's; Seerr keeps the two statuses apart.
+	is4k := statusContext.Edition == postgres.Edition4K
+	if current.Media.ID <= 0 || current.Is4K != is4k || !seerrStatusIdentityMatches(statusContext, current) {
 		return ErrSeerrStatusIdentityMismatch
 	}
 
@@ -85,14 +88,14 @@ func (service *SeerrStatusService) Handle(ctx context.Context, event postgres.Ou
 		if !statusContext.PartialContent {
 			return nil
 		}
-		_, err := service.Client.SetMediaStatus(ctx, current.Media.ID, seerradapter.MediaStatusPartial, nil)
+		_, err := service.Client.SetMediaStatus(ctx, current.Media.ID, seerradapter.MediaStatusPartial, nil, is4k)
 		return err
 	}
-	if _, err := service.Client.SetMediaStatus(ctx, current.Media.ID, seerradapter.MediaStatusAvailable, statusContext.AvailableSeasons); err != nil {
+	if _, err := service.Client.SetMediaStatus(ctx, current.Media.ID, seerradapter.MediaStatusAvailable, statusContext.AvailableSeasons, is4k); err != nil {
 		return err
 	}
 	if statusContext.Kind == catalog.KindSeries && !statusContext.AllAvailable {
-		if _, err := service.Client.SetMediaStatus(ctx, current.Media.ID, seerradapter.MediaStatusPartial, nil); err != nil {
+		if _, err := service.Client.SetMediaStatus(ctx, current.Media.ID, seerradapter.MediaStatusPartial, nil, is4k); err != nil {
 			return err
 		}
 	}

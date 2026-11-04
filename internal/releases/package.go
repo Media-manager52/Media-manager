@@ -28,6 +28,9 @@ const (
 	PackageFailureArchiveUnsupported = "archive_unsupported"
 	PackageFailureNoPlayableMedia    = "no_playable_media"
 	PackageFailureReleaseIncomplete  = "release_incomplete"
+	// PackageFailureResolutionMismatch: a 4K edition's verified file is not
+	// actually 2160p.
+	PackageFailureResolutionMismatch = "resolution_mismatch"
 )
 
 // PackageClassification is the screening result for one NZB manifest.

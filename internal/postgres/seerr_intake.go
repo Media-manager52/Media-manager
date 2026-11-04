@@ -173,6 +173,32 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 			return IntakeResult{}, err
 		}
 	}
+	// A 4K request is kept in a 4K library root and a standard request in a
+	// standard one: the two editions of a title are separate copies. A 4K
+	// request sent to Media Manager's automatic root (or without a folder)
+	// goes to the kind's 4K root; an explicit folder that maps to the other
+	// edition is a configuration error, never silently rerouted.
+	var edition string
+	if err := transaction.QueryRow(ctx, `SELECT edition FROM library_roots WHERE id=$1`, rootText).Scan(&edition); err != nil {
+		return IntakeResult{}, err
+	}
+	wantEdition := EditionStandard
+	if intake.Is4K {
+		wantEdition = Edition4K
+	}
+	if edition != wantEdition {
+		if !intake.Is4K || (strings.TrimSpace(intake.RootFolder) != "" && !autoRoot) {
+			return IntakeResult{}, ErrSeerrEditionMismatch
+		}
+		err := transaction.QueryRow(ctx, `SELECT root.id::text FROM library_roots root JOIN integration_instances plex ON plex.id=root.plex_instance_id AND plex.kind='plex' AND plex.enabled WHERE root.media_kind=$1 AND root.edition='4k' AND root.enabled AND root.plex_library_id IS NOT NULL ORDER BY root.name,root.id LIMIT 1`, intake.Kind).Scan(&rootText)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return IntakeResult{}, ErrSeerr4KRootMissing
+		}
+		if err != nil {
+			return IntakeResult{}, err
+		}
+		edition = Edition4K
+	}
 	if profileText == "" && !autoRoot {
 		// A profile chosen against Media Manager's own servarr API always wins;
 		// otherwise keep the original-language routing. Auto requests delegate
@@ -286,15 +312,17 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		}
 	}
 	for _, variant := range variants {
+		// Adopted files and their adoption are the standard edition; a 4K
+		// request keeps its own copy next to them.
 		var adoptionMonitoringReserved bool
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adoption_items adoption_item JOIN adoption_batches batch ON batch.id=adoption_item.batch_id WHERE adoption_item.media_id=$1 AND adoption_item.variant=$2 AND adoption_item.review_state='approved' AND COALESCE(adoption_item.monitoring_enabled,false) AND batch.state='executing')`, result.MediaID.String(), variant.Name).Scan(&adoptionMonitoringReserved); err != nil {
+		if err := transaction.QueryRow(ctx, `SELECT $3='standard' AND EXISTS(SELECT 1 FROM adoption_items adoption_item JOIN adoption_batches batch ON batch.id=adoption_item.batch_id WHERE adoption_item.media_id=$1 AND adoption_item.variant=$2 AND adoption_item.review_state='approved' AND COALESCE(adoption_item.monitoring_enabled,false) AND batch.state='executing')`, result.MediaID.String(), variant.Name, edition).Scan(&adoptionMonitoringReserved); err != nil {
 			return IntakeResult{}, err
 		}
 		if adoptionMonitoringReserved {
 			return IntakeResult{}, ErrAdoptionMonitoringReserved
 		}
 		var adoptedProtected bool
-		if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state IN ('current','recycle_planned','retained','restore_confirming','restore_attention'))`, result.MediaID.String(), variant.Name).Scan(&adoptedProtected); err != nil {
+		if err := transaction.QueryRow(ctx, `SELECT $3='standard' AND EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND variant=$2 AND state IN ('current','recycle_planned','retained','restore_confirming','restore_attention'))`, result.MediaID.String(), variant.Name, edition).Scan(&adoptedProtected); err != nil {
 			return IntakeResult{}, err
 		}
 		if adoptedProtected {
@@ -303,7 +331,7 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		var existingText string
 		var existingState string
 		var existingRevision int64
-		err := transaction.QueryRow(ctx, `SELECT id::text,state,revision FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL`, result.MediaID.String(), variant.Name).Scan(&existingText, &existingState, &existingRevision)
+		err := transaction.QueryRow(ctx, `SELECT id::text,state,revision FROM workflows WHERE media_id=$1 AND variant=$2 AND edition=$3 AND terminal_at IS NULL`, result.MediaID.String(), variant.Name, edition).Scan(&existingText, &existingState, &existingRevision)
 		if err == nil {
 			replaceExisting := false
 			existing, _ := uuid.Parse(existingText)
@@ -363,7 +391,7 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 		// request snapshot below. Recycled media is rejected earlier, so a
 		// confirmed workflow still means live content.
 		var confirmedText string
-		confirmedErr := transaction.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND state='plex_confirmed' ORDER BY terminal_at DESC NULLS LAST,id LIMIT 1`, result.MediaID.String(), variant.Name).Scan(&confirmedText)
+		confirmedErr := transaction.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND edition=$3 AND state='plex_confirmed' ORDER BY terminal_at DESC NULLS LAST,id LIMIT 1`, result.MediaID.String(), variant.Name, edition).Scan(&confirmedText)
 		if confirmedErr == nil {
 			confirmed, parseErr := uuid.Parse(confirmedText)
 			if parseErr != nil {
@@ -424,7 +452,7 @@ func (store *Store) EnsureMediaFromSeerr(ctx context.Context, intake SeerrIntake
 	for _, variant := range variants {
 		requestedVariants = append(requestedVariants, variant.Name)
 	}
-	if err := queueSeerrRequestStatusSync(ctx, transaction, intake.InstanceID, intake.RequestID, snapshotRevision, result.MediaID, requestedVariants, now); err != nil {
+	if err := queueSeerrRequestStatusSync(ctx, transaction, intake.InstanceID, intake.RequestID, snapshotRevision, result.MediaID, edition, requestedVariants, now); err != nil {
 		return IntakeResult{}, err
 	}
 	detail, _ := json.Marshal(map[string]any{"seerr_request_id": intake.RequestID, "workflow_ids": result.WorkflowIDs})
@@ -535,7 +563,7 @@ func (store *Store) ReconcileSeerrRevocation(ctx context.Context, instanceID, re
 			JOIN workflows tracked ON tracked.id=provenance.workflow_id
 			WHERE provenance.seerr_instance_id=$1 AND provenance.request_id=$2 AND provenance.owns_workflow
 			AND (tracked.id=workflow.id OR (
-				tracked.media_id=workflow.media_id AND tracked.variant LIKE 'season:%'
+				tracked.media_id=workflow.media_id AND tracked.edition=workflow.edition AND tracked.variant LIKE 'season:%'
 				AND tracked.variant NOT LIKE '%:episode:%'
 				AND workflow.variant LIKE tracked.variant || ':episode:%'
 			))
@@ -546,7 +574,7 @@ func (store *Store) ReconcileSeerrRevocation(ctx context.Context, instanceID, re
 			JOIN workflows other_tracked ON other_tracked.id=other.workflow_id
 			WHERE NOT (other.seerr_instance_id=$1 AND other.request_id=$2) AND snapshot.state='2'
 			AND (other_tracked.id=workflow.id OR (
-				other_tracked.media_id=workflow.media_id AND other_tracked.variant LIKE 'season:%'
+				other_tracked.media_id=workflow.media_id AND other_tracked.edition=workflow.edition AND other_tracked.variant LIKE 'season:%'
 				AND other_tracked.variant NOT LIKE '%:episode:%'
 				AND workflow.variant LIKE other_tracked.variant || ':episode:%'
 			))

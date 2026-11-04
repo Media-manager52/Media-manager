@@ -1076,6 +1076,9 @@
           "destination_root": {
             "type": "string"
           },
+          "edition": {
+            "type": "string"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -1506,6 +1509,9 @@
             "type": "integer"
           },
           "download_stage": {
+            "type": "string"
+          },
+          "edition": {
             "type": "string"
           },
           "excluded_release_count": {

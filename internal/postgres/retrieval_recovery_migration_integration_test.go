@@ -7,6 +7,7 @@ import (
 
 func TestRetrievalRecoveryMigrationPreservesParkedWork(t *testing.T) {
 	f := newFailureRecoveryFixture(t, 40)
+	addLegacyEditionShim(t, f.ctx, f.store)
 	w := f.newMovieWorkflow(t, "Historical retrieval failure", "910040")
 	r := seedRetrievalCandidate(t, f.ctx, f.store, w.ID, f.indexer.ID, "historical-invalid")
 	if _, err := f.store.Pool.Exec(f.ctx, `INSERT INTO workflow_release_exclusions(workflow_id,candidate_id,indexer_instance_id,native_key,failure_kind,reason,created_at)
@@ -21,6 +22,7 @@ func TestRetrievalRecoveryMigrationPreservesParkedWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := f.count(t, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1`, w.ID.String())
+	dropLegacyEditionShim(t, f.ctx, f.store)
 	if err := Migrate(f.ctx, f.store.Pool); err != nil {
 		t.Fatal(err)
 	}

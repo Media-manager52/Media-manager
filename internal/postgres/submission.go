@@ -185,7 +185,7 @@ func (store *Store) BeginAltMountSubmission(ctx context.Context, retrieval Retri
 	}
 	var currentBaseline string
 	err = transaction.QueryRow(ctx, `SELECT COALESCE(string_agg(version.id::text,',' ORDER BY version.id),'') FROM workflows requested
-		LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant
+		LEFT JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant AND published.edition=requested.edition
 		LEFT JOIN library_link_versions version ON version.workflow_id=published.id AND version.state='current'
 		WHERE requested.id=$1`, retrieval.Workflow.ID.String()).Scan(&currentBaseline)
 	if err != nil {

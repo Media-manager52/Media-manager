@@ -92,6 +92,7 @@ func TestSearchPartialRetryMigrationFromPopulatedSchema49(t *testing.T) {
 	}
 	ctx := context.Background()
 	store := subtitleIntegrationStore(t, ctx, databaseURL, 49)
+	addLegacyEditionShim(t, ctx, store)
 	workflow, search, retry, fingerprint := seedPopulatedSchema49(t, ctx, store)
 	if search.SearchRoundID == (uuid.UUID{}) {
 		t.Fatal("seeded schema-49 round id is missing")
@@ -110,6 +111,7 @@ func TestSearchPartialRetryMigrationFromPopulatedSchema49(t *testing.T) {
 		t.Fatalf("schema-49 seed baseline version=%d runs=%d observations=%d candidates=%d decisions=%d", baselineVersion, baselineSearchRuns, baselineObservations, baselineCandidates, baselineDecisions)
 	}
 
+	dropLegacyEditionShim(t, ctx, store)
 	if err := migrateThrough(ctx, store.Pool, 50); err != nil {
 		t.Fatalf("apply migration 50: %v", err)
 	}

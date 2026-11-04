@@ -276,6 +276,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		if detail, tooShort := outputTooShortDetail(job, verification); tooShort {
 			return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureReleaseIncomplete, detail, time.Now().UTC())
 		}
+		if detail, mismatch := editionResolutionMismatch(job, verification); mismatch {
+			return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureResolutionMismatch, detail, time.Now().UTC())
+		}
 		recorded, recordErr := service.Store.RecordSubtitleVerification(ctx, job, inventoryID, verification, time.Now().UTC())
 		if recordErr != nil {
 			return recordErr

@@ -35,9 +35,9 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 	if oldRootID == targetRootID.String() {
 		return 0, nil
 	}
-	var targetKind, toRoot string
+	var targetKind, toRoot, targetEdition, oldEdition string
 	var enabled bool
-	if err := store.Pool.QueryRow(ctx, `SELECT media_kind,destination_root,enabled FROM library_roots WHERE id=$1`, targetRootID.String()).Scan(&targetKind, &toRoot, &enabled); errors.Is(err, pgx.ErrNoRows) {
+	if err := store.Pool.QueryRow(ctx, `SELECT media_kind,destination_root,enabled,edition,(SELECT edition FROM library_roots WHERE id=$2) FROM library_roots WHERE id=$1`, targetRootID.String(), oldRootID).Scan(&targetKind, &toRoot, &enabled, &targetEdition, &oldEdition); errors.Is(err, pgx.ErrNoRows) {
 		return 0, ErrNotFound
 	} else if err != nil {
 		return 0, err
@@ -47,6 +47,11 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 	}
 	if targetKind != mediaKind {
 		return 0, refuse("library_root_wrong_kind", "target library root does not serve this media kind", "Choose a root with the same media_kind from GET /api/v1/settings/library-roots.")
+	}
+	if targetEdition != oldEdition {
+		// A 4K edition and the standard edition are separate copies of the
+		// title; moving one into the other's library would merge them.
+		return 0, refuse("library_root_wrong_edition", "target library root keeps another edition (standard or 4K) of titles", "Choose a root with the same edition from GET /api/v1/settings/library-roots.")
 	}
 	type relocateItem struct {
 		linkID   string
