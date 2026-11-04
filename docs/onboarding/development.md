@@ -64,15 +64,15 @@ docker compose up -d
 
 ## 3. CI
 
-Two equivalent pipelines:
+GitHub Actions is the only CI. (A GitLab pipeline existed while the project
+was mirrored to GitLab; it was removed on 2026-11-04 because the mirror had
+not been updated since 2026-09-15.)
 
-- **GitLab** (`.gitlab-ci.yml`): `frontend` (in `web/`: lint, typecheck,
-  unit tests, build, `npm audit`; then the docs check), `browser` (Playwright image), `backend` (PostgreSQL
-  18.6 service; `gofmt -l`, `go vet`, `go test -race`, `migrate`, then
-  `git diff --exit-code -- go.mod go.sum`).
 - **GitHub Actions** (`.github/workflows/verify.yml`): a dedicated private VPS
-  runner performs the same `frontend`,
-  `browser` (pinned Playwright image), and `backend` jobs, plus a
+  runner performs `frontend` (in `web/`: lint, typecheck, unit tests, build,
+  `npm audit`; then the docs check), `browser` (pinned Playwright image),
+  `backend` (PostgreSQL 18.6 service; `gofmt -l`, `go vet`, `go test -race`,
+  `migrate`, then `git diff --exit-code -- go.mod go.sum`), plus a
   `containers` job that builds the stack, checks the API auth boundary
   (`401` unauthenticated, `200` with owner token), asserts the unconfigured
   Seerr webhook returns `503`, and verifies `pg_dump` works. Its separate
@@ -81,7 +81,7 @@ Two equivalent pipelines:
   the owner starts production updates through the separate Deploy workflow.
   See [GitHub VPS operations](../operations/github-vps.md).
 
-Both pipelines fail the frontend job on high-severity `npm audit` findings.
+The frontend job fails on high-severity `npm audit` findings.
 Check current CI status before assuming red = broken product.
 
 ## 4. Repository conventions

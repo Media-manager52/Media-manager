@@ -70,7 +70,9 @@ evidence rather than current behavior. Prefer, in this order:
 2. `internal/postgres/migrations/*.sql` (data truth).
 3. The `docs/onboarding/` + `docs/architecture/` + `docs/operations/` +
    `docs/reference/` set (maps and explanations).
-4. `README.md` (product contract and invariants).
+4. `README.md` (product overview), then
+   [`../architecture/acquisition-safety.md`](../architecture/acquisition-safety.md)
+   (safety rules) and [`../invariants.md`](../invariants.md).
 5. `docs/status/implementation.md` and `docs/status/release.md` (dated audits;
    may lag behind `main`).
 6. `docs/archive/*.txt` (design proposals — **not** implemented behavior).

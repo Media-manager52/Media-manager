@@ -1,7 +1,7 @@
 # 07 — Operations guide
 
 Purpose: deploy, configure, verify, back up, restore, and troubleshoot the
-supported production architecture. Product contract: `README.md`. This document
+supported production architecture. Configuration reference: [manual-install.md](manual-install.md). This document
 is the operational runbook.
 
 ## 1. Supported deployment

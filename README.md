@@ -1,338 +1,106 @@
+<div align="center">
+
+<img src="web/public/favicon.svg" width="72" height="72" alt="Media Manager logo">
+
 # Media Manager
 
+**Self-hosted movie and TV automation for Usenet: from request to Plex, with every file checked before it gets there.**
+
 [![Verify](https://github.com/Media-manager52/Media-manager/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/Media-manager52/Media-manager/actions/workflows/verify.yml)
+[![Release](https://img.shields.io/github/v/release/Media-manager52/Media-manager?include_prereleases&sort=semver&label=release)](https://github.com/Media-manager52/Media-manager/releases)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
+![Go 1.27](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 
-Media Manager is an owner-operated movie and TV manager for Usenet. It owns the workflow from a Seerr or manual request through evidence-based indexer selection, one AltMount job, read-only output verification, Plex-safe symlink publication, and exact Plex confirmation.
+</div>
 
-Native [OldBoys](docs/operations/oldboys.md) adds a fixed-origin Danish-original film/TV provider with encrypted credentials and bounded validation.
+![Media Manager overview with the work that needs you, recent progress, system status and the coming week's episodes](docs/images/overview-dark.png)
 
-The first production path is deliberately narrow: **Seerr + Media Manager + Newznab indexers + AltMount + Plex**. Radarr and Sonarr are not runtime dependencies. A season pack is one download job, and publication is blocked unless every frozen expected episode maps exactly once.
+Media Manager takes a movie or series request from [Seerr](https://github.com/seerr-team/seerr) or from its own web UI, searches your Newznab indexers, chooses a release on recorded evidence, streams it through [AltMount](https://github.com/javi11/altmount), inspects the actual file, and only then links it into your Plex library and confirms that Plex sees exactly that file.
 
-## License
+It replaces Radarr and Sonarr in this setup: Seerr talks to Media Manager through the same API, so there is one place that decides what is downloaded and why. The web UI is in Danish.
 
-Media Manager is licensed under the **GNU Affero General Public License, version 3 only** (`AGPL-3.0-only`). The complete license text is in [`LICENSE`](LICENSE). The corresponding source is the canonical repository at <https://github.com/Media-manager52/Media-manager>. Third-party components remain under their own licenses and notices; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+## Highlights
 
-If you run a modified version as a network service, AGPL-3.0 requires you to offer its corresponding source to users interacting with it. The published unmodified images point to the canonical source above.
+- **Verified before it reaches Plex.** Downloaded output is probed for video, audio and subtitle tracks. Required languages, such as Danish subtitles or Danish audio for children's libraries, must be present in the file itself; a release name is never taken as proof.
+- **Never replaces what works.** An upgrade becomes current only after Plex confirms the new file at the exact path and identity. AltMount output is read-only, and failed downloads are kept for review instead of being deleted.
+- **Season packs done properly.** A pack is one download job, and publication waits until every expected episode maps to exactly one file.
+- **Polite to indexers.** Each indexer gets one request at a time, persisted pacing, rolling daily query and download budgets, and `Retry-After` handling.
+- **Explains itself.** Every search, candidate, verdict and attempt is stored, so the UI can show why a title is waiting and which owner actions are safe right now.
+- **Repairs itself.** Files that AltMount reports as corrupted are re-acquired automatically and swapped in after Plex confirms the replacement.
+- **Danish sources built in.** Includes a native client for the OldBoys Danish-original provider alongside standard Newznab indexers.
+- **Streaming API.** A scoped player token lets a Stremio or Nuvio addon search for and play releases. The addon never holds indexer or AltMount credentials.
+- **Built for automation.** It has a single route table, a generated [OpenAPI document](docs/reference/openapi.json) and an MCP server for AI agents.
 
-## Run it with Cosmos Cloud
+## How it works
 
-If you are setting Media Manager up on your own server, start with
-[**docs/getting-started.md**](docs/getting-started.md). Cosmos Cloud is the
-public edge: it handles TLS and owner OpenID, routes `/api` and `/health` to the
-API and every other path to the UI, and injects `OWNER_TOKEN` server-side on
-`/api`. The API port stays loopback. `./scripts/setup-cosmos.sh` writes the
-local secrets, fixes the Compose project name for the Cosmos targets, creates
-and joins the shared Docker network, builds the stack, and prints the three
-Cosmos routes to add. Media Manager is also available as a Cosmos market app:
-add `https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/index.json`
-as a market source, or use the built-in store after the
-[official listing](https://github.com/azukaar/cosmos-servapps-official/pull/336)
-is accepted. The market wizard creates the same services and routes.
+```mermaid
+flowchart LR
+    seerr["Seerr request<br/>or Media Manager UI"] --> mm["Media Manager"]
+    mm -- "paced searches" --> idx["Newznab indexers<br/>and OldBoys"]
+    mm -- "one NZB per job" --> alt["AltMount"]
+    alt -- "read-only mount" --> check["Inspect the file:<br/>video, audio, subtitles"]
+    check --> lib["Symlink into<br/>the Plex library"]
+    lib --> plex["Plex confirms<br/>exact path and identity"]
+    plex -- "status back" --> seerr
+```
 
-To hand a copy to another owner, run `./scripts/make-share-bundle.sh`; the
-bundle contains tracked source only, never `.env` files or media.
+Each step is a durable, retryable event in PostgreSQL, so a restart or an outage resumes where it stopped instead of starting over. [docs/architecture/workflows.md](docs/architecture/workflows.md) describes the full lifecycle, including rounds, upgrades, adoption of existing files and recycling.
 
-The GitHub VPS runner and owner-triggered deployment sections below document
-the original production operations and remain optional.
+## Screenshots
+
+| Library | Title and season progress |
+| --- | --- |
+| ![Library grid with posters and film/series filters](docs/images/library.png) | ![Series page with per-season episode progress](docs/images/title.png) |
+
+The UI has light and dark themes and works on phones. The screenshots use invented demo data; `npm run screenshots` in `web/` regenerates them.
+
+## Getting started
+
+You need:
+
+- a Linux `amd64` host with Docker Engine and Compose v2.24 or later;
+- [AltMount](https://github.com/javi11/altmount), Plex and at least one Newznab indexer;
+- [Cosmos Cloud](https://cosmos-cloud.io) as the public edge for TLS and owner sign-in;
+- Seerr, which is optional.
+
+There are three ways to install:
+
+1. **Cosmos market.** Add `https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/index.json` as a market source and install *Media Manager*. The wizard creates the services and routes.
+2. **From source with the setup script.** `./scripts/setup-cosmos.sh` writes the local secrets, creates the shared Docker network, builds the stack and prints the three Cosmos routes to add. Follow [docs/getting-started.md](docs/getting-started.md).
+3. **Published images.** Pin an immutable API/UI image pair with `compose.release.yaml`; see [docs/operations/install-release.md](docs/operations/install-release.md).
+
+After installing, connect AltMount, Plex and your indexers, create a library root and a quality profile, and add a title. [Getting started](docs/getting-started.md) walks through each step. [Manual installation](docs/operations/manual-install.md) covers the mount contract, the integration settings and the Seerr setup without Radarr or Sonarr.
 
 ## Documentation
 
-All project documentation is indexed in [`docs/README.md`](docs/README.md).
-GitHub checks, public container-image publishing and owner-triggered updates run
-on the VPS; see [GitHub VPS operations](docs/operations/github-vps.md).
-Start with:
+| Topic | Where |
+| --- | --- |
+| Install and first run | [Getting started](docs/getting-started.md) · [Release images](docs/operations/install-release.md) · [Manual installation](docs/operations/manual-install.md) |
+| Running it day to day | [Operations runbook](docs/operations/runbook.md) · [OldBoys](docs/operations/oldboys.md) · [AI agents and automation](docs/operations/ai-agents.md) |
+| How it is built | [Architecture overview](docs/architecture/overview.md) · [HTTP API](docs/architecture/api.md) · [Database](docs/architecture/database.md) · [Web UI](docs/architecture/frontend.md) |
+| Guarantees | [System invariants](docs/invariants.md) · [Acquisition and publication safety rules](docs/architecture/acquisition-safety.md) |
+| Everything else | [Documentation index](docs/README.md) · [Changelog](CHANGELOG.md) |
 
-- [`docs/getting-started.md`](docs/getting-started.md) — install with Cosmos
-  Cloud, add the three routes, connect AltMount/Plex/indexers, folder contract,
-  updates, backups and troubleshooting.
-- [`docs/onboarding/README.md`](docs/onboarding/README.md) — complete codebase
-  onboarding for a new engineer or AI agent: read order, architecture maps,
-  backend/database/API/frontend references, domain workflows, operations
-  runbook, development recipes, and glossary.
-- [`AGENTS.md`](AGENTS.md) — short contributor contract and verification gates.
-- [`docs/status/implementation.md`](docs/status/implementation.md) — dated
-  feature-by-feature audit (may lag `main`).
-- [`docs/status/release.md`](docs/status/release.md) — dated release evidence.
-- [`docs/status/release-v0.1.0-beta.md`](docs/status/release-v0.1.0-beta.md) — v0.1.0 Beta readiness checklist and remaining gates.
-- [`docs/operations/install-release.md`](docs/operations/install-release.md) — immutable-image installation, first-run checklist, update and restore.
-- [`docs/releases/v0.1.0-beta.1.md`](docs/releases/v0.1.0-beta.1.md) — prepared v0.1.0-beta.1 release note and publication gates; not tagged.
-- [`docs/status/license-decision.md`](docs/status/license-decision.md) — AGPL-3.0-only licensing decision, compatibility notes, and verification record.
-- [`docs/status/indexer-conformance.md`](docs/status/indexer-conformance.md) —
-  developer-only Newznab provider conformance evidence; not a runtime
-  dependency.
+## Tech stack
 
-## Stack
+- **API and workers:** Go 1.27 with a durable outbox and four direct Go dependencies.
+- **Database:** PostgreSQL 18, with forward-only transactional migrations that run at startup.
+- **Web UI:** React 19, TypeScript, Vite and Tailwind CSS, served by a dependency-free Node server with a strict Content Security Policy.
+- **Edge:** Cosmos Cloud. It injects the owner token server-side, so the token never reaches browser JavaScript.
+- **Deployment:** Docker Compose, with images published to GHCR for every verified `main` commit.
 
-- Go 1.27 API and durable outbox workers
-- PostgreSQL 18
-- React 19, TypeScript 5.9 and Vite web UI in `web/` (Danish), served by a dependency-free Node server
-- Cosmos Cloud public edge: owner OpenID authentication with path-direct routing to the UI and the API; the owner token is injected server-side per Cosmos route and never reaches browser JavaScript
-- Docker Compose for the supported deployment
+## Project status
 
-## Start
+Media Manager is in **beta**. It runs one owner's production library every day and is developed against that real workload. The supported path is deliberately narrow: Seerr, Media Manager, Newznab, AltMount and Plex on Linux `amd64`. Each release note lists its known limitations and what has and has not been verified.
 
-1. Copy `.env.example` to `.env` and `.env.integrations.example` to `.env.integrations`; replace every placeholder.
-2. Make the three host paths in `.env` point to the AltMount output, movie library, and TV library. Set `MEDIA_MANAGER_UID`/`MEDIA_MANAGER_GID` to an account that can read AltMount and create links in both library directories (often the output of `id -u` and `id -g`).
-3. Create the shared Docker network once, then attach the existing AltMount container to it (replace the container name if needed):
+## Contributing and security
 
-   ```sh
-   docker network create media-manager
-   docker network connect media-manager altmount
-   ```
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first; [AGENTS.md](AGENTS.md) is the short version for AI coding agents. Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-   Set `MEDIA_NETWORK` if you use a different network name. You may instead use an HTTPS AltMount address reachable from that network.
-4. Start the stack:
+## License
 
-   ```sh
-   docker compose up -d --build
-   ```
+Media Manager is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`). If you run a modified version as a network service, you must offer its source to the people who use it. Third-party components keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-5. Open the HTTPS Media Manager address configured in Cosmos and sign in with your Cosmos account. Cosmos is the only public edge. On the Docker host the API is also reachable directly at `127.0.0.1:${MEDIA_MANAGER_API_PORT}` (port 28081 by default) with the owner bearer token for machine checks.
-
-### Acceptance checks
-
-Three read-only checks cover the deployed architecture. None of them prints the
-owner token.
-
-Verify the public Cosmos edge is behind an authentication gate and routes
-`/api/*` to the API rather than the UI container:
-
-```sh
-scripts/smoke-public-edge.sh https://media-manager.example.com
-```
-
-Verify the owner-authenticated API read models directly on the loopback
-listener (the token is read from the running API container):
-
-```sh
-scripts/smoke-api-direct.sh
-```
-
-Run the read-only browser acceptance suite against the deployed UI and API. The
-helper resolves the running containers, starts a loopback same-origin proxy
-that reproduces the Cosmos route shape, and runs Playwright:
-
-```sh
-scripts/test-live-website.sh
-```
-
-The suite visits every static route at desktop, tablet, and mobile sizes, checks
-available detail routes and safe interactions, captures core-page screenshots,
-and audits layout, accessibility, browser errors, and failed local requests. It
-blocks every state-changing request and every non-loopback request before
-transmission; external artwork therefore exercises the local placeholder
-without contacting its provider. Traces and video are disabled. Results stay
-under `.sites-runtime/live-playwright-results/`.
-
-Owner retry budgets are configurable in `.env`: `ACQUISITION_ATTEMPTS_PER_ROUND`
-(default 2, range 1–6) and `ACQUISITION_RETAINED_OUTPUT_LIMIT` (default 4, range
-1–12). Four attempts and eight retained failures allow more distinct alternatives
-while keeping work bounded. Old rounds retain their immutable limits; open a
-new round through the owner action. Failed files, exact exclusions, indexer
-pacing and verification requirements remain enforced. See the
-[operations runbook](docs/operations/runbook.md#acquisition-budget-changes).
-
-Set `MEDIA_MANAGER_VERSION` and `MEDIA_MANAGER_COMMIT` to the release and Git commit you are deploying. PostgreSQL migrations run transactionally at API startup. PostgreSQL, the UI, and the API use isolated private networks; only the authenticated API also joins the external integrations network. Cosmos Cloud terminates TLS and authenticates the owner, then routes `/api/*` and `/health/*` to the API and every other path to the UI on one origin. The Cosmos `/api` route injects the owner bearer token server-side. The loopback API listener is bound to `127.0.0.1:${MEDIA_MANAGER_API_PORT}` and is never published to a LAN or public address.
-
-### Public edge routing
-
-Cosmos Cloud is the public edge and the owner authentication layer. The owner
-token never reaches browser JavaScript. Cosmos registers proxy routes in
-reverse configuration order (the last list entry is registered first and wins
-for a shared host), so the catch-all UI route must be the last Media Manager
-entry in the list:
-
-| Path prefix | Target | Cosmos auth | Injected request header |
-| --- | --- | --- | --- |
-| `/api` | `http://media-manager-api-1:8080` | owner login | `Authorization: Bearer <OWNER_TOKEN>` |
-| `/health` | `http://media-manager-api-1:8080` | owner login | none |
-| `/` (catch-all) | `http://media-manager-ui-1:3000` | owner login | none |
-
-The `/api` route's `ExtraHeaders` entry overwrites any inbound
-`Authorization` header on the upstream request, so the browser can neither
-supply nor read the token. Cosmos resolves both container names to their
-private network addresses. The Seerr webhook posts directly to
-`http://media-manager-api-1:8080/api/v1/integrations/seerr/webhook` over the
-shared Docker network with its own secret, independent of Cosmos, so it never
-requires an interactive login. A route pointed only at the `ui` container
-serves the document but answers `/api/v1/*` with a bare HTTP 404, which the
-browser surfaces as "Media Manager returned HTTP 404".
-
-Verify the deployed public origin without changing server state:
-
-```sh
-scripts/smoke-public-edge.sh https://media-manager.example.com
-```
-
-The check fails if `/api/v1/*` reaches the `ui` container (a bare HTTP 404) or
-if the API answers without an authentication gate. Use
-`scripts/smoke-api-direct.sh` for the owner-authenticated read-model checks.
-
-Compose passes PostgreSQL credentials as discrete `PG*` variables, so a strong database password does not need URL escaping. A standalone API deployment may instead provide `DATABASE_URL`.
-
-## Mount contract
-
-| Container path | Access | Purpose |
-|---|---:|---|
-| `/mnt/altmount` | read-only | AltMount completed/streaming media, reached through the host parent directory (`ALTMOUNT_HOST_PARENT_PATH`, bound at `/mnt` with `rslave` propagation) so FUSE remounts propagate in |
-| `/libraries/movies` | read-write | Movie symlink library built by Media Manager |
-| `/libraries/tv` | read-write | TV symlink library built by Media Manager |
-| `/srv/media` | read-write | Optional parent of additional Plex library folders used by Seerr root-folder routing (`MEDIA_LIBRARY_HOST_PATH` / `MEDIA_LIBRARY_GID`; defaults to an empty project directory when unset) |
-
-Plex should receive `/libraries/movies` and `/libraries/tv` read-only. Plex must also be able to resolve symlink targets; normally mount the same AltMount host folder read-only at the path configured as each root's `source_visible_root`.
-
-Example root configuration:
-
-```json
-{
-  "media_kind": "series",
-  "name": "TV Primary",
-  "destination_root": "/libraries/tv",
-  "plex_visible_root": "/libraries/tv",
-  "source_visible_root": "/mnt/altmount",
-  "plex_instance_id": "PLEX-INTEGRATION-UUID",
-  "plex_library_id": "2",
-  "is_default": true,
-  "enabled": true
-}
-```
-
-The AltMount integration config uses its reported path plus the read-only container mapping:
-
-```json
-{
-  "base_url": "http://altmount:8080",
-  "authentication": "anonymous_admin",
-  "allow_http": true,
-  "reported_root": "/",
-  "local_read_only_root": "/mnt/altmount",
-  "category": "media-manager",
-  "request_timeout_ms": 30000
-}
-```
-
-Use `"authentication": "anonymous_admin"` only when AltMount reports
-`login_required: false`. Media Manager verifies that live setting and the
-anonymous admin identity before queue access, and stops if AltMount later
-requires login. Otherwise omit the field (or use `"session"`) and provide the
-documented username/password JSON secret. AltMount's personal API key does not
-authenticate its native `/api/queue` endpoints and is not used for this path.
-Set `reported_root` to the common absolute prefix returned in AltMount queue
-`storage_path` values; this host reports `/movies`, `/tv`, and `/tmp`, so `/`
-maps those paths into the read-only `/mnt/altmount` mount.
-
-Integration secrets are referenced by environment-variable name. Put those values in `.env.integrations`, which is loaded only into the API container. An AltMount secret is JSON such as `{"username":"owner","password":"..."}`; Newznab references contain an API key; a Plex reference contains its token or `{"token":"..."}`. Never commit `.env` or `.env.integrations`.
-
-OldBoys credential preparation has a separate owner form under **Settings →
-Connections** for its API Token, Pass Key (PID), and RSS Key (RID). The API
-encrypts that set in PostgreSQL using an independent server key from
-`.env.integrations`; values never return to the browser. Saving does not enable
-the provider. See [OldBoys setup and recovery](docs/operations/oldboys.md).
-
-Media Manager owns metadata enrichment directly. Optional dedicated `TMDB_ACCESS_TOKEN`, `TVDB_API_KEY`/`TVDB_SUBSCRIBER_PIN`, and `SIMKL_CLIENT_ID` values belong in `.env.integrations`. Existing local secret files can instead be referenced with `METADATA_TMDB_TOKEN_SOURCE_FILE`, `METADATA_TVDB_KEY_SOURCE_FILE`, and `METADATA_SIMKL_CLIENT_ID_SOURCE_FILE`; Compose mounts only those three files read-only and never copies their values into the project. An owner refresh performs only exact-ID, bounded provider detail calls. TMDB is the primary descriptive source, TheTVDB supplements exact-ID movie/TV facts, and Simkl contributes ratings and lifecycle evidence. IMDb identities link to the exact title; an IMDb rating obtained from Simkl is stored with that provenance and is never represented as a direct IMDb API response. Direct IMDb API enrichment remains unavailable until a separately licensed IMDb/AWS source is configured. This product uses the TMDB API but is not endorsed or certified by TMDB.
-
-Newznab records are always staged disabled. In Connections, **Validate & enable** performs only authenticated CAPS and one random negative search, spaced by at least three seconds through the same persisted rate limiter used by normal work. It enables the indexer only when both checks pass. After changing `.env.integrations`, reload those variables with `docker compose up -d --force-recreate api`; `docker compose restart` does not reload environment files.
-
-The developer-only provider-onboarding procedure and the currently verified
-movie/complete-season dialects are recorded in
-[`docs/status/indexer-conformance.md`](docs/status/indexer-conformance.md). The lab is never a
-runtime dependency and its raw evidence is not imported into Media Manager.
-
-## Manual season-pack add
-
-`POST /api/v1/media` accepts defaults or per-item overrides. A series request includes the exact episode snapshot that must be present before publishing:
-
-```json
-{
-  "kind": "series",
-  "title": "Example Show",
-  "year": 2026,
-  "identities": [
-    {"namespace":"tvdb","value":"12345","state":"verified","source":"manual"}
-  ],
-  "seasons": [{
-    "number": 1,
-    "monitored": true,
-    "search_immediately": true,
-    "prefer_season_pack": true,
-    "episodes": [
-      {"number":1,"provider_episode_id":"tvdb:1001","title":"Pilot"},
-      {"number":2,"provider_episode_id":"tvdb:1002","title":"Second"}
-    ]
-  }]
-}
-```
-
-TVDB is preferred for series naming when verified; TMDB is the fallback. Movies use TMDB, then IMDb. An internal UUID is always the primary key, so no single external provider ID is required for every title.
-
-## Safety invariants
-
-- One in-flight request per indexer; persisted pacing, `Retry-After`, and bounded backoff apply to normal work and the Indexer Lab.
-- Repeated Newznab attributes retain their original order and values.
-- Commissioning snapshots each provider's advertised movie and TV search dialect. Runtime searches send only supported parameters, prefer verified external identities, normalize IMDb IDs to their numeric Newznab form, and retain general search as a capability-backed fallback.
-- Every Newznab call reserves a durable per-provider rolling budget before network I/O. Prowlarr-imported query/grab limits are preserved; otherwise the conservative fallback is 1,000 queries and 100 grabs per 24 hours, in addition to the three-second minimum interval and one-in-flight lane.
-- Ambiguous AltMount upload results are reconciled by a unique filename and are never blindly resubmitted.
-- AltMount output is read-only. Media Manager publishes only contained symlinks.
-- A season pack remains one AltMount job and one immutable expectation set. Completed seasons observed only as relevant episode releases use separate exact-episode workflows. Annual broadcast-year/date names are mapped only with positive series identity and complete, unambiguous frozen season metadata; output coverage still uses canonical episode keys.
-- AltMount completion is not import completion; import completion is not Plex completion.
-- Completed output is inspected only inside the authorized AltMount job root. Required subtitle languages must be verified on every selected video before publication; Danish variants are stored canonically as `da` with raw evidence retained.
-- Seerr provider metadata may route a title to an enabled media-kind profile by canonical original language. Danish variants route as `da`; missing or unreliable metadata remains on the default fallback. This routing is not evidence that the acquired file contains a Danish audio track.
-- A quality profile may use best-available ranking instead of a hard resolution floor. Positive evidence ranks `2160p`, `1080p`, `720p`, `576p`, then `480p`; reliable provider dimensions are canonicalized while their raw values remain evidence. Positive release-title audio evidence ranks common lossless, object-based, and lossy codecs within the selected resolution tier. Unknown resolution or audio evidence remains eligible and receives no preference score.
-- A verified external subtitle is published beside its video with Plex-compatible naming and shares that publication generation. It becomes current only after the video completes exact Plex confirmation.
-- Every acquisition round snapshots a bounded attempt limit from startup configuration (default two, range one–six), while lifetime attempt numbers remain monotonic. Only a definitive release-attributable output failure closes a slot and excludes that exact release plus its canonical NZB package inside the workflow; infrastructure failures recover the same job and do not blame the release.
-- After the round's slots fail, retained output stays owner-visible and undeleted. Low-priority discovery resumes after a deterministic 24-hour ±20% delay, backs off only after complete no-new scans, and can expose a newly observed eligible exact identity without opening another round. Only the owner can open the next round, using the configured limit. The configured retained failed-output limit (default four, range one–twelve) stops further acquisitions pending storage review.
-- An owner may reverify each exact retained output once after a probe correction. Reverification reuses the frozen inventory and its original subtitle policy, makes no AltMount request, and resumes publication only when the existing verification and Plex gates pass.
-- Plex confirmation requires a verified provider GUID and every exact expected path.
-- An upgrade receives a distinct release-version filename. The old symlink is removed only after Plex confirms the replacement; the AltMount source is retained.
-- Replacing an adopted real file requires an exact owner confirmation before every new or delayed search unless that workflow already holds an exact fingerprint-bound authorization. The old file is moved only after Plex confirms the new publication, retained for 30 days, and never physically purged without a second exact owner confirmation after retention.
-- Rolling an adopted upgrade back restores the entire retained cycle with exact fingerprints. Replacement links remain current until Plex re-confirms every restored path, then are safely displaced and removed.
-- Reviewed adoption monitoring is applied only after the renamed files pass Plex path and identity confirmation. Immediate search additionally requires the adopted replacement phrase and preserves an existing exact TV episode snapshot for one complete-pack workflow.
-
-## Verification
-
-```sh
-cd web
-npm ci
-npm run lint
-npm run typecheck
-npm test
-npm run build
-npm run test:browser
-GOFLAGS=-mod=readonly go vet ./cmd/... ./internal/...
-GOFLAGS=-mod=readonly go test -count=1 -race ./cmd/... ./internal/...
-```
-
-The browser suite uses local API fixtures, blocks unexpected network access, and checks the library at desktop and mobile sizes with Playwright and axe. GitLab CI runs the frontend, browser, and PostgreSQL-backed Go verification jobs for branches, tags, and merge requests.
-
-The release workflow also applies all migrations to a disposable PostgreSQL 18 service and builds both container targets. Before promoting to the main server, run one complete live movie and one complete live season-pack workflow against the dev Plex, AltMount, Seerr, and real indexers.
-
-## Seerr without Radarr/Sonarr
-
-Media Manager can be Seerr's Radarr and Sonarr server. Set `SERVARR_API_KEY` in
-`.env`, recreate the API, then point Seerr's services at the API container:
-
-| Service | Hostname | Port | SSL | Base URL | API key |
-| --- | --- | --- | --- | --- | --- |
-| Radarr | `media-manager-api-1` | `8080` | off | `/radarr` | `SERVARR_API_KEY` |
-| Sonarr | `media-manager-api-1` | `8080` | off | `/sonarr` | `SERVARR_API_KEY` |
-
-Seerr reads Media Manager's enabled quality profiles and a single root folder,
-`/srv/media/Auto`, from these services. For Auto requests Media Manager picks
-the library root (kids, documentary, Christmas, Danish original, or default)
-and, for kids content, the profile without required subtitles, from the
-title's metadata. Adds are acknowledged without a second catalog: the Seerr
-request itself (webhook/poll) creates the workflow. Availability scans read
-Plex-confirmed publications. Requests created while Seerr still pointed at an
-older server keep working through the Seerr root-folder routes in Settings →
-Connections. Radarr and Sonarr are then not part of the stack at all.
-
-## Operations
-
-- Liveness: `GET /health/live`
-- Readiness, including schema version: `GET /health/ready`
-- Version: `media-manager version`
-- Manual migration: `media-manager migrate`
-- Database backup: `docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > media-manager.dump`
-- Restore into a fresh database, run `media-manager migrate`, then complete the two live workflow checks before serving traffic.
-
-Do not edit or delete AltMount files through Media Manager. Do not expose the API container port. Back up PostgreSQL, `.env`, and `.env.integrations` together; protect all three as secrets and restore the environment files before recreating the API container.
+This product uses the TMDB API but is not endorsed or certified by TMDB.
