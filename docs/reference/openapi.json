@@ -188,6 +188,20 @@
         },
         "type": "object"
       },
+      "Acquisition_SeerrWebhookState": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "managed": {
+            "type": "boolean"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Altmount_PreparedStream": {
         "properties": {
           "cached": {
@@ -586,6 +600,14 @@
             "type": "string"
           },
           "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ConfigureSeerrWebhookInput": {
+        "properties": {
+          "webhook_url": {
             "type": "string"
           }
         },
@@ -2029,6 +2051,23 @@
         "properties": {
           "adopted_replacement_confirmation": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SeerrWebhookStatus": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "intake_running": {
+            "type": "boolean"
+          },
+          "suggested_url": {
+            "type": "string"
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/Acquisition_SeerrWebhookState"
           }
         },
         "type": "object"
@@ -6145,6 +6184,133 @@
         ],
         "x-mm-auth": "owner",
         "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/integrations/{id}/seerr-webhook": {
+      "get": {
+        "description": "Reads Seerr's webhook settings with the connection's API key. managed is true only when Seerr sends Media Manager's events with this API's webhook secret. The authorization header is never returned.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "getSeerrWebhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SeerrWebhookStatus"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Whether Seerr's webhook sends requests to this Media Manager",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      },
+      "post": {
+        "description": "Seerr first sends a test notification with the new settings to webhook_url; they are saved in Seerr only when this API answered it, and read back before success. 409 intake_not_running until the API runs Seerr intake for this connection. Other Seerr notification types and custom headers are kept.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "configureSeerrWebhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConfigureSeerrWebhookInput"
+                  }
+                ],
+                "required": [
+                  "webhook_url"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SeerrWebhookStatus"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Point Seerr's webhook at Media Manager",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
       }
     },
     "/api/v1/settings/library-roots": {

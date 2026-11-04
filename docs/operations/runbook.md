@@ -94,7 +94,7 @@ Runtime variables in `.env` (Compose interpolation):
 | `MOVIES_HOST_PATH`, `TV_HOST_PATH` | yes | Host paths for the two library mounts. |
 | `MEDIA_LIBRARY_HOST_PATH`, `MEDIA_LIBRARY_GID` | optional | Parent of additional Plex library folders and the host group that owns them; used by Seerr root-folder routing. Defaults: `./data` and the primary GID. |
 | `METADATA_*_SOURCE_FILE` | if using direct providers | Host files mounted as Docker secrets for TMDB/TVDB/Simkl. |
-| `SEERR_BASE_URL`, `SEERR_API_KEY`, `SEERR_INSTANCE_ID`, `SEERR_WEBHOOK_SECRET` | together or not at all | Seerr intake. Secret ≥32 bytes; instance must be an enabled `seerr` integration UUID. |
+| `SEERR_BASE_URL`, `SEERR_API_KEY`, `SEERR_INSTANCE_ID`, `SEERR_WEBHOOK_SECRET` | together or not at all | Seerr intake. Secret ≥32 bytes; instance must be an enabled `seerr` integration UUID. When none is set, the API uses the enabled default Seerr connection saved on the website (webhook secret derived from `SECRET_ENCRYPTION_KEY`) after a restart. |
 | `SEERR_ALLOW_HTTP` | no | Allow plain HTTP to Seerr. |
 | `SERVARR_API_KEY` | optional | Enables the Radarr/Sonarr-compatible API Seerr uses when the *arr applications are not installed. Empty disables the surface. |
 
@@ -318,7 +318,7 @@ and writes results to `.sites-runtime/live-playwright-results/`.
 | --- | --- |
 | UI shows "Media Manager returned HTTP 404" | `/api` prefix is routed to the UI container, not the API. Fix the Cosmos `/api` route (must target the API container). |
 | `401 unauthorized` on every UI call | Cosmos `/api` route is not injecting the owner bearer, or `OWNER_TOKEN` differs between the route and container. |
-| Seerr webhook returns `503 not_configured` | Seerr env vars incomplete; all four must be set and the instance row enabled. |
+| Seerr webhook returns `503 not_configured` | Seerr intake is off: either set all four env vars (instance row enabled), or save an enabled default Seerr connection with its API key on the website and restart the API. The API logs "Seerr intake is off" with the reason. |
 | Commissioning v2 returns `503 not_configured` | `COMMISSIONING_V2_OWNER_ORIGIN` unset (or no service). Set it to the browser origin. |
 | Commissioning v2 returns `403 origin_rejected` | Origin mismatch or cross-site request. Use the configured origin; don't strip Origin headers. |
 | Readiness fails with schema mismatch | Migrations didn't run (`AUTO_MIGRATE` off) or binary/DB mismatch. Run `media-manager migrate`; never edit a schema row manually. |

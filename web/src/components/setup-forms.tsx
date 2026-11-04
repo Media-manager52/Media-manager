@@ -3,8 +3,8 @@ import { CheckCircle2, XCircle } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import {
-  checkIntegration, commissionIntegration, createIntegration, createLibraryRoot, createNotificationDestination, createQualityProfile,
-  loadIntegrations, loadLibraryRoots, loadPlexLibraries, loadQualityProfilePresets, loadQualityProfiles, loadSetupStatus,
+  checkIntegration, commissionIntegration, configureSeerrWebhook, createIntegration, createLibraryRoot, createNotificationDestination, createQualityProfile,
+  loadIntegrations, loadLibraryRoots, loadPlexLibraries, loadQualityProfilePresets, loadQualityProfiles, loadSeerrWebhook, loadSetupStatus,
   saveIntegrationSecret, updateIntegrationConnection,
   type APIConnectionCheck, type APIConnectionPatch, type APIIntegration, type APIQualityProfile,
 } from "@/api/client"
@@ -130,6 +130,7 @@ export function ConnectionsSection() {
 function ConnectionRow({ integration, secretStorage, seerrRunning }: { integration: APIIntegration; secretStorage: boolean; seerrRunning: boolean }) {
   const [editing, setEditing] = useState(false)
   const [keying, setKeying] = useState(false)
+  const [webhook, setWebhook] = useState(false)
   const check = useMutation({ mutationFn: () => checkIntegration(integration.id) })
   const config = integration.config as { base_url?: string; authentication?: string }
   const wantsSecret = needsSecret(integration.kind, config.authentication)
@@ -149,6 +150,7 @@ function ConnectionRow({ integration, secretStorage, seerrRunning }: { integrati
         <div className="flex flex-wrap gap-2">
           <Button className="h-8 text-xs" busy={check.isPending} onClick={() => check.mutate()}>Test forbindelse</Button>
           {wantsSecret ? <Button variant="ghost" className="h-8 text-xs" disabled={!secretStorage} onClick={() => setKeying(true)}>{integration.secret_ref ? "Udskift nøgle" : "Gem nøgle"}</Button> : null}
+          {integration.kind === "seerr" ? <Button variant="ghost" className="h-8 text-xs" onClick={() => setWebhook(true)}>Webhook</Button> : null}
           <Button variant="ghost" className="h-8 text-xs" onClick={() => setEditing(true)}>Rediger</Button>
         </div>
       </div>
@@ -156,6 +158,7 @@ function ConnectionRow({ integration, secretStorage, seerrRunning }: { integrati
       {check.error ? <CheckResult result={{ ok: false, detail: errorText(check.error) }} /> : null}
       {editing ? <EditConnectionDialog integration={integration} onClose={() => setEditing(false)} /> : null}
       {keying ? <SecretDialog integration={integration} onClose={() => setKeying(false)} /> : null}
+      {webhook ? <SeerrWebhookDialog integration={integration} onClose={() => setWebhook(false)} /> : null}
     </li>
   )
 }
@@ -195,6 +198,51 @@ export function SecretDialog({ integration, onClose }: { integration: Pick<APIIn
             {integration.secret_ref ? <p className="text-xs text-text-3">Den nuværende nøgle bliver erstattet.</p> : null}
           </>
         )}
+      </div>
+    </Dialog>
+  )
+}
+
+/** Points Seerr's webhook at Media Manager; Seerr saves it only after its test reached this API. */
+function SeerrWebhookDialog({ integration, onClose }: { integration: APIIntegration; onClose: () => void }) {
+  const toast = useToast()
+  const status = useQuery({ queryKey: ["setup", "seerr-webhook", integration.id], queryFn: ({ signal }) => loadSeerrWebhook(integration.id, signal), retry: false })
+  const [address, setAddress] = useState<string | null>(null)
+  const mutation = useMutation({
+    mutationFn: () => configureSeerrWebhook(integration.id, (address ?? status.data?.suggested_url ?? "").trim()),
+    onSuccess: async () => { toast("good", "Seerr sender nu sine anmodninger til Media Manager."); await status.refetch() },
+    onError: (error) => toast("bad", checkText(errorText(error))),
+  })
+  const data = mutation.data ?? status.data
+  const managed = data?.webhook?.managed ?? false
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Webhook i ${integration.name}`}
+      footer={data?.intake_running && !managed
+        ? <><Button variant="ghost" onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} onClick={() => mutation.mutate()}>Sæt op i Seerr</Button></>
+        : <Button variant="primary" onClick={onClose}>Luk</Button>}
+    >
+      <div className="space-y-3">
+        {status.isPending ? <p>Spørger Seerr…</p> : null}
+        {status.error ? <p role="alert" className="text-bad">{checkText(errorText(status.error))}</p> : null}
+        {data && !data.intake_running ? (
+          <p>Media Manager tager ikke imod anmodninger fra denne Seerr-forbindelse endnu. Genstart Media Manager-API&apos;en én gang (i Cosmos: genstart API-containeren), og åbn så dette vindue igen.</p>
+        ) : null}
+        {data?.detail ? <p className="text-bad">{checkText(data.detail)}</p> : null}
+        {data?.intake_running && managed ? (
+          <div role="status" className="flex items-start gap-2 text-good"><CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0" /><span>Seerr sender sine anmodninger til Media Manager på <span className="break-all">{data.webhook?.webhook_url}</span>.</span></div>
+        ) : null}
+        {data?.intake_running && !managed ? (
+          <>
+            <p>Seerr skal sende nye anmodninger til Media Manager. Media Manager sætter webhooken op i Seerr for dig; Seerr sender først en test, og intet ændres i Seerr, hvis testen ikke når frem.</p>
+            <Field label="Adressen, Seerr når Media Manager på" hint="Typisk Media Manager-API'ens containernavn på det fælles Docker-netværk, port 8080.">
+              <input inputMode="url" value={address ?? data.suggested_url} onChange={(event) => setAddress(event.target.value)} className={fieldClass} />
+            </Field>
+            {mutation.error ? <p role="alert" className="text-sm text-bad">{checkText(errorText(mutation.error))}</p> : null}
+          </>
+        ) : null}
       </div>
     </Dialog>
   )
@@ -274,7 +322,7 @@ function AddConnectionDialog({ kind, first, secretStorage, onClose }: { kind: Co
           <p>{info.title} er tilføjet.</p>
           <CheckResult result={mutation.data} />
           {!mutation.data.ok ? <p className="text-xs text-text-3">Ret forbindelsen med &quot;Rediger&quot; eller &quot;Udskift nøgle&quot;, og test igen.</p> : null}
-          {kind === "seerr" ? <p className="text-xs text-text-3">Media Manager begynder at tage imod anmodninger fra Seerr, når API&apos;en er genstartet.</p> : null}
+          {kind === "seerr" ? <p className="text-xs text-text-3">Media Manager begynder at tage imod anmodninger fra Seerr, når API&apos;en er genstartet. Sæt derefter webhooken op med knappen &quot;Webhook&quot;.</p> : null}
         </div>
       ) : (
         <div className="space-y-3">

@@ -52,6 +52,10 @@ const checkPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^AltMount settings are incomplete/, () => "AltMount-indstillingerne er ikke komplette. Gem login, eller vælg login uden adgangskode."],
   [/^Plex did not answer with its libraries/, () => "Plex svarede ikke med sine biblioteker. Tjek adresse og token."],
   [/^Seerr .*(401|403|unauthori[sz]ed|forbidden)/i, () => "Seerr afviste API-nøglen."],
+  [/^Seerr could not deliver a test notification to that address, so nothing was changed in Seerr/, () => "Seerr kunne ikke nå Media Manager på den adresse. Intet er ændret i Seerr. Tjek adressen."],
+  [/^Seerr did not return its webhook settings/, () => "Seerr svarede ikke med sine webhook-indstillinger. Tjek forbindelsen."],
+  [/^Seerr saved the webhook, but reading it back/, () => "Seerr gemte webhooken, men den ser ikke rigtig ud bagefter. Prøv igen."],
+  [/^the webhook address must be/, () => "Adressen skal starte med http:// eller https://."],
   [/^an indexer is checked by commissioning it$/, () => "En indexer testes ved at godkende den."],
 ]
 

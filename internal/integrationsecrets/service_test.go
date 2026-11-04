@@ -80,3 +80,23 @@ func TestSecretsAreEncryptedAndBoundToTheirIntegration(t *testing.T) {
 		t.Fatalf("nil service save err=%v", err)
 	}
 }
+
+// TestDerivedSecretsAreStablePerLabelAndKey proves a derived secret survives a
+// restart, differs per label and per server key, and never reveals the key.
+func TestDerivedSecretsAreStablePerLabelAndKey(t *testing.T) {
+	store := &memoryStore{sealed: map[uuid.UUID][]byte{}, reference: map[uuid.UUID]string{}}
+	first, err := New(store, testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := New(store, testKey)
+	other, _ := New(store, strings.Repeat("ab", 32))
+	value := first.Derive("seerr-webhook:a")
+	if len(value) != 64 || value != again.Derive("seerr-webhook:a") || value == first.Derive("seerr-webhook:b") || value == other.Derive("seerr-webhook:a") || strings.Contains(value, testKey) {
+		t.Fatalf("derived secret is not stable and separated: %q", value)
+	}
+	var missing *Service
+	if missing.Derive("x") != "" {
+		t.Fatal("a nil service derived a secret")
+	}
+}

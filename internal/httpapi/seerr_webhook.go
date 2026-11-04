@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"time"
@@ -20,6 +21,15 @@ func (server *Server) seerrWebhook(writer http.ResponseWriter, request *http.Req
 	body, err := io.ReadAll(io.LimitReader(request.Body, (256<<10)+1))
 	if err != nil || len(body) > 256<<10 {
 		writeError(writer, http.StatusRequestEntityTooLarge, "payload_too_large", "webhook body exceeds 256 KiB")
+		return
+	}
+	// Seerr's "test" button (and the website's webhook setup) sends a test
+	// notification. It proves the address and secret work and starts nothing.
+	var probe struct {
+		NotificationType string `json:"notification_type"`
+	}
+	if json.Unmarshal(body, &probe) == nil && probe.NotificationType == seerr.TestNotificationType {
+		writer.WriteHeader(http.StatusNoContent)
 		return
 	}
 	event, err := seerr.ParseWebhook(body)
