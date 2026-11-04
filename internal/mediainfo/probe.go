@@ -43,6 +43,13 @@ var ErrEncryptedVideo = errors.New("media-info video has an unsupported encrypte
 // articles that no provider has, so the release itself is incomplete.
 var ErrZeroFilledOutput = errors.New("media file starts with zero-filled bytes; the release is missing its opening articles")
 
+// ErrInvalidContainer reports a file ffprobe read to the end of its attempt
+// and rejected as not being a media container ("Invalid data found when
+// processing input", for example an MP4 without its moov atom). The file was
+// readable, so this is the release's content, not the mount: no player can
+// open it either. A read error (EIO from AltMount) is not this error.
+var ErrInvalidContainer = errors.New("ffprobe found no valid media container; the file cannot be played")
+
 // ErrSourceUnresponsive reports a media file that did not answer opening or
 // reading within the probe timeout, for example a read blocked inside the
 // AltMount FUSE mount. It says nothing about the release: the inspection is
@@ -223,6 +230,9 @@ func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.F
 			// Treat it like an unresponsive source so the reconciler retries
 			// the same job later instead of parking the workflow as attention.
 			return Evidence{}, fmt.Errorf("%w: ffprobe timed out", ErrSourceUnresponsive)
+		}
+		if invalidContainer(stderr.Bytes()) {
+			return Evidence{}, ErrInvalidContainer
 		}
 		return Evidence{}, errors.New("media-info probe failed")
 	}
@@ -490,4 +500,11 @@ func zeroFilled(file *os.File) bool {
 		}
 	}
 	return true
+}
+
+// invalidContainer reports whether ffprobe's error output says the input is
+// not a media container, and not that reading it failed.
+func invalidContainer(stderr []byte) bool {
+	text := string(stderr)
+	return strings.Contains(text, "Invalid data found when processing input") && !strings.Contains(text, "Input/output error")
 }

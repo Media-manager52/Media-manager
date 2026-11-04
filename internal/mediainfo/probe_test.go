@@ -190,3 +190,30 @@ func TestInspectWithinReportsZeroFilledFiles(t *testing.T) {
 		t.Fatalf("file with a signature must reach ffprobe, error=%v", err)
 	}
 }
+
+// TestInspectWithinRejectsAnInvalidContainer proves a file ffprobe reads but
+// rejects as no media container (an MP4 missing its moov atom) is
+// ErrInvalidContainer, while a read error from the mount is not.
+func TestInspectWithinRejectsAnInvalidContainer(t *testing.T) {
+	root := t.TempDir()
+	signature := append([]byte{0, 0, 0, 0x20, 'f', 't', 'y', 'p'}, make([]byte, 4096)...)
+	if err := os.WriteFile(filepath.Join(root, "Episode.mp4"), signature, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake := func(stderr string) *Probe {
+		executable := filepath.Join(t.TempDir(), "ffprobe")
+		script := "#!/bin/sh\nprintf '%s\\n' '" + stderr + "' >&2\nexit 1\n"
+		if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return &Probe{Executable: executable}
+	}
+	invalid := fake("[mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] moov atom not found\n/x/Episode.mp4: Invalid data found when processing input")
+	if _, err := invalid.InspectWithin(t.Context(), root, "Episode.mp4"); !errors.Is(err, ErrInvalidContainer) {
+		t.Fatalf("missing moov atom error=%v, want ErrInvalidContainer", err)
+	}
+	unreadable := fake("/x/Episode.mp4: Input/output error")
+	if _, err := unreadable.InspectWithin(t.Context(), root, "Episode.mp4"); err == nil || errors.Is(err, ErrInvalidContainer) {
+		t.Fatalf("read error=%v, want a plain probe failure", err)
+	}
+}
