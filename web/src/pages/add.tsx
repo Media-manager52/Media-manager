@@ -7,11 +7,13 @@ import {
   createMedia, loadDiscoveryMetadata, loadLibraryRoots, loadQualityProfiles, searchMetadata,
   type APIDiscoveryDetail, type APIDiscoverySearchResult, type CreateMediaInput,
 } from "@/api/client"
+import { OptionPicker } from "@/components/option-picker"
 import { Poster, sizedArtwork } from "@/components/poster"
 import { useToast } from "@/components/toast"
 import { Button, Card, CardHeader, cx, Empty, ErrorBox, PageHeader, Spinner } from "@/components/ui"
 import { kindLabel, languageName } from "@/i18n"
 import { titleHref } from "@/lib/links"
+import { profileOptions, rootOptions } from "@/lib/pickers"
 
 export function AddPage() {
   const [query, setQuery] = useState("")
@@ -77,8 +79,6 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
   const [rootId, setRootId] = useState("")
   const [profileId, setProfileId] = useState("")
   const [searchNow, setSearchNow] = useState(true)
-  const compatibleRoots = (roots.data ?? []).filter((root) => root.media_kind === kind && root.enabled)
-  const compatibleProfiles = (profiles.data ?? []).filter((profile) => profile.media_kind === kind && profile.enabled)
   const mutation = useMutation({
     mutationFn: async () => {
       const input: CreateMediaInput = {
@@ -136,20 +136,18 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
             </fieldset>
           ) : null}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Bibliotek</span>
-              <select value={rootId} onChange={(event) => setRootId(event.target.value)} className="h-10 w-full rounded-lg border border-line bg-surface px-3">
-                <option value="">Standard (eller Seerr-regel)</option>
-                {compatibleRoots.map((root) => <option key={root.id} value={root.id}>{root.name}{root.edition === "4k" ? " · 4K-udgave" : ""}{root.is_default ? " · standard" : ""}</option>)}
-              </select>
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Kvalitetsprofil</span>
-              <select value={profileId} onChange={(event) => setProfileId(event.target.value)} className="h-10 w-full rounded-lg border border-line bg-surface px-3">
-                <option value="">Standard</option>
-                {compatibleProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}{profile.is_default ? " · standard" : ""}</option>)}
-              </select>
-            </label>
+            <OptionPicker
+              label="Bibliotek"
+              value={rootId}
+              onChange={setRootId}
+              options={rootOptions(roots.data ?? [], kind, { label: "Automatisk", description: "Standardmappen, medmindre en Seerr-regel vælger en anden." })}
+            />
+            <OptionPicker
+              label="Kvalitetsprofil"
+              value={profileId}
+              onChange={setProfileId}
+              options={profileOptions(profiles.data ?? [], kind, { label: "Automatisk", description: "Standardprofilen, eller den profil der passer til titlens originalsprog." })}
+            />
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={searchNow} onChange={(event) => setSearchNow(event.target.checked)} className="size-4 accent-[var(--accent)]" />

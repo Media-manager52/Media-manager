@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 
 import { ids, mockApi } from "./mock-api"
@@ -54,6 +55,30 @@ test("adding a movie sends verified identities from the detail lookup", async ({
     body: { kind: "movie", title: "Nyfilmen", year: 2025, search_immediately: true, identities: [{ namespace: "tmdb", value: "99", state: "verified", source: "seerr_metadata" }] },
   })
   await expect(page).toHaveURL(new RegExp(`/bibliotek/${ids.movie}$`))
+})
+
+test("library and profile are chosen from described choices", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/tilfoej")
+  await page.getByLabel("Titel").fill("Nyfilmen")
+  await page.getByRole("button", { name: "Søg", exact: true }).click()
+  await page.getByRole("button", { name: /Nyfilmen/ }).click()
+  await page.getByRole("button", { name: /^Bibliotek/ }).click()
+  const libraries = page.getByRole("dialog", { name: "Bibliotek" })
+  await expect(libraries.getByRole("radio", { name: /Automatisk/ })).toHaveAttribute("aria-checked", "true")
+  await expect(libraries).toContainText("Lige nu: Film.")
+  const axe = await new AxeBuilder({ page }).include("dialog[open]").withTags(["wcag2a", "wcag2aa"]).analyze()
+  expect(axe.violations).toEqual([])
+  await libraries.getByRole("radio", { name: /^Film 4K/ }).click()
+  await expect(libraries).toBeHidden()
+  await expect(page.getByRole("button", { name: /^Bibliotek Film 4K/ })).toBeVisible()
+  await page.getByRole("button", { name: /^Kvalitetsprofil/ }).click()
+  const profiles = page.getByRole("dialog", { name: "Kvalitetsprofil" })
+  await expect(profiles).toContainText("Kræver danske undertekster eller tale")
+  await profiles.getByRole("radio", { name: /^Movie Danish Subs/ }).click()
+  await page.getByRole("button", { name: "Tilføj film" }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/media", body: { root_id: "root-4k", quality_profile_id: ids.profile } })
 })
 
 test("deleting a Seerr rule needs a confirmation", async ({ page }) => {

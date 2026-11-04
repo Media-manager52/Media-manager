@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **Library and quality profile are chosen from described choices.** On **Tilføj film eller serie** and in Seerr rules, the two plain menus are replaced by a field that shows the choice with one explaining line and opens a list (a sheet from the bottom on a phone): each library shows its Plex folder, a *Standard* or *4K* badge and 4K folders in their own group; each profile says in Danish what it demands (Danish subtitles or speech, Danish speech, no language demand, required resolution, chosen automatically for a language). *Automatisk* names the library and profile it means today. What is sent to the API is unchanged.
+
 ### Fixed
 
 - **A release's list line shows only what held it back.** Under each found release the workflow page showed the first failed rules, including preferences that only rank releases, so a correctly chosen 2160p release read "observed evidence does not satisfy the rule" twice (it did not match the 1080p and 720p preferences). Only failed required rules (and unknown ones on a held release) are shown now, named and in Danish.

@@ -8,11 +8,13 @@ import {
   setNotificationDestinationEnabled, updateLibraryRoot,
   type APIIntegration, type APILibraryRoot, type APIQualityProfile,
 } from "@/api/client"
+import { OptionPicker } from "@/components/option-picker"
 import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dialog, Empty, ErrorBox, PageHeader } from "@/components/ui"
 import { formatRelative } from "@/format"
 import { kindLabel, languageName } from "@/i18n"
+import { profileOptions, rootOptions } from "@/lib/pickers"
 import { audioLabel, resolutionLabel, type RuleRecord } from "@/lib/quality-profile-rules"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -221,16 +223,22 @@ function SeerrInstance({ instance }: { instance: APIIntegration }) {
         Nye anmodninger til <span className="font-medium text-text">{removing?.folder}</span> bruger derefter standardbiblioteket. Allerede hentede titler flyttes ikke.
       </Dialog>
       {draft ? (
-        <form onSubmit={(event) => { event.preventDefault(); save.mutate() }} className="grid grid-cols-1 gap-3 border-t border-line px-5 py-4 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <form onSubmit={(event) => { event.preventDefault(); save.mutate() }} className="grid grid-cols-1 gap-3 border-t border-line px-5 py-4 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
           <div className="sm:col-span-3 font-medium break-all">{draft.folder}</div>
-          <select required value={draft.root} onChange={(event) => setDraft({ ...draft, root: event.target.value })} className="h-9 rounded-lg border border-line bg-surface px-2">
-            <option value="">Vælg bibliotek</option>
-            {(roots.data ?? []).filter((root) => root.media_kind === draft.kind && root.enabled).map((root) => <option key={root.id} value={root.id}>{root.name}</option>)}
-          </select>
-          <select value={draft.profile} onChange={(event) => setDraft({ ...draft, profile: event.target.value })} className="h-9 rounded-lg border border-line bg-surface px-2">
-            <option value="">Mappens standardprofil</option>
-            {(profiles.data ?? []).filter((profile) => profile.media_kind === draft.kind && profile.enabled).map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-          </select>
+          <OptionPicker
+            label="Bibliotek"
+            required
+            placeholder="Vælg bibliotek"
+            value={draft.root}
+            onChange={(root) => setDraft({ ...draft, root })}
+            options={rootOptions(roots.data ?? [], draft.kind)}
+          />
+          <OptionPicker
+            label="Kvalitetsprofil"
+            value={draft.profile}
+            onChange={(profile) => setDraft({ ...draft, profile })}
+            options={profileOptions(profiles.data ?? [], draft.kind, { label: "Mappens standardprofil", description: "Profilen, bibliotekets nye titler ellers får." })}
+          />
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setDraft(null)}>Fortryd</Button>
             <Button type="submit" variant="primary" busy={save.isPending} disabled={!draft.root}>Gem</Button>
