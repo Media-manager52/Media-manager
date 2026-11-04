@@ -161,9 +161,11 @@ func (service *AltMountRepairService) HandleSweep(ctx context.Context, event pos
 
 // Missing-file repairs. A publication's file must be missing on two sweeps
 // in a row (sweeps run every half hour), so a file AltMount is briefly not
-// listing is not replaced. When more than missingFileLimit files, or more
-// than missingFileShare of all publications, are missing at once, that is a
+// listing is not replaced. When more than missingFileLimit files and more
+// than missingFileShare of all publications are missing at once, that is a
 // mount or AltMount fault rather than lost releases, and nothing is repaired.
+// Both must be exceeded: a large library legitimately loses dozens of files
+// after a corruption sweep, and a small one would otherwise stop at a few.
 const (
 	missingFileLimit       = 25
 	missingFileShare       = 0.02
@@ -228,7 +230,7 @@ func (service *AltMountRepairService) missingFileSweep(ctx context.Context, altM
 			counts["stat_error"]++
 		}
 	}
-	if len(missing) > missingFileLimit || float64(len(missing)) > missingFileShare*float64(len(paths)) {
+	if len(missing) > missingFileLimit && float64(len(missing)) > missingFileShare*float64(len(paths)) {
 		slog.Warn("AltMount missing-file sweep skipped: too many files are missing at once", "missing", len(missing), "publications", len(paths))
 		service.rememberMissing(altMountID, nil)
 		counts["too_many_missing"] = len(missing)

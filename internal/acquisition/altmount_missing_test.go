@@ -109,6 +109,25 @@ func TestMissingFileSweepRepairsNothingDuringAnOutage(t *testing.T) {
 	}
 }
 
+// TestMissingFileSweepRepairsDozensInALargeLibrary proves the outage guard
+// needs both limits: 33 missing files out of 5,162 publications (what
+// production had after AltMount moved a batch of corrupted files aside) are
+// repaired, not mistaken for an outage.
+func TestMissingFileSweepRepairsDozensInALargeLibrary(t *testing.T) {
+	paths := publicationPaths(5162)
+	fake := newFakeMissingSweep(paths...)
+	ctx, altMount := context.Background(), uuid.NewV7()
+	for _, path := range paths[:33] {
+		fake.present[path] = false
+	}
+	if counts, err := fake.service.missingFileSweep(ctx, altMount, "/mnt/altmount"); err != nil || counts["missing_once"] != 33 {
+		t.Fatalf("first sweep counts=%v err=%v, want 33 seen once", counts, err)
+	}
+	if counts, err := fake.service.missingFileSweep(ctx, altMount, "/mnt/altmount"); err != nil || counts["opened"] != 33 || len(fake.planned) != 33 {
+		t.Fatalf("second sweep counts=%v planned=%d err=%v, want 33 repairs", counts, len(fake.planned), err)
+	}
+}
+
 // TestMissingFileSweepStopsOnAnUnresponsiveFile proves a file that does not
 // answer stops the sweep instead of counting as missing.
 func TestMissingFileSweepStopsOnAnUnresponsiveFile(t *testing.T) {
