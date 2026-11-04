@@ -10,6 +10,7 @@ import { NotFoundPage } from "@/pages/not-found"
 import { OverviewPage } from "@/pages/overview"
 import { RequestsPage } from "@/pages/requests"
 import { SettingsPage } from "@/pages/settings"
+import { SetupPage } from "@/pages/setup"
 import { SourcesPage } from "@/pages/sources"
 import { SystemPage } from "@/pages/system"
 import { TitlePage } from "@/pages/title"
@@ -33,6 +34,7 @@ const legacy: Array<[string, string]> = [
   ["/settings/profiles", "/indstillinger/profiler"],
   ["/settings/storage", "/indstillinger/biblioteker"],
   ["/settings/connections", "/indstillinger/forbindelser"],
+  ["/setup", "/kom-i-gang"],
   ["/system/health", "/system"],
   ["/system/backups", "/system/backup"],
   ["/system/problems", "/handling"],
@@ -59,6 +61,7 @@ export const router = createBrowserRouter([
       { path: "arbejde/:id", element: <WorkflowPage /> },
       { path: "kalender", element: <CalendarPage /> },
       { path: "kilder", element: <SourcesPage /> },
+      { path: "kom-i-gang", element: <SetupPage /> },
       { path: "indstillinger", element: <Navigate to="/indstillinger/profiler" replace /> },
       { path: "indstillinger/:section", element: <SettingsPage /> },
       { path: "system", element: <SystemPage /> },

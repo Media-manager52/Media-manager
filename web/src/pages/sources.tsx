@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { loadIndexers, loadOldBoysCredentialStatus, saveOldBoysCredentials, updateIndexer, type APIIndexerUsage } from "@/api/client"
+import { AddIndexerDialog, IndexerSetupActions } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, Dialog, ErrorBox, PageHeader, Progress } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative } from "@/format"
@@ -10,9 +11,11 @@ import { ListSkeleton } from "@/pages/overview"
 export function SourcesPage() {
   const query = useQuery({ queryKey: ["indexers"], queryFn: ({ signal }) => loadIndexers(signal), refetchInterval: 60_000 })
   const items = [...(query.data ?? [])].sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name, "da"))
+  const [adding, setAdding] = useState(false)
   return (
     <>
-      <PageHeader title="Kilder" description="Indexerne, Media Manager søger hos, og hvor meget af dagens grænse der er brugt. Grænserne gælder et rullende døgn." />
+      <PageHeader title="Kilder" description="Indexerne, Media Manager søger hos, og hvor meget af dagens grænse der er brugt. Grænserne gælder et rullende døgn." actions={<Button variant="primary" onClick={() => setAdding(true)}>Tilføj indexer</Button>} />
+      {adding ? <AddIndexerDialog onClose={() => setAdding(false)} /> : null}
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
       {query.isPending ? <Card><ListSkeleton rows={6} /></Card> : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -45,7 +48,10 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
             <Badge>{indexer.kind === "oldboys" ? "OldBoys" : "Newznab"}</Badge>
           </div>
         </div>
-        <Button variant="ghost" className="h-8 text-xs" onClick={() => setEditing(true)}>Rediger</Button>
+        <div className="flex flex-wrap gap-2">
+          <IndexerSetupActions integration={indexer} commissioned={indexer.commissioned} />
+          <Button variant="ghost" className="h-8 text-xs" onClick={() => setEditing(true)}>Rediger</Button>
+        </div>
       </div>
       <div className="space-y-3 px-5 py-4 text-sm">
         <div>

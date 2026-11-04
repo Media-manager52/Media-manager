@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import {
-  Activity, AlertTriangle, CalendarDays, Clapperboard, Home, Inbox, Menu, Monitor, Moon, Plus, Radio, Settings, Sun, X, Server,
+  Activity, AlertTriangle, CalendarDays, Clapperboard, Home, Inbox, ListChecks, Menu, Monitor, Moon, Plus, Radio, Settings, Sun, X, Server,
 } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 import { NavLink, Outlet, useLocation } from "react-router"
@@ -23,6 +23,7 @@ const secondary: NavItem[] = [
   { to: "/kilder", label: "Kilder", icon: Radio },
   { to: "/indstillinger", label: "Indstillinger", icon: Settings },
   { to: "/system", label: "System", icon: Server },
+  { to: "/kom-i-gang", label: "Kom i gang", icon: ListChecks },
 ]
 const mobileBar: NavItem[] = [primary[0], primary[2], primary[1], primary[4]]
 
