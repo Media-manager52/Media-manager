@@ -5242,7 +5242,7 @@
     },
     "/api/v1/settings/integrations/{id}/check": {
       "post": {
-        "description": "Plex: lists its libraries. AltMount: logs in and checks local_read_only_root is visible. Seerr: checks the API key. Changes nothing; ok is false with a detail when it does not work.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "description": "Plex: lists its libraries. AltMount: logs in and checks local_read_only_root is visible. Seerr: checks the API key. TMDB: checks the read access token and makes title search use it at once. Changes nothing else; ok is false with a detail when it does not work.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
         "operationId": "checkIntegration",
         "parameters": [
           {
@@ -5288,7 +5288,7 @@
             "description": "Error with a stable code."
           }
         },
-        "summary": "Check that a Plex, AltMount or Seerr connection works",
+        "summary": "Check that a Plex, AltMount, Seerr or TMDB connection works",
         "tags": [
           "settings"
         ],

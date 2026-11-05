@@ -13,6 +13,7 @@ import (
 	"github.com/media-manager/media-manager/internal/acquisition"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/integrationsecrets"
+	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
@@ -83,6 +84,9 @@ func (server *Server) saveIntegrationSecret(writer http.ResponseWriter, request 
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load the integration")
 		return
 	}
+	if integration.Kind == "tmdb" {
+		server.tmdbChanged()
+	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: integration})
 }
 
@@ -110,6 +114,9 @@ func (server *Server) updateIntegrationConnection(writer http.ResponseWriter, re
 	if err != nil {
 		writeConflict(writer, err, "settings_update_failed", "the connection could not be changed")
 		return
+	}
+	if integration.Kind == "tmdb" {
+		server.tmdbChanged()
 	}
 	requeued, _ := server.store.RequeueSeerrNeedsConfiguration(request.Context(), time.Now().UTC())
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: integration, Meta: map[string]int{"seerr_requests_requeued": requeued}})
@@ -143,9 +150,42 @@ func (server *Server) checkConnection(ctx context.Context, integration postgres.
 			return connectionCheck{Detail: safeConnectionError(err)}
 		}
 		return connectionCheck{OK: true, Detail: "Seerr accepted the API key"}
+	case "tmdb":
+		token, err := server.resolveSecret(integration.SecretRef)
+		if err != nil || strings.TrimSpace(token) == "" {
+			return connectionCheck{Detail: "save the TMDB read access token first"}
+		}
+		if err := metadataservice.CheckTMDBToken(ctx, token); err != nil {
+			return connectionCheck{Detail: "TMDB did not accept the token; use the long \"API Read Access Token\", not the short API key"}
+		}
+		server.tmdbChanged()
+		return connectionCheck{OK: true, Detail: "TMDB accepted the token; title search uses it"}
 	default:
 		return connectionCheck{Detail: "an indexer is checked by commissioning it"}
 	}
+}
+
+func (server *Server) tmdbChanged() {
+	if server.config.TMDBChanged != nil {
+		server.config.TMDBChanged()
+	}
+}
+
+// metadataProviderStates reports each metadata provider; TMDB is live because
+// its token can be saved on the website after start.
+func (server *Server) metadataProviderStates(ctx context.Context) map[string]string {
+	states := make(map[string]string, len(server.config.MetadataProviderStates)+1)
+	for name, state := range server.config.MetadataProviderStates {
+		states[name] = state
+	}
+	if server.config.TMDBDiscovery != nil && server.config.TMDBDiscovery.Configured(ctx) {
+		states["tmdb"] = "direct_configured"
+	} else if server.config.MetadataProvider != nil {
+		states["tmdb"] = "seerr_fallback"
+	} else {
+		states["tmdb"] = "not_configured"
+	}
+	return states
 }
 
 // safeConnectionError keeps a connection error useful without echoing a URL
@@ -278,9 +318,14 @@ func (server *Server) setupStatus(writer http.ResponseWriter, request *http.Requ
 		}
 		return step
 	}
-	metadataStep := SetupStep{ID: "metadata", Optional: true, Detail: "Set TMDB_ACCESS_TOKEN for posters, descriptions and discovery"}
-	if server.config.MetadataProviderStates["tmdb"] != "" {
+	// TMDB powers title search, posters and descriptions. Seerr's TMDB proxy
+	// covers search, so the step is optional only while Seerr is connected.
+	metadataStep := SetupStep{ID: "metadata", Optional: server.config.MetadataProvider != nil, Detail: "Add TMDB under Connections for title search, posters and descriptions"}
+	switch server.metadataProviderStates(ctx)["tmdb"] {
+	case "direct_configured":
 		metadataStep.Done, metadataStep.Detail = true, "TMDB"
+	case "seerr_fallback":
+		metadataStep.Done, metadataStep.Detail = true, "TMDB via Seerr"
 	}
 	seerrStep := SetupStep{ID: "seerr", Optional: true, Detail: "Connect Seerr to take requests from it"}
 	if integration, ok := defaultConnection("seerr"); ok {

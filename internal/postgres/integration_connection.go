@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// IntegrationConnectionPatch edits a Plex, AltMount or Seerr connection from
+// IntegrationConnectionPatch edits a Plex, AltMount, Seerr or TMDB connection from
 // the website. Indexers keep their own patch (their address is part of their
 // commissioned capability and cannot change).
 type IntegrationConnectionPatch struct {
@@ -50,8 +50,8 @@ func (store *Store) UpdateIntegrationConnection(ctx context.Context, id uuid.UUI
 	} else if err != nil {
 		return Integration{}, err
 	}
-	if kind != "plex" && kind != "altmount" && kind != "seerr" {
-		return Integration{}, refuse("invalid_integration_kind", "only Plex, AltMount and Seerr connections are edited here", "Change an indexer with PATCH /api/v1/settings/integrations/{id}.")
+	if kind != "plex" && kind != "altmount" && kind != "seerr" && kind != "tmdb" {
+		return Integration{}, refuse("invalid_integration_kind", "only Plex, AltMount, Seerr and TMDB connections are edited here", "Change an indexer with PATCH /api/v1/settings/integrations/{id}.")
 	}
 	config := map[string]any{}
 	if err := json.Unmarshal([]byte(configText), &config); err != nil {
@@ -64,6 +64,9 @@ func (store *Store) UpdateIntegrationConnection(ctx context.Context, id uuid.UUI
 			return Integration{}, refuse("invalid_name", "name must be 1-100 characters", "")
 		}
 		name, changed = trimmed, true
+	}
+	if kind == "tmdb" && (patch.BaseURL != nil || patch.AllowHTTP != nil) {
+		return Integration{}, refuse("invalid_field", "TMDB has a fixed address", "")
 	}
 	if patch.AllowHTTP != nil {
 		config["allow_http"], changed = *patch.AllowHTTP, true

@@ -228,7 +228,7 @@ func integrationHref(kind, id string) string {
 	switch kind {
 	case "newznab", "oldboys":
 		return "/sources/indexers/" + id
-	case "altmount", "plex", "seerr":
+	case "altmount", "plex", "seerr", "tmdb":
 		return "/settings/connections"
 	default:
 		return "/system/health"

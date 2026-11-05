@@ -44,11 +44,12 @@ export function CheckResult({ result }: { result: APIConnectionCheck }) {
   )
 }
 
-type ConnectionKind = "plex" | "altmount" | "seerr"
+type ConnectionKind = "plex" | "altmount" | "tmdb" | "seerr"
 
 const connectionKinds: Array<{ kind: ConnectionKind; title: string; description: string; placeholder: string }> = [
   { kind: "plex", title: "Plex", description: "Plex viser dine film og serier. Media Manager beder Plex om at opdatere, når en fil er klar.", placeholder: "http://plex:32400" },
   { kind: "altmount", title: "AltMount", description: "AltMount henter udgivelserne fra Usenet og gør filerne synlige for Plex.", placeholder: "http://altmount:8080" },
+  { kind: "tmdb", title: "TMDB", description: "Søgning efter film og serier, plakater og beskrivelser. Nødvendig, når du ikke bruger Seerr; gratis at oprette.", placeholder: "" },
   { kind: "seerr", title: "Seerr", description: "Valgfrit. Media Manager tager imod anmodninger fra Seerr.", placeholder: "http://seerr:5055" },
 ]
 
@@ -75,10 +76,12 @@ function SecretFields({ kind, values, onChange }: { kind: string; values: Secret
       </>
     )
   }
-  const label = kind === "plex" ? "Plex-token" : "API-nøgle"
+  const label = kind === "plex" ? "Plex-token" : kind === "tmdb" ? "TMDB API Read Access Token" : "API-nøgle"
   const hint = kind === "plex"
     ? "Find den i Plex Web: åbn en film, vælg ⋯ → Hent info → Vis XML. Token står efter X-Plex-Token= i adressen."
-    : kind === "seerr" ? "Find den i Seerr under Indstillinger → Generelt → API-nøgle." : "Find den på din konto hos indexeren, ofte under Profil eller API."
+    : kind === "tmdb"
+      ? <>Opret en gratis konto på <a className="underline" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">themoviedb.org</a>, gå til Indstillinger → API, og kopiér den lange &quot;API Read Access Token&quot; (ikke den korte API-nøgle).</>
+      : kind === "seerr" ? "Find den i Seerr under Indstillinger → Generelt → API-nøgle." : "Find den på din konto hos indexeren, ofte under Profil eller API."
   return <Field label={label} hint={hint}><input type="password" autoComplete="new-password" value={values.token} onChange={(event) => onChange({ ...values, token: event.target.value })} className={secretField} /></Field>
 }
 
@@ -93,7 +96,7 @@ function useRefreshSetup() {
   }
 }
 
-/** Connections to Plex, AltMount and Seerr: add, edit, save a key and test. */
+/** Connections to Plex, AltMount, TMDB and Seerr: add, edit, save a key and test. */
 export function ConnectionsSection() {
   const integrations = useQuery({ queryKey: ["settings", "integrations"], queryFn: ({ signal }) => loadIntegrations(signal) })
   const setup = useQuery({ queryKey: ["setup", "status"], queryFn: ({ signal }) => loadSetupStatus(signal) })
@@ -255,9 +258,11 @@ function ConnectionFields({ kind, draft, onChange, editing }: { kind: string; dr
   return (
     <>
       <Field label="Navn"><input required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} className={fieldClass} /></Field>
-      <Field label="Adresse" hint="Brug https://, eller http:// når tjenesten kører på dit eget netværk eller i samme Docker-netværk.">
-        <input required inputMode="url" placeholder={info?.placeholder} value={draft.baseURL} onChange={(event) => onChange({ ...draft, baseURL: event.target.value })} className={fieldClass} />
-      </Field>
+      {kind !== "tmdb" ? (
+        <Field label="Adresse" hint="Brug https://, eller http:// når tjenesten kører på dit eget netværk eller i samme Docker-netværk.">
+          <input required inputMode="url" placeholder={info?.placeholder} value={draft.baseURL} onChange={(event) => onChange({ ...draft, baseURL: event.target.value })} className={fieldClass} />
+        </Field>
+      ) : null}
       {kind === "altmount" ? (
         <>
           <Field label="Login">
@@ -293,7 +298,7 @@ function AddConnectionDialog({ kind, first, secretStorage, onClose }: { kind: Co
       const allowHTTP = baseURL.toLowerCase().startsWith("http://")
       const config: Record<string, unknown> = kind === "altmount"
         ? { base_url: baseURL, allow_http: allowHTTP, category: draft.category.trim(), reported_root: "/", authentication: draft.authentication, request_timeout_ms: 30000, local_read_only_root: draft.localRoot.trim() }
-        : { base_url: baseURL, allow_http: allowHTTP, request_timeout_ms: 20000 }
+        : kind === "tmdb" ? {} : { base_url: baseURL, allow_http: allowHTTP, request_timeout_ms: 20000 }
       const created = await createIntegration({ kind, name: draft.name.trim(), enabled: true, is_default: draft.isDefault, config })
       if (wantsSecret) {
         try {
@@ -307,7 +312,7 @@ function AddConnectionDialog({ kind, first, secretStorage, onClose }: { kind: Co
     onSuccess: async () => { toast("good", `${info.title} er tilføjet.`); await refresh() },
     onError: async (error) => { toast("bad", errorText(error)); await refresh() },
   })
-  const ready = draft.name.trim() && draft.baseURL.trim() && (!wantsSecret || (secretStorage && secretValue(kind, secret)))
+  const ready = draft.name.trim() && (kind === "tmdb" || draft.baseURL.trim()) && (!wantsSecret || (secretStorage && secretValue(kind, secret)))
   return (
     <Dialog
       open
@@ -379,7 +384,7 @@ function EditConnectionDialog({ integration, onClose }: { integration: APIIntegr
       title={`Rediger ${integration.name}`}
       footer={mutation.data
         ? <Button variant="primary" onClick={onClose}>Luk</Button>
-        : <><Button variant="ghost" onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} disabled={!draft.name.trim() || !draft.baseURL.trim()} onClick={() => mutation.mutate()}>Gem</Button></>}
+        : <><Button variant="ghost" onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} disabled={!draft.name.trim() || (integration.kind !== "tmdb" && !draft.baseURL.trim())} onClick={() => mutation.mutate()}>Gem</Button></>}
     >
       {mutation.data ? (
         <div className="space-y-2"><p>Ændringerne er gemt.</p><CheckResult result={mutation.data} /></div>

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -13,9 +14,24 @@ import (
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
+const metadataUnavailableMessage = "title search needs TMDB: add a TMDB read access token under Settings → Connections (or connect Seerr)"
+
+// discovery returns the provider for title search: Seerr when it is
+// connected, otherwise TMDB directly when a token is available.
+func (server *Server) discovery(ctx context.Context) (metadataservice.DiscoveryProvider, bool) {
+	if server.config.MetadataProvider != nil {
+		return server.config.MetadataProvider, true
+	}
+	if server.config.TMDBDiscovery != nil && server.config.TMDBDiscovery.Configured(ctx) {
+		return server.config.TMDBDiscovery, true
+	}
+	return nil, false
+}
+
 func (server *Server) discoverySearch(writer http.ResponseWriter, request *http.Request) {
-	if server.config.MetadataProvider == nil {
-		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", "Seerr metadata discovery is not configured")
+	provider, ok := server.discovery(request.Context())
+	if !ok {
+		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", metadataUnavailableMessage)
 		return
 	}
 	query := strings.TrimSpace(request.URL.Query().Get("query"))
@@ -27,9 +43,9 @@ func (server *Server) discoverySearch(writer http.ResponseWriter, request *http.
 		writeError(writer, http.StatusBadRequest, "invalid_query", "query must contain 2 to 200 characters and page must be between 1 and 100")
 		return
 	}
-	result, err := server.config.MetadataProvider.Search(request.Context(), query, page)
+	result, err := provider.Search(request.Context(), query, page)
 	if err != nil {
-		writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr metadata search failed")
+		writeError(writer, http.StatusBadGateway, "metadata_error", "TMDB title search failed")
 		return
 	}
 	filtered := result.Results[:0]
@@ -43,8 +59,9 @@ func (server *Server) discoverySearch(writer http.ResponseWriter, request *http.
 }
 
 func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *http.Request) {
-	if server.config.MetadataProvider == nil {
-		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", "Seerr metadata discovery is not configured")
+	provider, ok := server.discovery(request.Context())
+	if !ok {
+		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", metadataUnavailableMessage)
 		return
 	}
 	kind := request.PathValue("kind")
@@ -57,9 +74,9 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 		writeError(writer, http.StatusBadRequest, "invalid_id", "TMDB ID is invalid")
 		return
 	}
-	discovered, err := server.config.MetadataEnricher.Discover(request.Context(), server.config.MetadataProvider, kind, tmdbID, time.Now().UTC())
+	discovered, err := server.config.MetadataEnricher.Discover(request.Context(), provider, kind, tmdbID, time.Now().UTC())
 	if err != nil {
-		writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr metadata lookup failed or could not be normalized safely")
+		writeError(writer, http.StatusBadGateway, "metadata_error", "TMDB metadata lookup failed or could not be normalized safely")
 		return
 	}
 	mediaKind, title, year, identities, enriched := discovered.Kind, discovered.Title, discovered.Year, discovered.Identities, discovered.Result
@@ -74,9 +91,9 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 			writeError(writer, http.StatusBadRequest, "invalid_season", "season number is invalid")
 			return
 		}
-		details, detailsErr := server.config.MetadataProvider.SeasonMetadata(request.Context(), tmdbID, int16(season))
+		details, detailsErr := provider.SeasonMetadata(request.Context(), tmdbID, int16(season))
 		if detailsErr != nil {
-			writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr season metadata lookup failed")
+			writeError(writer, http.StatusBadGateway, "metadata_error", "TMDB season metadata lookup failed")
 			return
 		}
 		episodes := make([]discoveryEpisode, 0, len(details.Episodes))
@@ -92,8 +109,9 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 }
 
 func (server *Server) refreshMediaMetadata(writer http.ResponseWriter, request *http.Request) {
-	if server.config.MetadataProvider == nil {
-		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", "Seerr metadata discovery is not configured")
+	provider, ok := server.discovery(request.Context())
+	if !ok {
+		writeError(writer, http.StatusServiceUnavailable, "metadata_unavailable", metadataUnavailableMessage)
 		return
 	}
 	mediaID, err := uuid.Parse(request.PathValue("id"))
@@ -125,17 +143,18 @@ func (server *Server) refreshMediaMetadata(writer http.ResponseWriter, request *
 	if item.Kind == catalog.KindSeries {
 		providerKind = "tv"
 	}
-	providerMetadata, err := server.config.MetadataProvider.Metadata(request.Context(), providerKind, tmdbID)
+	providerMetadata, err := provider.Metadata(request.Context(), providerKind, tmdbID)
 	if err != nil {
-		writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr metadata lookup failed")
+		writeError(writer, http.StatusBadGateway, "metadata_error", "TMDB metadata lookup failed")
 		return
 	}
+	label := metadataservice.SourceLabel(provider)
 	identities := append([]catalog.ExternalIdentity(nil), item.Identities...)
 	if providerMetadata.ExternalIDs.TVDBID != nil && *providerMetadata.ExternalIDs.TVDBID > 0 && !identityNamespacePresent(identities, "tvdb") {
-		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*providerMetadata.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"})
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*providerMetadata.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: label})
 	}
 	if strings.TrimSpace(providerMetadata.ExternalIDs.IMDbID) != "" && !identityNamespacePresent(identities, "imdb") {
-		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: providerMetadata.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: "seerr_metadata"})
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: providerMetadata.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: label})
 	}
 	enricher := server.config.MetadataEnricher
 	if enricher == nil {

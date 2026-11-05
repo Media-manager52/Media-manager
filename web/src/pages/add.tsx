@@ -1,10 +1,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Search } from "lucide-react"
 import { useState, type FormEvent } from "react"
-import { useNavigate } from "react-router"
+import { Link, useNavigate } from "react-router"
 
 import {
-  createMedia, loadDiscoveryMetadata, loadLibraryRoots, loadQualityProfiles, searchMetadata,
+  ApiError, createMedia, loadDiscoveryMetadata, loadLibraryRoots, loadQualityProfiles, searchMetadata,
   type APIDiscoveryDetail, type APIDiscoverySearchResult, type CreateMediaInput,
 } from "@/api/client"
 import { OptionPicker } from "@/components/option-picker"
@@ -19,7 +19,12 @@ export function AddPage() {
   const [query, setQuery] = useState("")
   const [submitted, setSubmitted] = useState("")
   const [picked, setPicked] = useState<APIDiscoverySearchResult | null>(null)
-  const results = useQuery({ queryKey: ["discovery", submitted], queryFn: ({ signal }) => searchMetadata(submitted, 1, signal), enabled: submitted.length >= 2, staleTime: 300_000 })
+  const results = useQuery({
+    queryKey: ["discovery", submitted], queryFn: ({ signal }) => searchMetadata(submitted, 1, signal), enabled: submitted.length >= 2, staleTime: 300_000,
+    // Missing TMDB is a setup step, not a hiccup: say so at once instead of retrying.
+    retry: (count, error) => !(error instanceof ApiError && error.code === "metadata_unavailable") && count < 2,
+  })
+  const needsTMDB = results.error instanceof ApiError && results.error.code === "metadata_unavailable"
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
     setPicked(null)
@@ -27,7 +32,7 @@ export function AddPage() {
   }
   return (
     <>
-      <PageHeader title="Tilføj film eller serie" description="Søg i TMDB via Seerr. Når du vælger en titel, henter Media Manager de præcise oplysninger, før den bliver tilføjet." />
+      <PageHeader title="Tilføj film eller serie" description="Søg i TMDB. Når du vælger en titel, henter Media Manager de præcise oplysninger, før den bliver tilføjet." />
       <form onSubmit={onSubmit} className="mb-6 flex flex-col gap-2 sm:flex-row">
         <label htmlFor="add-search" className="sr-only">Titel</label>
         <div className="relative flex-1">
@@ -36,7 +41,14 @@ export function AddPage() {
         </div>
         <Button type="submit" variant="primary" className="h-11 px-5" busy={results.isFetching}>Søg</Button>
       </form>
-      {results.error ? <ErrorBox error={results.error} /> : null}
+      {needsTMDB ? (
+        <Card>
+          <div role="alert" className="p-5 text-sm">
+            <p className="font-medium">Søgning kræver TMDB</p>
+            <p className="mt-1 text-text-2">Media Manager finder film og serier i TMDB. Opret en gratis TMDB-konto, og tilføj den under <Link className="underline" to="/indstillinger/forbindelser">Indstillinger → Forbindelser</Link>. Så virker søgningen med det samme.</p>
+          </div>
+        </Card>
+      ) : results.error ? <ErrorBox error={results.error} /> : null}
       {picked ? <AddForm result={picked} onBack={() => setPicked(null)} /> : null}
       {!picked && results.data ? (
         results.data.results.length === 0 ? <Card><Empty title="Ingen titler fundet">Prøv den danske eller den originale titel.</Empty></Card> : (

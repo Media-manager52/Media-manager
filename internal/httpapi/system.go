@@ -19,7 +19,7 @@ func (server *Server) systemInfo(writer http.ResponseWriter, request *http.Reque
 		"browser_auth":             "gateway_basic_auth",
 		"api_auth":                 "server_injected_owner_bearer",
 		"seerr_webhook_enabled":    server.config.SeerrEnabled,
-		"metadata_providers":       server.config.MetadataProviderStates,
+		"metadata_providers":       server.metadataProviderStates(request.Context()),
 		"altmount_source_policy":   "read_only",
 		"publication_type":         "plex_safe_symlink",
 		"upgrade_replacement_gate": "plex_path_and_identity_confirmation",

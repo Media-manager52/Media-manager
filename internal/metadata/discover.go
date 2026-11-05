@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/media-manager/media-manager/internal/adapters/metadataproviders"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/catalog"
 )
@@ -14,6 +15,38 @@ import (
 // SeerrSource is the Seerr metadata lookup Discover needs.
 type SeerrSource interface {
 	Metadata(ctx context.Context, mediaType string, tmdbID int64) (seerr.Metadata, error)
+}
+
+// DiscoveryProvider finds titles on TMDB: Seerr's TMDB proxy, or TMDB itself.
+type DiscoveryProvider interface {
+	Search(ctx context.Context, query string, page int) (seerr.SearchPage, error)
+	Metadata(ctx context.Context, mediaType string, tmdbID int64) (seerr.Metadata, error)
+	SeasonMetadata(ctx context.Context, tmdbID int64, season int16) (seerr.SeasonMetadata, error)
+}
+
+// OptionalDiscovery is a DiscoveryProvider whose credential can be missing.
+type OptionalDiscovery interface {
+	DiscoveryProvider
+	Configured(ctx context.Context) bool
+}
+
+// CheckTMDBToken asks TMDB whether token is a valid read access token.
+func CheckTMDBToken(ctx context.Context, token string) error {
+	client, err := metadataproviders.NewTMDB(metadataproviders.TMDBConfig{AccessToken: token}, nil)
+	if err != nil {
+		return err
+	}
+	return client.Check(ctx)
+}
+
+// SourceLabel names where discovery metadata came from, for the identities
+// it proves: "seerr_metadata" for Seerr's TMDB proxy, or the source's own
+// label (TMDB queried directly says "tmdb_metadata").
+func SourceLabel(source any) string {
+	if labelled, ok := source.(interface{ MetadataSourceLabel() string }); ok {
+		return labelled.MetadataSourceLabel()
+	}
+	return "seerr_metadata"
 }
 
 // Discovered is a movie or series identified on TMDB through Seerr, with
@@ -45,12 +78,13 @@ func (service *Service) Discover(ctx context.Context, source SeerrSource, mediaT
 	if mediaType == "tv" {
 		title, date, kind = value.Name, value.FirstAirDate, catalog.KindSeries
 	}
-	identities := []catalog.ExternalIdentity{{Namespace: "tmdb", Value: strconv.FormatInt(tmdbID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"}}
+	label := SourceLabel(source)
+	identities := []catalog.ExternalIdentity{{Namespace: "tmdb", Value: strconv.FormatInt(tmdbID, 10), State: catalog.IdentityVerified, Source: label}}
 	if value.ExternalIDs.TVDBID != nil && *value.ExternalIDs.TVDBID > 0 {
-		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*value.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"})
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*value.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: label})
 	}
 	if strings.TrimSpace(value.ExternalIDs.IMDbID) != "" {
-		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: value.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: "seerr_metadata"})
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: value.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: label})
 	}
 	enricher := service
 	if enricher == nil {

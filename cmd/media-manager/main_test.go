@@ -32,10 +32,7 @@ func TestNewMetadataServiceLeavesUnconfiguredProvidersNil(t *testing.T) {
 }
 
 func TestNewMetadataServiceKeepsConfiguredProviders(t *testing.T) {
-	tmdb, err := metadataproviders.NewTMDB(metadataproviders.TMDBConfig{AccessToken: "token"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	tmdb := &metadataproviders.TMDBSource{EnvironmentToken: "token"}
 	service := newMetadataService(tmdb, nil, nil)
 	if service.TMDB == nil || service.TVDB != nil || service.Simkl != nil {
 		t.Fatalf("only the configured provider should be wired: %#v", service)
