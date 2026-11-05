@@ -2,7 +2,7 @@ package newznab
 
 import (
 	"context"
-	"encoding/xml"
+	"errors"
 	"regexp"
 	"strings"
 	"time"
@@ -57,22 +57,9 @@ func canonicalMediaValue(name, value string) string {
 // Language lines are interpreted within MediaInfo Audio/Text sections, never
 // across sections. General language tags and narrative prose are ignored.
 func MediaInfoFields(body []byte) []releases.RawField {
-	if len(body) > 1<<20 {
+	text, ok := nfoText(body)
+	if !ok {
 		return nil
-	}
-	text := string(body)
-	if strings.HasPrefix(strings.TrimSpace(text), "<") {
-		var rss struct {
-			Channel struct {
-				Items []struct {
-					Description string `xml:"description"`
-				} `xml:"item"`
-			} `xml:"channel"`
-		}
-		if xml.Unmarshal(body, &rss) != nil || len(rss.Channel.Items) != 1 {
-			return nil
-		}
-		text = rss.Channel.Items[0].Description
 	}
 	section := ""
 	fields := []releases.RawField{}
@@ -83,13 +70,20 @@ func MediaInfoFields(body []byte) []releases.RawField {
 	}
 	heading := regexp.MustCompile(`(?i)^(general|video|audio|text|menu)(?:\s*#\s*\d+)?$`)
 	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
+		line = nfoLine(strings.TrimSpace(line))
 		if match := heading.FindStringSubmatch(line); len(match) > 0 {
 			section = strings.ToLower(match[1])
 			continue
 		}
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
+			continue
+		}
+		if match := nfoSceneSubtitle.FindStringSubmatch(line); match != nil && strings.ToLower(strings.TrimSpace(key)) != "language" {
+			// Release-group layout: "SUBTiTLES....: DANISH, FINNISH".
+			if languages, _, _ := nfoLanguageList(match[2]); len(languages) > 0 {
+				add("subtitles", strings.Join(languages, ","))
+			}
 			continue
 		}
 		key = strings.ToLower(strings.TrimSpace(key))
@@ -167,16 +161,10 @@ func (c *Client) InspectMedia(ctx context.Context, o releases.Observation) (rele
 }
 
 func (c *Client) InspectNFO(ctx context.Context, o releases.Observation) (releases.Observation, error) {
-	native, err := RetrievalID(o.NativeGUID, c.config.BaseURL)
-	if err != nil {
-		return o, err
+	body, err := c.InspectAdvertisedNFO(ctx, o)
+	if errors.Is(err, ErrNFOUnavailable) {
+		return o, nil
 	}
-	body, err := c.request(ctx, indexers.WorkloadInteractive, []Param{{Name: "t", Value: "getnfo"}, {Name: "id", Value: native}, {Name: "raw", Value: "1"}}, 1<<20, func(body []byte) (indexers.Outcome, error) {
-		if provider, ok := providerErrorDocument(body); ok {
-			return validationFailureOutcome(provider), provider
-		}
-		return indexers.OutcomeSuccess, nil
-	})
 	if err != nil {
 		return o, err
 	}

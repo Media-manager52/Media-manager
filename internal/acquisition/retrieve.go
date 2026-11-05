@@ -151,6 +151,11 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 		if idErr != nil {
 			return service.retryOrRecordRetrievalFailure(ctx, event, retrieval, idErr)
 		}
+		if reason, rejected := service.checkSelectedNFO(ctx, retrieval, client); rejected {
+			// Like an unsupported package: excluded before any grab, job or
+			// round slot, and the next candidate is searched immediately.
+			return service.Store.RecordPreSubmissionRejection(ctx, retrieval, nfoRejectionKind, reason, time.Now().UTC())
+		}
 		nzb, err = client.GetNZBPackageFromLocatorGuarded(ctx, retrievalID, retrieval.DownloadLocatorRef, guard)
 	}
 	if errors.Is(err, postgres.ErrConcurrentModification) {

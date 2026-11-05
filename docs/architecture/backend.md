@@ -246,6 +246,23 @@ If you add a service handler, keep it idempotent: events are at-least-once.
 - `RetrievalService.Handle` (`retrieve.go`): fetch NZB (strict validation,
   exact package identity), record submission intent, upload to AltMount,
   reconcile ambiguous results by filename.
+- Pre-retrieval NFO check (`nfo_check.go`): when the round requires a
+  subtitle-or-audio language, the title is not originally in it, and the
+  provider gave no subtitle/audio languages of its own but advertised an NFO
+  (an `info` link on the configured endpoint naming this release, such as
+  `t=getnfo` or DrunkenSlug's `t=info`, or `nfo=1`), one interactive query reads
+  the NFO before the NZB. `newznab.ParseNFOLanguages` reads MediaInfo Text/Audio
+  sections and release-group lines (`SUBTiTLES....: DANISH`) with a fixed
+  language list. Only a completely stated subtitle list without the language,
+  plus a completely stated audio list without it (or no hint of it in the
+  release name), excludes the exact provider release through
+  `RecordPreSubmissionRejection` (kind `subtitle_verification`, no
+  verification row, so cross-posts are not excluded); no grab, job or round
+  slot is used. Anything partial, unknown or failing proceeds as before. Each
+  candidate is checked once (`release.nfo_checked` audit event), because the
+  NFO request takes the pacing slot and the grab usually runs on the deferred
+  retry. "No such item"/"No such function" answers count as no results, never
+  as indexer failures.
 - `AltMountReconcileService` (`reconcile_altmount.go`):
   - If the queue id is unknown, list by stable upload name (30-minute
     visibility window; `altmount_identity_unresolved` / `_ambiguous` otherwise).
