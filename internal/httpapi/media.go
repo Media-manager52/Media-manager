@@ -381,9 +381,20 @@ func (server *Server) recycleMedia(writer http.ResponseWriter, request *http.Req
 		writeError(writer, http.StatusBadRequest, "invalid_id", "media ID is invalid")
 		return
 	}
+	if request.URL.Query().Get("cancel_open_work") == "true" {
+		if _, err := server.store.CancelOpenWorkOfMedia(request.Context(), id, time.Now().UTC()); err != nil {
+			writeConflict(writer, err, "recycle_failed", err.Error())
+			return
+		}
+	}
 	entries, err := server.store.PlanMediaRecycle(request.Context(), id, time.Now().UTC())
 	if errors.Is(err, postgres.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, "not_found", "media was not found")
+		return
+	}
+	var refusal postgres.ActionRefusal
+	if errors.As(err, &refusal) {
+		writeErrorHint(writer, http.StatusConflict, refusal.Code, refusal.Message, refusal.Hint)
 		return
 	}
 	if err != nil {
@@ -391,6 +402,34 @@ func (server *Server) recycleMedia(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: entries})
+}
+
+func (server *Server) relocateMedia(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "media ID is invalid")
+		return
+	}
+	var input relocateMediaInput
+	if err := decodeJSON(request, &input, 8<<10); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	rootID, parseErr := uuid.Parse(input.RootID)
+	if input.RootID == "" || parseErr != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_root", "root_id must be a library root ID")
+		return
+	}
+	result, err := server.store.RelocateMedia(request.Context(), id, rootID, time.Now().UTC())
+	if errors.Is(err, postgres.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, "not_found", "media or root was not found")
+		return
+	}
+	if err != nil {
+		writeConflict(writer, err, "relocate_failed", err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: result})
 }
 
 func (server *Server) listRecycle(writer http.ResponseWriter, request *http.Request) {

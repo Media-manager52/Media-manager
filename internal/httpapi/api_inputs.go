@@ -110,6 +110,10 @@ type searchWorkflowInput struct {
 	AdoptedReplacementConfirmation string `json:"adopted_replacement_confirmation"`
 }
 
+type relocateMediaInput struct {
+	RootID string `json:"root_id"`
+}
+
 type relocateWorkflowLinksInput struct {
 	RootID string `json:"root_id"`
 }

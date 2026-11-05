@@ -213,3 +213,68 @@ test("the setup checklist links to what is missing", async ({ page }) => {
   await page.getByRole("link", { name: "Sæt op: Forbind AltMount" }).click()
   await expect(page).toHaveURL(/\/indstillinger\/forbindelser$/)
 })
+
+const movieOnDisk = {
+  media: { id: ids.movie, kind: "movie", title: "Testfilmen", year: 2024, identities: [{ namespace: "tmdb", value: "1" }], metadata: {} },
+  workflows: [{ id: ids.attention, media_id: ids.movie, media_kind: "movie", title: "Testfilmen", variant: "default", edition: "standard", root_id: ids.root, state: "plex_confirmed", revision: 3, terminal_at: "2026-11-03T12:00:00Z", adopted_replacement_confirmation_required: false, created_at: "2026-11-03T12:00:00Z", updated_at: "2026-11-03T12:00:00Z", available_actions: [] }],
+  seasons: [],
+  files: [{ id: "f1", media_id: ids.movie, media_kind: "movie", title: "Testfilmen", root_name: "Film", destination_relative: "Testfilmen (2024)/Testfilmen (2024).mkv", source_relative: "x", plex_visible_target: "/mnt/altmount/x", state: "current", generation: 1, plex_confirmed: true, variant: "default", origin: "altmount", quality_profile: "Movie Danish Subs", quality_evidence_state: "media_info", quality_evidence: {} }],
+}
+
+async function titleOnDisk(page: import("@playwright/test").Page) {
+  await page.route(`**/api/v1/media/${ids.movie}/detail`, (route) => route.fulfill({ json: { data: movieOnDisk } }))
+  await page.route("**/api/v1/settings/library-roots", (route) => route.fulfill({ json: { data: [
+    { id: ids.root, media_kind: "movie", name: "Film", destination_root: "/media/Movies", plex_visible_root: "/media/Movies", source_visible_root: "/mnt/altmount", is_default: true, enabled: true },
+    { id: "root-kids", media_kind: "movie", name: "Børnefilm", destination_root: "/media/Kids", plex_visible_root: "/media/Kids", source_visible_root: "/mnt/altmount", is_default: false, enabled: true },
+    { id: "root-4k", media_kind: "movie", name: "Film 4K", destination_root: "/media/Film 4K", plex_visible_root: "/media/Film 4K", source_visible_root: "/mnt/altmount", edition: "4k", is_default: false, enabled: true },
+  ] } }))
+}
+
+test("a title is moved to another library after choosing it", async ({ page }) => {
+  const writes = await mockApi(page)
+  await titleOnDisk(page)
+  await page.goto(`/bibliotek/${ids.movie}`)
+  await page.getByRole("button", { name: "Flyt", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Flyt Testfilmen" })
+  await expect(dialog).toContainText("Ligger nu i: Film")
+  await expect(dialog.getByRole("radio", { name: /Film 4K/ })).toHaveCount(0)
+  await expect(dialog.getByRole("radio", { name: /^Film/ })).toBeDisabled()
+  expect(writes).toEqual([])
+  await dialog.getByRole("radio", { name: /Børnefilm/ }).check()
+  await dialog.getByRole("button", { name: "Flyt", exact: true }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toEqual({ method: "POST", path: `/api/v1/media/${ids.movie}/relocate`, body: { root_id: "root-kids" } })
+  await expect(page.getByRole("status").filter({ hasText: "er flyttet til Børnefilm" })).toBeVisible()
+})
+
+test("deleting a title asks first and puts it in the recycle bin", async ({ page }) => {
+  const writes = await mockApi(page)
+  await titleOnDisk(page)
+  const deletes: string[] = []
+  page.on("request", (request) => { if (request.method() === "DELETE") deletes.push(request.url()) })
+  await page.goto(`/bibliotek/${ids.movie}`)
+  await page.getByRole("button", { name: "Slet", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Slet Testfilmen?" })
+  await expect(dialog).toContainText("papirkurven i 30 dage")
+  await expect(dialog).toContainText("Selve filen i AltMount bliver ikke slettet")
+  expect(writes).toEqual([])
+  await dialog.getByRole("button", { name: "Slet titel" }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({ method: "DELETE", path: `/api/v1/media/${ids.movie}` })
+  expect(deletes[0]).toContain("cancel_open_work=true")
+  await expect(page).toHaveURL(/\/bibliotek$/)
+})
+
+test("a deleted title can be restored from the recycle bin", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.route("**/api/v1/recycle", (route) => route.fulfill({ json: { data: [
+    { id: "e1", cycle_id: "c1", media_id: ids.movie, media_title: "Testfilmen", root_id: ids.root, entry_kind: "link", purpose: "media_delete", original_relative: "a", recycle_relative: "b", altmount_source_retained: true, purge_after: "2026-12-03T12:00:00Z", state: "retained", confirmation_required: false, restore_attempts: 0, created_at: "2026-11-03T12:00:00Z" },
+    { id: "e2", cycle_id: "c0", media_id: ids.series, media_title: "Gammel", root_id: ids.root, entry_kind: "link", purpose: "media_delete", original_relative: "a", recycle_relative: "b", altmount_source_retained: true, purge_after: "2026-12-01T12:00:00Z", state: "restored", confirmation_required: false, restore_attempts: 0, created_at: "2026-11-01T12:00:00Z" },
+  ] } }))
+  await page.goto("/system/papirkurv")
+  await expect(page.getByText("Testfilmen")).toBeVisible()
+  await expect(page.getByText("Gammel")).toHaveCount(0)
+  await page.getByRole("button", { name: "Gendan" }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/recycle/e1/restore" })
+})

@@ -6,6 +6,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Added
 
+- **Flyt and Slet on the title page.** *Flyt* moves a whole title, every season included, to another library folder of the same kind and edition, and asks Plex to rescan the old and the new folder (`POST /api/v1/media/{id}/relocate`). *Slet* stops waiting and monitoring work and puts the title's links in the recycle bin for 30 days (`DELETE /api/v1/media/{id}?cancel_open_work=true`). The new **System → Papirkurv** lists deleted titles with a *Gendan* button. Only symlinks move; AltMount files are never touched, and nothing moves or is deleted while part of the title is downloading or publishing.
+
 - **A shorter Cosmos install form, backups on by default, and a list of known indexers.**
   - **Install form.** The form no longer asks for the Plex token, a Newznab key, the AltMount secret or a backup key. The secrets are entered on the website, stored encrypted and tested there (*Log ind med Plex* needs no token at all). The environment variables still work when set by hand.
   - **Backup key.** Media Manager now creates the backup key itself on first start, as a random base64 32-byte key in the API's private state volume (`BACKUP_ENCRYPTION_KEY_FILE`, mode 0600). Market installs therefore have working, encrypted backups from the start instead of none. The key is never replaced: if the file is missing after backups were made, backups stay off and the log says why.
@@ -37,6 +39,7 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- Dialogs are announced with their title to screen readers.
 - **A release from a switched-off indexer no longer blocks its workflow.** When an indexer was switched off after one of its releases was selected, fetching that NZB failed and was retried forever, and the workflow never moved on. It is now recorded as a retrieval failure without contacting the indexer, and a known alternative on an enabled indexer is tried, the same way as when an indexer refuses access.
 - **Small errors on the remaining pages.**
   - Common server errors are shown in Danish everywhere (database down, not found, changed meanwhile, server not reachable, and more). Unknown errors keep the server's text.

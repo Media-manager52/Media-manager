@@ -335,6 +335,7 @@ func run() error {
 	handlers["plex.scan_requested"] = plexService.HandleScan
 	handlers["plex.confirm_requested"] = plexService.HandleConfirm
 	handlers["plex.recycle_refresh_requested"] = plexService.HandleRecycleRefresh
+	handlers["plex.folder_refresh_requested"] = plexService.HandleFolderRefresh
 	handlers["plex.displaced_refresh_requested"] = plexService.HandleDisplacedRefresh
 	handlers["plex.adopted_restore_confirm_requested"] = plexService.HandleAdoptedRestoreConfirm
 	adoptionService := &adoptionexec.Service{Store: store, MediaInfoProbe: mediaInfoProbe, PlexClientFor: func(integration postgres.Integration) (adoptionexec.PlexClient, error) {

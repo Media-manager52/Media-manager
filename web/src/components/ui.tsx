@@ -185,6 +185,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
 /** Accessible modal built on <dialog>, used for confirmations. */
 export function Dialog({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
   useEffect(() => {
     const dialog = ref.current
     if (!dialog) return
@@ -194,12 +195,13 @@ export function Dialog({ open, onClose, title, children, footer }: { open: boole
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onClose={onClose}
       onCancel={onClose}
       className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-text shadow-card backdrop:bg-black/50"
     >
       <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
-        <h2 className="text-base font-semibold">{title}</h2>
+        <h2 id={titleId} className="text-base font-semibold">{title}</h2>
         <button type="button" onClick={onClose} aria-label="Luk" className="rounded-md p-1 text-text-3 hover:text-text">
           <X className="size-4" />
         </button>

@@ -257,7 +257,10 @@ export type CreateMediaInput = {
 
 export const createMedia = (input: CreateMediaInput) => requestJSON<{ media: APIMedia; workflows: APIWorkflow[] }>("/api/v1/media", { method: "POST", body: JSON.stringify(input) })
 export const refreshMediaMetadata = (id: string) => requestJSON<{ media: APIMedia; enrichment_state: APIDiscoveryDetail["enrichment_state"]; provider_states: Record<string, string> }>(`/api/v1/media/${encodeURIComponent(id)}/metadata/refresh`, { method: "POST" })
-export const recycleMedia = (id: string) => requestJSON<APIRecycleEntry[]>(`/api/v1/media/${encodeURIComponent(id)}`, { method: "DELETE" })
+/** Moves the title's links to the recycle bin; cancelOpenWork first stops waiting, searching and monitoring work. */
+export const recycleMedia = (id: string, cancelOpenWork = false) => requestJSON<APIRecycleEntry[]>(`/api/v1/media/${encodeURIComponent(id)}${cancelOpenWork ? "?cancel_open_work=true" : ""}`, { method: "DELETE" })
+export type APIMediaRelocation = { media_id: string; root_id: string; workflows: number; moved: number }
+export const relocateMedia = (id: string, rootId: string) => requestJSON<APIMediaRelocation>(`/api/v1/media/${encodeURIComponent(id)}/relocate`, { method: "POST", body: JSON.stringify({ root_id: rootId }) })
 export const restoreRecycle = (id: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/restore`, { method: "POST" })
 export const restoreAdoptedFiles = (id: string, confirmation: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/restore-adopted`, { method: "POST", body: JSON.stringify({ confirmation }) })
 export const confirmRealFilePurge = (id: string, confirmation: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/confirm-purge`, { method: "POST", body: JSON.stringify({ confirmation }) })
