@@ -63,7 +63,7 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 		return
 	}
 	mediaKind, title, year, identities, enriched := discovered.Kind, discovered.Title, discovered.Year, discovered.Identities, discovered.Result
-	response := map[string]any{"kind": mediaKind, "title": title, "year": year, "identities": identities, "tmdb_id": tmdbID, "metadata": enriched.Metadata, "enrichment_state": enriched.EnrichmentState, "provider_states": enriched.ProviderStates}
+	response := discoveryDetail{Kind: mediaKind, Title: title, Year: year, Identities: identities, TMDBID: tmdbID, Metadata: enriched.Metadata, EnrichmentState: enriched.EnrichmentState, ProviderStates: enriched.ProviderStates}
 	if rawSeason := request.URL.Query().Get("season"); rawSeason != "" {
 		if kind != "tv" {
 			writeError(writer, http.StatusBadRequest, "invalid_season", "season metadata is available only for TV")
@@ -79,14 +79,14 @@ func (server *Server) discoveryMetadata(writer http.ResponseWriter, request *htt
 			writeError(writer, http.StatusBadGateway, "metadata_error", "Seerr season metadata lookup failed")
 			return
 		}
-		episodes := make([]map[string]any, 0, len(details.Episodes))
+		episodes := make([]discoveryEpisode, 0, len(details.Episodes))
 		for _, episode := range details.Episodes {
 			if episode.EpisodeNumber <= 0 {
 				continue
 			}
-			episodes = append(episodes, map[string]any{"number": episode.EpisodeNumber, "provider_id": "tmdb:" + strconv.FormatInt(episode.ID, 10), "title": episode.Name, "air_date": episode.AirDate})
+			episodes = append(episodes, discoveryEpisode{Number: episode.EpisodeNumber, ProviderID: "tmdb:" + strconv.FormatInt(episode.ID, 10), Title: episode.Name, AirDate: episode.AirDate})
 		}
-		response["season"] = map[string]any{"number": details.SeasonNumber, "episodes": episodes}
+		response.Season = &discoverySeason{Number: details.SeasonNumber, Episodes: episodes}
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: response})
 }
@@ -413,4 +413,30 @@ func (server *Server) confirmRealFilePurge(writer http.ResponseWriter, request *
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]string{"status": "real_file_purge_queued", "id": id.String()}})
+}
+
+// discoveryDetail is the GET /api/v1/discovery/{kind}/{id} response. The
+// Stremio/Nuvio addon reads it to request titles (nuvio_addon_contract_test.go).
+type discoveryDetail struct {
+	Kind            catalog.MediaKind          `json:"kind"`
+	Title           string                     `json:"title"`
+	Year            *uint16                    `json:"year"`
+	Identities      []catalog.ExternalIdentity `json:"identities"`
+	TMDBID          int64                      `json:"tmdb_id"`
+	Metadata        *catalog.MediaMetadata     `json:"metadata"`
+	EnrichmentState string                     `json:"enrichment_state"`
+	ProviderStates  map[string]string          `json:"provider_states"`
+	Season          *discoverySeason           `json:"season,omitempty"`
+}
+
+type discoverySeason struct {
+	Number   int16              `json:"number"`
+	Episodes []discoveryEpisode `json:"episodes"`
+}
+
+type discoveryEpisode struct {
+	Number     int16  `json:"number"`
+	ProviderID string `json:"provider_id"`
+	Title      string `json:"title"`
+	AirDate    string `json:"air_date"`
 }
