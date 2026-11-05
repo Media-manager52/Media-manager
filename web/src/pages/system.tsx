@@ -157,6 +157,8 @@ function Backups() {
         description={b.offsite.configured ? "Krypterede backups, også kopieret uden for serveren." : "Krypterede backups. Der er ingen kopi uden for serveren endnu."}
         action={<Button variant="primary" busy={create.isPending} disabled={!b.configured} onClick={() => create.mutate()}>Tag backup nu</Button>}
       />
+      {!b.configured ? <p className="px-5 pb-3 text-sm text-warn">Backups er slået fra, fordi serveren ikke har en backup-nøgle (BACKUP_ENCRYPTION_KEY).</p> : null}
+      {b.configured && b.key_file ? <p className="px-5 pb-3 text-sm text-text-2">Backup-nøglen blev lavet automatisk og ligger i <code className="break-all">{b.key_file}</code> i API-containeren. Gem en kopi et sikkert sted: uden den kan en backup ikke gendannes på en anden server.</p> : null}
       {b.records.length === 0 ? <Empty title="Ingen backups endnu" /> : null}
       <ul className="divide-y divide-line">
         {b.records.slice(0, 30).map((record) => (

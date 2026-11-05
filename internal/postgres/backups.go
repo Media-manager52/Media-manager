@@ -193,3 +193,11 @@ func (store *Store) FailBackup(ctx context.Context, id uuid.UUID, safeDetail str
 	_, err := store.Pool.Exec(ctx, `UPDATE backup_records SET state='failed',last_error=NULLIF($2,''),completed_at=$3 WHERE id=$1 AND state <> 'verified'`, id.String(), safeDetail, now.UTC())
 	return err
 }
+
+// BackupsExist reports whether any backup was completed, so a lost backup
+// key file is never silently replaced by a new key.
+func (store *Store) BackupsExist(ctx context.Context) (bool, error) {
+	var exists bool
+	err := store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM backup_records WHERE state='verified' OR filename IS NOT NULL)`).Scan(&exists)
+	return exists, err
+}

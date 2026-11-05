@@ -178,6 +178,20 @@ test("Brug anbefalet opsætning shows the proposal before creating it", async ({
   expect(writes.map((write) => write.body)).toEqual([{ apply: false }, { apply: true }])
 })
 
+test("picking a known indexer fills its name and API address", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/kilder")
+  await page.getByRole("button", { name: "Tilføj indexer" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByRole("combobox", { name: /^Indexer/ }).selectOption("NZBgeek")
+  await expect(dialog.getByLabel("Navn", { exact: true })).toHaveValue("NZBgeek")
+  await expect(dialog.getByLabel("API-adresse")).toHaveValue("https://api.nzbgeek.info/api")
+  await dialog.getByLabel("API-nøgle").fill("geek-key")
+  await dialog.getByRole("button", { name: "Tilføj og godkend" }).click()
+  await expect.poll(() => writes.length).toBeGreaterThan(0)
+  expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/settings/integrations", body: { kind: "newznab", name: "NZBgeek", config: { base_url: "https://api.nzbgeek.info/api" } } })
+})
+
 test("the setup checklist links to what is missing", async ({ page }) => {
   await mockApi(page)
   await page.goto("/kom-i-gang")

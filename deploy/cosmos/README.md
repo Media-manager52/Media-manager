@@ -27,7 +27,8 @@ Once accepted it appears without adding a source.
 - Cosmos Cloud 0.23.4 or newer.
 - AltMount (Usenet acquisition) and Plex.
 - At least one Newznab-compatible indexer.
-- A TMDB API read access token (recommended).
+- A TMDB API read access token, unless you use Seerr. It is free; you can enter it
+  in the install form or later on the website.
 - A Docker network shared with AltMount, Plex and Seerr (default `media-stack`).
 - Host folders for movies, TV, AltMount's parent mount and encrypted backups.
 
@@ -53,11 +54,19 @@ publish.
 ## After install
 
 1. Open the installed Media Manager app from Cosmos (Cosmos OpenID handles the login).
-2. Add **AltMount** under Sources → Download clients.
-3. Add **Plex** under Settings → Connections.
-4. Add and commission a **Newznab** indexer under Sources → Indexers.
-5. Add a library root and quality profile, then add a title.
-6. Optional: configure Seerr, off-site backups and more metadata providers.
+2. Under **Indstillinger → Forbindelser** choose **Log ind med Plex** and allow
+   Media Manager on Plex. Then add **AltMount**, and **TMDB** unless you use Seerr.
+3. Add and commission a **Newznab** indexer under **Kilder**.
+4. On **Kom i gang** choose **Brug anbefalet opsætning**. It sets up the library
+   folders and the "Dansk tekst eller tale" profile after showing you the proposal.
+   Then add a title.
+5. Optional: configure Seerr, off-site backups and more metadata providers.
+
+The install form no longer asks for the Plex token, an indexer key or the AltMount
+secret: these are entered on the website, stored encrypted and tested there. The
+`PLEX_TOKEN`, `NEWZNAB_PRIMARY_API_KEY`, `ALTMOUNT_SECRET` and
+`BACKUP_ENCRYPTION_KEY` environment variables still work if you set them on the API
+service yourself.
 
 The owner token is in the install form (and in the API service environment). It is
 injected only by the Cosmos `/api` route; do not expose the API port.
@@ -78,6 +87,17 @@ that Cosmos does not generate, so `SECRET_ENCRYPTION_KEY` is empty and the
 Connections page shows a yellow "mangler en krypteringsnøgle" warning. Fix it in
 Cosmos: **ServApps → `<app name>-api` → Environment**, set `SECRET_ENCRYPTION_KEY`
 to the output of `openssl rand -hex 32`, save, and keep the value somewhere safe.
+
+## The backup key
+
+Backups are encrypted with a key that Media Manager creates on its first start, in
+the same volume (`backup-encryption.key`, `BACKUP_ENCRYPTION_KEY_FILE`). The
+**System → Backup** page shows where it is. **Save a copy somewhere safe**: without
+it a backup cannot be restored on another server. To read it, run
+`cat /var/lib/media-manager/state/backup-encryption.key` in the API container's
+terminal in Cosmos. If the file is lost after backups were made, Media Manager does
+not create a new key (it could not open those backups): backups stay off and the
+API log names the file.
 
 ## Reinstalling
 

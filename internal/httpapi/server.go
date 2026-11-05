@@ -53,10 +53,13 @@ type Config struct {
 	CommissioningV2        CommissioningV2Service
 	CommissioningV2Origin  string
 	BackupConfigured       bool
-	BackupDirectory        string
-	BackupOffsite          backups.OffsiteStore
-	BackupOffsiteKind      string
-	BackupOffsitePrefix    string
+	// BackupKeyFile is where the backup key is kept when it is a file (shown
+	// to the owner so a copy can be saved; the key itself is never returned).
+	BackupKeyFile       string
+	BackupDirectory     string
+	BackupOffsite       backups.OffsiteStore
+	BackupOffsiteKind   string
+	BackupOffsitePrefix string
 	// ServarrAPIKey enables the Radarr/Sonarr-compatible API Seerr uses when
 	// Media Manager replaces the *arr applications. Empty disables it.
 	ServarrAPIKey string

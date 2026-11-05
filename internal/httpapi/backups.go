@@ -23,6 +23,7 @@ func (server *Server) listBackups(writer http.ResponseWriter, request *http.Requ
 	}
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{
 		"configured":           server.config.BackupConfigured,
+		"key_file":             server.config.BackupKeyFile,
 		"format":               "PostgreSQL custom format encrypted with chunked AES-256-GCM",
 		"restore_verification": "isolated temporary database and exact schema version",
 		"automatic_deletion":   false,

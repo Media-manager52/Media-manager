@@ -12,6 +12,7 @@ import { PlexLoginButton } from "@/components/plex-login"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox } from "@/components/ui"
 import { languageName } from "@/i18n"
+import { indexerPresetFor, indexerPresets } from "@/lib/indexers"
 import { checkText, suggestDestination, suggestSourceRoot } from "@/lib/setup"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -440,6 +441,15 @@ export function AddIndexerDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog open onClose={onClose} title="Tilføj indexer" footer={<><Button variant="ghost" onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} disabled={!ready} onClick={() => mutation.mutate()}>Tilføj og godkend</Button></>}>
       <div className="space-y-3">
+        <Field label="Indexer" hint="Vælg din indexer, så udfyldes navn og adresse. Vælg &quot;Anden indexer&quot; for at skrive dem selv.">
+          <select value={indexerPresetFor(draft.baseURL)} onChange={(event) => {
+            const preset = indexerPresets.find((entry) => entry.name === event.target.value)
+            setDraft(preset ? { ...draft, name: preset.name, baseURL: preset.url } : { ...draft, name: "", baseURL: "" })
+          }} className={fieldClass}>
+            <option value="">Anden indexer</option>
+            {indexerPresets.map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
+          </select>
+        </Field>
         <Field label="Navn"><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className={fieldClass} /></Field>
         <Field label="API-adresse" hint="Newznab-adressen, fx https://indexer.example/api">
           <input inputMode="url" placeholder="https://" value={draft.baseURL} onChange={(event) => setDraft({ ...draft, baseURL: event.target.value })} className={fieldClass} />
