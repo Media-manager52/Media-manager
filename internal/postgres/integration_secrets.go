@@ -48,3 +48,12 @@ func (store *Store) LoadIntegrationSecret(ctx context.Context, integrationID uui
 	}
 	return sealed, err
 }
+
+// SealedSecretsExist reports whether any secret sealed with the server key is
+// stored: an integration secret or the OldBoys credentials. A missing key file
+// is then never replaced by a new key that could not open them.
+func (store *Store) SealedSecretsExist(ctx context.Context) (bool, error) {
+	var exists bool
+	err := store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_secrets) OR EXISTS(SELECT 1 FROM oldboys_credentials)`).Scan(&exists)
+	return exists, err
+}

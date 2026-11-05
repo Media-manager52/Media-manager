@@ -92,6 +92,11 @@
         "type": "info",
         "name": "setup",
         "label": "Media Manager is installed with its Cosmos routes. Open the UI and add AltMount, Plex, your Newznab indexer and a quality profile. The /api route already injects the owner token; do not add a second proxy or Basic-auth layer."
+      },
+      {
+        "type": "info",
+        "name": "secret-key",
+        "label": "Media Manager creates its secret encryption key on first start in the volume {ServiceName}-api-state. Keep that volume when you update or move the app: the keys you save on the website (Plex, AltMount, indexers) can only be read with it."
       }
     ]
   },
@@ -222,7 +227,7 @@
         "ALTMOUNT_SECRET={Context.altmountSecret}",
         "BACKUP_ENCRYPTION_KEY={Context.backupKey}",
         "SERVARR_API_KEY={Passwords.3}",
-        "SECRET_ENCRYPTION_KEY={Passwords.4}",
+        "SECRET_ENCRYPTION_KEY_FILE=/var/lib/media-manager/state/secret-encryption.key",
         "SEERR_BASE_URL=",
         "SEERR_API_KEY=",
         "SEERR_INSTANCE_ID=",
@@ -234,7 +239,7 @@
       "labels": {
         "cosmos-force-network-secured": "true",
         "cosmos-auto-update": "true",
-        "cosmos-persistent-env": "PGPASSWORD, OWNER_TOKEN, TMDB_ACCESS_TOKEN, PLEX_TOKEN, NEWZNAB_PRIMARY_API_KEY, ALTMOUNT_SECRET, BACKUP_ENCRYPTION_KEY, SERVARR_API_KEY, SECRET_ENCRYPTION_KEY",
+        "cosmos-persistent-env": "PGPASSWORD, OWNER_TOKEN, TMDB_ACCESS_TOKEN, PLEX_TOKEN, NEWZNAB_PRIMARY_API_KEY, ALTMOUNT_SECRET, BACKUP_ENCRYPTION_KEY, SERVARR_API_KEY",
         "cosmos-stack": "{ServiceName}",
         "cosmos-stack-main": "{ServiceName}"
       },
@@ -267,6 +272,11 @@
           "type": "bind",
           "source": "{Context.backupPath}",
           "target": "/var/lib/media-manager/backups"
+        },
+        {
+          "source": "{ServiceName}-api-state",
+          "target": "/var/lib/media-manager/state",
+          "type": "volume"
         }
       ],
       "networks": {
@@ -323,7 +333,8 @@
     }
   },
   "volumes": {
-    "{ServiceName}-postgres-data": {}
+    "{ServiceName}-postgres-data": {},
+    "{ServiceName}-api-state": {}
   },
   "networks": {
     "{ServiceName}": {},
