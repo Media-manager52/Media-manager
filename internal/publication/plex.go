@@ -170,6 +170,25 @@ func (service *PlexService) HandleRecycleRefresh(ctx context.Context, event post
 	return client.Refresh(ctx, root.PlexLibraryID, filepath.Dir(filepath.Join(root.PlexVisibleRoot, entry.OriginalRelative)))
 }
 
+// HandleFolderRefresh asks Plex to rescan one title folder after a title was
+// moved between library roots. A root without Plex has nothing to refresh,
+// and a Plex that keeps failing is given up after a few attempts: a missed
+// partial scan is caught by Plex's own periodic scan.
+func (service *PlexService) HandleFolderRefresh(ctx context.Context, event postgres.OutboxEvent) error {
+	folder, ok, err := service.Store.PlexForFolderRefresh(ctx, event.Payload)
+	if err != nil || !ok {
+		return err
+	}
+	client, err := service.ClientFor(folder.Integration)
+	if err == nil {
+		err = client.Refresh(ctx, folder.Root.PlexLibraryID, filepath.Join(folder.Root.PlexVisibleRoot, folder.Relative))
+	}
+	if err != nil && event.Attempts >= 5 {
+		return nil
+	}
+	return err
+}
+
 func (service *PlexService) HandleDisplacedRefresh(ctx context.Context, event postgres.OutboxEvent) error {
 	link, root, integration, err := service.Store.PlexForDisplacedLink(ctx, event.AggregateID)
 	if err != nil {

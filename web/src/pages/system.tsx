@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { NavLink, Link, useParams } from "react-router"
 
-import { createBackup, loadActivity, loadBackups, loadQueue, loadRepairs, loadSystemHealth, loadSystemInfo } from "@/api/client"
+import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRepairs, loadSystemHealth, loadSystemInfo, restoreRecycle, type APIRecycleEntry } from "@/api/client"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
@@ -14,6 +14,7 @@ const sections = [
   { id: "koe", label: "Baggrundskø" },
   { id: "backup", label: "Backup" },
   { id: "reparationer", label: "Reparationer" },
+  { id: "papirkurv", label: "Papirkurv" },
   { id: "aktivitet", label: "Aktivitet" },
 ]
 
@@ -33,6 +34,7 @@ export function SystemPage() {
       {section === "koe" ? <Queue /> : null}
       {section === "backup" ? <Backups /> : null}
       {section === "reparationer" ? <Repairs /> : null}
+      {section === "papirkurv" ? <RecycleBin /> : null}
       {section === "aktivitet" ? <ActivityLog /> : null}
     </>
   )
@@ -197,6 +199,54 @@ function Repairs() {
             <div className="mt-0.5 text-xs text-text-3">Oprettet {formatRelative(repair.created_at)}{repair.detail ? ` · ${repair.detail}` : ""}</div>
           </li>
         ))}
+      </ul>
+    </Card>
+  )
+}
+
+const recycleState: Record<string, string> = { planned: "Flyttes til papirkurven", retained: "I papirkurven", restore_planned: "Gendannes", purge_planned: "Slettes endeligt", awaiting_confirmation: "Venter på dig", failed: "Fejlet" }
+
+/** Deleted titles, one row per delete, newest first. */
+function RecycleBin() {
+  const queryClient = useQueryClient()
+  const toast = useToast()
+  const query = useQuery({ queryKey: ["recycle"], queryFn: ({ signal }) => loadRecycle(signal), refetchInterval: 30_000 })
+  const restore = useMutation({
+    mutationFn: (entry: APIRecycleEntry) => restoreRecycle(entry.id),
+    onSuccess: async (_, entry) => {
+      toast("good", `${entry.media_title} bliver gendannet. Den er tilbage i Plex om lidt.`)
+      await queryClient.invalidateQueries()
+    },
+    onError: (error) => toast("bad", errorMessage(error)),
+  })
+  if (query.error) return <ErrorBox error={query.error} retry={() => query.refetch()} />
+  if (!query.data) return <Card><ListSkeleton /></Card>
+  const cycles = new Map<string, APIRecycleEntry[]>()
+  for (const entry of query.data) {
+    if (entry.purpose !== "media_delete" || entry.state === "restored" || entry.state === "purged") continue
+    cycles.set(entry.cycle_id, [...(cycles.get(entry.cycle_id) ?? []), entry])
+  }
+  const groups = [...cycles.values()].sort((a, b) => b[0].created_at.localeCompare(a[0].created_at))
+  return (
+    <Card>
+      <CardHeader title="Papirkurv" description="Slettede titler. De kan gendannes i 30 dage; derefter fjernes linkene for altid. Selve filerne i AltMount bliver aldrig slettet." />
+      {groups.length === 0 ? <Empty title="Papirkurven er tom" /> : null}
+      <ul className="divide-y divide-line">
+        {groups.map((entries) => {
+          const first = entries[0]
+          const restorable = entries.every((entry) => entry.entry_kind === "link" && entry.state === "retained")
+          const state = entries.every((entry) => entry.state === first.state) ? recycleState[first.state] ?? humanize(first.state) : "Flere tilstande"
+          return (
+            <li key={first.cycle_id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">{first.media_title}</div>
+                <div className="text-xs text-text-3">Slettet {formatRelative(first.created_at)} · {pluralize(entries.length, "fil", "filer")} · gemmes til {formatDateTime(first.purge_after)}</div>
+              </div>
+              <Badge tone={first.state === "failed" ? "bad" : "neutral"}>{state}</Badge>
+              {restorable ? <Button className="h-8 text-xs" busy={restore.isPending && restore.variables?.cycle_id === first.cycle_id} onClick={() => restore.mutate(first)}>Gendan</Button> : null}
+            </li>
+          )
+        })}
       </ul>
     </Card>
   )

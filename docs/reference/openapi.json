@@ -1321,6 +1321,25 @@
         },
         "type": "object"
       },
+      "Postgres_MediaRelocation": {
+        "properties": {
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "moved": {
+            "type": "integer"
+          },
+          "root_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workflows": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_Problem": {
         "properties": {
           "area": {
@@ -2063,6 +2082,14 @@
           },
           "weight": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "RelocateMediaInput": {
+        "properties": {
+          "root_id": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -4234,7 +4261,7 @@
     },
     "/api/v1/media/{id}": {
       "delete": {
-        "description": "Removes, replaces or purges data and may be irreversible. Ask the owner first.",
+        "description": "Links stay in the recycle bin for 30 days and can be restored; AltMount content is never touched. Refused with media_has_open_work while a workflow is open, unless cancel_open_work=true, which first cancels waiting, searching and monitoring work (refused with workflow_in_flight while anything is downloading or publishing).\n\nRemoves, replaces or purges data and may be irreversible. Ask the owner first.",
         "operationId": "recycleMedia",
         "parameters": [
           {
@@ -4243,6 +4270,15 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "Cancel open workflows of the media first.",
+            "in": "query",
+            "name": "cancel_open_work",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -4456,6 +4492,79 @@
         ],
         "x-mm-auth": "owner",
         "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/media/{id}/relocate": {
+      "post": {
+        "description": "Moves the published links of every workflow of the title (every season of a series) and points open workflows at the new root, then queues a Plex refresh of the old and new folder. Refused with workflow_in_flight while anything is downloading or publishing, so nothing moves halfway. Link targets and AltMount content are never touched.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "relocateMedia",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RelocateMediaInput"
+                  }
+                ],
+                "required": [
+                  "root_id"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Postgres_MediaRelocation"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Move a whole title to another library root of the same kind and edition",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
       }
     },
     "/api/v1/media/{id}/unarchive": {

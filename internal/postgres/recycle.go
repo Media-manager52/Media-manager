@@ -69,7 +69,7 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 		return nil, err
 	}
 	if active > 0 {
-		return nil, errors.New("media has an active workflow; cancel or finish it before deleting")
+		return nil, refuse("media_has_open_work", "media has an active workflow; cancel or finish it before deleting", "Send cancel_open_work=true to cancel waiting and monitoring work first, or cancel each workflow.")
 	}
 	var adoptedProtected bool
 	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM adopted_files WHERE media_id=$1 AND state IN ('current','recycle_planned','retained','restore_confirming','restore_attention'))`, mediaID.String()).Scan(&adoptedProtected); err != nil {

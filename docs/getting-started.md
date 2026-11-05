@@ -321,6 +321,26 @@ The title page shows the acquisition pipeline. After AltMount completes, the
 output is inspected read-only and published as a managed symlink; Plex then
 confirms the exact path and provider identity before the title is success.
 
+### Move or delete a title
+
+The title page has two buttons next to **Opdatér oplysninger**:
+
+- **Flyt** moves the whole title (every season of a series, including seasons
+  still being waited for) to another library folder of the same kind and
+  edition, for example from *Film* to *Børnefilm*. Only the managed symlinks
+  move; the AltMount file is never touched. Plex is asked to rescan the old
+  and the new folder. Nothing moves while part of the title is downloading or
+  being published.
+- **Slet** removes the title from Plex and Media Manager. Waiting searches and
+  the monitoring of new episodes stop first. The symlinks go to the recycle
+  bin (a hidden `.media-manager-recycle` folder in the library root) for 30
+  days; **System → Papirkurv** lists them with a **Gendan** button. The
+  AltMount file is never deleted. A title that was never in Plex is simply
+  removed and can be added again.
+
+The same actions are available to agents as `POST /api/v1/media/{id}/relocate`
+and `DELETE /api/v1/media/{id}?cancel_open_work=true`.
+
 ### Seerr (optional)
 
 Seerr is a second request entry point. In **Indstillinger → Forbindelser**

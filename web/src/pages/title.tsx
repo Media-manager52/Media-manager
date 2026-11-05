@@ -7,6 +7,7 @@ import { loadMediaDetail, refreshMediaMetadata, type APIManagedFile, type APIMed
 import { Poster, sizedArtwork } from "@/components/poster"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, Skeleton } from "@/components/ui"
+import { TitleActions } from "@/components/title-actions"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDate, formatRelative } from "@/format"
 import { attentionLabel, errorMessage, kindLabel, languageName, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
@@ -50,6 +51,7 @@ function TitleView({ detail }: { detail: APIMediaDetail }) {
             {meta?.overview ? <p className="mt-4 max-w-3xl text-text-2">{meta.overview}</p> : null}
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <RefreshMetadata mediaId={media.id} />
+              <TitleActions detail={detail} />
               {uniqueSources(meta?.sources).map((source) => (
                 <a key={`${source.provider}-${source.provider_id}`} href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-text-2 hover:text-text">
                   {providerName(source.provider)} <ExternalLink aria-hidden className="size-3.5" />
