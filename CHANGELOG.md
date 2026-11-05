@@ -37,6 +37,12 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **Small errors on the title and work pages.**
+  - Why a workflow button is unavailable, and the note in its confirmation, are now shown in Danish (the API keeps its English text).
+  - Why a release was excluded is shown in Danish for the common AltMount and indexer reasons.
+  - A season pack held for review no longer says "0 expected episodes are missing"; it names the first problem, such as a duplicate episode or a file outside the season.
+  - *Søgninger* and *Fundne udgivelser* show an error with a retry button when loading fails, instead of "Ingen … endnu". The release list says when it shows only the best 60.
+  - Cancelling says "er annulleret" instead of "sat i gang". Ratings use a Danish decimal comma, and "1 ny udgivelse" is singular.
 - **Small errors on the other pages.**
   - Adding a film or series that is already in the library showed a raw database error. It now opens the title you already have. A title removed earlier, a missing indexer and missing defaults each get a Danish explanation.
   - *Anmodninger*: after you decide the last request waiting for approval, the page goes back to *I gang* instead of an empty list.

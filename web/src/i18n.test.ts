@@ -56,3 +56,17 @@ describe("workflowDisplayState", () => {
     expect(workflowDisplayState({ state: "needs_attention", covered_by_episodes: true })).toBe("needs_attention")
   })
 })
+
+describe("release exclusion reasons", () => {
+  it("are shown in Danish", () => {
+    expect(translateDetail("exact NZB package was already submitted in this workflow")).toBe("Præcis samme pakke er allerede prøvet i dette arbejde.")
+    expect(translateDetail("selected release NZB access was rejected after one bounded request (newznab_http_403)")).toBe("Indexeren afviste adgang til NZB-filen (newznab_http_403).")
+  })
+
+  it("name the real season-pack problem", () => {
+    expect(translateDetail("season pack is incomplete; 2 expected episodes are missing")).toBe("Sæsonpakken er ufuldstændig; 2 afsnit mangler.")
+    expect(translateDetail("season pack is needs_review; first problem: duplicate (S01E02) and 1 more")).toBe("Sæsonpakken skal tjekkes; første problem: et afsnit findes mere end én gang (S01E02) og 1 til.")
+    // Older rows said "0 expected episodes are missing" for a pack held for review.
+    expect(translateDetail("season pack is needs_review; 0 expected episodes are missing")).toBe("Sæsonpakken skal tjekkes.")
+  })
+})

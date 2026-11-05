@@ -244,7 +244,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 				return err
 			}
 			if !report.Publishable() {
-				return service.Store.CompleteReleaseFailure(ctx, job, "season_pack_incomplete", fmt.Sprintf("season pack is %s; %d expected episodes are missing", report.Verdict, len(report.Missing)), time.Now().UTC())
+				return service.Store.CompleteReleaseFailure(ctx, job, "season_pack_incomplete", packFailureDetail(report), time.Now().UTC())
 			}
 			selected = selectedPackAssets(report, assets)
 			detail = "season pack inventory and subtitle requirements verified"
@@ -514,4 +514,30 @@ func authorizedOutputRoot(localReadOnlyRoot, localRelative string) (string, erro
 		return "", errors.New("AltMount completed output root is unsafe")
 	}
 	return filepath.Join(root, relative), nil
+}
+
+// packFailureDetail says why a season pack was refused. A pack held for
+// review usually misses nothing, so it names the first problem instead of
+// claiming "0 expected episodes are missing".
+func packFailureDetail(report packs.Report) string {
+	detail := fmt.Sprintf("season pack is %s", report.Verdict)
+	if len(report.Missing) > 0 {
+		detail += fmt.Sprintf("; %d expected episodes are missing", len(report.Missing))
+	}
+	if report.Verdict == packs.VerdictIncomplete || len(report.Issues) == 0 {
+		return detail
+	}
+	issue := report.Issues[0]
+	where := issue.Path
+	if where == "" && len(issue.Episodes) > 0 {
+		where = fmt.Sprintf("S%02dE%02d", issue.Episodes[0].Season, issue.Episodes[0].Episode)
+	}
+	detail += "; first problem: " + issue.Code
+	if where != "" {
+		detail += " (" + where + ")"
+	}
+	if more := len(report.Issues) - 1; more > 0 {
+		detail += fmt.Sprintf(" and %d more", more)
+	}
+	return detail
 }

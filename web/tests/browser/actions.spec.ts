@@ -19,7 +19,7 @@ test("unavailable actions are disabled and explain why", async ({ page }) => {
   await mockApi(page)
   await page.goto(`/arbejde/${ids.attention}`)
   await expect(page.getByRole("button", { name: "Søg nu" })).toBeDisabled()
-  await expect(page.getByText("An AltMount job is active; wait for it to settle.")).toBeVisible()
+  await expect(page.getByText("AltMount arbejder stadig på et job. Vent, til det er færdigt.")).toBeVisible()
 })
 
 test("cancelling can be abandoned without sending anything", async ({ page }) => {
