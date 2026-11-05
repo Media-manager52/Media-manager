@@ -275,3 +275,16 @@ func TestDecodeServarrJSONAcceptsRealClientPayloads(t *testing.T) {
 		t.Fatal("multi-document body was accepted")
 	}
 }
+
+func TestServarrProfilesListDefaultFirstThenByName(t *testing.T) {
+	profiles := []postgres.QualityProfile{{Name: "WWE – uden sprogkrav"}, {Name: "Børn – dansk tale"}, {Name: "Dansk tekst eller tale", Default: true}, {Name: "Danske titler"}}
+	sortServarrProfiles(profiles)
+	got := []string{}
+	for _, profile := range profiles {
+		got = append(got, profile.Name)
+	}
+	want := []string{"Dansk tekst eller tale", "Børn – dansk tale", "Danske titler", "WWE – uden sprogkrav"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("order=%v, want %v", got, want)
+	}
+}

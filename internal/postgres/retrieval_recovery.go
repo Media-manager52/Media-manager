@@ -75,10 +75,10 @@ func (store *Store) inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, re
 			return result, nil
 		}
 	}
-	var roundPolicy int64
+	var policyCurrent bool
 	var limit, used, retained int
 	var baseline, currentBaseline string
-	err := tx.QueryRow(ctx, `SELECT r.id::text,r.policy_version,r.policy_snapshot,r.attempt_limit_snapshot,r.upgrade_baseline_link_versions,
+	err := tx.QueryRow(ctx, `SELECT r.id::text,`+roundPolicyCurrentSQL("r", "p")+`,r.policy_snapshot,r.attempt_limit_snapshot,r.upgrade_baseline_link_versions,
 		(SELECT count(*) FROM altmount_jobs j WHERE j.round_id=r.id),
 		(SELECT count(*) FROM workflow_release_exclusions e WHERE e.retrieval_round_id=r.id),
 		(SELECT count(DISTINCT j.id) FROM altmount_jobs j JOIN altmount_output_inventories i ON i.job_id=j.id
@@ -86,8 +86,9 @@ func (store *Store) inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, re
 		(SELECT COALESCE(string_agg(v.id::text,',' ORDER BY v.id),'') FROM workflows requested
 		 JOIN workflows published ON published.media_id=requested.media_id AND published.variant=requested.variant AND published.edition=requested.edition
 		 JOIN library_link_versions v ON v.workflow_id=published.id AND v.state='current' WHERE requested.id=r.workflow_id)
-		FROM acquisition_rounds r WHERE r.workflow_id=$1 AND r.state='open' FOR UPDATE OF r`, retrieval.Workflow.ID.String()).Scan(
-		&result.roundID, &roundPolicy, &result.policy, &limit, &baseline, &used, &result.failures, &retained, &currentBaseline)
+		FROM acquisition_rounds r JOIN workflows rw ON rw.id=r.workflow_id JOIN quality_profiles p ON p.id=rw.quality_profile_id
+		WHERE r.workflow_id=$1 AND r.state='open' FOR UPDATE OF r`, retrieval.Workflow.ID.String()).Scan(
+		&result.roundID, &policyCurrent, &result.policy, &limit, &baseline, &used, &result.failures, &retained, &currentBaseline)
 	if errors.Is(err, pgx.ErrNoRows) {
 		result.code, result.detail = "release_retrieval_round_unavailable", "NZB retrieval requires an existing open acquisition round; owner review is required."
 		return result, nil
@@ -96,7 +97,7 @@ func (store *Store) inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, re
 		return result, err
 	}
 	switch {
-	case roundPolicy != policyVersion || baseline != currentBaseline:
+	case !policyCurrent || baseline != currentBaseline:
 		result.code, result.detail = "release_retrieval_policy_changed", "The policy or current publication changed after this round opened; review the candidate before retrieving another NZB."
 	case used >= limit:
 		result.code, result.detail = "release_retrieval_round_full", "The open acquisition round has no submission slots left; no further NZB was requested."

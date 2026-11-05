@@ -343,7 +343,7 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 		EXISTS(SELECT 1 FROM workflow_retry_discovery WHERE workflow_id=$1 AND state IN ('waiting','ready')),
 		EXISTS(SELECT 1 FROM acquisition_rounds round JOIN workflows workflow ON workflow.id=round.workflow_id
 		  JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
-		  WHERE round.workflow_id=$1 AND round.state='open' AND round.policy_version=profile.policy_version)`, workflowID.String()).Scan(&exhaustedRound, &retryDiscovery, &currentOpenRound); err != nil {
+		  WHERE round.workflow_id=$1 AND round.state='open' AND `+roundPolicyCurrentSQL("round", "profile")+`)`, workflowID.String()).Scan(&exhaustedRound, &retryDiscovery, &currentOpenRound); err != nil {
 		return err
 	}
 	if exhaustedRound || retryDiscovery && !currentOpenRound {

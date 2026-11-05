@@ -60,9 +60,15 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		return err
 	}
 	var candidateText string
-	err = transaction.QueryRow(ctx, `SELECT candidate.id::text
+	// A decision made under an earlier version whose frozen rules equal the
+	// current policy (the profile was only renamed or made default since) is
+	// as valid as one made under the current version; the new round then keeps
+	// that version so the decision and later retrieval checks stay consistent.
+	var decisionVersion int64
+	err = transaction.QueryRow(ctx, `SELECT candidate.id::text,decision.policy_version
 		FROM release_candidates candidate
-		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id AND decision.policy_version=$2
+		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
+		  AND (decision.policy_version=$2 OR EXISTS(SELECT 1 FROM acquisition_rounds same WHERE same.workflow_id=candidate.workflow_id AND same.policy_version=decision.policy_version AND same.policy_snapshot=$3::jsonb))
 		JOIN release_observations observation ON observation.id=candidate.observation_id
 		WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
 		  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
@@ -71,8 +77,9 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		  (EXISTS (SELECT 1 FROM jsonb_array_elements(observation.normalized_facts) fact WHERE fact->>'name'='subtitle_languages' AND fact->'values' @> '["da"]'::jsonb)) DESC,
 		  (observation.title ~* '(nordic|danish|dansub|dksubs|dansk)') DESC,
 		  decision.score DESC,
+		  decision.policy_version=$2 DESC,
 		  candidate.first_seen_sequence
-		LIMIT 1`, workflowID.String(), policyVersion).Scan(&candidateText)
+		LIMIT 1`, workflowID.String(), policyVersion, string(policy)).Scan(&candidateText, &decisionVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return refuse("no_known_eligible_release", "no known eligible release is available for a new acquisition round", "Wait for paced discovery or queue one with discover.")
 	}
@@ -96,7 +103,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 	}
 	roundID := uuid.NewV7()
 	if _, err := transaction.Exec(ctx, `INSERT INTO acquisition_rounds(id,workflow_id,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,upgrade_baseline_link_versions,opened_at)
-		VALUES($1,$2,$3,'open',$4,0,$5,$6,$7,$8)`, roundID.String(), workflowID.String(), maxOrdinal+1, store.AcquisitionLimits().AttemptsPerRound, policyVersion, policy, baseline, now.UTC()); err != nil {
+		VALUES($1,$2,$3,'open',$4,0,$5,$6,$7,$8)`, roundID.String(), workflowID.String(), maxOrdinal+1, store.AcquisitionLimits().AttemptsPerRound, decisionVersion, policy, baseline, now.UTC()); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET state='paused',next_rescan_at=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=$2 WHERE workflow_id=$1 AND state IN ('waiting','ready')`, workflowID.String(), now.UTC()); err != nil {
