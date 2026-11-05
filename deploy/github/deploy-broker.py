@@ -20,6 +20,12 @@ import urllib.request
 REPOSITORY = "Media-manager52/Media-manager"
 CHECKOUT = Path("/home/vps/media-manager")
 STATE = Path("/var/lib/media-manager-deploy")
+BACKUPS = Path("/home/vps/media-manager-backups")
+# Each deployment backup holds a full database dump (several GB). After a
+# successful deployment only this many of the newest are kept, so the disk
+# cannot fill up; older ones are no longer the way back.
+KEEP_BACKUPS = 10
+BACKUP_NAME = re.compile(r"github-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[1-9][0-9]*")
 # Approved runner placement for every Verify job the broker requires. Jobs that
 # build or publish the images production runs stay on the dedicated VPS runner;
 # public-safe checks run on GitHub-hosted runners. Any job on another runner, or
@@ -208,6 +214,25 @@ def publish_result(path, result):
             temporary.unlink(missing_ok=True)
 
 
+def prune_backups(current, log, root=None, keep=KEEP_BACKUPS):
+    """Keep the newest deployment backups, the one just made among them.
+
+    Only directories named exactly like a deployment backup are touched; other
+    backups in the folder (AltMount, manual copies) are never removed. Any
+    failure here is logged and leaves the deployment successful."""
+    root = root or BACKUPS
+    try:
+        names = sorted(path.name for path in root.iterdir()
+                       if BACKUP_NAME.fullmatch(path.name) and path.is_dir() and not path.is_symlink())
+        if current.name not in names[-keep:]:
+            raise RuntimeError("Current backup is not among the newest; nothing removed")
+        for name in names[:-keep]:
+            shutil.rmtree(root / name)
+            log.write("Removed old deployment backup " + name + "\n")
+    except Exception as error:
+        log.write("Backup cleanup skipped: " + type(error).__name__ + ": " + str(error) + "\n")
+
+
 def deploy(request, log):
     ci_socket = "unix:///run/user/" + str(pwd.getpwnam("mm-ci").pw_uid) + "/docker.sock"
     evidence(request)
@@ -224,7 +249,7 @@ def deploy(request, log):
                 or labels.get("org.opencontainers.image.source") != "https://github.com/" + REPOSITORY):
             raise RuntimeError("Built image provenance mismatch")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H%M%S")
-    backup = Path("/home/vps/media-manager-backups") / ("github-" + stamp + "-" + str(request["deployment_run"]))
+    backup = BACKUPS / ("github-" + stamp + "-" + str(request["deployment_run"]))
     backup.mkdir(mode=0o700)
     for name in [".env", ".env.integrations"]:
         shutil.copy2(CHECKOUT / name, backup / name)
@@ -286,6 +311,7 @@ def deploy(request, log):
     if info["commit"] != request["commit"]:
         raise RuntimeError("Running API source identity mismatch")
     write_private(backup / "deployment.json", {"request": request, "info": info})
+    prune_backups(backup, log)
     return {"success": True, "commit": request["commit"], "schema": info["schema_version"], "backup_created": True}
 
 

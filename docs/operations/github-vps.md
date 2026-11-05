@@ -84,8 +84,11 @@ after a GitHub deployment, include it:
 sudo docker compose -f compose.yaml -f .sites-runtime/github-deploy-images.json up -d --no-build
 ```
 
-Backups remain on the server; off-server copies and retention review are still
-needed. A schema change can prevent starting an old binary, so rollback needs
+Backups remain on the server. After each successful deployment the broker
+keeps the ten newest deployment backups (`github-<time>-<run>` folders under
+`~/media-manager-backups`) and removes older ones; other folders there, such as
+AltMount backups, are never touched, and a cleanup failure is only logged.
+Off-server copies are still needed. A schema change can prevent starting an old binary, so rollback needs
 a compatible binary or a separately reviewed database restore.
 
 ## Host administration
