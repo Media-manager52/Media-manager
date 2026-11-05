@@ -164,8 +164,16 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: 1.27.3
-          cache: true
-          cache-dependency-path: go.sum
+          cache: false
+      # Restore only: go-cache.yml writes this cache from main (see there).
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./cmd/... ./internal/...
       # Pinned analyzers; staticcheck.conf documents the disabled style checks.
@@ -235,8 +243,16 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: 1.27.3
-          cache: true
-          cache-dependency-path: go.sum
+          cache: false
+      # Restore only: go-cache.yml writes this cache from main (see there).
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-
       - run: bash scripts/ci/test-backend.sh
 
   # The one backend result the deployment broker checks: it runs only when

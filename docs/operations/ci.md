@@ -45,6 +45,11 @@ runner remains an owner/infrastructure decision.
 - without `BACKEND_TEST_PART` (local use), runs everything;
 - partitions this machine's PostgreSQL tests into `BACKEND_TEST_SHARDS` groups
   (the workflow sets 4; the script default is 4, allowed 1–16);
+- builds the race-enabled PostgreSQL test binary once (`go test -race -c`)
+  and runs every group from that binary in the package directory, as
+  `go test` does; one `go test` per group made each group compile the same
+  package at the same time, which took longer than the tests (on a 4-CPU
+  hosted machine about 3.5 of the 4.3 minutes);
 - runs all PostgreSQL groups concurrently with the full `-race` flag;
 - fails if any group fails, and prints that group's log.
 
@@ -70,7 +75,15 @@ Measured on the VPS: 4 groups with the shared lock took about 6 minutes;
 ## Caches and reproducibility
 
 - Frontend/browser run in `web/` and use the npm cache keyed by `web/package-lock.json`.
-- Backend uses the Go module cache keyed by `go.sum`.
+- Backend restores one Go cache (build cache, module cache, staticcheck
+  cache) and never writes it. `.github/workflows/go-cache.yml` is the only
+  writer: on every push to `main` it restores the previous entry, runs the
+  same vet, race test builds and staticcheck as Verify (without running
+  tests) and saves an entry keyed by `go.sum` and the commit. Caches written
+  on `main` are readable from every branch, so a new branch starts warm.
+  Before, each branch wrote its own cache (unreadable from other branches),
+  and `main` never compiled because its tests are reused, so every branch
+  started cold. Branch code also cannot place entries in the shared cache.
 - The Playwright container remains pinned; browser tests are not moved to an
   unpinned browser install.
 - Go build/test results are not cached as passing tests (`-count=1`); only

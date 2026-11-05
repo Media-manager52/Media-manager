@@ -34,9 +34,28 @@ log_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/backend-tests.XXXXXX")"
 pids=()
 names=()
 test_names=()
-test_names=()
+
+packages=()
+if [[ "$part" != postgres:* ]]; then
+  mapfile -t packages < <(go list ./cmd/... ./internal/... | grep -v '/internal/postgres$')
+fi
+if [[ "${#packages[@]}" -gt 0 ]]; then
+  names+=("other-packages")
+  (go test -count=1 -race -timeout 20m "${packages[@]}" >"$log_dir/other-packages.log" 2>&1; echo $? >"$log_dir/other-packages.status") &
+  pids+=("$!")
+fi
+
 if [[ "$part" != other ]]; then
-  mapfile -t all_tests < <(go test ./internal/postgres -list '^Test' 2>/dev/null | grep '^Test' | sort)
+  # Build the PostgreSQL test binary once and run every group from it. One
+  # "go test" per group made each group compile the same race-enabled package
+  # at the same time, which took minutes longer than the tests themselves.
+  # The binary runs in the package directory, as "go test" runs it.
+  postgres_test="$log_dir/postgres.test"
+  if ! go test -race -c -o "$postgres_test" ./internal/postgres; then
+    echo "The PostgreSQL test binary did not build" >&2
+    exit 1
+  fi
+  mapfile -t all_tests < <(cd internal/postgres && "$postgres_test" -test.list '^Test' | grep '^Test' | sort)
   if [[ "${#all_tests[@]}" -eq 0 ]]; then
     echo "No PostgreSQL tests were discovered" >&2
     exit 1
@@ -49,16 +68,6 @@ if [[ "$part" != other ]]; then
   done
 fi
 
-packages=()
-if [[ "$part" != postgres:* ]]; then
-  mapfile -t packages < <(go list ./cmd/... ./internal/... | grep -v '/internal/postgres$')
-fi
-if [[ "${#packages[@]}" -gt 0 ]]; then
-  names+=("other-packages")
-  (go test -count=1 -race -timeout 20m "${packages[@]}" >"$log_dir/other-packages.log" 2>&1; echo $? >"$log_dir/other-packages.status") &
-  pids+=("$!")
-fi
-
 for shard in $(seq 0 $((shards - 1))); do
   pattern=""
   for index in "${!test_names[@]}"; do
@@ -69,7 +78,7 @@ for shard in $(seq 0 $((shards - 1))); do
   done
   [[ -z "$pattern" ]] && continue
   names+=("postgres-$shard")
-  (go test -count=1 -race -timeout 20m ./internal/postgres -run "^(${pattern})$" >"$log_dir/postgres-${shard}.log" 2>&1; echo $? >"$log_dir/postgres-${shard}.status") &
+  (cd internal/postgres && "$postgres_test" -test.paniconexit0 -test.timeout 20m -test.run "^(${pattern})$" >"$log_dir/postgres-${shard}.log" 2>&1; echo $? >"$log_dir/postgres-${shard}.status") &
   pids+=("$!")
 done
 
