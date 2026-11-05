@@ -88,6 +88,9 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 		return nil, err
 	}
 	defer transaction.Rollback(ctx)
+	if err := refuseKnownMedia(ctx, transaction, item); err != nil {
+		return nil, err
+	}
 	needsIndexer := searchMovie
 	for _, season := range seasons {
 		needsIndexer = needsIndexer || season.Monitored && season.SearchImmediately
@@ -160,6 +163,30 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 }
 
 // insertMediaItem adds a catalogue item with its identities and metadata.
+// refuseKnownMedia turns a manual add of a title the library already holds
+// into a refusal naming that title, instead of a raw unique-index error.
+func refuseKnownMedia(ctx context.Context, transaction pgx.Tx, item catalog.MediaItem) error {
+	for _, identity := range item.Identities {
+		if identity.State != catalog.IdentityVerified {
+			continue
+		}
+		var mediaText string
+		var deleted bool
+		err := transaction.QueryRow(ctx, `SELECT identity.media_id::text,media.deleted_at IS NOT NULL FROM external_identities identity JOIN media_items media ON media.id=identity.media_id WHERE identity.media_kind=$1 AND identity.namespace=$2 AND identity.value=$3 AND identity.state='verified'`, item.Kind, identity.Namespace, identity.Value).Scan(&mediaText, &deleted)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if deleted {
+			return refuse("media_removed", "this title was removed from the library earlier and cannot be added again as new", "Media "+mediaText+" is archived or in the recycle bin.")
+		}
+		return refuse("media_exists", "this title is already in the library", "Open GET /api/v1/media/"+mediaText+" and add searches or seasons there.")
+	}
+	return nil
+}
+
 func insertMediaItem(ctx context.Context, transaction pgx.Tx, item catalog.MediaItem) error {
 	var year any
 	if item.Year != nil {

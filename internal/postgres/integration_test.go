@@ -131,6 +131,14 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if len(movieWorkflows) != 1 {
 		t.Fatalf("movie workflows=%d, want 1", len(movieWorkflows))
 	}
+	again, err := catalog.New(catalog.KindMovie, "Integration Movie", &movieYear, []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "123456", State: catalog.IdentityVerified, Source: "test"}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var known ActionRefusal
+	if _, err := store.CreateManualMedia(ctx, again, movieRoot, movieProfile, movieClient, nil, true, "test"); !errors.As(err, &known) || known.Code != "media_exists" || !strings.Contains(known.Hint, movie.ID.String()) {
+		t.Fatalf("adding the same movie again: %#v (%v), want media_exists naming %s", known, err, movie.ID)
+	}
 	persistedMovie, err := store.GetMedia(ctx, movie.ID)
 	if err != nil || persistedMovie.Metadata == nil || persistedMovie.Metadata.Overview != "Persisted overview" {
 		t.Fatalf("persisted movie metadata=%+v err=%v", persistedMovie.Metadata, err)

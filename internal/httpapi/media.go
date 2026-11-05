@@ -290,6 +290,11 @@ func (server *Server) createMedia(writer http.ResponseWriter, request *http.Requ
 		searchMovie = *input.SearchImmediately
 	}
 	created, err := server.store.CreateManualMedia(request.Context(), item, resolvedRoot, resolvedProfile, resolvedClient, seasons, searchMovie, "owner")
+	var refusal postgres.ActionRefusal
+	if errors.As(err, &refusal) {
+		writeErrorHint(writer, http.StatusConflict, refusal.Code, refusal.Message, refusal.Hint)
+		return
+	}
 	if err != nil {
 		writeError(writer, http.StatusConflict, "create_failed", err.Error())
 		return

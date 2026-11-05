@@ -37,6 +37,12 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **Small errors on the other pages.**
+  - Adding a film or series that is already in the library showed a raw database error. It now opens the title you already have. A title removed earlier, a missing indexer and missing defaults each get a Danish explanation.
+  - *Anmodninger*: after you decide the last request waiting for approval, the page goes back to *I gang* instead of an empty list.
+  - Counts use singular and plural correctly ("1 anmodning", "1 hændelse", "1 opgave").
+  - *Notifikationer* shows "Slået fra" on a switched-off destination. *System* shows login in plain Danish, an empty activity log says so, and an unknown backup state is no longer a blank badge.
+  - Seerr rules are sorted without changing the cached list.
 - **More small errors.**
   - *Brug anbefalet opsætning* no longer adds a second root folder for a Plex library that already has one which is not the default. It says to pick that folder as default under Biblioteker instead.
   - *Log ind med Plex* keeps waiting when plex.tv fails to answer once, instead of stopping with an error. The approval hint names both "Allow" and "Tillad", and saving errors are shown in Danish.

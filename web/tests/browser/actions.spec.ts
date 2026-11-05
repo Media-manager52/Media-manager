@@ -57,6 +57,20 @@ test("adding a movie sends verified identities from the detail lookup", async ({
   await expect(page).toHaveURL(new RegExp(`/bibliotek/${ids.movie}$`))
 })
 
+test("adding a title that is already in the library opens it instead", async ({ page }) => {
+  await mockApi(page)
+  await page.route("**/api/v1/media", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 409, json: { error: { code: "media_exists", message: "this title is already in the library", hint: `Open GET /api/v1/media/${ids.movie} and add searches or seasons there.` } } })
+    : route.fallback())
+  await page.goto("/tilfoej")
+  await page.getByLabel("Titel").fill("Nyfilmen")
+  await page.getByRole("button", { name: "Søg", exact: true }).click()
+  await page.getByRole("button", { name: /Nyfilmen/ }).click()
+  await page.getByRole("button", { name: "Tilføj film" }).click()
+  await expect(page.getByRole("status").filter({ hasText: "Nyfilmen er allerede i biblioteket" })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/bibliotek/${ids.movie}$`))
+})
+
 test("library and profile are chosen from described choices", async ({ page }) => {
   const writes = await mockApi(page)
   await page.goto("/tilfoej")

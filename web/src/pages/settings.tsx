@@ -12,7 +12,7 @@ import { OptionPicker } from "@/components/option-picker"
 import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dialog, Empty, ErrorBox, PageHeader } from "@/components/ui"
-import { formatRelative } from "@/format"
+import { formatRelative, pluralize } from "@/format"
 import { kindLabel, languageName } from "@/i18n"
 import { profileOptions, rootOptions } from "@/lib/pickers"
 import { audioLabel, resolutionLabel, type RuleRecord } from "@/lib/quality-profile-rules"
@@ -190,7 +190,7 @@ function SeerrInstance({ instance }: { instance: APIIntegration }) {
       {routing.error ? <div className="p-4"><ErrorBox error={routing.error} /></div> : null}
       {routing.isPending ? <ListSkeleton /> : null}
       <ul className="divide-y divide-line">
-        {(routing.data?.routes ?? []).sort((a, b) => a.root_folder.localeCompare(b.root_folder, "da")).map((route) => (
+        {[...(routing.data?.routes ?? [])].sort((a, b) => a.root_folder.localeCompare(b.root_folder, "da")).map((route) => (
           <li key={route.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
             <div className="min-w-0 flex-1">
               <div className="break-all font-medium">{route.root_folder}</div>
@@ -207,7 +207,7 @@ function SeerrInstance({ instance }: { instance: APIIntegration }) {
             {unrouted.map((folder) => (
               <li key={`${folder.media_kind}-${folder.root_folder}`} className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="break-all">{folder.root_folder}</span>
-                <span className="text-text-3">{folder.request_count} anmodninger · senest {formatRelative(folder.latest_at)}</span>
+                <span className="text-text-3">{pluralize(folder.request_count, "anmodning", "anmodninger")} · senest {formatRelative(folder.latest_at)}</span>
                 <Button className="ml-auto h-8 text-xs" onClick={() => setDraft({ folder: folder.root_folder, kind: folder.media_kind, root: "", profile: "" })}>Lav regel</Button>
               </li>
             ))}
@@ -270,8 +270,8 @@ function Notifications() {
         {query.data.map((destination) => (
           <li key={destination.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
             <div className="min-w-0 flex-1">
-              <div className="font-medium">{destination.name}</div>
-              <div className="text-text-3">{destination.events.length} hændelser</div>
+              <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{destination.name}</span>{!destination.enabled ? <Badge>Slået fra</Badge> : null}</div>
+              <div className="text-text-3">{pluralize(destination.events.length, "hændelse", "hændelser")}</div>
             </div>
             <Button className="h-8 text-xs" busy={toggle.isPending} onClick={() => toggle.mutate({ id: destination.id, enabled: !destination.enabled })}>{destination.enabled ? "Slå fra" : "Slå til"}</Button>
           </li>
