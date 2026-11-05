@@ -58,7 +58,7 @@ func EnsureKeyFile(path string, sealedSecretsExist func() (bool, error)) (key st
 		return "", false, errors.New("could not generate a secret encryption key")
 	}
 	key = hex.EncodeToString(raw)
-	if err := writeNewFile(path, key+"\n"); err != nil {
+	if err := WriteNewFile(path, key+"\n"); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			// Another start won the race; use the key it wrote.
 			return EnsureKeyFile(path, nil)
@@ -68,10 +68,11 @@ func EnsureKeyFile(path string, sealedSecretsExist func() (bool, error)) (key st
 	return key, true, nil
 }
 
-// writeNewFile writes content to path only if path does not exist yet. The
-// content is fully written and synced to a temporary file first, then linked
-// into place, so a crash never leaves a partial key behind.
-func writeNewFile(path, content string) error {
+// WriteNewFile writes content to path only if path does not exist yet
+// (os.ErrExist otherwise), readable only by this user. The content is fully
+// written and synced to a temporary file first, then linked into place, so a
+// crash never leaves a partial key behind.
+func WriteNewFile(path, content string) error {
 	directory := filepath.Dir(path)
 	temporary, err := os.CreateTemp(directory, ".secret-encryption-key-*")
 	if err != nil {

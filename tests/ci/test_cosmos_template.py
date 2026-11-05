@@ -71,6 +71,22 @@ class CosmosTemplateTest(unittest.TestCase):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("install -d -m 1777 /var/lib/media-manager/state", dockerfile)
 
+    def test_backup_key_is_generated_in_the_same_private_volume(self):
+        environment = self.api["environment"]
+        self.assertNotIn("BACKUP_ENCRYPTION_KEY", [entry.split("=", 1)[0] for entry in environment])
+        self.assertIn("BACKUP_ENCRYPTION_KEY_FILE=/var/lib/media-manager/state/backup-encryption.key", environment)
+
+    def test_form_asks_only_for_what_the_website_cannot_set(self):
+        # Plex, indexer and AltMount secrets are entered, sealed and tested on
+        # the website; the backup key is generated. Only host paths, ids, the
+        # network, the generated owner token and the optional TMDB token remain.
+        names = [field["name"] for field in self.template["cosmos-installer"]["form"]]
+        for removed in ("plexToken", "newznabKey", "altmountSecret", "backupKey"):
+            self.assertNotIn(removed, names)
+        text = TEMPLATE.read_text(encoding="utf-8")
+        for name in re.findall(r"\{Context\.(\w+)\}", text):
+            self.assertIn(name, names, f"{{Context.{name}}} has no form field")
+
     def test_routes_are_declared_api_health_then_ui(self):
         # Cosmos prepends entries; this declaration order is intentionally the
         # reverse of the stored UI, health, API precedence.

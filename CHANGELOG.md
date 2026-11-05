@@ -6,6 +6,13 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Added
 
+- **A shorter Cosmos install form, backups on by default, and a list of known indexers.**
+  - **Install form.** The form no longer asks for the Plex token, a Newznab key, the AltMount secret or a backup key. The secrets are entered on the website, stored encrypted and tested there (*Log ind med Plex* needs no token at all). The environment variables still work when set by hand.
+  - **Backup key.** Media Manager now creates the backup key itself on first start, as a random base64 32-byte key in the API's private state volume (`BACKUP_ENCRYPTION_KEY_FILE`, mode 0600). Market installs therefore have working, encrypted backups from the start instead of none. The key is never replaced: if the file is missing after backups were made, backups stay off and the log says why.
+  - **Backup page.** **System → Backup** shows where the key is, so the owner can save a copy (never the key itself), and says plainly when backups are off.
+  - **Known indexers.** **Tilføj indexer** has a list of known indexers (abNZB, altHUB, DrunkenSlug, msgnews, NinjaCentral, NZBFinder, NZBgeek, Nzb.life, treasure-maps). Picking one fills the name and the API address used in production; only the API key is left to paste. Limits are not prefilled, because they depend on the account.
+  - **Tested** on a fresh install set up like Cosmos: the key was created, a backup verified, a restart reused the key, and a deleted key file turned backups off instead of being replaced.
+
 - **Brug anbefalet opsætning.** After connecting Plex and AltMount, a new user still had to create a library folder per media kind with three paths. One of those is the same folder as Plex sees it, the classic mistake. Then they had to build a quality profile. **Kom i gang** now offers *Brug anbefalet opsætning* (`POST /api/v1/setup/recommended`):
   - **Libraries.** For each media kind without a default library it takes the first ordinary (non-4K) Plex library. It proves which folder Media Manager writes as that library: an empty marker folder in every folder Media Manager may write, then Plex's own folder browser (`/services/browse`), keeping the folder whose marker Plex lists. Every marker is removed again.
   - **AltMount.** It proves where Plex sees AltMount's files by comparing the folders both list.

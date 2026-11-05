@@ -254,7 +254,14 @@ func run() error {
 	if backupDirectory == "" {
 		backupDirectory = "/var/lib/media-manager/backups"
 	}
+	if strings.TrimSpace(os.Getenv(backups.KeyReference)) == "" {
+		ensureGeneratedBackupKey(store)
+	}
 	backupConfigured := optionalSecret(backups.KeyReference) != ""
+	backupKeyFile := ""
+	if backupConfigured && strings.TrimSpace(os.Getenv(backups.KeyReference)) == "" {
+		backupKeyFile = strings.TrimSpace(os.Getenv(backups.KeyFileReference))
+	}
 	offsitePrefix, err := backups.NormalizeOffsitePrefix(os.Getenv("BACKUP_OFFSITE_PREFIX"))
 	if err != nil {
 		return fmt.Errorf("off-site backup prefix: %w", err)
@@ -295,7 +302,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, TMDBDiscovery: tmdbSource, TMDBChanged: tmdbSource.Invalidate, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret, PlexLogin: plexLogin, RecommendedSetup: &quicksetup.Service{Store: store, OpenPlex: quicksetup.OpenPlex(resolveSecret)}}, store)
+	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, TMDBDiscovery: tmdbSource, TMDBChanged: tmdbSource.Invalidate, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupKeyFile: backupKeyFile, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret, PlexLogin: plexLogin, RecommendedSetup: &quicksetup.Service{Store: store, OpenPlex: quicksetup.OpenPlex(resolveSecret)}}, store)
 	if err != nil {
 		return err
 	}
@@ -484,6 +491,27 @@ func decryptBackup(args []string) error {
 	}
 	removeTemporary = false
 	return nil
+}
+
+// ensureGeneratedBackupKey creates the backup key at BACKUP_ENCRYPTION_KEY_FILE
+// on first start. A problem is logged and leaves backups off (the Backup page
+// says so); a lost key is never silently replaced.
+func ensureGeneratedBackupKey(store *postgres.Store) {
+	path := strings.TrimSpace(os.Getenv(backups.KeyFileReference))
+	if path == "" {
+		return
+	}
+	_, created, err := backups.EnsureKeyFile(path, func() (bool, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return store.BackupsExist(ctx)
+	})
+	switch {
+	case err != nil:
+		slog.Error("backups are off: the backup key file could not be used", "file", path, "error", err)
+	case created:
+		slog.Warn("created a new backup key; copy it somewhere safe, backups cannot be restored without it", "file", path)
+	}
 }
 
 // ensureGeneratedSecretKey returns the key from SECRET_ENCRYPTION_KEY_FILE,
