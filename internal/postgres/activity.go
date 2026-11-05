@@ -40,12 +40,16 @@ type WorkflowSummary struct {
 	ReadyIndexerName      string          `json:"ready_indexer_name,omitempty"`
 	ReadyFirstObservedAt  *time.Time      `json:"ready_first_observed_at,omitempty"`
 	OpenNextRoundAllowed  bool            `json:"open_next_round_allowed"`
-	RetainedOutputLimit   int             `json:"retained_output_limit"`
-	RetainedOutputCount   int             `json:"retained_output_count"`
-	RetainedOutputBytes   int64           `json:"retained_output_bytes"`
-	ExcludedReleaseCount  int             `json:"excluded_release_count"`
-	SearchAllowed         bool            `json:"search_allowed"`
-	SearchBlockedReason   string          `json:"search_blocked_reason,omitempty"`
+	// CoveredByEpisodes marks a waiting season workflow whose every expected
+	// episode is in Plex as its own episode workflow: the season is complete
+	// and is not active work.
+	CoveredByEpisodes    bool   `json:"covered_by_episodes"`
+	RetainedOutputLimit  int    `json:"retained_output_limit"`
+	RetainedOutputCount  int    `json:"retained_output_count"`
+	RetainedOutputBytes  int64  `json:"retained_output_bytes"`
+	ExcludedReleaseCount int    `json:"excluded_release_count"`
+	SearchAllowed        bool   `json:"search_allowed"`
+	SearchBlockedReason  string `json:"search_blocked_reason,omitempty"`
 
 	// Exact eligible access rejection the owner can retry after repairing provider access.
 	AccessRejectedCandidateID  *uuid.UUID `json:"access_rejected_candidate_id,omitempty"`
@@ -173,12 +177,13 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		workflow.terminal_at,workflow.created_at,workflow.updated_at,
 		progress.progress_percent,COALESCE(progress.progress_stage,''),progress.progress_observed_at,
 		COALESCE(profile.name,''),access_retry.id,COALESCE(access_retry.title,''),COALESCE(access_retry.indexer_name,''),
-		EXISTS(SELECT 1 FROM altmount_jobs job WHERE job.workflow_id=workflow.id AND job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))
+		EXISTS(SELECT 1 FROM altmount_jobs job WHERE job.workflow_id=workflow.id AND job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested')),
+		(workflow.state='waiting' AND `+seasonCoveredByEpisodesSQL+`)
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
 		LEFT JOIN altmount_jobs progress ON progress.id=workflow.grab_attempt_id AND workflow.state IN ('submitting','queued','downloading','streaming_ready')
 		LEFT JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
 		LEFT JOIN LATERAL (SELECT c.id::text,c.title,i.name AS indexer_name `+store.accessRejectedRetryQuery()+` AND w.id=workflow.id) access_retry ON true
-		WHERE ($4::uuid IS NOT NULL OR media.deleted_at IS NULL) AND (NOT $2 OR workflow.terminal_at IS NULL)
+		WHERE ($4::uuid IS NOT NULL OR media.deleted_at IS NULL) AND (NOT $2 OR (workflow.terminal_at IS NULL AND NOT (workflow.state='waiting' AND `+seasonCoveredByEpisodesSQL+`)))
 			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid) AND ($4::uuid IS NULL OR workflow.id=$4::uuid)
 			AND ($5::text IS NULL OR workflow.state=$5)
 			AND (NOT $6 OR workflow.state IN ('needs_attention','blocked','quarantined','transport_unknown')
@@ -199,7 +204,7 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		var revision int64
 		var publicationStarted, currentJobNeedsAttention bool
 		var downloadPercent *int16
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Edition, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Edition, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob, &item.CoveredByEpisodes); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

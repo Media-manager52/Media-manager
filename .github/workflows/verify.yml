@@ -113,13 +113,16 @@ jobs:
         with:
           persist-credentials: false
       # Ten groups dropping whole test schemas at once need more than the
-      # default lock table (64 locks per transaction). Service containers cannot
-      # take server flags, so set it and restart the throwaway test database.
+      # default lock table (64 locks per transaction), and eleven test processes
+      # with their own pools need more than the default 100 connections; which
+      # tests share a group shifts as tests are added. Service containers cannot
+      # take server flags, so set them and restart the throwaway test database.
       - name: Size the test database for parallel schema tests
         env:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           docker exec "$POSTGRES_CONTAINER" psql -U media_manager -d media_manager_test -c "ALTER SYSTEM SET max_locks_per_transaction = 1024"
+          docker exec "$POSTGRES_CONTAINER" psql -U media_manager -d media_manager_test -c "ALTER SYSTEM SET max_connections = 400"
           docker restart "$POSTGRES_CONTAINER"
           for attempt in $(seq 1 60); do
             if docker exec "$POSTGRES_CONTAINER" pg_isready -U media_manager -d media_manager_test -h 127.0.0.1 >/dev/null; then
