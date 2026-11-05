@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } f
 import { Link } from "react-router"
 
 import type { Tone } from "@/lib/tone"
+import { errorMessage } from "@/i18n"
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ")
@@ -116,7 +117,7 @@ export function Skeleton({ className }: { className?: string }) {
 }
 
 export function ErrorBox({ error, retry }: { error: unknown; retry?: () => void }) {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = errorMessage(error)
   const unauthorized = typeof error === "object" && error !== null && "status" in error && (error as { status: number }).status === 401
   return (
     <div role="alert" className="flex flex-wrap items-start gap-3 rounded-xl border border-bad/30 bg-bad-soft p-4 text-sm text-bad">

@@ -11,7 +11,7 @@ import { OptionPicker } from "@/components/option-picker"
 import { Poster, sizedArtwork } from "@/components/poster"
 import { useToast } from "@/components/toast"
 import { Button, Card, CardHeader, cx, Empty, ErrorBox, PageHeader, Spinner } from "@/components/ui"
-import { kindLabel, languageName } from "@/i18n"
+import { errorMessage, kindLabel, languageName } from "@/i18n"
 import { titleHref } from "@/lib/links"
 import { profileOptions, rootOptions } from "@/lib/pickers"
 
@@ -87,7 +87,7 @@ function addErrorText(error: unknown): string {
     if (error.code === "no_commissioned_indexer") return "Der er ingen indexer, der kan søge efter titlen. Tilføj en under Indstillinger → Forbindelser, eller fjern fluebenet \"Begynd at søge med det samme\"."
     if (error.code === "invalid_configuration") return "Der mangler en standardmappe eller standardprofil. Tjek Indstillinger → Biblioteker og Kvalitetsprofiler."
   }
-  return error instanceof Error ? error.message : String(error)
+  return errorMessage(error)
 }
 
 function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: () => void }) {

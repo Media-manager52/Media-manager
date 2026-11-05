@@ -13,7 +13,7 @@ import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSect
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dialog, Empty, ErrorBox, PageHeader } from "@/components/ui"
 import { formatRelative, pluralize } from "@/format"
-import { kindLabel, languageName } from "@/i18n"
+import { errorMessage, kindLabel, languageName } from "@/i18n"
 import { profileOptions, rootOptions } from "@/lib/pickers"
 import { audioLabel, resolutionLabel, type RuleRecord } from "@/lib/quality-profile-rules"
 import { ListSkeleton } from "@/pages/overview"
@@ -119,7 +119,7 @@ function Roots() {
       toast("good", `${root.name} er opdateret.`)
       await queryClient.invalidateQueries({ queryKey: ["settings", "roots"] })
     },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   if (query.error) return <ErrorBox error={query.error} retry={() => query.refetch()} />
   if (query.isPending) return <Card><ListSkeleton /></Card>
@@ -174,12 +174,12 @@ function SeerrInstance({ instance }: { instance: APIIntegration }) {
   const save = useMutation({
     mutationFn: () => saveSeerrRoute(instance.id, { media_kind: draft!.kind, root_folder: draft!.folder, library_root_id: draft!.root, ...(draft!.profile ? { quality_profile_id: draft!.profile } : {}) }),
     onSuccess: async () => { toast("good", "Reglen er gemt."); setDraft(null); await refresh() },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   const remove = useMutation({
     mutationFn: (routeId: string) => deleteSeerrRoute(instance.id, routeId),
     onSuccess: async () => { toast("good", "Reglen er slettet."); setRemoving(null); await refresh() },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   const rootName = (id: string) => roots.data?.find((root) => root.id === id)?.name ?? "Ukendt mappe"
   const profileName = (id?: string) => (id ? profiles.data?.find((profile) => profile.id === id)?.name ?? "Ukendt profil" : "Mappens standardprofil")
@@ -257,7 +257,7 @@ function Notifications() {
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => setNotificationDestinationEnabled(id, enabled),
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["settings", "notifications"] }) },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   if (query.error) return <ErrorBox error={query.error} />
   if (query.isPending) return <Card><ListSkeleton /></Card>

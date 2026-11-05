@@ -136,6 +136,12 @@ export function AppShell({ children }: { children?: ReactNode }) {
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [location.pathname])
+  useEffect(() => {
+    if (!drawer) return
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setDrawer(false) }
+    window.addEventListener("keydown", close)
+    return () => window.removeEventListener("keydown", close)
+  }, [drawer])
   return (
     <div className="min-h-dvh">
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2">

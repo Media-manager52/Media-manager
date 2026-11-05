@@ -4,7 +4,7 @@ import { useState } from "react"
 import { runWorkflowAction, type APIWorkflow, type APIWorkflowAction } from "@/api/client"
 import { useToast } from "@/components/toast"
 import { Button, Dialog } from "@/components/ui"
-import { actionLabel } from "@/i18n"
+import { actionLabel, errorMessage } from "@/i18n"
 import { actionReasonText } from "@/lib/action-reasons"
 
 const order = ["search", "open_next_round", "open_round_from_known", "discover", "reconcile_altmount", "reconfirm_plex", "retry_access_rejected_release", "cancel"]
@@ -63,7 +63,7 @@ function ConfirmAction({ action, workflow, onClose }: { action: APIWorkflowActio
       onClose()
       await queryClient.invalidateQueries()
     },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   const needsPhrase = Boolean(action.confirmation)
   const note = actionReasonText(action.note)

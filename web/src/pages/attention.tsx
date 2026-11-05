@@ -26,6 +26,7 @@ export function AttentionPage() {
         actions={<SearchField value={query} onChange={setQuery} placeholder="Søg i titler" label="Søg i sager" />}
       />
       {workflows.error ? <ErrorBox error={workflows.error} retry={() => workflows.refetch()} /> : null}
+      {problems.error ? <div className="mb-6"><ErrorBox error={problems.error} retry={() => problems.refetch()} /></div> : null}
       {systemProblems.length > 0 ? (
         <Card className="mb-6">
           <CardHeader title="Systemet" description="Problemer, der ikke hører til én bestemt titel." />
@@ -34,8 +35,8 @@ export function AttentionPage() {
               <li key={problem.code} className="flex flex-wrap items-start gap-3 px-5 py-3">
                 <Badge tone={problem.level === "error" ? "bad" : "warn"}>{problem.count}</Badge>
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium">{problem.title}</div>
-                  {problem.detail ? <div className="text-sm text-text-2">{problem.detail}</div> : null}
+                  <div className="font-medium">{problemTitle(problem.title)}</div>
+                  {problemDetail(problem.detail) ? <div className="text-sm text-text-2">{problemDetail(problem.detail)}</div> : null}
                 </div>
                 {problem.latest_at ? <span className="text-xs text-text-3">{formatRelative(problem.latest_at)}</span> : null}
               </li>
@@ -45,8 +46,11 @@ export function AttentionPage() {
       ) : null}
       {workflows.isPending ? <Card><ListSkeleton rows={6} /></Card> : null}
       {!workflows.isPending && total === 0 && !workflows.error ? (
-        <Card><Empty title="Intet kræver dig" icon={<CheckCircle2 className="size-8 text-good" />}>Alt arbejde kører eller venter helt normalt på nye udgivelser.</Empty></Card>
+        systemProblems.length > 0
+          ? <Card><Empty title="Ingen titler kræver dig">Alt arbejde kører eller venter helt normalt. Se systemets problemer ovenfor.</Empty></Card>
+          : <Card><Empty title="Intet kræver dig" icon={<CheckCircle2 className="size-8 text-good" />}>Alt arbejde kører eller venter helt normalt på nye udgivelser.</Empty></Card>
       ) : null}
+      {total > 0 && groups.length === 0 ? <Card><Empty title="Ingen sager passer til søgningen" /></Card> : null}
       <div className="flex flex-col gap-6">
         {groups.map(([reason, items]) => (
           <Card key={reason}>
@@ -81,6 +85,28 @@ function AttentionItem({ workflow }: { workflow: APIWorkflow }) {
       </div>
     </li>
   )
+}
+
+const workerTasks: Record<string, string> = {
+  "Search requested": "søgning",
+  "Release.retrieve requested": "hentning af NZB",
+  "Altmount.reconcile requested": "tjek af AltMount",
+  "Library.publish requested": "udgivelse til biblioteket",
+  "Plex.scan requested": "Plex-scanning",
+}
+
+/** Danish for the system problems; anything else is shown as written. */
+function problemTitle(title: string): string {
+  const retrying = title.match(/^Worker retrying: (.+)$/)
+  if (retrying) return `Baggrundsopgave prøver igen: ${workerTasks[retrying[1]] ?? retrying[1]}`
+  return title
+}
+
+function problemDetail(detail: string | undefined): string {
+  // The worker records only an error's Go type when it has no safe code;
+  // that says nothing to a person.
+  if (!detail || /^\*?[a-z][a-z0-9]*\.[A-Za-z][A-Za-z0-9]*$/.test(detail)) return ""
+  return translateDetail(detail)
 }
 
 function filterByTitle(items: APIWorkflow[], query: string): APIWorkflow[] {

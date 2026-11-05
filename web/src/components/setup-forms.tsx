@@ -11,7 +11,7 @@ import {
 import { PlexLoginButton } from "@/components/plex-login"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox } from "@/components/ui"
-import { languageName } from "@/i18n"
+import { errorMessage, languageName } from "@/i18n"
 import { indexerPresetFor, indexerPresets } from "@/lib/indexers"
 import { checkText, suggestDestination, suggestSourceRoot } from "@/lib/setup"
 import { ListSkeleton } from "@/pages/overview"
@@ -19,7 +19,7 @@ import { ListSkeleton } from "@/pages/overview"
 export const fieldClass = "mt-1 h-9 w-full rounded-lg border border-line bg-surface px-3 text-text"
 
 export function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return errorMessage(error)
 }
 
 function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
@@ -183,7 +183,13 @@ export function SecretDialog({ integration, onClose }: { integration: Pick<APIIn
   const mutation = useMutation({
     mutationFn: async () => {
       await saveIntegrationSecret(integration.id, secretValue(integration.kind, values))
-      return integration.kind === "newznab" || integration.kind === "oldboys" ? null : checkIntegration(integration.id)
+      if (integration.kind === "newznab" || integration.kind === "oldboys") return null
+      // The key is saved at this point; a failing test must not look like a failed save.
+      try {
+        return await checkIntegration(integration.id)
+      } catch (error) {
+        return { ok: false, detail: errorText(error) }
+      }
     },
     onSuccess: async () => { toast("good", "Nøglen er gemt krypteret."); setValues(emptySecret); await refresh() },
     onError: (error) => toast("bad", errorText(error)),
