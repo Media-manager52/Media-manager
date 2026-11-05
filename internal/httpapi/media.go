@@ -9,30 +9,16 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/catalog"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
-// DiscoveryProvider finds titles on TMDB: Seerr's TMDB proxy, or TMDB itself.
-type DiscoveryProvider interface {
-	Search(ctx context.Context, query string, page int) (seerr.SearchPage, error)
-	Metadata(ctx context.Context, mediaType string, tmdbID int64) (seerr.Metadata, error)
-	SeasonMetadata(ctx context.Context, tmdbID int64, season int16) (seerr.SeasonMetadata, error)
-}
-
-// OptionalDiscovery is a DiscoveryProvider whose credential can be missing.
-type OptionalDiscovery interface {
-	DiscoveryProvider
-	Configured(ctx context.Context) bool
-}
-
 const metadataUnavailableMessage = "title search needs TMDB: add a TMDB read access token under Settings → Connections (or connect Seerr)"
 
 // discovery returns the provider for title search: Seerr when it is
 // connected, otherwise TMDB directly when a token is available.
-func (server *Server) discovery(ctx context.Context) (DiscoveryProvider, bool) {
+func (server *Server) discovery(ctx context.Context) (metadataservice.DiscoveryProvider, bool) {
 	if server.config.MetadataProvider != nil {
 		return server.config.MetadataProvider, true
 	}

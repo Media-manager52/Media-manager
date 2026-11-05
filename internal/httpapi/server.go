@@ -42,7 +42,7 @@ type Config struct {
 	MetadataProvider   *seerr.Client
 	// TMDBDiscovery answers title search and discovery when no Seerr is
 	// connected (MetadataProvider nil); its token may be saved on the website.
-	TMDBDiscovery OptionalDiscovery
+	TMDBDiscovery metadataservice.OptionalDiscovery
 	// TMDBChanged is called after a TMDB connection or its token changes.
 	TMDBChanged            func()
 	MetadataEnricher       *metadataservice.Service

@@ -11,9 +11,9 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/acquisition"
-	"github.com/media-manager/media-manager/internal/adapters/metadataproviders"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/integrationsecrets"
+	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
@@ -155,11 +155,7 @@ func (server *Server) checkConnection(ctx context.Context, integration postgres.
 		if err != nil || strings.TrimSpace(token) == "" {
 			return connectionCheck{Detail: "save the TMDB read access token first"}
 		}
-		client, err := metadataproviders.NewTMDB(metadataproviders.TMDBConfig{AccessToken: token}, nil)
-		if err != nil {
-			return connectionCheck{Detail: "the TMDB token is not valid"}
-		}
-		if err := client.Check(ctx); err != nil {
+		if err := metadataservice.CheckTMDBToken(ctx, token); err != nil {
 			return connectionCheck{Detail: "TMDB did not accept the token; use the long \"API Read Access Token\", not the short API key"}
 		}
 		server.tmdbChanged()

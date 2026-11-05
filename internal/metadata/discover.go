@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/media-manager/media-manager/internal/adapters/metadataproviders"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/catalog"
 )
@@ -14,6 +15,28 @@ import (
 // SeerrSource is the Seerr metadata lookup Discover needs.
 type SeerrSource interface {
 	Metadata(ctx context.Context, mediaType string, tmdbID int64) (seerr.Metadata, error)
+}
+
+// DiscoveryProvider finds titles on TMDB: Seerr's TMDB proxy, or TMDB itself.
+type DiscoveryProvider interface {
+	Search(ctx context.Context, query string, page int) (seerr.SearchPage, error)
+	Metadata(ctx context.Context, mediaType string, tmdbID int64) (seerr.Metadata, error)
+	SeasonMetadata(ctx context.Context, tmdbID int64, season int16) (seerr.SeasonMetadata, error)
+}
+
+// OptionalDiscovery is a DiscoveryProvider whose credential can be missing.
+type OptionalDiscovery interface {
+	DiscoveryProvider
+	Configured(ctx context.Context) bool
+}
+
+// CheckTMDBToken asks TMDB whether token is a valid read access token.
+func CheckTMDBToken(ctx context.Context, token string) error {
+	client, err := metadataproviders.NewTMDB(metadataproviders.TMDBConfig{AccessToken: token}, nil)
+	if err != nil {
+		return err
+	}
+	return client.Check(ctx)
 }
 
 // SourceLabel names where discovery metadata came from, for the identities
