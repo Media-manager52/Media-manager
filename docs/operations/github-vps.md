@@ -50,19 +50,26 @@ Stopped CI containers and unused networks/volumes are cleaned after jobs;
 local compiler/tool/image caches remain for subsequent builds.
 
 The root-owned deployment broker accepts only a commit and two numeric run
-identities. It independently checks GitHub for current `main`, a successful
+identities. It independently checks GitHub that the commit is on `main`
+(`main` itself or an ancestor of it), a successful
 Verify run whose five required jobs all succeeded on their approved runners
-(`frontend` and `browser` on GitHub-hosted `ubuntu-24.04`; `backend`,
+(`frontend`, `browser` and `backend` on GitHub-hosted `ubuntu-24.04`;
 `containers` and `publish` on this VPS runner, see
 [runner layout](ci.md#runner-layout)), and an active owner-triggered Deploy run
-from the same repository/main commit. It checks
+from the same repository/main commit. Test jobs that `main` skipped because an
+identical tree was already tested are accepted only when the broker itself
+finds that passing run ([identical trees](ci.md#identical-trees-are-not-tested-twice)). It checks
 image labels before transferring the already-tested images from the CI engine.
 The runner receives no production Docker access or integration credentials.
 
 Before replacing API/UI, the broker saves protected environment files, previous
 image identities and archives, a PostgreSQL custom dump with a readable table
-data inventory, and the proposed images. It rechecks current `main` after the
-backup, advances the clean production checkout with a fast-forward, then starts
+data inventory, and the proposed images. Before and again after the backup it
+checks that `main` contains the commit and that production would move forward
+(the running checkout is an ancestor of the commit), so a refusal comes before
+the long backup. A merge to `main` while a deployment is prepared no longer
+rejects it: the newer commits are left for the next deployment. It then
+advances the clean production checkout with a fast-forward and starts
 only API/UI with the tested images. Compose health checks and an authenticated
 running-commit check must pass. PostgreSQL, AltMount media and existing failed
 outputs stay under their normal lifecycle protections.

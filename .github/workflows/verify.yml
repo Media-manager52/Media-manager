@@ -3,9 +3,9 @@ name: Verify
 on:
   # There is intentionally no pull_request trigger: a public repository must
   # never execute code from a fork pull request on the self-hosted runner.
-  # Same-repository pushes are trusted. Frontend/browser checks run on
-  # GitHub-hosted runners; the self-hosted runner hosts backend, container and
-  # publish work that needs the owner's rootless Docker engine.
+  # Same-repository pushes are trusted. Frontend, browser and backend checks
+  # run on GitHub-hosted runners; the self-hosted runner hosts only container
+  # and publish work that needs the owner's rootless Docker engine.
   push:
   workflow_dispatch:
 
@@ -21,11 +21,35 @@ permissions:
 
 # This workflow intentionally has no pull_request trigger: fork code is never
 # executed on the owner's runner. Fork PRs are reviewed and validated by a
-# trusted push after review. Frontend/browser jobs are public-repository-safe
-# GitHub-hosted work and carry no production secrets.
+# trusted push after review. Frontend, browser and backend jobs are
+# public-repository-safe GitHub-hosted work and carry no production secrets.
 jobs:
+  # On main, the tests are skipped when a successful Verify run of a
+  # same-repository branch already tested a byte-identical tree (normally the
+  # pull request branch that was just merged). Images are still built and
+  # smoke-tested for the main commit, and the deployment broker independently
+  # finds and checks that earlier run before it deploys.
+  reuse:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/find-tested-run.py
+
   frontend:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.run == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -53,7 +77,8 @@ jobs:
         working-directory: .
 
   browser:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.run == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Pinned image whose browsers match @playwright/test in web/package.json.
@@ -83,9 +108,13 @@ jobs:
           path: web/test-results
           retention-days: 7
 
-  backend:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64, media-manager-vps]
+  # Backend tests have no production secrets and run on GitHub-hosted
+  # machines, several at once, each with its own throwaway PostgreSQL. The
+  # owner's VPS keeps only image building, publishing and deployment.
+  backend-checks:
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.run == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
       postgres:
@@ -105,17 +134,16 @@ jobs:
       MEDIA_MANAGER_TEST_DATABASE_URL: postgres://media_manager:media_manager_test@127.0.0.1:35432/media_manager_test?sslmode=disable
       OWNER_TOKEN: 0123456789abcdef0123456789abcdef
       GOFLAGS: -mod=readonly
-      # PostgreSQL tests run in this many parallel groups, each in its own
-      # schema (see scripts/ci/test-backend.sh).
-      BACKEND_TEST_SHARDS: "10"
+      BACKEND_TEST_SHARDS: "4"
+      BACKEND_TEST_PART: other
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      # Ten groups dropping whole test schemas at once need more than the
-      # default lock table (64 locks per transaction), and eleven test processes
-      # with their own pools need more than the default 100 connections; which
-      # tests share a group shifts as tests are added. Service containers cannot
+      # Parallel groups dropping whole test schemas at once need more than the
+      # default lock table (64 locks per transaction), and parallel test
+      # processes with their own pools can need more than the default 100
+      # connections; which tests share a group shifts as tests are added. Service containers cannot
       # take server flags, so set them and restart the throwaway test database.
       - name: Size the test database for parallel schema tests
         env:
@@ -147,6 +175,85 @@ jobs:
       - run: go run ./cmd/media-manager migrate
       - run: git diff --exit-code -- go.mod go.sum
 
+  backend-db:
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.run == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in step with BACKEND_TEST_PART below (tests/ci checks it).
+        machine: [0, 1, 2, 3, 4, 5]
+    services:
+      postgres:
+        image: postgres:18.6-alpine3.24
+        env:
+          POSTGRES_DB: media_manager_test
+          POSTGRES_USER: media_manager
+          POSTGRES_PASSWORD: media_manager_test
+        ports: ["127.0.0.1:35432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U media_manager -d media_manager_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://media_manager:media_manager_test@127.0.0.1:35432/media_manager_test?sslmode=disable
+      MEDIA_MANAGER_TEST_DATABASE_URL: postgres://media_manager:media_manager_test@127.0.0.1:35432/media_manager_test?sslmode=disable
+      OWNER_TOKEN: 0123456789abcdef0123456789abcdef
+      GOFLAGS: -mod=readonly
+      # PostgreSQL test groups run in parallel on each machine, each group in
+      # its own schemas (see scripts/ci/test-backend.sh).
+      BACKEND_TEST_SHARDS: "4"
+      BACKEND_TEST_PART: postgres:${{ matrix.machine }}/6
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      # Parallel groups dropping whole test schemas at once need more than the
+      # default lock table (64 locks per transaction), and parallel test
+      # processes with their own pools can need more than the default 100
+      # connections; which tests share a group shifts as tests are added. Service containers cannot
+      # take server flags, so set them and restart the throwaway test database.
+      - name: Size the test database for parallel schema tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "$POSTGRES_CONTAINER" psql -U media_manager -d media_manager_test -c "ALTER SYSTEM SET max_locks_per_transaction = 1024"
+          docker exec "$POSTGRES_CONTAINER" psql -U media_manager -d media_manager_test -c "ALTER SYSTEM SET max_connections = 400"
+          docker restart "$POSTGRES_CONTAINER"
+          for attempt in $(seq 1 60); do
+            if docker exec "$POSTGRES_CONTAINER" pg_isready -U media_manager -d media_manager_test -h 127.0.0.1 >/dev/null; then
+              docker exec "$POSTGRES_CONTAINER" psql -U media_manager -d media_manager_test -Atc "SHOW max_locks_per_transaction" | grep -qx 1024
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "test database did not come back after restart" >&2
+          exit 1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.27.3
+          cache: true
+          cache-dependency-path: go.sum
+      - run: bash scripts/ci/test-backend.sh
+
+  # The one backend result the deployment broker checks: it runs only when
+  # every backend machine passed.
+  backend:
+    needs: [reuse, backend-checks, backend-db]
+    if: ${{ !cancelled() && needs.reuse.outputs.run == '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          CHECKS: ${{ needs.backend-checks.result }}
+          DATABASE: ${{ needs.backend-db.result }}
+        run: |
+          echo "backend checks: $CHECKS, PostgreSQL machines: $DATABASE"
+          test "$CHECKS" = success && test "$DATABASE" = success
+
   containers:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, media-manager-vps]
@@ -159,8 +266,14 @@ jobs:
         run: python3 scripts/ci/container-smoke.py
 
   publish:
-    needs: [frontend, browser, backend, containers]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [reuse, frontend, browser, backend, containers]
+    # Every test job passed here, or all were skipped because reuse found a
+    # passing run of the identical tree; images are always built for this commit.
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+      && needs.containers.result == 'success'
+      && ((needs.frontend.result == 'success' && needs.browser.result == 'success' && needs.backend.result == 'success')
+      || (needs.reuse.outputs.run != '' && needs.frontend.result == 'skipped' && needs.browser.result == 'skipped' && needs.backend.result == 'skipped')) }}
     runs-on: [self-hosted, linux, x64, media-manager-vps]
     timeout-minutes: 30
     permissions:

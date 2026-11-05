@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Root-owned deployment broker: accept only a verified current-main commit."""
+"""Root-owned deployment broker: accept only a verified commit on main.
+
+The commit must be on main and must not be older than what production runs.
+Main may move on while a deployment is prepared; the newer commits are left
+for the next deployment instead of rejecting this one."""
 import datetime
 import fcntl
 import json
@@ -25,11 +29,15 @@ HOSTED_LABELS = ["ubuntu-24.04"]
 JOB_PLACEMENT = {
     "frontend": "github-hosted",
     "browser": "github-hosted",
-    "backend": "vps",
+    "backend": "github-hosted",
     "containers": "vps",
     "publish": "vps",
 }
 REQUIRED_JOBS = set(JOB_PLACEMENT)
+# Test jobs whose result depends only on the tested source tree. On main they
+# may be skipped when an earlier same-repository Verify run already passed them
+# for a byte-identical tree; the broker finds and checks that run itself.
+TREE_JOBS = {"frontend", "browser", "backend"}
 
 
 def runner_matches(job, placement):
@@ -57,11 +65,34 @@ def validate_request(request):
             raise ValueError("Invalid run identity")
 
 
-def validate_evidence(request, main_sha, verification, jobs, deployment):
+def validate_tested_run(run, jobs, tree, trees):
+    """Accept an earlier Verify run as the test evidence for a tree."""
+    if (run.get("repository", {}).get("full_name") != REPOSITORY
+            or run.get("head_repository", {}).get("full_name") != REPOSITORY
+            or run.get("path") != ".github/workflows/verify.yml"
+            or run.get("event") not in ["push", "workflow_dispatch"]
+            or run.get("status") != "completed" or run.get("conclusion") != "success"
+            or trees.get(run.get("head_sha")) != tree):
+        raise ValueError("Reused verification does not match the tested tree")
+    tested = [job for job in jobs if job.get("name") in TREE_JOBS]
+    if len(tested) != len(TREE_JOBS) or {job["name"] for job in tested} != TREE_JOBS:
+        raise ValueError("Reused verification is missing tested jobs")
+    if any(job.get("conclusion") != "success" or not runner_matches(job, JOB_PLACEMENT[job["name"]])
+           for job in tested):
+        raise ValueError("Reused verification did not pass on approved runners")
+
+
+def validate_evidence(request, on_main, verification, jobs, deployment, tested=None):
+    """Check a deployment request against GitHub's records.
+
+    on_main says whether the commit is main or an ancestor of main. tested is
+    (run, jobs, trees) for an earlier Verify run of the same tree, used only for
+    test jobs the main run skipped; trees maps commit SHAs to tree SHAs and
+    must include the requested commit."""
     validate_request(request)
     sha = request["commit"]
-    if main_sha != sha:
-        raise ValueError("Deployment must match current main")
+    if on_main is not True:
+        raise ValueError("Deployment must be a commit on main")
     for run, workflow in [(verification, "verify.yml"), (deployment, "deploy.yml")]:
         if (run.get("head_sha") != sha or run.get("head_branch") != "main"
                 or run.get("repository", {}).get("full_name") != REPOSITORY
@@ -75,9 +106,19 @@ def validate_evidence(request, main_sha, verification, jobs, deployment):
     required = [job for job in jobs if job.get("name") in REQUIRED_JOBS]
     if len(required) != len(REQUIRED_JOBS) or {job["name"] for job in required} != REQUIRED_JOBS:
         raise ValueError("Required checks are missing or duplicated")
-    if any(job.get("conclusion") != "success" for job in required):
+    skipped = {job["name"] for job in required if job.get("conclusion") == "skipped"}
+    if skipped and not skipped <= TREE_JOBS:
         raise ValueError("Required checks did not all succeed")
-    if any(not runner_matches(job, JOB_PLACEMENT[job["name"]]) for job in required):
+    if skipped:
+        if tested is None:
+            raise ValueError("Skipped checks have no verification for the same tree")
+        run, run_jobs, trees = tested
+        if not trees.get(sha) or run.get("head_sha") == sha:
+            raise ValueError("Reused verification does not match the tested tree")
+        validate_tested_run(run, run_jobs, trees[sha], trees)
+    if any(job.get("conclusion") != "success" for job in required if job["name"] not in skipped):
+        raise ValueError("Required checks did not all succeed")
+    if any(not runner_matches(job, JOB_PLACEMENT[job["name"]]) for job in required if job["name"] not in skipped):
         raise ValueError("Required checks did not run on their approved runners")
     if (deployment.get("id") != request["deployment_run"]
             or deployment.get("event") != "workflow_dispatch" or deployment.get("status") != "in_progress"):
@@ -95,11 +136,52 @@ def github(endpoint):
     return json.loads(operator("gh", "api", "repos/" + REPOSITORY + "/" + endpoint))
 
 
+def tree_of(sha):
+    return github("git/commits/" + sha)["tree"]["sha"]
+
+
+def tested_run(sha):
+    """Find, independently of the workflow, a successful Verify run of the same tree."""
+    tree = tree_of(sha)
+    # The branch run that was merged is recent; look no further than 50 runs.
+    runs = github("actions/workflows/verify.yml/runs?status=success&event=push&per_page=50")["workflow_runs"]
+    for run in runs:
+        head = run.get("head_sha")
+        if (head == sha or run.get("head_branch") == "main" or not isinstance(head, str)
+                or not re.fullmatch(r"[0-9a-f]{40}", head)
+                or run.get("head_repository", {}).get("full_name") != REPOSITORY):
+            continue
+        if tree_of(head) != tree:
+            continue
+        jobs = github("actions/runs/" + str(run["id"]) + "/jobs?per_page=100")["jobs"]
+        try:
+            validate_tested_run(run, jobs, tree, {head: tree})
+        except ValueError:
+            continue
+        return run, jobs, {sha: tree, head: tree}
+    return None
+
+
 def evidence(request):
-    validate_evidence(request, github("commits/main")["sha"],
-        github("actions/runs/" + str(request["verification_run"])),
-        github("actions/runs/" + str(request["verification_run"]) + "/jobs?per_page=100")["jobs"],
-        github("actions/runs/" + str(request["deployment_run"])))
+    sha = request["commit"]
+    # "identical" or "ahead": main is the commit or contains it.
+    on_main = github("compare/" + sha + "...main")["status"] in ["identical", "ahead"]
+    jobs = github("actions/runs/" + str(request["verification_run"]) + "/jobs?per_page=100")["jobs"]
+    skipped = any(job.get("name") in TREE_JOBS and job.get("conclusion") == "skipped" for job in jobs)
+    validate_evidence(request, on_main,
+        github("actions/runs/" + str(request["verification_run"])), jobs,
+        github("actions/runs/" + str(request["deployment_run"])),
+        tested_run(sha) if skipped else None)
+
+
+def check_forward(request, log):
+    """Main must contain the commit, and production must not move backwards."""
+    operator("git", "-C", str(CHECKOUT), "fetch", "github", "main", stderr=log)
+    for older, newer, error in [(request["commit"], "github/main", "Commit is not on main"),
+                                ("HEAD", request["commit"], "Commit is older than production")]:
+        if subprocess.run(["runuser", "-u", "vps", "--", "git", "-C", str(CHECKOUT), "merge-base",
+                           "--is-ancestor", older, newer], stdout=log, stderr=log).returncode != 0:
+            raise RuntimeError(error)
 
 
 def image_names(sha):
@@ -133,6 +215,7 @@ def deploy(request, log):
         raise RuntimeError("Production checkout has local changes")
     if operator("git", "-C", str(CHECKOUT), "branch", "--show-current", text=True).strip() != "main":
         raise RuntimeError("Production checkout is not on main")
+    check_forward(request, log)  # Before the long backup, so a refusal is quick.
     images = image_names(request["commit"])
     for image in images:
         config = json.loads(subprocess.check_output(["docker", "--host", ci_socket, "image", "inspect", image]))[0]
@@ -158,7 +241,9 @@ def deploy(request, log):
     with dump.open("xb") as target:
         dump.chmod(0o600)
         subprocess.run(["docker", "compose", "exec", "-T", "postgres", "sh", "-c",
-            'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc'], cwd=CHECKOUT, stdout=target, stderr=log, check=True)
+            # zstd level 1 is as fast as the old default gzip and makes the
+            # dump about half the size; pg_restore reads it the same way.
+            'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -Z zstd:1'], cwd=CHECKOUT, stdout=target, stderr=log, check=True)
     with dump.open("rb") as source:
         toc = subprocess.check_output(["docker", "compose", "exec", "-T", "postgres", "pg_restore", "-l"],
                                       cwd=CHECKOUT, stdin=source, stderr=log)
@@ -174,9 +259,7 @@ def deploy(request, log):
         subprocess.run(["docker", "--host", ci_socket, "image", "save", *images], stdout=target, stderr=log, check=True)
     with archive.open("rb") as source:
         subprocess.run(["docker", "image", "load"], stdin=source, stdout=log, stderr=log, check=True)
-    operator("git", "-C", str(CHECKOUT), "fetch", "github", "main", stderr=log)
-    if operator("git", "-C", str(CHECKOUT), "rev-parse", "github/main", text=True).strip() != request["commit"]:
-        raise RuntimeError("Main changed during deployment preparation")
+    check_forward(request, log)
     evidence(request)  # Recheck after backup/image transfer, before touching production.
     operator("git", "-C", str(CHECKOUT), "merge", "--ff-only", request["commit"], stderr=log)
     environment_file = CHECKOUT / ".env"
