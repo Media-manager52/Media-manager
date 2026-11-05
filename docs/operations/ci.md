@@ -11,9 +11,10 @@ by a trusted push after review.
 | --- | --- | --- |
 | `frontend` | GitHub-hosted `ubuntu-24.04` | No production secrets; runs lint, typecheck, docs checks, dependency audits and unit tests. GitHub-hosted capacity runs it in parallel with the self-hosted work. |
 | `browser` | GitHub-hosted `ubuntu-24.04`, pinned Playwright container | No production secrets; the browser image remains pinned to `mcr.microsoft.com/playwright:v1.62.1-noble`. |
-| `backend-checks` | GitHub-hosted `ubuntu-24.04` | No production secrets; gofmt, vet, staticcheck, govulncheck, every non-PostgreSQL package under `-race`, migrate and the `go.mod` check, with its own throwaway PostgreSQL. |
+| `backend-static` | GitHub-hosted `ubuntu-24.04` | No production secrets; gofmt, vet, staticcheck, govulncheck and the `go.mod` check, beside the tests instead of before them. |
+| `backend-checks` | GitHub-hosted `ubuntu-24.04` | No production secrets; every non-PostgreSQL package under `-race`, migrate and the `go.mod` check, with its own throwaway PostgreSQL. |
 | `backend-db` (6 machines) | GitHub-hosted `ubuntu-24.04` | No production secrets; each machine runs one sixth of the PostgreSQL tests under `-race` against its own throwaway PostgreSQL. |
-| `backend` | GitHub-hosted `ubuntu-24.04` | The single result the broker checks; it succeeds only when `backend-checks` and every `backend-db` machine succeeded. |
+| `backend` | GitHub-hosted `ubuntu-24.04` | The single result the broker checks; it succeeds only when `backend-static`, `backend-checks` and every `backend-db` machine succeeded. |
 | `containers` | self-hosted `media-manager-vps` | Requires the owner's separate rootless Docker engine for the disposable stack smoke. |
 | `publish` | self-hosted `media-manager-vps` | Needs the rootless Docker engine and registry credentials; runs only on `main` pushes after every required job succeeds. |
 
@@ -45,6 +46,11 @@ runner remains an owner/infrastructure decision.
 - without `BACKEND_TEST_PART` (local use), runs everything;
 - partitions this machine's PostgreSQL tests into `BACKEND_TEST_SHARDS` groups
   (the workflow sets 4; the script default is 4, allowed 1–16);
+- builds the race-enabled PostgreSQL test binary once (`go test -race -c`)
+  and runs every group from that binary in the package directory, as
+  `go test` does; one `go test` per group made each group compile the same
+  package at the same time, which took longer than the tests (on a 4-CPU
+  hosted machine about 3.5 of the 4.3 minutes);
 - runs all PostgreSQL groups concurrently with the full `-race` flag;
 - fails if any group fails, and prints that group's log.
 
@@ -70,7 +76,15 @@ Measured on the VPS: 4 groups with the shared lock took about 6 minutes;
 ## Caches and reproducibility
 
 - Frontend/browser run in `web/` and use the npm cache keyed by `web/package-lock.json`.
-- Backend uses the Go module cache keyed by `go.sum`.
+- Backend restores one Go cache (build cache, module cache, staticcheck
+  cache) and never writes it. `.github/workflows/go-cache.yml` is the only
+  writer: on every push to `main` it restores the previous entry, runs the
+  same vet, race test builds and staticcheck as Verify (without running
+  tests) and saves an entry keyed by `go.sum` and the commit. Caches written
+  on `main` are readable from every branch, so a new branch starts warm.
+  Before, each branch wrote its own cache (unreadable from other branches),
+  and `main` never compiled because its tests are reused, so every branch
+  started cold. Branch code also cannot place entries in the shared cache.
 - The Playwright container remains pinned; browser tests are not moved to an
   unpinned browser install.
 - Go build/test results are not cached as passing tests (`-count=1`); only
