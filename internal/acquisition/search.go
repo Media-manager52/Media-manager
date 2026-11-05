@@ -115,10 +115,11 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			// event. It is a stale audited no-op, never a reason to create a round.
 			return nil
 		}
-		if search.OpenRound.PolicyVersion != search.ProfilePolicyVersion {
-			// The profile changed after this round opened. Park the workflow for
-			// the owner to apply the current policy instead of searching under
-			// the stale snapshot or retrying a failing search forever.
+		if !search.RoundPolicyCurrent {
+			// The profile's rules changed after this round opened. Park the
+			// workflow for the owner to apply the current policy instead of
+			// searching under the stale snapshot or retrying a failing search
+			// forever. A rename or default change alone leaves the rules equal.
 			err := service.Store.MarkQualityPolicyReviewRequired(ctx, search.Workflow.ID, search.Workflow.Revision, search.OpenRound.PolicyVersion, search.ProfilePolicyVersion, time.Now().UTC())
 			if errors.Is(err, postgres.ErrConcurrentModification) {
 				return nil

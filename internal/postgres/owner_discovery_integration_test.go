@@ -193,7 +193,7 @@ func TestSearchDoesNotUseStaleDiscoveryToBypassPolicyOrActiveJob(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				if _, err := f.store.Pool.Exec(f.ctx, `UPDATE quality_profiles SET policy_version=policy_version+1 WHERE id=$1`, f.profile.ID.String()); err != nil {
+				if _, err := f.store.Pool.Exec(f.ctx, `UPDATE quality_profiles SET policy_version=policy_version+1,policy=policy||'{"required_audio_languages":["da"]}'::jsonb WHERE id=$1`, f.profile.ID.String()); err != nil {
 					t.Fatal(err)
 				}
 			}

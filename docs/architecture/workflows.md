@@ -207,10 +207,11 @@ Handler: `acquisition.SearchService` (`internal/acquisition/search.go`).
 - Recovery discovery (round exhausted) is evidence-only and uses a generation
   guard (`ValidateRecoveryDiscovery`).
 - Non-recovery: if the workflow is already `candidate_selected`/`queued`/
-  `submitting`, stop. If the open round's `policy_version` is older than the
-  quality profile's current version, the search makes no provider request and
-  parks the workflow in `waiting` with `quality_policy_changed`
-  (`MarkQualityPolicyReviewRequired`) until the owner applies the policy (§5a).
+  `submitting`, stop. If the open round's rules are no longer the quality
+  profile's current rules (`SearchContext.RoundPolicyCurrent`, see §5a), the
+  search makes no provider request and parks the workflow in `waiting` with
+  `quality_policy_changed` (`MarkQualityPolicyReviewRequired`) until the owner
+  applies the policy (§5a).
   If the round's `upgrade_baseline_link_versions` no longer matches the current
   links, fail with owner review required.
 - If no commissioned enabled Newznab indexer exists → error (recovery defers
@@ -419,8 +420,8 @@ Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
   outputs than `ACQUISITION_RETAINED_OUTPUT_LIMIT`, a `ready` discovery candidate, candidate first-seen > cutoff, still
   eligible under the round's policy version, and not attempted/excluded. It
   creates round N+1 with a fresh upgrade baseline and queues a search.
-- The owner cannot reopen an exhausted round whose policy snapshot is older
-  than the profile; apply the current policy instead (§5a).
+- The owner cannot reopen an exhausted round whose policy snapshot is no
+  longer the profile's current rules; apply the current policy instead (§5a).
 - **Retained output limit**: `ACQUISITION_RETAINED_OUTPUT_LIMIT` (default 4,
   range 1–12) counts distinct failed-output jobs with an
   `acquisition_outcome <> 'output_verified'`. It gates retrieval before a
@@ -447,6 +448,18 @@ and a missing one `400 invalid_request`; neither overwrites a newer policy, the
 same contract as the preset endpoint. The snapshot is the policy of
 record for an attempt: selection uses it, and output verification reads the
 attempt's round snapshot (`SubtitlePolicyForJob`), never the live profile.
+
+Because `policy_version` is the edit token, every edit bumps it, including a
+rename or a default change that leaves the rules alone. A round is therefore
+*current* when its version equals the profile's **or** its frozen
+`policy_snapshot` is identical (jsonb equality) to the profile's current
+`policy` (`roundPolicyCurrentSQL`). Search parking, NZB retrieval admission,
+access-rejected retry, reopening an exhausted round, retained-movie
+reinspection and the manual-search round check all use that one definition, so
+renaming a profile never parks or blocks work; any change to the rules still
+does. Opening a round from a known release accepts a decision made under an
+earlier version with identical rules and opens the round at that version, so
+the decision and the later retrieval check agree.
 
 To move open work onto the new version the owner calls
 `POST /api/v1/settings/quality-profiles/{id}/apply-policy`

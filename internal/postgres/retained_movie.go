@@ -28,7 +28,7 @@ func (store *Store) RequestRetainedMovieInspection(ctx context.Context, workflow
 		JOIN altmount_jobs job ON job.workflow_id=workflow.id AND job.id=$2
 		JOIN acquisition_rounds round ON round.id=job.round_id AND round.workflow_id=workflow.id
 		WHERE workflow.id=$1 AND workflow.state='waiting' AND workflow.terminal_at IS NULL
-		 AND workflow.grab_attempt_id IS NULL AND round.state='exhausted' AND round.policy_version=profile.policy_version
+		 AND workflow.grab_attempt_id IS NULL AND round.state='exhausted' AND `+roundPolicyCurrentSQL("round", "profile")+`
 		 AND job.state='needs_attention' AND job.error_code='movie_primary_ambiguous' AND job.acquisition_closed_at IS NOT NULL
 		 AND job.round_slot=round.attempt_limit_snapshot
 		 AND NOT EXISTS(SELECT 1 FROM acquisition_rounds newer WHERE newer.workflow_id=workflow.id AND newer.round_ordinal>round.round_ordinal)
@@ -79,7 +79,7 @@ func (store *Store) LoadRetainedMovieOutput(ctx context.Context, workflowID, job
 	err := store.Pool.QueryRow(ctx, `SELECT inventory.id::text,inventory.root_relative
 		FROM workflows workflow JOIN altmount_jobs job ON job.id=workflow.grab_attempt_id AND job.workflow_id=workflow.id AND job.candidate_id=workflow.selected_release_id
 		JOIN acquisition_rounds round ON round.id=job.round_id AND round.workflow_id=workflow.id AND round.state='exhausted'
-		JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id AND profile.enabled AND profile.policy_version=round.policy_version
+		JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id AND profile.enabled AND `+roundPolicyCurrentSQL("round", "profile")+`
 		JOIN altmount_output_inventories inventory ON inventory.job_id=job.id
 		WHERE workflow.id=$1 AND job.id=$2 AND workflow.state='queued' AND job.state='needs_attention' AND job.error_code='movie_primary_ambiguous'
 		 AND EXISTS(SELECT 1 FROM audit_events audit WHERE audit.action='output.movie_reinspection_requested' AND audit.aggregate_id=job.id AND audit.detail->>'workflow_revision'=workflow.revision::text)

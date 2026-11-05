@@ -119,7 +119,7 @@ func TestRetryAccessRejectedReleaseRefusesUnsafeRecovery(t *testing.T) {
 			case "closed_round":
 				query = `UPDATE acquisition_rounds SET state='exhausted' WHERE workflow_id=$1`
 			case "policy_changed":
-				query = `UPDATE quality_profiles SET policy_version=policy_version+1 WHERE id=(SELECT quality_profile_id FROM workflows WHERE id=$1)`
+				query = `UPDATE quality_profiles SET policy_version=policy_version+1,policy=policy||'{"required_audio_languages":["da"]}'::jsonb WHERE id=(SELECT quality_profile_id FROM workflows WHERE id=$1)`
 			case "decision_changed":
 				query = `UPDATE candidate_decisions SET verdict='rejected' WHERE workflow_id=$1`
 			case "disabled":

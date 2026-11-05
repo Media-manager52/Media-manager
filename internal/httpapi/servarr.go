@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -107,6 +108,7 @@ func (server *Server) servarrQualityProfiles(writer http.ResponseWriter, request
 		writeError(writer, http.StatusInternalServerError, "internal_error", "could not load quality profiles")
 		return
 	}
+	sortServarrProfiles(profiles)
 	result := []servarr.QualityProfile{}
 	for _, profile := range profiles {
 		if !profile.Enabled || profile.MediaKind != kind {
@@ -121,6 +123,17 @@ func (server *Server) servarrQualityProfiles(writer http.ResponseWriter, request
 		})
 	}
 	writeJSON(writer, http.StatusOK, result)
+}
+
+// sortServarrProfiles orders profiles as Seerr lists them: the default first,
+// then by name.
+func sortServarrProfiles(profiles []postgres.QualityProfile) {
+	sort.SliceStable(profiles, func(i, j int) bool {
+		if profiles[i].Default != profiles[j].Default {
+			return profiles[i].Default
+		}
+		return strings.ToLower(profiles[i].Name) < strings.ToLower(profiles[j].Name)
+	})
 }
 
 func (server *Server) servarrRootFolders(writer http.ResponseWriter, request *http.Request) {

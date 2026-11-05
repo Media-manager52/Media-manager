@@ -43,6 +43,10 @@ type SearchContext struct {
 	// ProfilePolicyVersion is the quality profile's current version. It can
 	// differ from PolicyVersion, which follows the open round's snapshot.
 	ProfilePolicyVersion uint64
+	// RoundPolicyCurrent is true when the open round runs under the profile's
+	// current rules: the same version, or an identical frozen policy after an
+	// edit that left the rules alone (a rename or a default change).
+	RoundPolicyCurrent bool
 	// RepairBrokenTitles are release titles whose published files lost their
 	// Usenet articles; this workflow acquires their replacement (AltMount
 	// repair). Search rejects these exact titles and does not require the
@@ -269,8 +273,10 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	var round AcquisitionRound
 	var roundText string
 	var roundPolicyVersion int64
-	err = store.Pool.QueryRow(ctx, `SELECT id::text,round_ordinal,state,attempt_limit_snapshot,novelty_cutoff_sequence,policy_version,policy_snapshot,upgrade_baseline_link_versions
-		FROM acquisition_rounds WHERE workflow_id=$1 AND state='open'`, result.Workflow.ID.String()).Scan(&roundText, &round.Ordinal, &round.State, &round.AttemptLimit, &round.NoveltyCutoffSequence, &roundPolicyVersion, &round.Policy, &round.UpgradeBaseline)
+	err = store.Pool.QueryRow(ctx, `SELECT round.id::text,round.round_ordinal,round.state,round.attempt_limit_snapshot,round.novelty_cutoff_sequence,round.policy_version,round.policy_snapshot,round.upgrade_baseline_link_versions,
+		`+roundPolicyCurrentSQL("round", "profile")+`
+		FROM acquisition_rounds round JOIN workflows workflow ON workflow.id=round.workflow_id JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
+		WHERE round.workflow_id=$1 AND round.state='open'`, result.Workflow.ID.String()).Scan(&roundText, &round.Ordinal, &round.State, &round.AttemptLimit, &round.NoveltyCutoffSequence, &roundPolicyVersion, &round.Policy, &round.UpgradeBaseline, &result.RoundPolicyCurrent)
 	if err == nil {
 		round.ID, _ = uuid.Parse(roundText)
 		round.PolicyVersion = uint64(roundPolicyVersion)
