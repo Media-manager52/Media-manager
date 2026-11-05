@@ -283,3 +283,25 @@ func TestRecommendedSetupLearnsFromExistingRoots(t *testing.T) {
 		t.Fatalf("series root = %+v", step)
 	}
 }
+
+func TestRecommendedSetupDoesNotDuplicateANonDefaultRoot(t *testing.T) {
+	fx := newFixture(t)
+	plexID := fx.store.integrations[0].ID
+	fx.store.roots = []postgres.LibraryRoot{{ID: uuid.NewV7(), MediaKind: catalog.KindMovie, Name: "Mine film", DestinationRoot: filepath.Join(fx.host, "movies"), PlexVisibleRoot: "/data/movies", SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: &plexID, PlexLibraryID: "1", Enabled: true}}
+	report, err := fx.service.Run(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if step := stepByID(t, report, "movie_root"); step.State != StateBlocked || step.Reason != ReasonRootNotDefault || step.Name != "Mine film" {
+		t.Fatalf("movie root = %+v", step)
+	}
+	movieRoots := 0
+	for _, root := range fx.store.roots {
+		if root.MediaKind == catalog.KindMovie {
+			movieRoots++
+		}
+	}
+	if movieRoots != 1 {
+		t.Fatalf("movie roots = %d, want the existing one only", movieRoots)
+	}
+}

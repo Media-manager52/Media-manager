@@ -171,6 +171,9 @@ func (client *TMDBClient) SeasonMetadata(ctx context.Context, tmdbID int64, seas
 	if err := client.get(ctx, "/3/tv/"+strconv.FormatInt(tmdbID, 10)+"/season/"+strconv.Itoa(int(season)), map[string]string{"language": discoveryLanguage}, &payload); err != nil {
 		return seerr.SeasonMetadata{}, err
 	}
+	if payload.SeasonNumber != season {
+		return seerr.SeasonMetadata{}, ErrIdentityConflict
+	}
 	result := seerr.SeasonMetadata{ID: payload.ID, SeasonNumber: payload.SeasonNumber, Episodes: make([]seerr.EpisodeMetadata, 0, len(payload.Episodes))}
 	for _, episode := range payload.Episodes {
 		result.Episodes = append(result.Episodes, seerr.EpisodeMetadata{ID: episode.ID, EpisodeNumber: episode.EpisodeNumber, Name: episode.Name, AirDate: episode.AirDate})
