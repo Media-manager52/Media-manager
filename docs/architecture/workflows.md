@@ -452,8 +452,9 @@ attempt's round snapshot (`SubtitlePolicyForJob`), never the live profile.
 Because `policy_version` is the edit token, every edit bumps it, including a
 rename or a default change that leaves the rules alone. A round is therefore
 *current* when its version equals the profile's **or** its frozen
-`policy_snapshot` is identical (jsonb equality) to the profile's current
-`policy` (`roundPolicyCurrentSQL`). Search parking, NZB retrieval admission,
+`policy_snapshot` has the same rules as the profile's current `policy`
+(`roundPolicyCurrentSQL`: jsonb equality after dropping empty lists, because a
+save writes every language list as `[]` while older snapshots omit them). Search parking, NZB retrieval admission,
 access-rejected retry, reopening an exhausted round, retained-movie
 reinspection and the manual-search round check all use that one definition, so
 renaming a profile never parks or blocks work; any change to the rules still

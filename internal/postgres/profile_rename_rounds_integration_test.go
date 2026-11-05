@@ -16,6 +16,12 @@ import (
 func renameRoundsCase(t *testing.T, edit func(profile QualityProfile) QualityProfile) (*failureRecoveryFixture, workflows.Workflow, RetrievalContext, workflows.Workflow) {
 	t.Helper()
 	f := newFailureRecoveryFixture(t)
+	// Production profiles were written before every language list existed, so
+	// their stored policy (and every round snapshot of it) omits lists that a
+	// save through the owner API now writes as []. Reproduce that shape.
+	if _, err := f.store.Pool.Exec(f.ctx, `UPDATE quality_profiles SET policy=(SELECT jsonb_object_agg(item.key,item.value) FROM jsonb_each(policy) item WHERE item.value<>'[]'::jsonb) WHERE id=$1`, f.profile.ID.String()); err != nil {
+		t.Fatal(err)
+	}
 	open := f.newMovieWorkflow(t, "Rename open round", "930001")
 	refused := seedRetrievalCandidate(t, f.ctx, f.store, open.ID, f.indexer.ID, "rename-access")
 	seedAccessRetryDecision(t, f, refused)
@@ -42,6 +48,10 @@ func renameRoundsCase(t *testing.T, edit func(profile QualityProfile) QualityPro
 	}
 	if after := storedQualityProfile(t, f.ctx, f.store, f.profile.ID); after.PolicyVersion != 2 {
 		t.Fatalf("edited profile version=%d, want 2: every edit stays the optimistic token", after.PolicyVersion)
+	}
+	if exact := f.count(t, `SELECT count(*) FROM acquisition_rounds round JOIN workflows workflow ON workflow.id=round.workflow_id JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
+		WHERE workflow.id=$1 AND round.policy_snapshot=profile.policy`, open.ID.String()); exact != 0 {
+		t.Fatal("the saved policy is byte-for-byte the old snapshot; the test no longer covers the lists a save adds")
 	}
 	return f, open, refused, waiting
 }

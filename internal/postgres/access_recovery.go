@@ -14,12 +14,12 @@ import (
 // Shared by the owner read model and mutation so the button describes the same
 // exact, pre-submission recovery the transaction permits. Access errors are
 // not evidence of a defective payload; every other exclusion stays in force.
-const accessRejectedRetryQuery = `FROM workflows w
+var accessRejectedRetryQuery = `FROM workflows w
  JOIN media_items m ON m.id=w.media_id AND m.deleted_at IS NULL
  JOIN release_candidates c ON c.workflow_id=w.id AND c.id=w.selected_release_id
  JOIN integration_instances i ON i.id=c.indexer_instance_id AND i.kind IN ('newznab','oldboys') AND i.enabled AND i.config->'mode_verified'='true'::jsonb
  JOIN quality_profiles p ON p.id=w.quality_profile_id
- JOIN acquisition_rounds r ON r.workflow_id=w.id AND r.state='open' AND (r.policy_version=p.policy_version OR r.policy_snapshot=p.policy)
+ JOIN acquisition_rounds r ON r.workflow_id=w.id AND r.state='open' AND ` + roundPolicyCurrentSQL("r", "p") + `
  JOIN candidate_decisions d ON d.workflow_id=w.id AND d.candidate_id=c.id AND d.policy_version=r.policy_version AND d.verdict='eligible'
  JOIN workflow_release_exclusions e ON e.workflow_id=w.id AND e.candidate_id=c.id AND e.indexer_instance_id=c.indexer_instance_id AND e.native_key=c.native_key
   AND e.failure_kind='release_retrieval' AND (

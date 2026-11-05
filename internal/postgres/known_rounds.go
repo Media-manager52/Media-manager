@@ -68,7 +68,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 	err = transaction.QueryRow(ctx, `SELECT candidate.id::text,decision.policy_version
 		FROM release_candidates candidate
 		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
-		  AND (decision.policy_version=$2 OR EXISTS(SELECT 1 FROM acquisition_rounds same WHERE same.workflow_id=candidate.workflow_id AND same.policy_version=decision.policy_version AND same.policy_snapshot=$3::jsonb))
+		  AND (decision.policy_version=$2 OR EXISTS(SELECT 1 FROM acquisition_rounds same WHERE same.workflow_id=candidate.workflow_id AND same.policy_version=decision.policy_version AND `+samePolicyRulesSQL("same.policy_snapshot", "$3::jsonb")+`))
 		JOIN release_observations observation ON observation.id=candidate.observation_id
 		WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
 		  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
