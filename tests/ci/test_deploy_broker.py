@@ -27,7 +27,8 @@ class DeploymentBoundaryTests(unittest.TestCase):
                            status="in_progress", path=".github/workflows/deploy.yml",
                            triggering_actor={"login": "Media-manager52"})
         # Shape and runner fields copied from the successful main Verify run
-        # 41235746613 (commit 34478c4), as returned by the GitHub jobs API.
+        # 41235746613 (commit 34478c4), as returned by the GitHub jobs API;
+        # backend has since moved to GitHub-hosted runners.
         hosted = {"runner_group_name": "GitHub Actions", "labels": ["ubuntu-24.04"]}
         vps = {"runner_name": "media-manager-vps", "runner_group_name": "Default",
                "labels": ["self-hosted", "linux", "x64", "media-manager-vps"]}
@@ -35,7 +36,7 @@ class DeploymentBoundaryTests(unittest.TestCase):
             dict(name="frontend", conclusion="success", runner_name="GitHub Actions 1000000518", **copy.deepcopy(hosted)),
             dict(name="containers", conclusion="success", **copy.deepcopy(vps)),
             dict(name="browser", conclusion="success", runner_name="GitHub Actions 1000000517", **copy.deepcopy(hosted)),
-            dict(name="backend", conclusion="success", **copy.deepcopy(vps)),
+            dict(name="backend", conclusion="success", runner_name="GitHub Actions 1000000519", **copy.deepcopy(hosted)),
             dict(name="publish", conclusion="success", **copy.deepcopy(vps)),
         ]
 
@@ -43,14 +44,16 @@ class DeploymentBoundaryTests(unittest.TestCase):
         return next(job for job in self.jobs if job["name"] == name)
 
     def check(self):
-        broker.validate_evidence(self.request, self.sha, self.verify, self.jobs, self.deploy)
+        broker.validate_evidence(self.request, True, self.verify, self.jobs, self.deploy)
 
     def test_verified_current_main_can_deploy(self):
         self.check()
 
-    def test_old_commit_cannot_deploy(self):
-        with self.assertRaises(ValueError):
-            broker.validate_evidence(self.request, "b" * 40, self.verify, self.jobs, self.deploy)
+    def test_commit_not_on_main_cannot_deploy(self):
+        for on_main in [False, None, "true"]:
+            with self.subTest(on_main=on_main):
+                with self.assertRaises(ValueError):
+                    broker.validate_evidence(self.request, on_main, self.verify, self.jobs, self.deploy)
 
     def test_failed_or_incomplete_verification_cannot_deploy(self):
         for field, value in [("conclusion", "failure"), ("status", "in_progress"), ("event", "pull_request")]:
@@ -83,7 +86,7 @@ class DeploymentBoundaryTests(unittest.TestCase):
             self.check()
 
     def test_checks_must_run_on_the_dedicated_vps_runner(self):
-        self.job("backend")["runner_name"] = "unreviewed-runner"
+        self.job("containers")["runner_name"] = "unreviewed-runner"
         with self.assertRaises(ValueError):
             self.check()
 
@@ -92,7 +95,7 @@ class DeploymentBoundaryTests(unittest.TestCase):
         self.assertEqual({job["name"] for job in self.jobs}, broker.REQUIRED_JOBS)
 
     def test_image_building_jobs_cannot_move_to_hosted_runners(self):
-        for name in ["backend", "containers", "publish"]:
+        for name in ["containers", "publish"]:
             with self.subTest(job=name):
                 job = self.job(name)
                 before = copy.deepcopy(job)
@@ -114,17 +117,18 @@ class DeploymentBoundaryTests(unittest.TestCase):
                  "labels": ["ubuntu-22.04"]},
                 {"runner_name": "media-manager-vps", "runner_group_name": "GitHub Actions",
                  "labels": ["ubuntu-24.04"]}]:
-            with self.subTest(change=change):
-                job = self.job("frontend")
-                before = copy.deepcopy(job)
-                job.update(change)
-                with self.assertRaises(ValueError):
-                    self.check()
-                job.clear(); job.update(before)
+            for name in ["frontend", "backend"]:
+                with self.subTest(change=change, job=name):
+                    job = self.job(name)
+                    before = copy.deepcopy(job)
+                    job.update(change)
+                    with self.assertRaises(ValueError):
+                        self.check()
+                    job.clear(); job.update(before)
 
     def test_missing_runner_evidence_cannot_deploy(self):
         for name, fields in [("frontend", ["runner_name", "runner_group_name", "labels"]),
-                             ("backend", ["runner_name", "labels"])]:
+                             ("containers", ["runner_name", "labels"])]:
             for field in fields:
                 with self.subTest(job=name, field=field):
                     job = self.job(name)
@@ -138,6 +142,65 @@ class DeploymentBoundaryTests(unittest.TestCase):
         self.job("publish")["conclusion"] = "skipped"
         with self.assertRaises(ValueError):
             self.check()
+
+    def tested(self, tree="t" * 40, **run_changes):
+        head = "c" * 40
+        run = {"id": 99, "head_sha": head, "head_branch": "feature", "event": "push",
+               "status": "completed", "conclusion": "success", "path": ".github/workflows/verify.yml",
+               "repository": {"full_name": broker.REPOSITORY},
+               "head_repository": {"full_name": broker.REPOSITORY}}
+        run.update(run_changes)
+        jobs = [copy.deepcopy(job) for job in self.jobs if job["name"] in broker.TREE_JOBS]
+        return run, jobs, {self.sha: "t" * 40, head: tree}
+
+    def skip_tree_jobs(self):
+        for name in broker.TREE_JOBS:
+            self.job(name)["conclusion"] = "skipped"
+            for field in ["runner_name", "runner_group_name"]:
+                self.job(name).pop(field, None)
+            self.job(name)["labels"] = []
+
+    def check_with(self, tested):
+        broker.validate_evidence(self.request, True, self.verify, self.jobs, self.deploy, tested)
+
+    def test_skipped_tests_reuse_a_passing_run_of_the_identical_tree(self):
+        tested = self.tested()
+        self.skip_tree_jobs()
+        self.check_with(tested)
+
+    def test_skipped_tests_without_identical_tree_evidence_cannot_deploy(self):
+        tested = self.tested()
+        self.skip_tree_jobs()
+        for name, evidence in [("none", None), ("other tree", self.tested(tree="u" * 40)),
+                               ("fork", self.tested(head_repository={"full_name": "external/fork"})),
+                               ("failed", self.tested(conclusion="failure")),
+                               ("other workflow", self.tested(path=".github/workflows/deploy.yml")),
+                               ("same commit", self.tested(head_sha=self.sha))]:
+            with self.subTest(evidence=name):
+                if name == "same commit":
+                    evidence = (evidence[0], evidence[1], {self.sha: "t" * 40})
+                with self.assertRaises(ValueError):
+                    self.check_with(evidence)
+        run, jobs, trees = tested
+        for name in broker.TREE_JOBS:
+            for change in [{"conclusion": "failure"}, {"runner_name": "unreviewed-runner"}]:
+                with self.subTest(job=name, change=change):
+                    changed = [dict(job, **change) if job["name"] == name else job for job in jobs]
+                    with self.assertRaises(ValueError):
+                        self.check_with((run, changed, trees))
+            with self.subTest(job=name, change="missing"):
+                with self.assertRaises(ValueError):
+                    self.check_with((run, [job for job in jobs if job["name"] != name], trees))
+
+    def test_image_jobs_can_never_be_skipped(self):
+        for name in ["containers", "publish"]:
+            with self.subTest(job=name):
+                self.setUp()
+                tested = self.tested()
+                self.skip_tree_jobs()
+                self.job(name)["conclusion"] = "skipped"
+                with self.assertRaises(ValueError):
+                    self.check_with(tested)
 
     def test_duplicate_required_job_cannot_deploy(self):
         self.jobs.append(dict(copy.deepcopy(self.job("browser")), conclusion="failure"))
@@ -169,6 +232,42 @@ class DeploymentBoundaryTests(unittest.TestCase):
         self.deploy["triggering_actor"] = {"login": "another-collaborator"}
         with self.assertRaises(ValueError):
             self.check()
+
+
+class ForwardOnlyDeploymentTests(unittest.TestCase):
+    """Main may move on during a deployment; production never moves backwards."""
+
+    def run_check(self, results):
+        calls = []
+
+        def run(command, **options):
+            calls.append(command[-2:])
+            return mock.Mock(returncode=results[len(calls) - 1])
+
+        with mock.patch.object(broker, "operator") as operator, mock.patch.object(
+                broker.subprocess, "run", side_effect=run):
+            broker.check_forward({"commit": "a" * 40}, None)
+        operator.assert_called_once()
+        self.assertIn("fetch", operator.call_args.args)
+        return calls
+
+    def test_commit_behind_main_and_ahead_of_production_deploys(self):
+        self.assertEqual(self.run_check([0, 0]), [["a" * 40, "github/main"], ["HEAD", "a" * 40]])
+
+    def test_commit_not_on_main_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, "not on main"):
+            self.run_check([1, 0])
+
+    def test_commit_older_than_production_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, "older than production"):
+            self.run_check([0, 1])
+
+    def test_refusal_comes_before_the_backup(self):
+        source = (Path(__file__).resolve().parents[2] / "deploy/github/deploy-broker.py").read_text()
+        body = source[source.index("def deploy(request, log):"):]
+        self.assertLess(body.index("check_forward(request, log)"), body.index("pg_dump"))
+        self.assertGreater(body.rindex("check_forward(request, log)"), body.index("pg_dump"))
+        self.assertNotIn("Main changed during deployment preparation", source)
 
 
 class VerifyWorkflowPlacementContractTests(unittest.TestCase):
