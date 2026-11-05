@@ -4,7 +4,7 @@ import { NavLink, Link, useParams } from "react-router"
 import { createBackup, loadActivity, loadBackups, loadQueue, loadRepairs, loadSystemHealth, loadSystemInfo } from "@/api/client"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader } from "@/components/ui"
-import { formatBytes, formatDateTime, formatNumber, formatRelative } from "@/format"
+import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
 import { humanize } from "@/i18n"
 import { workflowHref } from "@/lib/links"
 import { ListSkeleton } from "@/pages/overview"
@@ -89,7 +89,7 @@ function Status() {
               <KeyValue items={[
                 ["Version", info.data.version],
                 ["Startet", formatDateTime(info.data.started_at)],
-                ["Login", info.data.browser_auth],
+                ["Login", info.data.browser_auth === "gateway_basic_auth" ? "Via login foran Media Manager (fx Cosmos)" : info.data.browser_auth],
                 ["Papirkurv", `${info.data.recycle_retention_days} dage`],
               ]} />
             </div>
@@ -107,7 +107,7 @@ function Queue() {
   const q = query.data
   return (
     <Card>
-      <CardHeader title="Baggrundskø" description={`${formatNumber(q.completed_last_hour)} opgaver løst den seneste time · ${formatNumber(q.due)} klar · ${formatNumber(q.scheduled)} planlagt · ${formatNumber(q.retrying)} prøver igen`} />
+      <CardHeader title="Baggrundskø" description={`${pluralize(q.completed_last_hour, "opgave", "opgaver")} løst den seneste time · ${formatNumber(q.due)} klar · ${formatNumber(q.scheduled)} planlagt · ${formatNumber(q.retrying)} prøver igen`} />
       <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Køen pr. opgavetype">
         <table className="w-full min-w-[36rem] text-sm">
           <thead className="text-left text-text-3">
@@ -163,7 +163,7 @@ function Backups() {
       <ul className="divide-y divide-line">
         {b.records.slice(0, 30).map((record) => (
           <li key={record.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
-            <Badge tone={record.state === "verified" ? "good" : record.state === "failed" ? "bad" : "info"}>{{ verified: "Kontrolleret", failed: "Fejlet", queued: "I kø", running: "Kører" }[record.state]}</Badge>
+            <Badge tone={record.state === "verified" ? "good" : record.state === "failed" ? "bad" : "info"}>{{ verified: "Kontrolleret", failed: "Fejlet", queued: "I kø", running: "Kører" }[record.state] ?? humanize(record.state)}</Badge>
             <span className="flex-1">{formatDateTime(record.completed_at ?? record.created_at)}</span>
             <span className="tabular text-text-3">{formatBytes(record.size_bytes)}</span>
             {record.last_error ? <span className="w-full break-words text-bad">{record.last_error}</span> : null}
@@ -209,6 +209,7 @@ function ActivityLog() {
   return (
     <Card>
       <CardHeader title="Aktivitet" description="De seneste ændringer og handlinger, nyeste først." />
+      {query.data.length === 0 ? <Empty title="Ingen aktivitet endnu" /> : null}
       <ul className="divide-y divide-line">
         {query.data.slice(0, 200).map((entry) => (
           <li key={entry.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-5 py-2.5 text-sm">

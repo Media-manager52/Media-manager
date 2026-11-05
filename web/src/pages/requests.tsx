@@ -24,10 +24,13 @@ async function loadAllRequests(signal: AbortSignal): Promise<APIRequest[]> {
 
 export function RequestsPage() {
   const query = useQuery({ queryKey: ["requests"], queryFn: ({ signal }) => loadAllRequests(signal), refetchInterval: 60_000 })
-  const [filter, setFilter] = useState<RequestFilter | "pending">("active")
+  const [chosen, setFilter] = useState<RequestFilter | "pending">("active")
   const [search, setSearch] = useState("")
   const all = useMemo(() => query.data ?? [], [query.data])
   const pending = all.filter((item) => item.lifecycle === "not_approved")
+  // Once the last request is decided the "Skal godkendes" tab disappears;
+  // fall back to the active list instead of an empty, unselectable tab.
+  const filter = chosen === "pending" && pending.length === 0 && query.data ? "active" : chosen
   const items = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("da")
     return all

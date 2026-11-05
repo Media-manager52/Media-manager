@@ -80,6 +80,16 @@ function AddForm({ result, onBack }: { result: APIDiscoverySearchResult; onBack:
   return <AddFormBody detail={detail.data} onBack={onBack} />
 }
 
+function addErrorText(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === "media_exists") return "Titlen er allerede i biblioteket."
+    if (error.code === "media_removed") return "Titlen er tidligere fjernet fra biblioteket og kan ikke tilføjes som ny."
+    if (error.code === "no_commissioned_indexer") return "Der er ingen indexer, der kan søge efter titlen. Tilføj en under Indstillinger → Forbindelser, eller fjern fluebenet \"Begynd at søge med det samme\"."
+    if (error.code === "invalid_configuration") return "Der mangler en standardmappe eller standardprofil. Tjek Indstillinger → Biblioteker og Kvalitetsprofiler."
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
 function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: () => void }) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -122,7 +132,15 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
       toast("good", `${detail.title} er tilføjet${searchNow ? ", og søgningen er sat i gang" : ""}.`)
       navigate(titleHref(created.media.id))
     },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => {
+      const existing = error instanceof ApiError && error.code === "media_exists" ? error.hint?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0] : undefined
+      if (existing) {
+        toast("good", `${detail.title} er allerede i biblioteket. Her er den.`)
+        navigate(titleHref(existing))
+        return
+      }
+      toast("bad", addErrorText(error))
+    },
   })
   const meta = detail.metadata
   const toggle = (number: number) => setSeasons((current) => (current.includes(number) ? current.filter((entry) => entry !== number) : [...current, number]))
