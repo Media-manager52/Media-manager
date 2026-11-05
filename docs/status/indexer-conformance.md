@@ -82,6 +82,30 @@ its 2026-09-01 verification stands. A secret scan of all 190 evidence files
 (exact and three levels of percent-encoding, all ten keys) found nothing, and no
 lab state or secrets store was written. Runtime allowlists are unchanged.
 
+## Provider MediaInfo and NFO evidence (2026-11-05)
+
+Measured with a few owner-approved requests per provider; keys were never
+stored or printed.
+
+| Provider | Language attributes in `extended=1` results | `t=details` | NFO function |
+| --- | --- | --- | --- |
+| msgnews | `subs`, `language`, `audio`, `video`, `resolution`, `framerate` | not measured | `getnfo` (MediaInfo or release-group NFO) |
+| treasure-maps | the same MediaInfo set | not measured | advertises `getnfo`, answers `No such item` (8 of 8) |
+| Nzb.life | `subs`, `language`, `audio` | not measured | `getnfo` (often MediaInfo) |
+| abNZB | `subs` | not measured | `getnfo` |
+| NinjaCentral, altHUB | none | not measured | `getnfo` |
+| NZBgeek | `subs`, `language` | same attributes as search | `getnfo` answers with its feed (unsupported) |
+| NZBFinder | `subs` | same attributes as search | none (`/api/v2` JSON has usage counters, no MediaInfo) |
+| DrunkenSlug | none | same attributes as search | own `t=info&id=` (HTML NFO); `getnfo` is "No such function" |
+
+Every search attribute above is already parsed. The NFO is read before a grab
+only when a release has no language attributes (`internal/acquisition/nfo_check.go`).
+A replay over 159 releases Media Manager had already downloaded and inspected
+(2026-11-05): of 65 that failed the Danish requirement and whose NFO would be
+read, 27 would have been excluded before download; none of the 93 releases
+whose output had Danish would have been. DrunkenSlug had no Danish-verified
+release with an NFO, so its positive control is the other providers'.
+
 ## Bounded annual-season discovery (2026-10-05)
 
 For series with complete, unambiguous annual frozen season metadata, runtime

@@ -223,6 +223,13 @@ func configureMovieSearchIndexerNamed(t *testing.T, store *postgres.Store, baseU
 
 func createMovieSearchWorkflow(t *testing.T, store *postgres.Store) workflows.Workflow {
 	t.Helper()
+	return createMovieSearchWorkflowWithPolicy(t, store, nil)
+}
+
+// createMovieSearchWorkflowWithPolicy adds extra top-level policy fields (for
+// example required_subtitle_languages) to the 1080p test profile.
+func createMovieSearchWorkflowWithPolicy(t *testing.T, store *postgres.Store, extra map[string]any) workflows.Workflow {
+	t.Helper()
 	ctx := context.Background()
 	plex, err := store.CreateIntegration(ctx, postgres.Integration{Kind: "plex", Name: "Profile Plex", Enabled: true, Default: true, Config: json.RawMessage(`{"base_url":"http://plex.invalid:32400","allow_http":true}`), SecretRef: "MOVIE_SEARCH_PLEX_TOKEN"})
 	if err != nil {
@@ -236,7 +243,11 @@ func createMovieSearchWorkflow(t *testing.T, store *postgres.Store) workflows.Wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy, err := json.Marshal(map[string]any{"rules": []releases.Rule{{Name: "Resolution", Fact: "resolution", AllowedValues: []string{"1080p"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold}}})
+	document := map[string]any{"rules": []releases.Rule{{Name: "Resolution", Fact: "resolution", AllowedValues: []string{"1080p"}, Kind: releases.RuleRequired, Unknown: releases.UnknownHold}}}
+	for key, value := range extra {
+		document[key] = value
+	}
+	policy, err := json.Marshal(document)
 	if err != nil {
 		t.Fatal(err)
 	}

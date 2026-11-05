@@ -413,7 +413,7 @@ func (s *BrowseService) enrichObservation(ctx context.Context, client *newznab.C
 	if err == nil {
 		observation = enriched
 	}
-	if ctx.Err() == nil && !hasProviderSubtitles(observation) && advertisesNFO(observation) {
+	if ctx.Err() == nil && !hasProviderSubtitles(observation) && client.AdvertisesNFO(observation) {
 		enriched, err = client.InspectNFO(ctx, observation)
 		if waitBrowsePacing(ctx, err) {
 			enriched, err = client.InspectNFO(ctx, observation)
@@ -752,14 +752,6 @@ func browseRank(facts []releases.Fact) int {
 func hasProviderSubtitles(o releases.Observation) bool {
 	for _, f := range o.Facts {
 		if f.Name == "subtitle_languages" && f.State == releases.FactObserved && len(f.Values) > 0 {
-			return true
-		}
-	}
-	return false
-}
-func advertisesNFO(o releases.Observation) bool {
-	for _, f := range o.Fields {
-		if strings.EqualFold(f.Name, "nfo") && (f.Value == "1" || strings.EqualFold(f.Value, "yes")) {
 			return true
 		}
 	}
