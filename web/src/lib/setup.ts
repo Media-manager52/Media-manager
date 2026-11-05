@@ -57,6 +57,10 @@ const checkPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^Seerr saved the webhook, but reading it back/, () => "Seerr gemte webhooken, men den ser ikke rigtig ud bagefter. Prøv igen."],
   [/^the webhook address must be/, () => "Adressen skal starte med http:// eller https://."],
   [/^an indexer is checked by commissioning it$/, () => "En indexer testes ved at godkende den."],
+  [/^TMDB accepted the token; title search uses it$/, () => "TMDB godtog nøglen. Søgning efter film og serier bruger den nu."],
+  [/^save the TMDB read access token first$/, () => "TMDB-nøglen mangler. Gem den først."],
+  [/^the TMDB token is not valid$/, () => "TMDB-nøglen er ugyldig."],
+  [/^TMDB did not accept the token/, () => "TMDB afviste nøglen. Brug den lange \"API Read Access Token\", ikke den korte API-nøgle."],
 ]
 
 /** Danish text for a connection check; anything unknown is shown as the server wrote it. */
@@ -76,7 +80,7 @@ export const setupStepText: Record<APISetupStep["id"], { title: string; todo: st
   series_root: { title: "Standardmappe til serier", todo: "Vælg det Plex-bibliotek, nye serier skal i.", to: "/indstillinger/biblioteker" },
   movie_profile: { title: "Standardprofil til film", todo: "Vælg, hvilken kvalitet og hvilke sprog film skal have.", to: "/indstillinger/profiler" },
   series_profile: { title: "Standardprofil til serier", todo: "Vælg, hvilken kvalitet og hvilke sprog serier skal have.", to: "/indstillinger/profiler" },
-  metadata: { title: "Plakater og beskrivelser", todo: "Sæt TMDB_ACCESS_TOKEN i serverens opsætning for plakater, beskrivelser og forslag." },
+  metadata: { title: "Søgning, plakater og beskrivelser (TMDB)", todo: "Tilføj TMDB under Forbindelser. Uden TMDB eller Seerr kan du ikke søge efter film og serier.", to: "/indstillinger/forbindelser" },
   seerr: { title: "Anmodninger fra Seerr", todo: "Forbind Seerr, hvis du vil tage imod anmodninger derfra.", to: "/indstillinger/forbindelser" },
 }
 

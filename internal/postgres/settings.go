@@ -634,7 +634,7 @@ func (store *Store) Integration(ctx context.Context, id uuid.UUID) (Integration,
 
 func allowedIntegration(kind string) bool {
 	switch kind {
-	case "newznab", "altmount", "plex", "seerr":
+	case "newznab", "altmount", "plex", "seerr", "tmdb":
 		return true
 	default:
 		return false

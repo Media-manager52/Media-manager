@@ -16,6 +16,16 @@ type SeerrSource interface {
 	Metadata(ctx context.Context, mediaType string, tmdbID int64) (seerr.Metadata, error)
 }
 
+// SourceLabel names where discovery metadata came from, for the identities
+// it proves: "seerr_metadata" for Seerr's TMDB proxy, or the source's own
+// label (TMDB queried directly says "tmdb_metadata").
+func SourceLabel(source any) string {
+	if labelled, ok := source.(interface{ MetadataSourceLabel() string }); ok {
+		return labelled.MetadataSourceLabel()
+	}
+	return "seerr_metadata"
+}
+
 // Discovered is a movie or series identified on TMDB through Seerr, with
 // verified identities and normalized metadata, ready to add to the catalogue.
 type Discovered struct {
@@ -45,12 +55,13 @@ func (service *Service) Discover(ctx context.Context, source SeerrSource, mediaT
 	if mediaType == "tv" {
 		title, date, kind = value.Name, value.FirstAirDate, catalog.KindSeries
 	}
-	identities := []catalog.ExternalIdentity{{Namespace: "tmdb", Value: strconv.FormatInt(tmdbID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"}}
+	label := SourceLabel(source)
+	identities := []catalog.ExternalIdentity{{Namespace: "tmdb", Value: strconv.FormatInt(tmdbID, 10), State: catalog.IdentityVerified, Source: label}}
 	if value.ExternalIDs.TVDBID != nil && *value.ExternalIDs.TVDBID > 0 {
-		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*value.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: "seerr_metadata"})
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "tvdb", Value: strconv.FormatInt(*value.ExternalIDs.TVDBID, 10), State: catalog.IdentityVerified, Source: label})
 	}
 	if strings.TrimSpace(value.ExternalIDs.IMDbID) != "" {
-		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: value.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: "seerr_metadata"})
+		identities = append(identities, catalog.ExternalIdentity{Namespace: "imdb", Value: value.ExternalIDs.IMDbID, State: catalog.IdentityVerified, Source: label})
 	}
 	enricher := service
 	if enricher == nil {

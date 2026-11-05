@@ -33,13 +33,18 @@ type Config struct {
 	// PlayerToken, when set, authorizes only the routes marked
 	// authOwnerOrPlayer. It lets a playback client (the Nuvio/Stremio addon)
 	// work without holding the owner token.
-	PlayerToken            string
-	SeerrEnabled           bool
-	SeerrWebhookSecret     string
-	SeerrInstanceID        string
-	Version                string
-	Commit                 string
-	MetadataProvider       *seerr.Client
+	PlayerToken        string
+	SeerrEnabled       bool
+	SeerrWebhookSecret string
+	SeerrInstanceID    string
+	Version            string
+	Commit             string
+	MetadataProvider   *seerr.Client
+	// TMDBDiscovery answers title search and discovery when no Seerr is
+	// connected (MetadataProvider nil); its token may be saved on the website.
+	TMDBDiscovery OptionalDiscovery
+	// TMDBChanged is called after a TMDB connection or its token changes.
+	TMDBChanged            func()
 	MetadataEnricher       *metadataservice.Service
 	MetadataProviderStates map[string]string
 	CommissionNewznab      func(context.Context, uuid.UUID) (postgres.Integration, error)

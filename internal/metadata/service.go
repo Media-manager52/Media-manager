@@ -49,6 +49,11 @@ func (service *Service) Build(ctx context.Context, kind catalog.MediaKind, tmdbI
 		if provider.lookup == nil {
 			continue
 		}
+		// A provider whose credential can be added later (TMDB saved on the
+		// website) counts as not configured until it is.
+		if optional, ok := provider.lookup.(interface{ Configured(context.Context) bool }); ok && !optional.Configured(ctx) {
+			continue
+		}
 		contribution, err := provider.lookup.Lookup(ctx, kind, result.Identities, now)
 		if err != nil {
 			switch err {

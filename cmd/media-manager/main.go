@@ -189,13 +189,17 @@ func run() error {
 			return err
 		}
 	}
-	var tmdbClient *metadataproviders.TMDBClient
-	if token := optionalSecret("TMDB_ACCESS_TOKEN"); token != "" {
-		tmdbClient, err = metadataproviders.NewTMDB(metadataproviders.TMDBConfig{AccessToken: token}, nil)
-		if err != nil {
+	// TMDB comes from TMDB_ACCESS_TOKEN or from the TMDB connection saved on
+	// the website; a token saved there takes effect without a restart.
+	tmdbToken := optionalSecret("TMDB_ACCESS_TOKEN")
+	if tmdbToken != "" {
+		if _, err := metadataproviders.NewTMDB(metadataproviders.TMDBConfig{AccessToken: tmdbToken}, nil); err != nil {
 			return err
 		}
 	}
+	tmdbSource := &metadataproviders.TMDBSource{EnvironmentToken: tmdbToken, Resolve: func(ctx context.Context) (string, error) {
+		return websiteTMDBToken(ctx, store, resolveSecret)
+	}}
 	var tvdbClient *metadataproviders.TVDBClient
 	tvdbKey, tvdbPIN := optionalSecret("TVDB_API_KEY"), optionalSecret("TVDB_SUBSCRIBER_PIN")
 	if tvdbPIN != "" && tvdbKey == "" {
@@ -214,12 +218,12 @@ func run() error {
 			return err
 		}
 	}
-	metadataService := newMetadataService(tmdbClient, tvdbClient, simklClient)
+	metadataService := newMetadataService(tmdbSource, tvdbClient, simklClient)
 	metadataProviderStates := map[string]string{"tmdb": "not_configured", "tvdb": "not_configured", "simkl": "not_configured", "imdb": "identity_only"}
 	if seerrEnabled {
 		metadataProviderStates["tmdb"] = "seerr_fallback"
 	}
-	if tmdbClient != nil {
+	if tmdbToken != "" {
 		metadataProviderStates["tmdb"] = "direct_configured"
 	}
 	if tvdbClient != nil {
@@ -285,7 +289,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret}, store)
+	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, TMDBDiscovery: tmdbSource, TMDBChanged: tmdbSource.Invalidate, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret}, store)
 	if err != nil {
 		return err
 	}
@@ -299,9 +303,7 @@ func run() error {
 	handlers["release.retrieve_requested"] = retrievalService.Handle
 	mediaInfoProbe := mediainfo.NewProbe()
 	altMountReconciler := &acquisition.AltMountReconcileService{Store: store, ResolveSecret: resolveSecret, MediaInfoProbe: mediaInfoProbe}
-	if tmdbClient != nil {
-		altMountReconciler.EpisodeRuntimes = tmdbClient
-	}
+	altMountReconciler.EpisodeRuntimes = tmdbSource
 	handlers["altmount.reconcile_requested"] = altMountReconciler.Handle
 	handlers["altmount.output_reverify_requested"] = altMountReconciler.HandleRetainedOutputReverification
 	handlers["altmount.movie_reinspect_requested"] = altMountReconciler.HandleRetainedMovieInspection
@@ -524,7 +526,30 @@ func workerOwner() string {
 // configured. An unconfigured provider stays a nil interface: storing a nil
 // client pointer would make the interface non-nil, so enrichment would call
 // Lookup on a nil client and crash the worker.
-func newMetadataService(tmdb *metadataproviders.TMDBClient, tvdb *metadataproviders.TVDBClient, simkl *metadataproviders.SimklClient) *metadataservice.Service {
+// websiteTMDBToken returns the token of the enabled TMDB connection saved on
+// the website (the default one when several exist), or "" when there is none.
+func websiteTMDBToken(ctx context.Context, store *postgres.Store, resolveSecret func(string) (string, error)) (string, error) {
+	integrations, err := store.ListIntegrations(ctx)
+	if err != nil {
+		return "", err
+	}
+	var chosen *postgres.Integration
+	for index := range integrations {
+		integration := &integrations[index]
+		if integration.Kind != "tmdb" || !integration.Enabled || strings.TrimSpace(integration.SecretRef) == "" {
+			continue
+		}
+		if chosen == nil || integration.Default && !chosen.Default {
+			chosen = integration
+		}
+	}
+	if chosen == nil {
+		return "", nil
+	}
+	return resolveSecret(chosen.SecretRef)
+}
+
+func newMetadataService(tmdb *metadataproviders.TMDBSource, tvdb *metadataproviders.TVDBClient, simkl *metadataproviders.SimklClient) *metadataservice.Service {
 	service := &metadataservice.Service{}
 	if tmdb != nil {
 		service.TMDB = tmdb

@@ -33,6 +33,13 @@ describe("setup texts", () => {
     expect(checkText("Plex answered and shows 4 libraries")).toBe("Plex svarer og har 4 biblioteker.")
     expect(checkText("AltMount answered, but /mnt/altmount is not a folder Media Manager can see")).toContain("/mnt/altmount")
     expect(checkText("something new")).toBe("something new")
+    expect(checkText("TMDB accepted the token; title search uses it")).toContain("TMDB godtog")
+    expect(checkText("TMDB did not accept the token; use the long \"API Read Access Token\", not the short API key")).toContain("lange")
+  })
+
+  it("points a missing TMDB at Connections and names TMDB via Seerr as done", () => {
+    expect(setupStepDetail({ id: "metadata", done: false, optional: false, detail: "Add TMDB under Connections for title search, posters and descriptions" })).toContain("Forbindelser")
+    expect(setupStepDetail({ id: "metadata", done: true, optional: true, detail: "TMDB via Seerr" })).toBe("TMDB via Seerr")
   })
 
   it("shows the server's name for done steps and a Danish hint otherwise", () => {
