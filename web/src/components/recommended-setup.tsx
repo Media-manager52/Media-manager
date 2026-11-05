@@ -4,11 +4,12 @@ import { AlertTriangle, CheckCircle2, Circle, PlusCircle } from "lucide-react"
 import { ApiError, runRecommendedSetup, type APIRecommendedReport, type APIRecommendedStep } from "@/api/client"
 import { Button, Card, CardHeader } from "@/components/ui"
 import { recommendedText, recommendedTitle } from "@/lib/setup"
+import { errorMessage } from "@/i18n"
 
 function setupErrorText(error: unknown): string {
   if (error instanceof ApiError && error.code === "database_error") return "Den nuværende opsætning kunne ikke læses. Prøv igen om lidt."
   if (error instanceof ApiError && error.code === "recommended_setup_unavailable") return "Den anbefalede opsætning er ikke tilgængelig på denne server."
-  return error instanceof Error ? error.message : String(error)
+  return errorMessage(error)
 }
 
 function StepIcon({ step }: { step: APIRecommendedStep }) {

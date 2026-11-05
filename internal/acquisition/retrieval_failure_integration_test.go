@@ -239,6 +239,64 @@ func TestRetrievalAccessDenialSelectsAlternateWithoutSecondRequest(t *testing.T)
 	assertNoRetrievalAttempt(t, store, workflow.ID)
 }
 
+// TestRetrievalFromSwitchedOffIndexerMovesOn covers an indexer switched off
+// after its release was selected: the retrieval must not retry forever. It
+// selects the alternative on the indexer still enabled, without any request.
+func TestRetrievalFromSwitchedOffIndexerMovesOn(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	var gets atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("t") == "get" {
+			gets.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte(movieSearchReleaseXML("Klaus.2019.1080p.WEB-DL")))
+	}))
+	defer server.Close()
+	configureNamedSearchIndexer(t, store, "Source A", server.URL)
+	second := httptest.NewServer(server.Config.Handler)
+	defer second.Close()
+	configureNamedSearchIndexer(t, store, "Source B", second.URL)
+	workflow := createMovieSearchWorkflow(t, store)
+	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || selected.SelectedRelease == nil {
+		t.Fatalf("selection=%+v %v", selected, err)
+	}
+	var indexerText string
+	if err := store.Pool.QueryRow(ctx, `SELECT indexer_instance_id::text FROM release_candidates WHERE id=$1`, selected.SelectedRelease.String()).Scan(&indexerText); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET enabled=false WHERE id=$1`, indexerText); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]string{"workflow_id": workflow.ID.String(), "candidate_id": selected.SelectedRelease.String()})
+	service := &RetrievalService{Store: store, Scheduler: indexers.NewScheduler(2, store), ResolveSecret: func(string) (string, error) { return "test-api-key", nil }, Transport: server.Client().Transport}
+	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: selected.Revision, Payload: payload, Attempts: 1}); err != nil {
+		t.Fatalf("retrieval from a switched-off indexer must settle, not retry: %v", err)
+	}
+	next, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || next.State != workflows.StateCandidateSelected || next.SelectedRelease == nil || *next.SelectedRelease == *selected.SelectedRelease {
+		t.Fatalf("alternate=%+v %v", next, err)
+	}
+	var nextIndexer string
+	if err := store.Pool.QueryRow(ctx, `SELECT indexer_instance_id::text FROM release_candidates WHERE id=$1`, next.SelectedRelease.String()).Scan(&nextIndexer); err != nil {
+		t.Fatal(err)
+	}
+	if nextIndexer == indexerText {
+		t.Fatalf("alternate is on the switched-off indexer %s", indexerText)
+	}
+	if gets.Load() != 0 {
+		t.Fatalf("provider get requests=%d, want none", gets.Load())
+	}
+	assertNoRetrievalAttempt(t, store, workflow.ID)
+}
+
 func TestRetrievalClosedRoundMakesNoProviderRequest(t *testing.T) {
 	store := openMovieSearchTestStore(t)
 	ctx := context.Background()

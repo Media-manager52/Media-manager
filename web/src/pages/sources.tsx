@@ -4,9 +4,10 @@ import { useState } from "react"
 import { loadIndexers, loadOldBoysCredentialStatus, saveOldBoysCredentials, updateIndexer, type APIIndexerUsage } from "@/api/client"
 import { AddIndexerDialog, IndexerSetupActions } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
-import { Badge, Button, Card, CardHeader, Dialog, ErrorBox, PageHeader, Progress } from "@/components/ui"
+import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox, PageHeader, Progress } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative } from "@/format"
 import { ListSkeleton } from "@/pages/overview"
+import { errorMessage } from "@/i18n"
 
 export function SourcesPage() {
   const query = useQuery({ queryKey: ["indexers"], queryFn: ({ signal }) => loadIndexers(signal), refetchInterval: 60_000 })
@@ -18,6 +19,7 @@ export function SourcesPage() {
       {adding ? <AddIndexerDialog onClose={() => setAdding(false)} /> : null}
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
       {query.isPending ? <Card><ListSkeleton rows={6} /></Card> : null}
+      {!query.isPending && !query.error && items.length === 0 ? <Card className="mb-4"><Empty title="Ingen indexere endnu">Tryk "Tilføj indexer" for at vælge en fra listen. Media Manager søger kun hos indexere, der er sat op her.</Empty></Card> : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {items.map((indexer) => <IndexerCard key={indexer.id} indexer={indexer} />)}
       </div>
@@ -89,20 +91,24 @@ function EditIndexer({ indexer, onClose }: { indexer: APIIndexerUsage; onClose: 
       ...(Number(interval) !== indexer.budget.minimum_interval_ms ? { minimum_interval_ms: Number(interval) } : {}),
     }),
     onSuccess: async () => {
-      toast("good", `${indexer.name} er opdateret.`)
+      toast("good", `${indexer.name.replace(/\s*\{DK\}\s*/i, "")} er opdateret.`)
       onClose()
       await queryClient.invalidateQueries({ queryKey: ["indexers"] })
     },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   const field = "mt-1 h-9 w-full rounded-lg border border-line bg-surface px-3 text-text"
+  // Whole numbers above 0, as when the indexer was added; an empty or
+  // mistyped field must never be sent.
+  const valid = [queryLimit, grabLimit, interval].every((value) => /^\d+$/.test(value.trim()) && Number(value) > 0)
   return (
-    <Dialog open onClose={onClose} title={`Rediger ${indexer.name}`} footer={<><Button variant="ghost" onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} onClick={() => mutation.mutate()}>Gem</Button></>}>
+    <Dialog open onClose={onClose} title={`Rediger ${indexer.name.replace(/\s*\{DK\}\s*/i, "")}`} footer={<><Button variant="ghost" onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} disabled={!valid} onClick={() => mutation.mutate()}>Gem</Button></>}>
       <div className="space-y-4">
         <label className="flex items-center gap-2 text-text"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="size-4" />Brug denne indexer</label>
         <label className="block">Søgninger pr. døgn<input inputMode="numeric" value={queryLimit} onChange={(event) => setQueryLimit(event.target.value)} className={field} /></label>
         <label className="block">Hentninger pr. døgn<input inputMode="numeric" value={grabLimit} onChange={(event) => setGrabLimit(event.target.value)} className={field} /></label>
         <label className="block">Mindste pause mellem kald (ms)<input inputMode="numeric" value={interval} onChange={(event) => setIntervalMs(event.target.value)} className={field} /></label>
+        {!valid ? <p role="alert" className="text-xs text-bad">Skriv et helt tal over 0 i hvert felt.</p> : null}
         <p className="text-xs text-text-3">Sæt kun grænser, din konto hos indexeren faktisk tillader. Baggrundssøgning må højst bruge 20 % af søgningerne.</p>
       </div>
     </Dialog>
@@ -123,7 +129,7 @@ function OldBoysCard() {
       setValues({ api_token: "", pass_key: "", rss_key: "" })
       await queryClient.invalidateQueries()
     },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   if (!status.data?.available) return null
   const field = "mt-1 h-9 w-full rounded-lg border border-line bg-surface px-3 font-mono text-text"

@@ -112,7 +112,13 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 		return err
 	}
 	if (retrieval.Indexer.Kind != "newznab" && retrieval.Indexer.Kind != "oldboys") || !retrieval.Indexer.Enabled || !indexerConfiguration.ModeVerified {
-		return errors.New("selected indexer is not commissioned")
+		// The indexer was switched off (or lost its commission) after this
+		// release was selected. Retrying can never succeed, so record it as a
+		// retrieval failure: the workflow moves to a known alternative on an
+		// enabled indexer, or to owner attention, instead of retrying forever.
+		// No provider request is made.
+		detail := "the selected release's indexer is switched off or not commissioned; another release is tried"
+		return service.Store.RecordReleaseRetrievalFailure(ctx, retrieval, "indexer_not_commissioned", detail, time.Now().UTC())
 	}
 	budget := indexers.NewznabBudget(indexerConfiguration.MinimumIntervalMS, indexerConfiguration.QueryLimit, indexerConfiguration.GrabLimit, indexerConfiguration.BudgetWindow)
 	if err := service.Scheduler.Configure(retrieval.Indexer.ID.String(), budget); err != nil {

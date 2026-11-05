@@ -1,6 +1,7 @@
+import { ApiError } from "@/api/client"
 import { describe, expect, it } from "vitest"
 
-import { actionLabel, attentionLabel, humanize, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
+import { actionLabel, attentionLabel, humanize, stateLabel, stateTone, translateDetail, workflowDisplayState, errorMessage } from "@/i18n"
 
 describe("labels", () => {
   it("translates known workflow states and keeps unknown codes readable", () => {
@@ -68,5 +69,19 @@ describe("release exclusion reasons", () => {
     expect(translateDetail("season pack is needs_review; first problem: duplicate (S01E02) and 1 more")).toBe("Sæsonpakken skal tjekkes; første problem: et afsnit findes mere end én gang (S01E02) og 1 til.")
     // Older rows said "0 expected episodes are missing" for a pack held for review.
     expect(translateDetail("season pack is needs_review; 0 expected episodes are missing")).toBe("Sæsonpakken skal tjekkes.")
+  })
+})
+
+describe("errorMessage", () => {
+  it("shows common server errors in Danish and keeps the rest", () => {
+    expect(errorMessage(new ApiError("Database is unavailable", 503, "database_unavailable"))).toBe("Databasen svarer ikke lige nu. Prøv igen om lidt.")
+    expect(errorMessage(new ApiError("a very specific reason", 409, "some_new_code"))).toBe("a very specific reason")
+    expect(errorMessage(new TypeError("Failed to fetch"))).toBe("Media Manager kunne ikke nås. Tjek forbindelsen, og prøv igen.")
+    expect(errorMessage("plain")).toBe("plain")
+  })
+
+  it("translates the most common waiting reason", () => {
+    expect(translateDetail("Releases were observed but none satisfied the required release evidence; a paced retry is scheduled.")).toContain("ingen opfylder profilens krav")
+    expect(translateDetail("Four candidates failed NZB retrieval in this round; owner review is required. Submission slots were not consumed by these failures.")).toMatch(/^Fire udgivelser/)
   })
 })

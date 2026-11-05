@@ -62,7 +62,7 @@ function AttentionPreview() {
         description="Arbejde der er gået i stå og venter på en beslutning fra dig."
         action={items.length > 0 ? <Link to="/handling" className="text-sm font-medium text-accent-strong hover:underline">Se alle</Link> : null}
       />
-      {query.error ? <div className="p-4"><ErrorBox error={query.error} /></div> : null}
+      {query.error ? <div className="p-4"><ErrorBox error={query.error} retry={() => query.refetch()} /></div> : null}
       {query.isPending ? <ListSkeleton /> : null}
       {!query.isPending && items.length === 0 && !query.error ? (
         <Empty title="Alt kører af sig selv" icon={<CheckCircle2 className="size-8 text-good" />}>Intet venter på dig lige nu.</Empty>
@@ -90,6 +90,7 @@ function RecentWork({ workflows, loading }: { workflows?: APIWorkflow[]; loading
     <Card>
       <CardHeader title="Senest ændret" description="De nyeste skridt i dit arbejde." action={<Link to="/arbejde" className="text-sm font-medium text-accent-strong hover:underline">Alt arbejde</Link>} />
       {loading ? <ListSkeleton /> : null}
+      {!loading && workflows && workflows.length === 0 ? <Empty title="Intet arbejde endnu">Tilføj en film eller serie, så begynder Media Manager.</Empty> : null}
       <ul className="divide-y divide-line">
         {(workflows ?? []).slice(0, 8).map((workflow) => (
           <li key={workflow.id}>
@@ -122,7 +123,7 @@ function HealthCard() {
         {health ? (
           <>
             <HealthRow ok={databaseOk ?? false} label="Database" detail={databaseOk ? `Klar · ${health.database_latency_ms} ms` : `Skema ${health.schema_version} af ${health.expected_schema}`} />
-            <HealthRow ok={mountsDown.length === 0} label="AltMount-drev" detail={mountsDown.length === 0 ? `${health.mounts?.length ?? 0} tilgængelige` : mountsDown.map((mount) => mount.name).join(", ") + " utilgængeligt"} />
+            <HealthRow ok={mountsDown.length === 0} label="AltMount-drev" detail={mountsDown.length === 0 ? `${health.mounts?.length ?? 0} ${(health.mounts?.length ?? 0) === 1 ? "tilgængeligt" : "tilgængelige"}` : mountsDown.map((mount) => mount.name).join(", ") + (mountsDown.length === 1 ? " er utilgængeligt" : " er utilgængelige")} />
             <HealthRow ok={failing.length === 0} label="Forbindelser" detail={failing.length === 0 ? "Ingen fejl" : failing.map((component) => component.name).join(", ")} />
             <HealthRow ok={health.outbox.retrying === 0} label="Baggrundskø" detail={`${formatNumber(health.outbox.due)} klar · ${formatNumber(health.outbox.retrying)} prøver igen`} />
             <div className="pt-1 text-xs text-text-3">Tjekket {formatDateTime(health.checked_at)}</div>
@@ -156,7 +157,8 @@ function UpcomingCard() {
     <Card>
       <CardHeader title="Den næste uge" description="Nye afsnit, som Media Manager holder øje med." action={<Link to="/kalender" className="text-sm font-medium text-accent-strong hover:underline">Kalender</Link>} />
       {query.isPending ? <ListSkeleton /> : null}
-      {!query.isPending && upcoming.length === 0 ? <Empty title="Ingen nye afsnit i den kommende uge" /> : null}
+      {query.error ? <div className="p-4"><ErrorBox error={query.error} retry={() => query.refetch()} /></div> : null}
+      {!query.isPending && !query.error && upcoming.length === 0 ? <Empty title="Ingen nye afsnit i den kommende uge" /> : null}
       <ul className="divide-y divide-line">
         {upcoming.slice(0, 8).map((entry) => (
           <li key={`${entry.workflow_id}-${entry.season}-${entry.episode}`} className="flex items-center gap-3 px-5 py-3">

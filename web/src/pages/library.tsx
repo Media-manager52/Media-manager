@@ -65,7 +65,7 @@ export function LibraryPage() {
       {catalog.data?.truncated ? <p className="mb-4 text-sm text-warn">Biblioteket er større end det, siden kan vise på én gang. Brug søgningen.</p> : null}
       {catalog.isPending ? <PosterGridSkeleton /> : null}
       {!catalog.isPending && items.length === 0 && !catalog.error ? (
-        <Card><Empty title={search ? "Ingen titler passer til søgningen" : "Biblioteket er tomt"}>{search ? "Prøv et andet ord, eller tilføj titlen." : "Tilføj din første film eller serie."}</Empty></Card>
+        <Card><Empty title={search ? "Ingen titler passer til søgningen" : all.length > 0 ? (kind === "film" ? "Ingen film endnu" : "Ingen serier endnu") : "Biblioteket er tomt"}>{search ? "Prøv et andet ord, eller tilføj titlen." : all.length > 0 ? "Tilføj en titel, eller vælg en anden type." : "Tilføj din første film eller serie."}</Empty></Card>
       ) : null}
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
         {items.slice(0, visible).map((item) => <PosterTile key={item.id} item={item} />)}

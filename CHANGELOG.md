@@ -37,6 +37,16 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **A release from a switched-off indexer no longer blocks its workflow.** When an indexer was switched off after one of its releases was selected, fetching that NZB failed and was retried forever, and the workflow never moved on. It is now recorded as a retrieval failure without contacting the indexer, and a known alternative on an enabled indexer is tried, the same way as when an indexer refuses access.
+- **Small errors on the remaining pages.**
+  - Common server errors are shown in Danish everywhere (database down, not found, changed meanwhile, server not reachable, and more). Unknown errors keep the server's text.
+  - *Kræver handling*: no longer says "Intet kræver dig" while system problems are listed. A search with no matches says so. System problems are in Danish, and a bare Go error type is no longer shown as the detail. A failed load of system problems is shown.
+  - The most common waiting and attention reasons are in Danish, including "no release met the profile yet".
+  - *Bibliotek* says "Ingen serier endnu" instead of "Biblioteket er tomt" when only the type filter is empty.
+  - *Oversigt*: a failed calendar load is shown instead of "Ingen nye afsnit". An empty recent-work list says so. Mount counts use the right singular or plural.
+  - *Kilder*: shows a hint when no indexer is set up. Editing limits refuses empty or mistyped numbers instead of sending them.
+  - Saving a key is no longer reported as failed when only the connection test after it fails.
+  - Escape closes the mobile menu.
 - **Small errors on the title and work pages.**
   - Why a workflow button is unavailable, and the note in its confirmation, are now shown in Danish (the API keeps its English text).
   - Why a release was excluded is shown in Danish for the common AltMount and indexer reasons.

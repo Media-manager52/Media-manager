@@ -9,7 +9,7 @@ import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, Skeleton } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDate, formatRelative } from "@/format"
-import { attentionLabel, kindLabel, languageName, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
+import { attentionLabel, errorMessage, kindLabel, languageName, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
 import { describeVariant, workflowHref } from "@/lib/links"
 import { episodeStatus, rollupSeriesSeasons, type EpisodeStatus, type SeriesSeasonRollup } from "@/lib/series-variants"
 import type { Tone } from "@/lib/tone"
@@ -74,7 +74,7 @@ function RefreshMetadata({ mediaId }: { mediaId: string }) {
       toast("good", "Oplysningerne er hentet igen fra TMDB/TVDB.")
       await queryClient.invalidateQueries({ queryKey: ["media"] })
     },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   return <Button variant="secondary" busy={mutation.isPending} onClick={() => mutation.mutate()} className="h-8 text-xs"><RefreshCw aria-hidden className="size-3.5" />Opdatér oplysninger</Button>
 }

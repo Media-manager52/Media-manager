@@ -5,7 +5,7 @@ import { createBackup, loadActivity, loadBackups, loadQueue, loadRepairs, loadSy
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
-import { humanize } from "@/i18n"
+import { errorMessage, humanize } from "@/i18n"
 import { workflowHref } from "@/lib/links"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -145,7 +145,7 @@ function Backups() {
   const create = useMutation({
     mutationFn: createBackup,
     onSuccess: async () => { toast("good", "Backup er sat i kø. Den bliver kontrolleret med en prøve-gendannelse."); await queryClient.invalidateQueries({ queryKey: ["backups"] }) },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   if (query.error) return <ErrorBox error={query.error} />
   if (!query.data) return <Card><ListSkeleton /></Card>

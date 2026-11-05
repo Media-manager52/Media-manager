@@ -7,7 +7,7 @@ import { Poster, sizedArtwork } from "@/components/poster"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, Dialog, Empty, ErrorBox, PageHeader, SearchField, Segmented } from "@/components/ui"
 import { formatRelative } from "@/format"
-import { kindLabel, stateLabel, translateDetail } from "@/i18n"
+import { errorMessage, kindLabel, stateLabel, translateDetail } from "@/i18n"
 import { titleHref } from "@/lib/links"
 import { requestLifecycleTone, requestMatchesFilter, type RequestFilter } from "@/lib/media-manager-requests"
 import { ListSkeleton } from "@/pages/overview"
@@ -108,7 +108,7 @@ function Decide({ item }: { item: APIRequest }) {
       setConfirm(null)
       await queryClient.invalidateQueries({ queryKey: ["requests"] })
     },
-    onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast("bad", errorMessage(error)),
   })
   return (
     <div className="mt-3 flex gap-2">

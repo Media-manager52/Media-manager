@@ -180,6 +180,18 @@ const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^no valid first RAR part found in archive$/, () => "Arkivet mangler sin første RAR-del."],
   [/^no files with allowed extensions found\b.*$/, () => "Udgivelsen indeholder ingen video- eller undertekstfiler."],
   [/^movie release does not have one unambiguous primary media file$/, () => "Udgivelsen har ikke én tydelig filmfil."],
+  [/^Releases were observed but none satisfied the required release evidence; a paced retry is scheduled\.$/,
+    () => "Der er fundet udgivelser, men ingen opfylder profilens krav endnu. Media Manager søger igen senere."],
+  [/^AltMount did not expose the stable upload name within 30 minutes\..*$/,
+    () => "AltMount viste ikke uploadens navn inden for 30 minutter. Start ikke en ny søgning, før du har tjekket i AltMount, at den første upload ikke blev modtaget."],
+  [/^The bounded exact-package duplicate skip limit was reached; owner review is required\.$/,
+    () => "Den samme pakke dukkede op for mange gange. Se på arbejdet, og vælg hvad der skal ske."],
+  [/^(\w+) candidates failed NZB retrieval in this round; owner review is required\..*$/,
+    (m) => `${({ Four: "Fire", Three: "Tre", Two: "To" } as Record<string, string>)[m[1]] ?? m[1]} udgivelser kunne ikke hentes fra indexeren i denne runde. Se på arbejdet. Rundens forsøg er ikke brugt af disse fejl.`],
+  [/^fast-fail segment check inconclusive\b.*$/, () => "AltMounts hurtigtjek af udgivelsen blev ikke færdigt i tide."],
+  [/^failed to resolve embedded NZB\b.*430 no such article.*$/s, () => "Udgivelsen mangler dele hos Usenet-udbyderen (430 no such article)."],
+  [/^the selected release's indexer is switched off or not commissioned; another release is tried$/,
+    () => "Indexeren for den valgte udgivelse er slået fra eller ikke godkendt, så en anden udgivelse prøves."],
   [/^season pack is (incomplete|needs_review|invalid)(?:; (\d+) expected episodes are missing)?(?:; first problem: ([a-z_]+)(?: \((.+?)\))?(?: and (\d+) more)?)?$/,
     (m) => seasonPackText(m)],
 ]
@@ -208,4 +220,46 @@ export function translateDetail(text: string | undefined | null): string {
     if (match) return render(match)
   }
   return trimmed
+}
+
+/**
+ * Danish text for the server's common error codes. A code not listed keeps
+ * the server's own message, so no detail is lost.
+ */
+const errorCodes: Record<string, string> = {
+  database_unavailable: "Databasen svarer ikke lige nu. Prøv igen om lidt.",
+  database_error: "Media Manager kunne ikke læse eller gemme i databasen. Prøv igen om lidt.",
+  internal_error: "Der skete en uventet fejl i Media Manager. Prøv igen.",
+  not_found: "Det findes ikke (længere). Genindlæs siden.",
+  invalid_id: "Adressen er ugyldig.",
+  unauthorized: "Du er ikke logget ind. Log ind igen via Cosmos, og genindlæs siden.",
+  concurrent_modification: "Det blev ændret imens. Genindlæs siden, og prøv igen.",
+  altmount_job_active: "AltMount arbejder stadig på et job. Vent, til det er færdigt.",
+  workflow_not_cancellable: "Arbejdet kan ikke annulleres nu, fordi det henter, udgiver eller er færdigt.",
+  plex_not_timed_out: "Plex er ikke gået i stå med at bekræfte filen, så det kan ikke prøves igen endnu.",
+  no_commissioned_indexer: "Der er ingen godkendt indexer, der kan søge efter titlen. Tilføj eller godkend en under Kilder.",
+  no_known_eligible_release: "Alle kendte egnede udgivelser er allerede prøvet.",
+  no_release_ready: "Der er ingen ny egnet udgivelse klar endnu.",
+  round_already_open: "Der er allerede en runde i gang.",
+  round_exhausted: "Runden har brugt alle forsøg.",
+  round_attempt_limit_reached: "Runden har brugt alle forsøg.",
+  retained_output_limit_reached: "Grænsen for gemte fejlede downloads er nået. Ryd op i lageret først.",
+  workflow_in_flight: "Arbejdet er allerede i gang.",
+  publication_started: "Udgivelsen til Plex er allerede begyndt.",
+  owner_recovery_required: "Arbejdet skal afklares, før det kan fortsætte.",
+  library_root_in_use: "Mappen bruges stadig af titler eller Seerr-regler.",
+  library_root_disabled: "Mappen er slået fra.",
+  secret_storage_unavailable: "Serveren kan ikke gemme nøgler endnu (SECRET_ENCRYPTION_KEY mangler).",
+  metadata_unavailable: "TMDB er ikke sat op. Tilføj TMDB under Indstillinger → Forbindelser.",
+  seerr_unavailable: "Seerr svarer ikke lige nu. Prøv igen om lidt.",
+}
+
+export function errorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const code = (error as { code?: unknown }).code
+    if (typeof code === "string" && errorCodes[code]) return errorCodes[code]
+    // fetch() rejects with a TypeError when the server cannot be reached.
+    if (error instanceof TypeError && /fetch|network/i.test(error.message)) return "Media Manager kunne ikke nås. Tjek forbindelsen, og prøv igen."
+  }
+  return error instanceof Error ? error.message : String(error)
 }
