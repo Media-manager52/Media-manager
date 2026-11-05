@@ -159,6 +159,40 @@ test("a library folder is added by picking a Plex library", async ({ page }) => 
   expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/settings/library-roots", body: { media_kind: "movie", name: "Film 4K", plex_instance_id: ids.plex, plex_library_id: "7", plex_visible_root: "/media/Film 4K", edition: "4k", is_default: false } })
 })
 
+test("a 4K folder can share a Plex library with the 1080p folder", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.route("**/api/v1/settings/library-roots", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback()
+    await route.fulfill({ json: { data: [{ id: ids.root, media_kind: "movie", name: "Movies", destination_root: "/media/movies/1080p", plex_visible_root: "/media/movies/1080p", source_visible_root: "/mnt/altmount", plex_instance_id: ids.plex, plex_library_id: "12", is_default: true, enabled: true, edition: "standard" }] } })
+  })
+  await page.route("**/api/v1/settings/integrations/*/plex-libraries", (route) => route.fulfill({ json: { data: [
+    { key: "12", title: "Movies", type: "movie", locations: ["/media/movies/1080p", "/media/movies/2160p"] },
+    { key: "13", title: "Klassikere", type: "movie", locations: ["/media/klassikere"] },
+    { key: "14", title: "Fælles", type: "movie", locations: ["/media/film/2160p", "/media/film/1080p"] },
+  ] } }))
+  await page.goto("/indstillinger/biblioteker")
+  await page.getByRole("button", { name: "Tilføj mappe" }).click()
+  const dialog = page.getByRole("dialog")
+  // The library is still free: only its 1080p folder is in use.
+  await expect(dialog.getByRole("option", { name: "Movies", exact: true })).toBeEnabled()
+  await expect(dialog.getByRole("option", { name: "Fælles", exact: true })).toBeEnabled()
+  // A fresh library with 2160p listed first still starts with its 1080p folder.
+  await dialog.getByLabel("Plex-bibliotek").selectOption("14")
+  await expect(dialog.getByLabel("Mappen som Plex ser den")).toHaveValue("/media/film/1080p")
+  await expect(dialog.getByRole("radio", { name: "Almindelig" })).toBeChecked()
+  await dialog.getByLabel("Mappen som Plex ser den").selectOption("/media/film/2160p")
+  await expect(dialog.getByRole("radio", { name: /^4K/ })).toBeChecked()
+  await dialog.getByLabel("Plex-bibliotek").selectOption("12")
+  await expect(dialog.getByLabel("Mappen som Plex ser den")).toHaveValue("/media/movies/2160p")
+  await expect(dialog.getByRole("option", { name: "/media/movies/1080p (i brug)" })).toHaveAttribute("disabled", "")
+  await expect(dialog.getByRole("radio", { name: /^4K/ })).toBeChecked()
+  await expect(dialog.getByLabel("Navn i Media Manager")).toHaveValue("Movies 4K")
+  await expect(dialog.getByText("Plex samler så de to filer som to versioner af samme film.")).toBeVisible()
+  await dialog.getByRole("button", { name: "Tilføj", exact: true }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/settings/library-roots", body: { media_kind: "movie", name: "Movies 4K", plex_library_id: "12", plex_visible_root: "/media/movies/2160p", destination_root: "/media/movies/2160p", edition: "4k", is_default: false } })
+})
+
 test("Brug anbefalet opsætning shows the proposal before creating it", async ({ page }) => {
   const writes = await mockApi(page)
   let created = false

@@ -305,3 +305,22 @@ func TestRecommendedSetupDoesNotDuplicateANonDefaultRoot(t *testing.T) {
 		t.Fatalf("movie roots = %d, want the existing one only", movieRoots)
 	}
 }
+
+// TestRecommendedSetupUsesTheStandardFolderOfASharedLibrary proves a Plex
+// library with a 2160p and a 1080p folder (Plex merges them into two versions
+// of one film) gets its standard root in the 1080p folder, even when the
+// 2160p folder is listed first and already has a 4K root.
+func TestRecommendedSetupUsesTheStandardFolderOfASharedLibrary(t *testing.T) {
+	fx := newFixture(t)
+	plexID := fx.store.integrations[0].ID
+	fx.plex.sections[1].Locations = []string{"/data/movies/2160p", "/data/movies"}
+	fx.store.roots = []postgres.LibraryRoot{{ID: uuid.NewV7(), MediaKind: catalog.KindMovie, Name: "Film 4K", DestinationRoot: filepath.Join(fx.host, "movies", "2160p"), PlexVisibleRoot: "/data/movies/2160p", SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: &plexID, PlexLibraryID: "1", Enabled: true, Edition: postgres.Edition4K}}
+	report, err := fx.service.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := stepByID(t, report, "movie_root")
+	if step.State != StateCreate || step.Root == nil || step.Root.PlexVisibleRoot != "/data/movies" || step.Root.Edition != postgres.EditionStandard {
+		t.Fatalf("movie root = %+v (root %+v)", step, step.Root)
+	}
+}

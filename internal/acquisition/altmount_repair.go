@@ -389,6 +389,12 @@ func (service *AltMountRepairService) audioUpgradeSweep(ctx context.Context, alt
 						counts["outside_library_folders"]++
 						continue
 					}
+					if otherRootOwns(roots, root, filepath.Join(link.Location, link.Relative)) {
+						// The other version of a merged Plex item (for example
+						// the 4K file next to this root's 1080p file).
+						counts["other_root_folder"]++
+						continue
+					}
 					linkTarget, readErr := os.Readlink(filepath.Join(link.Location, link.Relative))
 					if readErr != nil || !strings.HasPrefix(linkTarget, sourcePrefix) {
 						// Only AltMount symlinks are replaced; a real file is never removed.
@@ -580,34 +586,71 @@ func (service *AltMountRepairService) unmanagedLinkIndex(ctx context.Context) (m
 				}
 			}
 		}
-		sourcePrefix := filepath.Clean(root.SourceVisibleRoot) + string(filepath.Separator)
-		for plexLocation, location := range locations {
-			if walked[location] {
-				continue
-			}
-			walked[location] = true
-			walkErr := filepath.WalkDir(location, func(path string, entry fs.DirEntry, err error) error {
-				if err != nil || entry.Type()&fs.ModeSymlink == 0 {
-					return nil
-				}
-				target, readErr := os.Readlink(path)
-				if readErr != nil || !strings.HasPrefix(target, sourcePrefix) {
-					return nil
-				}
-				relative, relErr := filepath.Rel(location, path)
-				if relErr != nil {
-					return nil
-				}
-				key := strings.TrimPrefix(target, sourcePrefix)
-				index[key] = append(index[key], unmanagedLink{Root: root, Location: location, PlexLocation: plexLocation, Relative: relative, Target: target})
-				return nil
-			})
-			if walkErr != nil && !errors.Is(walkErr, fs.ErrNotExist) {
-				return nil, walkErr
-			}
+		if err := collectRootLinks(index, walked, roots, root, locations); err != nil {
+			return nil, err
 		}
 	}
 	return index, nil
+}
+
+// collectRootLinks adds every AltMount symlink in a root's library folders to
+// the index. One Plex library can hold several Media Manager roots, for
+// example movies/1080p (standard) and movies/2160p (4K), which Plex shows as
+// two versions of one film. A folder that belongs to another root is left to
+// that root, so a broken 4K file is never repaired as the standard edition.
+func collectRootLinks(index map[string][]unmanagedLink, walked map[string]bool, roots []postgres.LibraryRoot, root postgres.LibraryRoot, locations map[string]string) error {
+	sourcePrefix := filepath.Clean(root.SourceVisibleRoot) + string(filepath.Separator)
+	for plexLocation, location := range locations {
+		if walked[location] || otherRootOwns(roots, root, location) {
+			continue
+		}
+		walked[location] = true
+		walkErr := filepath.WalkDir(location, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if entry.IsDir() && path != location && otherRootOwns(roots, root, path) {
+				return filepath.SkipDir
+			}
+			if entry.Type()&fs.ModeSymlink == 0 {
+				return nil
+			}
+			target, readErr := os.Readlink(path)
+			if readErr != nil || !strings.HasPrefix(target, sourcePrefix) {
+				return nil
+			}
+			relative, relErr := filepath.Rel(location, path)
+			if relErr != nil {
+				return nil
+			}
+			key := strings.TrimPrefix(target, sourcePrefix)
+			index[key] = append(index[key], unmanagedLink{Root: root, Location: location, PlexLocation: plexLocation, Relative: relative, Target: target})
+			return nil
+		})
+		if walkErr != nil && !errors.Is(walkErr, fs.ErrNotExist) {
+			return walkErr
+		}
+	}
+	return nil
+}
+
+// otherRootOwns reports whether path (as this container sees it) lies in the
+// folder of a different enabled library root: the root whose folder is the
+// closest parent of path owns it. A path outside every root's folder (another
+// folder of the same Plex library) belongs to no other root.
+func otherRootOwns(roots []postgres.LibraryRoot, root postgres.LibraryRoot, path string) bool {
+	path = filepath.Clean(path)
+	owner, best := root.ID, -1
+	for _, candidate := range roots {
+		if !candidate.Enabled || !filepath.IsAbs(candidate.DestinationRoot) {
+			continue
+		}
+		folder := filepath.Clean(candidate.DestinationRoot)
+		if (path == folder || strings.HasPrefix(path, strings.TrimSuffix(folder, string(filepath.Separator))+string(filepath.Separator))) && len(folder) > best {
+			owner, best = candidate.ID, len(folder)
+		}
+	}
+	return best >= 0 && owner != root.ID
 }
 
 var trailingTag = regexp.MustCompile(`(?:[ ._-]*\[[^\]]*\])+$`)

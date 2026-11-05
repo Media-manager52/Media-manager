@@ -307,6 +307,26 @@ and choose **Tilføj mappe** once per library Media Manager should fill:
 - Edition: normal, or 4K for a separate 4K library (never the default).
 - Make one normal folder per media kind the default.
 
+#### 1080p and 4K in the same Plex library
+
+One Plex library can hold two folders, for example `/movies/1080p` and
+`/movies/2160p`. Plex then shows one film with two versions (*Play Version*:
+4K or 1080p). To use this with Media Manager:
+
+1. In Plex, give the movie library both folders.
+2. In Media Manager, choose **Tilføj mappe**, pick that library and keep its
+   1080p folder as **Almindelig** (and the default).
+3. Choose **Tilføj mappe** again and pick the same library. Media Manager
+   suggests the free 2160p folder and **4K**; check the paths and add it.
+4. In Seerr, add Media Manager as the normal Radarr server
+   (`http://media-manager-api:8080/radarr`) and as the 4K Radarr server
+   (`/radarr4k`), both with `SERVARR_API_KEY`.
+
+A normal request lands in the 1080p folder and a 4K request in the 2160p
+folder. The two copies are separate: an upgrade of one never replaces the
+other, and *Flyt* only moves a copy between folders of the same edition.
+*Slet* on the title page puts the whole title, both copies, in the recycle bin.
+
 Then open **Indstillinger → Kvalitetsprofiler** and choose **Ny profil**: start
 from a preset or a copy of an existing profile, tick the required subtitle and
 audio languages, and make one profile per media kind the default.

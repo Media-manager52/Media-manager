@@ -6,6 +6,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Added
 
+- **1080p and 4K in one Plex library.** Some setups keep one Plex movie library with two folders, for example `movies/1080p` and `movies/2160p`, and let Plex merge the two files into one film with two versions (the old Radarr + Radarr-4K setup). **Tilføj mappe** now offers such a library again after its first folder is in use. It suggests the free folder, picks *4K* for a 2160p folder and names it "<library> 4K", so each folder becomes its own library folder. The 1080p folder is the standard copy and the 2160p folder the 4K copy that Seerr's 4K server (`/radarr4k`) fills. The broken-file repair and the Danish-audio upgrade now leave a file to the library folder that holds it, so a broken 4K file is never repaired as a 1080p copy. *Brug anbefalet opsætning* picks the library's non-4K folder for the standard copy.
+
 - **Flyt and Slet on the title page.** *Flyt* moves a whole title, every season included, to another library folder of the same kind and edition, and asks Plex to rescan the old and the new folder (`POST /api/v1/media/{id}/relocate`). *Slet* stops waiting and monitoring work and puts the title's links in the recycle bin for 30 days (`DELETE /api/v1/media/{id}?cancel_open_work=true`). The new **System → Papirkurv** lists deleted titles with a *Gendan* button. Only symlinks move; AltMount files are never touched, and nothing moves or is deleted while part of the title is downloading or publishing.
 
 - **A shorter Cosmos install form, backups on by default, and a list of known indexers.**
