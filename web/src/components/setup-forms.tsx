@@ -8,6 +8,7 @@ import {
   saveIntegrationSecret, updateIntegrationConnection,
   type APIConnectionCheck, type APIConnectionPatch, type APIIntegration, type APIQualityProfile,
 } from "@/api/client"
+import { PlexLoginButton } from "@/components/plex-login"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox } from "@/components/ui"
 import { languageName } from "@/i18n"
@@ -101,6 +102,7 @@ export function ConnectionsSection() {
   const integrations = useQuery({ queryKey: ["settings", "integrations"], queryFn: ({ signal }) => loadIntegrations(signal) })
   const setup = useQuery({ queryKey: ["setup", "status"], queryFn: ({ signal }) => loadSetupStatus(signal) })
   const [adding, setAdding] = useState<ConnectionKind | null>(null)
+  const refresh = useRefreshSetup()
   if (integrations.error) return <ErrorBox error={integrations.error} retry={() => integrations.refetch()} />
   if (integrations.isPending) return <Card><ListSkeleton /></Card>
   const secretStorage = setup.data?.secret_storage_enabled ?? true
@@ -116,7 +118,13 @@ export function ConnectionsSection() {
         const items = integrations.data.filter((item) => item.kind === info.kind)
         return (
           <Card key={info.kind}>
-            <CardHeader title={info.title} description={info.description} action={<Button onClick={() => setAdding(info.kind)}>Tilføj {info.title}</Button>} />
+            <CardHeader
+              title={info.title}
+              description={info.description}
+              action={info.kind === "plex" && secretStorage
+                ? <div className="flex flex-wrap items-center gap-2"><PlexLoginButton onConnected={refresh} /><Button variant="ghost" onClick={() => setAdding(info.kind)}>Tilføj manuelt</Button></div>
+                : <Button onClick={() => setAdding(info.kind)}>Tilføj {info.title}</Button>}
+            />
             {items.length === 0 ? <Empty title={`Ingen ${info.title}-forbindelse endnu`} /> : (
               <ul className="divide-y divide-line">
                 {items.map((integration) => <ConnectionRow key={integration.id} integration={integration} secretStorage={secretStorage} seerrRunning={setup.data?.seerr_intake_enabled ?? false} />)}

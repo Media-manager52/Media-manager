@@ -21,6 +21,7 @@ import (
 	"github.com/media-manager/media-manager/internal/integrationsecrets"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
+	"github.com/media-manager/media-manager/internal/plexlogin"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
@@ -61,6 +62,8 @@ type Config struct {
 	// IntegrationSecrets stores secrets entered on the website; nil when no
 	// encryption key is configured.
 	IntegrationSecrets *integrationsecrets.Service
+	// PlexLogin runs "Log ind med Plex"; nil disables it.
+	PlexLogin *plexlogin.Service
 	// ResolveSecret resolves an integration's secret_ref exactly as the
 	// workers do, for connection checks.
 	ResolveSecret func(string) (string, error)

@@ -73,7 +73,7 @@ export function checkText(detail: string): string {
 }
 
 export const setupStepText: Record<APISetupStep["id"], { title: string; todo: string; to?: string }> = {
-  plex: { title: "Forbind Plex", todo: "Tilføj Plex og gem dens token.", to: "/indstillinger/forbindelser" },
+  plex: { title: "Forbind Plex", todo: "Tryk \"Log ind med Plex\" under Forbindelser.", to: "/indstillinger/forbindelser" },
   altmount: { title: "Forbind AltMount", todo: "Tilføj AltMount, som henter filerne.", to: "/indstillinger/forbindelser" },
   indexer: { title: "Tilføj en indexer", todo: "Tilføj mindst én indexer og godkend den.", to: "/kilder" },
   movie_root: { title: "Standardmappe til film", todo: "Vælg det Plex-bibliotek, nye film skal i.", to: "/indstillinger/biblioteker" },
