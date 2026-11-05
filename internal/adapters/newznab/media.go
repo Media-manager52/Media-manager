@@ -26,13 +26,17 @@ func canonicalMediaValue(name, value string) string {
 	v := strings.ToLower(strings.TrimSpace(value))
 	if name == "video_codec" {
 		switch v {
-		case "h.264", "h264", "x264", "avc":
+		// MediaInfo codec IDs (treasure-maps) name the same codecs.
+		case "h.264", "h264", "x264", "avc", "avc1", "v_mpeg4/iso/avc":
 			return "avc"
-		case "h.265", "h265", "x265", "hevc":
+		case "h.265", "h265", "x265", "hevc", "hev1", "hvc1", "v_mpegh/iso/hevc":
 			return "hevc"
-		case "av1":
+		case "av1", "av01", "v_av1":
 			return "av1"
 		}
+	}
+	if name == "frame_rate" {
+		return strings.TrimSpace(strings.TrimSuffix(v, "fps"))
 	}
 	if name == "audio_codec" {
 		switch v {

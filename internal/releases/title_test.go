@@ -262,3 +262,23 @@ func TestInferTitleFactsReadsSeparatedEpisodeTokens(t *testing.T) {
 		})
 	}
 }
+
+// TestCanonicalResolutionFromFrameSize covers the frame sizes indexers report
+// from MediaInfo, including cinema crops that keep the full width.
+func TestCanonicalResolutionFromFrameSize(t *testing.T) {
+	for value, want := range map[string]string{
+		"1920x1080": "1080p", "1920x800 2.4:1": "1080p", "1910x804": "1080p", "1920x1040": "1080p", "1440x1080": "1080p", "2048x858": "1080p",
+		"3840x2160": "2160p", "3840x1600": "2160p", "4096x2160": "2160p",
+		"1280x720": "720p", "1280x532 2.41:1": "720p", "960x720": "720p",
+		"720x576": "576p", "640x480": "480p", "720x480": "480p",
+	} {
+		if got, ok := CanonicalResolution(value); !ok || got != want {
+			t.Errorf("%s -> %q %v, want %s", value, got, ok, want)
+		}
+	}
+	for _, value := range []string{"720x404 1.78:1", "640x352", "1600x900", "720x1080", "x1080"} {
+		if got, ok := CanonicalResolution(value); ok {
+			t.Errorf("%s -> %q, want unknown", value, got)
+		}
+	}
+}

@@ -13,7 +13,7 @@ import (
 var (
 	resolutionPixel = regexp.MustCompile(`(?i)(?:^|[ ._\-])(2160p|1080p|720p|576p|480p)(?:$|[ ._\-])`)
 	resolutionAlias = regexp.MustCompile(`(?i)(?:^|[ ._\-])(4k|uhd)(?:$|[ ._\-])`)
-	resolutionSize  = regexp.MustCompile(`(?i)^\s*(\d{3,4})\s*[x×]\s*(2160|1080|720|576|480)(?:\s|$)`)
+	resolutionSize  = regexp.MustCompile(`(?i)^\s*(\d{3,4})\s*[x×]\s*(\d{3,4})(?:\s|$)`)
 	seasonToken     = regexp.MustCompile(`(?i)(?:^|[ ._\-])S(\d{1,3})(?:$|[ ._\-]|E)`)
 	episodeToken    = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E\d{1,3}`)
 	episodeRange    = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E\d{1,3}(?:-E?\d{1,3}|E\d{1,3})(?:$|[ ._\-])`)
@@ -67,12 +67,33 @@ func CanonicalResolution(value string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	height := match[2]
-	minimumWidth := map[string]int{"2160": 3840, "1080": 1440, "720": 960, "576": 704, "480": 640}[height]
-	if width < minimumWidth {
+	height, err := strconv.Atoi(match[2])
+	if err != nil {
 		return "", false
 	}
-	return height + "p", true
+	// A frame is in a class when it fills that class's width (cinema crops
+	// such as 1920x800 or 3840x1600 keep the full width) or its height with
+	// at least the narrowest common width for that height (1440x1080).
+	classes := []struct {
+		name                 string
+		fullWidth, height    int
+		minimumWidthAtHeight int
+	}{
+		{"2160p", 3800, 2160, 3840},
+		{"1080p", 1900, 1080, 1440},
+		{"720p", 1270, 720, 960},
+		{"576p", 0, 576, 704},
+		{"480p", 0, 480, 640},
+	}
+	for _, class := range classes {
+		if class.fullWidth > 0 && width >= class.fullWidth && width <= class.fullWidth*21/20+100 {
+			return class.name, true
+		}
+		if height == class.height && width >= class.minimumWidthAtHeight {
+			return class.name, true
+		}
+	}
+	return "", false
 }
 
 // TitleMatches reports whether a release title begins with the requested
