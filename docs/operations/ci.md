@@ -11,9 +11,10 @@ by a trusted push after review.
 | --- | --- | --- |
 | `frontend` | GitHub-hosted `ubuntu-24.04` | No production secrets; runs lint, typecheck, docs checks, dependency audits and unit tests. GitHub-hosted capacity runs it in parallel with the self-hosted work. |
 | `browser` | GitHub-hosted `ubuntu-24.04`, pinned Playwright container | No production secrets; the browser image remains pinned to `mcr.microsoft.com/playwright:v1.62.1-noble`. |
-| `backend-checks` | GitHub-hosted `ubuntu-24.04` | No production secrets; gofmt, vet, staticcheck, govulncheck, every non-PostgreSQL package under `-race`, migrate and the `go.mod` check, with its own throwaway PostgreSQL. |
+| `backend-static` | GitHub-hosted `ubuntu-24.04` | No production secrets; gofmt, vet, staticcheck, govulncheck and the `go.mod` check, beside the tests instead of before them. |
+| `backend-checks` | GitHub-hosted `ubuntu-24.04` | No production secrets; every non-PostgreSQL package under `-race`, migrate and the `go.mod` check, with its own throwaway PostgreSQL. |
 | `backend-db` (6 machines) | GitHub-hosted `ubuntu-24.04` | No production secrets; each machine runs one sixth of the PostgreSQL tests under `-race` against its own throwaway PostgreSQL. |
-| `backend` | GitHub-hosted `ubuntu-24.04` | The single result the broker checks; it succeeds only when `backend-checks` and every `backend-db` machine succeeded. |
+| `backend` | GitHub-hosted `ubuntu-24.04` | The single result the broker checks; it succeeds only when `backend-static`, `backend-checks` and every `backend-db` machine succeeded. |
 | `containers` | self-hosted `media-manager-vps` | Requires the owner's separate rootless Docker engine for the disposable stack smoke. |
 | `publish` | self-hosted `media-manager-vps` | Needs the rootless Docker engine and registry credentials; runs only on `main` pushes after every required job succeeds. |
 

@@ -19,8 +19,15 @@ class BackendSplitContractTests(unittest.TestCase):
     def test_backend_result_requires_every_backend_job(self):
         workflow = (ROOT / ".github/workflows/verify.yml").read_text()
         job = workflow[workflow.index("\n  backend:\n"):workflow.index("\n  containers:\n")]
-        self.assertIn("needs: [reuse, backend-checks, backend-db]", job)
-        self.assertIn('test "$CHECKS" = success && test "$DATABASE" = success', job)
+        self.assertIn("needs: [reuse, backend-static, backend-checks, backend-db]", job)
+        self.assertIn('test "$STATIC" = success && test "$CHECKS" = success && test "$DATABASE" = success', job)
+
+    def test_every_static_check_still_runs(self):
+        workflow = (ROOT / ".github/workflows/verify.yml").read_text()
+        job = workflow[workflow.index("\n  backend-static:\n"):workflow.index("\n  backend-checks:\n")]
+        for check in ["gofmt -l cmd internal", "go vet ./cmd/... ./internal/...", "staticcheck@v0.8.2 ./cmd/... ./internal/...",
+                      "govulncheck@v1.9.0 ./cmd/... ./internal/...", "git diff --exit-code -- go.mod go.sum"]:
+            self.assertIn(check, job)
 
 
 if __name__ == "__main__":
