@@ -13,8 +13,9 @@ https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosm
 ```
 
 Then open **Market → Media Manager → Install**. The installer asks for your movie and TV
-library folders, the AltMount parent folder, the existing media network, and optional
-Plex/Newznab/TMDB credentials. It creates the API, UI and PostgreSQL services, plus the
+library folders, the AltMount parent folder, the existing media network, and
+optionally a TMDB token. Plex, AltMount and indexer keys are entered on the website
+afterwards. It creates the API, UI and PostgreSQL services, plus the
 UI, `/api` and `/health` routes on one host. The `/api` route injects the owner token
 server-side.
 

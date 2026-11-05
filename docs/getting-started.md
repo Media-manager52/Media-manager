@@ -269,10 +269,12 @@ commissioned indexers search; an indexer whose commissioning failed shows
 
 ### Metadata providers
 
-TMDB is the primary source for discovery and descriptive metadata. Create a
-TMDB API read access token, put it in `.env.integrations` as
-`TMDB_ACCESS_TOKEN=...`, and recreate the API. The setup asks for it; you can
-leave it blank and add it later. TVDB and Simkl are optional supplements:
+TMDB is the primary source for discovery and descriptive metadata, and title
+search needs it unless Seerr is connected. Create a free TMDB *API Read Access
+Token* and add it under **Indstillinger → Forbindelser → Tilføj TMDB**. It is
+stored encrypted, tested, and used at once, without a restart. Alternatively put
+it in `.env.integrations` as `TMDB_ACCESS_TOKEN=...` and recreate the API (the
+environment value wins). TVDB and Simkl are optional supplements:
 `TVDB_API_KEY`/`TVDB_SUBSCRIBER_PIN` and `SIMKL_CLIENT_ID`. Without TMDB,
 discovery and descriptive metadata are limited.
 
@@ -314,7 +316,7 @@ for every event or for the events you list.
 
 ### Add a title
 
-Use **Discover / Add media** for a manual title or send a request from Seerr.
+Use **Tilføj** in the menu to add a title by hand, or send a request from Seerr.
 The title page shows the acquisition pipeline. After AltMount completes, the
 output is inspected read-only and published as a managed symlink; Plex then
 confirms the exact path and provider identity before the title is success.
@@ -381,9 +383,11 @@ major update. Cosmos routes and container names do not change.
 
 ## Backups
 
-- Open **System → Backups** to create an encrypted, restore-verified backup.
-- Back up `BACKUP_ENCRYPTION_KEY` from `.env.integrations` separately. Without
-  it the encrypted backups cannot be restored.
+- Open **System → Backup** to create an encrypted, restore-verified backup.
+- Back up `BACKUP_ENCRYPTION_KEY` from `.env.integrations` separately. On a
+  Cosmos market install the key is created automatically in the API's state
+  volume (`backup-encryption.key`), and **System → Backup** shows where it is.
+  Without the key the encrypted backups cannot be restored.
 - Optional off-site copies: set `BACKUP_OFFSITE_KIND=s3` or `webdav` and the
   matching `BACKUP_OFFSITE_*` values in `.env.integrations`, then recreate the
   API. The destination receives only the encrypted `.mmbackup` artifact.

@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { connectPlexLogin, pollPlexLogin, startPlexLogin, type APIPlexLoginServer, type APIPlexLoginStarted } from "@/api/client"
+import { ApiError, connectPlexLogin, pollPlexLogin, startPlexLogin, type APIPlexLoginServer, type APIPlexLoginStarted } from "@/api/client"
 import { Badge, Button, Dialog } from "@/components/ui"
 
 import { CheckResult, errorText } from "./setup-forms"
@@ -14,6 +14,21 @@ function openBlankWindow(): Window | null {
   } catch {
     return null
   }
+}
+
+const plexErrorText: Record<string, string> = {
+  plex_login_failed: "Plex svarede ikke. Prøv igen om lidt.",
+  plex_login_expired: "Login hos Plex er udløbet eller allerede brugt. Tryk \"Log ind med Plex\" igen.",
+  plex_login_waiting: "Du har ikke godkendt Media Manager hos Plex endnu.",
+  plex_server_unknown: "Vælg en af de servere og adresser, Media Manager har fundet.",
+  plex_login_unavailable: "Login med Plex er ikke tilgængeligt på denne server. Tilføj Plex manuelt.",
+  secret_storage_unavailable: "Serveren kan ikke gemme nøgler endnu (SECRET_ENCRYPTION_KEY mangler).",
+}
+
+/** Danish text for a Plex login error; anything unknown is shown as the server wrote it. */
+export function plexLoginError(error: unknown): string {
+  if (error instanceof ApiError && error.code && plexErrorText[error.code]) return plexErrorText[error.code]
+  return errorText(error)
 }
 
 export function addressLabel(address: { uri: string; local: boolean; relay: boolean }): string {
@@ -48,7 +63,7 @@ export function PlexLoginButton({ onConnected, variant = "primary" }: { onConnec
   return (
     <>
       <Button variant={variant} busy={start.isPending} onClick={() => start.mutate()}>Log ind med Plex</Button>
-      {start.error ? <span role="alert" className="text-sm text-bad">{errorText(start.error)}</span> : null}
+      {start.error ? <span role="alert" className="text-sm text-bad">{plexLoginError(start.error)}</span> : null}
       {login ? <PlexLoginDialog login={login} popupBlocked={popupBlocked} onConnected={onConnected} onClose={() => { setLogin(null); start.reset() }} /> : null}
     </>
   )
@@ -87,7 +102,7 @@ function PlexLoginDialog({ login, popupBlocked, onConnected, onClose }: { login:
           <CheckResult result={connect.data.check} />
         </div>
       ) : status.error ? (
-        <p role="alert" className="text-sm text-bad">{errorText(status.error)}</p>
+        <p role="alert" className="text-sm text-bad">{plexLoginError(status.error)}</p>
       ) : !approved ? (
         <div className="space-y-3 text-sm">
           <p>Log ind på Plex i det nye vindue, og tryk &quot;Tillad&quot;. Media Manager finder derefter selv din server.</p>
@@ -99,7 +114,7 @@ function PlexLoginDialog({ login, popupBlocked, onConnected, onClose }: { login:
       ) : (
         <div className="space-y-3 text-sm">
           <p>Vælg din server. Media Manager har selv testet, hvilke adresser den kan nå.</p>
-          {connect.error ? <p role="alert" className="text-bad">{errorText(connect.error)}</p> : null}
+          {connect.error ? <p role="alert" className="text-bad">{plexLoginError(connect.error)}</p> : null}
           <ul className="space-y-3">
             {servers.map((server) => <ServerChoice key={server.id} server={server} selection={selection} onSelect={setChosen} />)}
           </ul>
@@ -111,7 +126,7 @@ function PlexLoginDialog({ login, popupBlocked, onConnected, onClose }: { login:
 }
 
 function ServerChoice({ server, selection, onSelect }: { server: APIPlexLoginServer; selection: { server: string; uri: string } | null; onSelect: (value: { server: string; uri: string }) => void }) {
-  const reachable = server.addresses.filter((address) => address.reachable)
+  const reachable = (server.addresses ?? []).filter((address) => address.reachable)
   return (
     <li className="rounded-lg border border-line p-3">
       <div className="flex flex-wrap items-center gap-2 font-medium">

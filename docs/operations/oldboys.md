@@ -1,6 +1,6 @@
 # Native OldBoys indexer
 
-Open **Settings → Connections → OldBoys credentials** in the owner UI. Enter
+Open **Kilder → OldBoys-nøgler → Tilføj nøgler** in the owner UI. Enter
 the **API Token**, **Pass Key (PID)**, and **RSS Key (RID)** as values from the
 OldBoys account, rather than full RSS/download URLs. All three are replaced
 together. After saving, the fields clear; reloading reports only whether a
