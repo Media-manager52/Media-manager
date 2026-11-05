@@ -270,6 +270,43 @@ class ForwardOnlyDeploymentTests(unittest.TestCase):
         self.assertNotIn("Main changed during deployment preparation", source)
 
 
+class BackupRetentionTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, self.root)
+        self.names = ["github-2026-11-%02d-120000-%d" % (day, 1000 + day) for day in range(1, 15)]
+        for name in self.names:
+            (self.root / name).mkdir()
+            (self.root / name / "media-manager.dump").write_text("dump")
+        for other in ["altmount-2026-09-30-201901", "2026-09-30-1228", "github-manual-copy"]:
+            (self.root / other).mkdir()
+        (self.root / "DISK-WARNING.txt").write_text("warning")
+        self.log = mock.Mock()
+
+    def left(self):
+        return sorted(path.name for path in self.root.iterdir())
+
+    def test_keeps_the_newest_and_never_touches_other_backups(self):
+        broker.prune_backups(self.root / self.names[-1], self.log, root=self.root, keep=10)
+        self.assertEqual(self.left(), sorted(self.names[-10:] + ["altmount-2026-09-30-201901", "2026-09-30-1228",
+                                                                 "github-manual-copy", "DISK-WARNING.txt"]))
+
+    def test_nothing_removed_when_current_backup_is_not_newest(self):
+        broker.prune_backups(self.root / self.names[0], self.log, root=self.root, keep=10)
+        self.assertEqual(len([name for name in self.left() if name in self.names]), 14)
+
+    def test_failure_is_logged_not_raised(self):
+        with mock.patch.object(broker.shutil, "rmtree", side_effect=PermissionError("denied")):
+            broker.prune_backups(self.root / self.names[-1], self.log, root=self.root, keep=10)
+        self.assertIn("Backup cleanup skipped", "".join(call.args[0] for call in self.log.write.call_args_list))
+
+    def test_symlinks_are_never_followed(self):
+        (self.root / "github-2026-10-01-120000-1").symlink_to(self.root / "altmount-2026-09-30-201901")
+        broker.prune_backups(self.root / self.names[-1], self.log, root=self.root, keep=10)
+        self.assertTrue((self.root / "altmount-2026-09-30-201901").is_dir())
+        self.assertTrue((self.root / "github-2026-10-01-120000-1").is_symlink())
+
+
 class VerifyWorkflowPlacementContractTests(unittest.TestCase):
     """The broker's approved placement must match what Verify actually declares."""
 
