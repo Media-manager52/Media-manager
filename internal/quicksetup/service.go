@@ -128,6 +128,7 @@ const (
 	ReasonFolderNotShared  = "folder_not_shared"  // Media Manager cannot write the library's folder
 	ReasonSourceNotVisible = "source_not_visible" // Plex cannot see AltMount's files
 	ReasonProfileNameTaken = "profile_name_taken" // a profile with the name exists but is not default
+	ReasonRootNotDefault   = "root_not_default"   // the Plex library has a root, but it is not the default
 )
 
 type kindPlan struct {
@@ -174,6 +175,16 @@ func hasDefaultRoot(roots []postgres.LibraryRoot, kind catalog.MediaKind) *postg
 		root := roots[index]
 		if root.MediaKind == kind && root.Default && root.Enabled {
 			return &roots[index]
+		}
+	}
+	return nil
+}
+
+func rootForLibrary(roots []postgres.LibraryRoot, kind catalog.MediaKind, plexID, libraryKey string) *postgres.LibraryRoot {
+	for index := range roots {
+		root := &roots[index]
+		if root.MediaKind == kind && root.PlexInstanceID != nil && root.PlexInstanceID.String() == plexID && root.PlexLibraryID == libraryKey {
+			return root
 		}
 	}
 	return nil
@@ -238,6 +249,12 @@ func (service *Service) rootSteps(ctx context.Context, integrations []postgres.I
 		}
 		plexPath := path.Clean(section.Locations[0])
 		step.Name = section.Title
+		if existing := rootForLibrary(roots, plan.kind, plexIntegration.ID.String(), section.Key); existing != nil {
+			// The library already has a folder that is just not the default;
+			// a second one would duplicate it.
+			step.State, step.Reason, step.Name = StateBlocked, ReasonRootNotDefault, existing.Name
+			continue
+		}
 		destination, err := service.proveDestination(ctx, plex, plan.kind, plexPath, localSource, roots)
 		if err != nil {
 			step.State, step.Reason, step.Detail = StateBlocked, ReasonFolderNotShared, plexPath

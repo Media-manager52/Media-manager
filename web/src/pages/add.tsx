@@ -45,7 +45,7 @@ export function AddPage() {
         <Card>
           <div role="alert" className="p-5 text-sm">
             <p className="font-medium">Søgning kræver TMDB</p>
-            <p className="mt-1 text-text-2">Media Manager finder film og serier i TMDB. Opret en gratis TMDB-konto, og tilføj den under <Link className="underline" to="/indstillinger/forbindelser">Indstillinger → Forbindelser</Link>. Så virker søgningen med det samme.</p>
+            <p className="mt-1 text-text-2">Media Manager finder film og serier i TMDB. Opret en gratis TMDB-konto, og tilføj dens "API Read Access Token" under <Link className="underline" to="/indstillinger/forbindelser">Indstillinger → Forbindelser</Link>. Så virker søgningen med det samme.</p>
           </div>
         </Card>
       ) : results.error ? <ErrorBox error={results.error} /> : null}

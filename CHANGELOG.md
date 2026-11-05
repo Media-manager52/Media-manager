@@ -37,6 +37,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **More small errors.**
+  - *Brug anbefalet opsætning* no longer adds a second root folder for a Plex library that already has one which is not the default. It says to pick that folder as default under Biblioteker instead.
+  - *Log ind med Plex* keeps waiting when plex.tv fails to answer once, instead of stopping with an error. The approval hint names both "Allow" and "Tillad", and saving errors are shown in Danish.
+  - TMDB season data is rejected when TMDB returns a different season than asked for.
+  - The Add page tells you which TMDB token to use ("API Read Access Token").
 - **Small errors after the beginner work.**
   - *Log ind med Plex* sent a server without any address as `null`, which could break the server list. It is now an empty list.
   - Its error messages and those of *Brug anbefalet opsætning* are now in Danish.
