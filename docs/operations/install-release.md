@@ -77,7 +77,7 @@ Use the existing screens; no generated defaults are assumed:
    you which of the three prerequisites is missing and links to setup.
 5. **Wanted/workflows**: wait for a search, inspect evidence, and use only the
    offered owner recovery actions. Waiting is not an error.
-6. **System → Backups**: create and verify an encrypted backup before relying on
+6. **System → Backup**: create and verify an encrypted backup before relying on
    the installation.
 
 ## Update, backup, rollback

@@ -121,6 +121,14 @@ func TestPlexLoginFindsTheBestReachableAddress(t *testing.T) {
 	}
 }
 
+func TestPlexLoginListsAServerWithoutAddressesAsEmpty(t *testing.T) {
+	service := &Service{Candidates: []string{}, Identity: func(context.Context, string, string) (string, error) { return "", errors.New("unreachable") }}
+	servers, _ := service.probe(context.Background(), []plextv.Server{{Name: "Ny", ClientIdentifier: "new", Owned: true, AccessToken: "t"}})
+	if len(servers) != 1 || servers[0].Addresses == nil || servers[0].Recommended != "" {
+		t.Fatalf("servers = %+v; addresses must be [] (not null) so the website can list them", servers)
+	}
+}
+
 func TestPlexLoginExpires(t *testing.T) {
 	service, account := newTestService(nil)
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)

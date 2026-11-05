@@ -271,7 +271,7 @@ export const updateIntegrationConnection = (id: string, patch: APIConnectionPatc
 export const checkIntegration = (id: string) => requestJSON<APIConnectionCheck>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/check`, { method: "POST" })
 export type APIPlexLoginStarted = { id: string; auth_url: string; expires_at: string }
 export type APIPlexLoginAddress = { uri: string; local: boolean; relay: boolean; reachable: boolean; detail?: string }
-export type APIPlexLoginServer = { id: string; name: string; owned: boolean; addresses: APIPlexLoginAddress[]; recommended?: string }
+export type APIPlexLoginServer = { id: string; name: string; owned: boolean; addresses: APIPlexLoginAddress[] | null; recommended?: string }
 export type APIPlexLoginStatus = { state: "waiting" | "approved"; servers: APIPlexLoginServer[] | null }
 export type APIPlexLoginConnected = { integration: APIIntegration; created: boolean; check: APIConnectionCheck }
 export const startPlexLogin = () => requestJSON<APIPlexLoginStarted>("/api/v1/setup/plex/login", { method: "POST" })

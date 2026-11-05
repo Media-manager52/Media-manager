@@ -257,7 +257,7 @@ func (service *Service) probe(ctx context.Context, resources []plextv.Server) ([
 	tokens := map[string]string{}
 	var wait sync.WaitGroup
 	for index, resource := range resources {
-		server := Server{ID: resource.ClientIdentifier, Name: resource.Name, Owned: resource.Owned}
+		server := Server{ID: resource.ClientIdentifier, Name: resource.Name, Owned: resource.Owned, Addresses: []Address{}}
 		tokens[resource.ClientIdentifier] = resource.AccessToken
 		seen := map[string]bool{}
 		for _, candidate := range candidates {
@@ -295,7 +295,7 @@ func (service *Service) probe(ctx context.Context, resources []plextv.Server) ([
 	for index := range servers {
 		server := &servers[index]
 		// Keep the named candidates only when they reach this server.
-		kept := server.Addresses[:0]
+		kept := make([]Address, 0, len(server.Addresses))
 		for _, address := range server.Addresses {
 			if isCandidate(address.URI, candidates) && !address.Reachable {
 				continue

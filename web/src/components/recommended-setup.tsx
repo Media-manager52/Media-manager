@@ -1,9 +1,15 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, CheckCircle2, Circle, PlusCircle } from "lucide-react"
 
-import { runRecommendedSetup, type APIRecommendedReport, type APIRecommendedStep } from "@/api/client"
+import { ApiError, runRecommendedSetup, type APIRecommendedReport, type APIRecommendedStep } from "@/api/client"
 import { Button, Card, CardHeader } from "@/components/ui"
 import { recommendedText, recommendedTitle } from "@/lib/setup"
+
+function setupErrorText(error: unknown): string {
+  if (error instanceof ApiError && error.code === "database_error") return "Den nuværende opsætning kunne ikke læses. Prøv igen om lidt."
+  if (error instanceof ApiError && error.code === "recommended_setup_unavailable") return "Den anbefalede opsætning er ikke tilgængelig på denne server."
+  return error instanceof Error ? error.message : String(error)
+}
 
 function StepIcon({ step }: { step: APIRecommendedStep }) {
   if (step.state === "blocked") return <AlertTriangle aria-label="Kan ikke" className="mt-0.5 size-5 shrink-0 text-warn" />
@@ -58,7 +64,7 @@ export function RecommendedSetupCard({ ready }: { ready: boolean }) {
           : null}
       />
       {report ? <Steps report={report} /> : null}
-      {error ? <p role="alert" className="px-5 pb-4 text-sm text-bad">{error instanceof Error ? error.message : String(error)}</p> : null}
+      {error ? <p role="alert" className="px-5 pb-4 text-sm text-bad">{setupErrorText(error)}</p> : null}
       {preview.data && !apply.data ? (
         <div className="flex flex-wrap items-center gap-3 px-5 pb-5">
           {creatable ? <Button variant="primary" busy={apply.isPending} onClick={() => apply.mutate()}>Opret det</Button> : <span className="text-sm text-text-2">Der er intet at oprette.</span>}

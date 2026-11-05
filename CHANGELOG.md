@@ -37,6 +37,14 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **Small errors after the beginner work.**
+  - *Log ind med Plex* sent a server without any address as `null`, which could break the server list. It is now an empty list.
+  - Its error messages and those of *Brug anbefalet opsætning* are now in Danish.
+  - The Cosmos README no longer says the installer asks for Plex and Newznab keys.
+  - The getting-started guide explains the TMDB connection on the website and the generated Cosmos backup key, and uses the menu names the website shows (**System → Backup**, **Tilføj**).
+  - The OldBoys guide points to **Kilder → OldBoys-nøgler**.
+  - The runbook explains the "backup key file could not be used" message.
+
 - ***Kom i gang* no longer shows TMDB as done when it is not.** The step was ticked whenever any TMDB state existed, including `not_configured`. It is now done only with a TMDB token or through Seerr, and it is required while no Seerr is connected, because title search needs it.
 
 - **A Cosmos market install can save keys from the website.** The Cosmos installer generates four passwords, but the template took the secret encryption key from a fifth, which rendered as an empty string: every new install showed the yellow "mangler en krypteringsnøgle" warning and could not save a Plex token, AltMount secret or indexer key. The template now names a key file in a private `<app name>-api-state` volume instead (`SECRET_ENCRYPTION_KEY_FILE`), and Media Manager creates a random 64-character key there on its first start (mode 0600, written whole or not at all). An existing key file is never replaced, and when the file is missing while secrets saved with an earlier key are stored, no new key is created: secret storage stays off and the log names the key file, because a new key could never open them. Without a dedicated OldBoys key, the same server key now also protects the OldBoys credentials, so the OldBoys form works on a market install. A template test fails if it ever uses more than the four generated passwords. The warning now tells older Cosmos installs how to set the key, and the Cosmos README explains why a reinstall under the same name cannot log in to the kept database.
