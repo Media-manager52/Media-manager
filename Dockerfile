@@ -24,6 +24,10 @@ RUN apk add --no-cache ca-certificates ffmpeg postgresql18-client tzdata
 COPY --from=api-build /out/media-manager /usr/local/bin/media-manager
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/media-manager/
 COPY third_party /usr/share/doc/media-manager/third_party
+# A fresh named volume mounted here copies this folder's mode, so the API can
+# create its generated key file whatever user an installer runs it as (the key
+# file itself is 0600). The sticky bit stops other users removing it.
+RUN install -d -m 1777 /var/lib/media-manager/state
 USER 65532:65532
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=4s --start-period=15s --retries=4 CMD ["/usr/local/bin/media-manager", "healthcheck"]

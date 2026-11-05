@@ -46,7 +46,7 @@ export function SetupPage() {
       ) : null}
       {query.data && !query.data.secret_storage_enabled ? (
         <div role="alert" className="mt-6 rounded-xl border border-warn/30 bg-warn-soft p-4 text-sm text-warn">
-          Serveren kan ikke gemme nøgler fra hjemmesiden, fordi SECRET_ENCRYPTION_KEY mangler. Kør opsætningsscriptet igen, så bliver den lavet.
+          Serveren kan ikke gemme nøgler fra hjemmesiden, fordi SECRET_ENCRYPTION_KEY mangler. Kør opsætningsscriptet igen, så bliver den lavet. Installeret fra Cosmos-markedet før november 2026? Sæt SECRET_ENCRYPTION_KEY på API-containeren til resultatet af <code>openssl rand -hex 32</code>.
         </div>
       ) : null}
     </>

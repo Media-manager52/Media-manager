@@ -106,7 +106,7 @@ export function ConnectionsSection() {
       <p className="text-sm text-text-2">Nøgler og adgangskoder gemmes krypteret og vises aldrig igen. Brug &quot;Test forbindelse&quot; for at se, om Media Manager kan nå tjenesten.</p>
       {!secretStorage ? (
         <div role="alert" className="rounded-xl border border-warn/30 bg-warn-soft p-4 text-sm text-warn">
-          Nøgler kan ikke gemmes fra hjemmesiden, fordi serveren mangler en krypteringsnøgle (SECRET_ENCRYPTION_KEY). Kør opsætningsscriptet igen, eller sæt den i serverens opsætning.
+          Nøgler kan ikke gemmes fra hjemmesiden, fordi serveren mangler en krypteringsnøgle (SECRET_ENCRYPTION_KEY). Kør opsætningsscriptet igen, eller sæt den i serverens opsætning. Installeret fra Cosmos-markedet før november 2026? Sæt SECRET_ENCRYPTION_KEY på API-containeren til resultatet af <code>openssl rand -hex 32</code>, og gem værdien et sikkert sted.
         </div>
       ) : null}
       {connectionKinds.map((info) => {

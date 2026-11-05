@@ -62,6 +62,32 @@ publish.
 The owner token is in the install form (and in the API service environment). It is
 injected only by the Cosmos `/api` route; do not expose the API port.
 
+## The secret encryption key
+
+Keys you enter on the website (Plex token, AltMount secret, indexer API keys,
+OldBoys credentials) are stored encrypted in the database. The Cosmos installer
+generates only four passwords, and all four are in use, so the template does not
+set the key itself: Media Manager creates a random key on its first start in the
+`<app name>-api-state` volume (`SECRET_ENCRYPTION_KEY_FILE`). Keep that volume when
+you update or move the app. If it is lost while keys are saved, Media Manager does
+not silently create a new one (that could never open the saved keys): the
+Connections page says secret storage is off and the API log names the key file.
+
+**Installed before this change?** The old template referenced a fifth password
+that Cosmos does not generate, so `SECRET_ENCRYPTION_KEY` is empty and the
+Connections page shows a yellow "mangler en krypteringsnøgle" warning. Fix it in
+Cosmos: **ServApps → `<app name>-api` → Environment**, set `SECRET_ENCRYPTION_KEY`
+to the output of `openssl rand -hex 32`, save, and keep the value somewhere safe.
+
+## Reinstalling
+
+Cosmos keeps an existing volume when you install an app with the same name again,
+but it generates new passwords. The old database then refuses the new database
+password and the API never becomes healthy. For a clean start, remove the
+`<app name>-postgres-data` and `<app name>-api-state` volumes (Storage → Volumes)
+before installing again, or install under a new app name. To keep your data, set
+the API's `PGPASSWORD` back to the value from the previous installation.
+
 ## Licensing
 
 Media Manager is licensed under the **GNU Affero General Public License, version 3

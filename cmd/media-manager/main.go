@@ -125,6 +125,11 @@ func run() error {
 	if secretKey == "" {
 		secretKey = optionalSecret(oldboyscredentials.KeyReference)
 	}
+	if secretKey == "" {
+		// An installer without a key of its own (the Cosmos market) names a
+		// private, persistent key file; the key is created there on first start.
+		secretKey = ensureGeneratedSecretKey(store)
+	}
 	var integrationSecrets *integrationsecrets.Service
 	if secretKey != "" {
 		integrationSecrets, err = integrationsecrets.New(store, secretKey)
@@ -229,6 +234,14 @@ func run() error {
 		oldBoysCredentials, err = oldboyscredentials.New(store, key)
 		if err != nil {
 			return err
+		}
+	} else if integrationSecrets != nil {
+		// Without a dedicated OldBoys key the server key protects the OldBoys
+		// credentials too; each ciphertext stays bound to its own purpose by its
+		// associated data. A passphrase-style server key is not a valid OldBoys
+		// key, and the OldBoys form then stays unavailable as before.
+		if service, keyErr := oldboyscredentials.New(store, secretKey); keyErr == nil {
+			oldBoysCredentials = service
 		}
 	}
 	backupDirectory := strings.TrimSpace(os.Getenv("BACKUP_DIRECTORY"))
@@ -463,6 +476,30 @@ func decryptBackup(args []string) error {
 	}
 	removeTemporary = false
 	return nil
+}
+
+// ensureGeneratedSecretKey returns the key from SECRET_ENCRYPTION_KEY_FILE,
+// creating it on first start. A problem with the file is logged and leaves
+// website secret storage off (the Connections page says so) rather than
+// stopping the server, and a lost key is never silently replaced.
+func ensureGeneratedSecretKey(store *postgres.Store) string {
+	path := strings.TrimSpace(os.Getenv(integrationsecrets.KeyFileReference))
+	if path == "" {
+		return ""
+	}
+	key, created, err := integrationsecrets.EnsureKeyFile(path, func() (bool, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return store.SealedSecretsExist(ctx)
+	})
+	if err != nil {
+		slog.Error("website secret storage is off", "reason", err.Error(), "key_file", path)
+		return ""
+	}
+	if created {
+		slog.Info("created the secret encryption key", "key_file", path)
+	}
+	return key
 }
 
 func optionalSecret(name string) string {

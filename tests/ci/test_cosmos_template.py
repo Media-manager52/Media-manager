@@ -6,6 +6,7 @@ extra ``bindOptions``/``readOnly`` fields. These checks guard the wizard-facing
 shape and the properties that matter before a disposable install is attempted.
 """
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -31,7 +32,7 @@ class CosmosTemplateTest(unittest.TestCase):
 
     def test_wizard_compatible_volume_shape_and_one_writable_library_set(self):
         volumes = self.api["volumes"]
-        self.assertEqual(len(volumes), 5)
+        self.assertEqual(len(volumes), 6)
         # The upstream market wizard calls volume.source.startsWith(...), so
         # PascalCase Source silently crashes the supported install path.
         allowed = {"type", "source", "target", "readOnly", "bindOptions"}
@@ -39,7 +40,7 @@ class CosmosTemplateTest(unittest.TestCase):
             self.assertEqual(set(volume), set(volume) & allowed, volume)
             self.assertIsInstance(volume["source"], str)
             self.assertTrue(volume["source"])
-            self.assertIn(volume["target"], {"/mnt", "/libraries/movies", "/libraries/tv", "/srv/media", "/var/lib/media-manager/backups"})
+            self.assertIn(volume["target"], {"/mnt", "/libraries/movies", "/libraries/tv", "/srv/media", "/var/lib/media-manager/backups", "/var/lib/media-manager/state"})
         library_targets = {"/libraries/movies", "/libraries/tv"}
         for volume in volumes:
             if volume["target"] in library_targets:
@@ -47,6 +48,28 @@ class CosmosTemplateTest(unittest.TestCase):
         for volume in volumes:
             if volume["target"] != "/mnt":
                 self.assertNotIn("bindOptions", volume, f"unexpected propagation on {volume['target']}")
+
+    def test_only_the_four_generated_passwords_are_used(self):
+        # The Cosmos wizard generates exactly four passwords (Passwords.0-3);
+        # a higher index renders as an empty string and silently leaves a
+        # secret unset.
+        text = TEMPLATE.read_text(encoding="utf-8")
+        indexes = {int(index) for index in re.findall(r"\{Passwords\.(\d+)\}", text)}
+        self.assertTrue(indexes)
+        self.assertLessEqual(max(indexes), 3, sorted(indexes))
+
+    def test_secret_encryption_key_is_generated_in_a_private_api_volume(self):
+        environment = self.api["environment"]
+        self.assertNotIn("SECRET_ENCRYPTION_KEY", [entry.split("=", 1)[0] for entry in environment])
+        self.assertIn("SECRET_ENCRYPTION_KEY_FILE=/var/lib/media-manager/state/secret-encryption.key", environment)
+        state = next(volume for volume in self.api["volumes"] if volume["target"] == "/var/lib/media-manager/state")
+        self.assertEqual(state, {"source": "{ServiceName}-api-state", "target": "/var/lib/media-manager/state", "type": "volume"})
+        self.assertIn("{ServiceName}-api-state", self.template["volumes"])
+        for name, service in self.template["services"].items():
+            if name != "{ServiceName}-api":
+                self.assertFalse(any(volume.get("source") == "{ServiceName}-api-state" for volume in service.get("volumes", [])), name)
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("install -d -m 1777 /var/lib/media-manager/state", dockerfile)
 
     def test_routes_are_declared_api_health_then_ui(self):
         # Cosmos prepends entries; this declaration order is intentionally the
