@@ -56,9 +56,8 @@ type serviceConnectionConfig struct {
 	AllowHTTP bool   `json:"allow_http"`
 }
 
-// PlexLibraries lists a Plex connection's libraries with its saved token. It
-// is also the Plex connection check: it changes nothing.
-func PlexLibraries(ctx context.Context, integration postgres.Integration, resolveSecret SecretResolver) ([]PlexLibrary, error) {
+// PlexClient opens a Plex connection with its saved token.
+func PlexClient(integration postgres.Integration, resolveSecret SecretResolver) (*plex.Client, error) {
 	var config serviceConnectionConfig
 	if err := json.Unmarshal(integration.Config, &config); err != nil {
 		return nil, errors.New("Plex configuration is not valid JSON")
@@ -80,6 +79,16 @@ func PlexLibraries(ctx context.Context, integration postgres.Integration, resolv
 	client, err := plex.New(plex.Config{BaseURL: config.BaseURL, Token: token, AllowHTTP: config.AllowHTTP, Timeout: 15 * time.Second}, nil)
 	if err != nil {
 		return nil, errors.New("the Plex address is not valid (use https, or http with allow_http)")
+	}
+	return client, nil
+}
+
+// PlexLibraries lists a Plex connection's libraries with its saved token. It
+// is also the Plex connection check: it changes nothing.
+func PlexLibraries(ctx context.Context, integration postgres.Integration, resolveSecret SecretResolver) ([]PlexLibrary, error) {
+	client, err := PlexClient(integration, resolveSecret)
+	if err != nil {
+		return nil, err
 	}
 	sections, err := client.Sections(ctx)
 	if err != nil {

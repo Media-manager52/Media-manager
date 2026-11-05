@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -547,12 +548,44 @@ func (client *Client) confirmShow(ctx context.Context, show Item, expected Expec
 	return confirmations, nil
 }
 
+// Browse lists the folders Plex Media Server itself sees in path, as its
+// "add library folder" dialog does. It proves how Plex's view of the disk
+// maps to Media Manager's.
+func (client *Client) Browse(ctx context.Context, path string) ([]string, error) {
+	if !strings.HasPrefix(path, "/") || strings.ContainsRune(path, 0) {
+		return nil, ErrInvalidConfig
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(path))
+	body, err := client.request(ctx, "/services/browse/"+encoded, "/services/browse/"+url.PathEscape(encoded), url.Values{"includeFiles": {"0"}})
+	if err != nil {
+		return nil, err
+	}
+	var document struct {
+		Paths []struct {
+			Path string `xml:"path,attr"`
+		} `xml:"Path"`
+	}
+	if err := xml.Unmarshal(body, &document); err != nil {
+		return nil, err
+	}
+	folders := make([]string, 0, len(document.Paths))
+	for _, entry := range document.Paths {
+		folders = append(folders, entry.Path)
+	}
+	return folders, nil
+}
+
 func (client *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	if !strings.HasPrefix(path, "/library/") || strings.Contains(path, "..") || strings.Contains(path, "//") {
 		return nil, ErrInvalidConfig
 	}
+	return client.request(ctx, path, "", query)
+}
+
+func (client *Client) request(ctx context.Context, path, rawPath string, query url.Values) ([]byte, error) {
 	endpoint := *client.base
 	endpoint.Path = path
+	endpoint.RawPath = rawPath
 	endpoint.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {

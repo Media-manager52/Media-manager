@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { APILibraryRoot } from "@/api/client"
-import { checkText, setupStepDetail, suggestDestination, suggestSourceRoot } from "@/lib/setup"
+import { checkText, recommendedText, setupStepDetail, suggestDestination, suggestSourceRoot } from "@/lib/setup"
 
 const root = (plex: string, destination: string, source = "/mnt/altmount"): APILibraryRoot => ({
   id: plex, media_kind: "movie", name: plex, destination_root: destination, plex_visible_root: plex, source_visible_root: source, is_default: false, enabled: true,
@@ -47,5 +47,18 @@ describe("setup texts", () => {
     expect(setupStepDetail({ id: "indexer", done: true, optional: false, detail: "3 commissioned" })).toBe("3 godkendt")
     expect(setupStepDetail({ id: "indexer", done: false, optional: false, detail: "Add an indexer and commission it" })).toContain("indexer")
     expect(setupStepDetail({ id: "seerr", done: false, optional: true, detail: "Seerr is saved; Seerr intake starts after the API restarts with it configured" })).toContain("genstartet")
+  })
+})
+
+describe("recommendedText", () => {
+  it("describes a proposed library in Danish", () => {
+    const text = recommendedText({ id: "movie_root", state: "create", name: "Film", root: { media_kind: "movie", name: "Film", destination_root: "/libraries/movies", plex_visible_root: "/data/movies", source_visible_root: "/mnt/altmount", is_default: true, enabled: true } })
+    expect(text).toBe("Opretter som standard. Plex-biblioteket \"Film\" i /data/movies; Media Manager lægger filerne i /libraries/movies.")
+  })
+  it("says why a step cannot be done", () => {
+    expect(recommendedText({ id: "series_root", state: "blocked", reason: "no_plex_library" })).toContain("intet seriebibliotek")
+    expect(recommendedText({ id: "movie_root", state: "blocked", reason: "folder_not_shared", detail: "/data/movies" })).toContain("(/data/movies)")
+    expect(recommendedText({ id: "movie_profile", state: "created", name: "Dansk tekst eller tale" })).toBe("Oprettet \"Dansk tekst eller tale\" som standard: kræver danske undertekster eller dansk tale.")
+    expect(recommendedText({ id: "movie_profile", state: "exists", name: "Min profil" })).toBe("Findes allerede: Min profil. Den bliver ikke ændret.")
   })
 })
