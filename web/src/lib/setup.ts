@@ -7,6 +7,12 @@ import type { APILibraryRoot, APIRecommendedStep, APISetupStep } from "@/api/cli
  * common difference wins. Without existing roots the Plex path is suggested
  * unchanged, and the owner can always edit it.
  */
+/** Compares two absolute folders, ignoring trailing slashes. */
+export function samePath(a: string, b: string): boolean {
+  const clean = (value: string) => value.trim().replace(/\/+$/, "") || "/"
+  return clean(a) === clean(b)
+}
+
 export function suggestDestination(roots: APILibraryRoot[], plexPath: string): string {
   const path = plexPath.trim()
   if (!path.startsWith("/")) return path

@@ -183,7 +183,9 @@ func hasDefaultRoot(roots []postgres.LibraryRoot, kind catalog.MediaKind) *postg
 func rootForLibrary(roots []postgres.LibraryRoot, kind catalog.MediaKind, plexID, libraryKey string) *postgres.LibraryRoot {
 	for index := range roots {
 		root := &roots[index]
-		if root.MediaKind == kind && root.PlexInstanceID != nil && root.PlexInstanceID.String() == plexID && root.PlexLibraryID == libraryKey {
+		// A 4K root may share the library (movies/2160p next to
+		// movies/1080p); it is not the standard folder this step looks for.
+		if root.MediaKind == kind && root.Edition != postgres.Edition4K && root.PlexInstanceID != nil && root.PlexInstanceID.String() == plexID && root.PlexLibraryID == libraryKey {
 			return root
 		}
 	}
@@ -247,7 +249,7 @@ func (service *Service) rootSteps(ctx context.Context, integrations []postgres.I
 			step.State, step.Reason = StateBlocked, ReasonNoPlexLibrary
 			continue
 		}
-		plexPath := path.Clean(section.Locations[0])
+		plexPath := path.Clean(standardLocation(*section))
 		step.Name = section.Title
 		if existing := rootForLibrary(roots, plan.kind, plexIntegration.ID.String(), section.Key); existing != nil {
 			// The library already has a folder that is just not the default;
@@ -348,6 +350,19 @@ func defaultIntegration(integrations []postgres.Integration, kind string) *postg
 		}
 	}
 	return fallback
+}
+
+// standardLocation picks the library folder for standard copies: a Plex
+// library can list a 1080p and a 2160p folder that Plex merges into versions
+// of one title, and the 2160p one belongs to a 4K root, never the default.
+func standardLocation(section PlexSection) string {
+	for _, location := range section.Locations {
+		lower := strings.ToLower(location)
+		if strings.HasPrefix(location, "/") && !strings.Contains(lower, "4k") && !strings.Contains(lower, "2160") {
+			return location
+		}
+	}
+	return section.Locations[0]
 }
 
 // chooseSection picks the first ordinary (non-4K) library of the type; a

@@ -13,7 +13,7 @@ import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox } from "@/components/ui"
 import { errorMessage, languageName } from "@/i18n"
 import { indexerPresetFor, indexerPresets } from "@/lib/indexers"
-import { checkText, suggestDestination, suggestSourceRoot } from "@/lib/setup"
+import { checkText, samePath, suggestDestination, suggestSourceRoot } from "@/lib/setup"
 import { ListSkeleton } from "@/pages/overview"
 
 export const fieldClass = "mt-1 h-9 w-full rounded-lg border border-line bg-surface px-3 text-text"
@@ -491,14 +491,44 @@ export function AddRootDialog({ onClose }: { onClose: () => void }) {
   const hasDefault = existing.some((root) => root.media_kind === kind && root.is_default && root.enabled)
   const plexType = kind === "movie" ? "movie" : "show"
   const choices = (libraries.data ?? []).filter((library) => library.type === plexType)
-  const used = (key: string) => existing.some((root) => root.plex_instance_id === activePlex && root.plex_library_id === key)
+  // One Plex library may hold several folders, for example movies/1080p and
+  // movies/2160p, which Plex shows as two versions of the same film. Each
+  // folder can become its own library folder here, so a library is only "in
+  // use" when every one of its folders already is.
+  const sameLibrary = (key: string) => existing.filter((root) => root.plex_instance_id === activePlex && root.plex_library_id === key)
+  const locationUsed = (key: string, location: string) => sameLibrary(key).some((root) => samePath(root.plex_visible_root, location))
+  const used = (key: string) => {
+    const library = choices.find((entry) => entry.key === key)
+    if (!library || library.locations.length === 0) return sameLibrary(key).length > 0
+    return library.locations.every((location) => locationUsed(key, location))
+  }
+  const looksFourK = (text: string) => /4k|2160/i.test(text)
+  const draftFor = (key: string, plexRoot: string, name: string) => {
+    const library = choices.find((entry) => entry.key === key)
+    const fourK = looksFourK(library?.title ?? "") || looksFourK(plexRoot)
+    return { name, plexRoot, destination: suggestDestination(existing, plexRoot), source: draft.source || suggestSourceRoot(existing), edition: fourK ? "4k" as const : "standard" as const, isDefault: !fourK && !hasDefault }
+  }
   const pick = (key: string) => {
     setLibraryKey(key)
     const library = choices.find((entry) => entry.key === key)
-    const plexRoot = library?.locations[0] ?? ""
-    const fourK = /4k|2160/i.test(library?.title ?? "")
-    setDraft({ name: library?.title ?? "", plexRoot, destination: suggestDestination(existing, plexRoot), source: draft.source || suggestSourceRoot(existing), edition: fourK ? "4k" : "standard", isDefault: !fourK && !hasDefault })
+    const locations = library?.locations ?? []
+    // The 1080p folder comes first (it becomes the standard copy), even when
+    // Plex lists the 2160p folder above it.
+    const free = locations.filter((location) => !locationUsed(key, location))
+    const plexRoot = free.find((location) => !looksFourK(location)) ?? free[0] ?? locations[0] ?? ""
+    const shared = sameLibrary(key).length > 0
+    const title = library?.title ?? ""
+    const next = draftFor(key, plexRoot, title)
+    // A second folder in a library that is already in use gets its own name,
+    // so the two library folders can be told apart.
+    if (shared) next.name = next.edition === "4k" && !looksFourK(title) ? `${title} 4K` : `${title} (${plexRoot.split("/").filter(Boolean).pop() ?? plexRoot})`
+    setDraft(next)
   }
+  const pickLocation = (location: string) => {
+    const next = draftFor(libraryKey, location, draft.name)
+    setDraft({ ...draft, plexRoot: location, destination: next.destination, edition: next.edition, isDefault: next.isDefault })
+  }
+  const libraryLocations = choices.find((entry) => entry.key === libraryKey)?.locations ?? []
   const mutation = useMutation({
     mutationFn: () => createLibraryRoot({
       media_kind: kind, name: draft.name.trim(), destination_root: draft.destination.trim(), plex_visible_root: draft.plexRoot.trim(), source_visible_root: draft.source.trim(),
@@ -542,12 +572,15 @@ export function AddRootDialog({ onClose }: { onClose: () => void }) {
               <label className="flex items-center gap-2 text-text"><input type="radio" name="root-edition" checked={draft.edition === "4k"} onChange={() => setDraft({ ...draft, edition: "4k", isDefault: false })} className="size-4" />4K – en ekstra 4K-udgave, kun når 4K bestilles</label>
             </fieldset>
             <Field label="Mappen som Plex ser den">
-              {(choices.find((entry) => entry.key === libraryKey)?.locations.length ?? 0) > 1 ? (
-                <select value={draft.plexRoot} onChange={(event) => setDraft({ ...draft, plexRoot: event.target.value, destination: suggestDestination(existing, event.target.value) })} className={fieldClass}>
-                  {choices.find((entry) => entry.key === libraryKey)!.locations.map((location) => <option key={location} value={location}>{location}</option>)}
+              {libraryLocations.length > 1 ? (
+                <select value={draft.plexRoot} onChange={(event) => pickLocation(event.target.value)} className={fieldClass}>
+                  {libraryLocations.map((location) => <option key={location} value={location} disabled={locationUsed(libraryKey, location)}>{location}{locationUsed(libraryKey, location) ? " (i brug)" : ""}</option>)}
                 </select>
               ) : <input value={draft.plexRoot} onChange={(event) => setDraft({ ...draft, plexRoot: event.target.value })} className={fieldClass} />}
             </Field>
+            {libraryLocations.length > 1 ? (
+              <p className="text-xs text-text-3">Biblioteket har flere mapper i Plex. Tilføj én mappe ad gangen: fx 1080p som almindelig og 2160p som 4K. Plex samler så de to filer som to versioner af samme film.</p>
+            ) : null}
             <Field label="Mappen som Media Manager ser den" hint="Samme mappe set inde fra Media Manager. Her lægges genvejene til filerne. Forslaget bygger på dine andre mapper.">
               <input value={draft.destination} onChange={(event) => setDraft({ ...draft, destination: event.target.value })} className={fieldClass} />
             </Field>
