@@ -145,6 +145,39 @@ test("a library folder is added by picking a Plex library", async ({ page }) => 
   expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/settings/library-roots", body: { media_kind: "movie", name: "Film 4K", plex_instance_id: ids.plex, plex_library_id: "7", plex_visible_root: "/media/Film 4K", edition: "4k", is_default: false } })
 })
 
+test("Brug anbefalet opsætning shows the proposal before creating it", async ({ page }) => {
+  const writes = await mockApi(page)
+  let created = false
+  // After creating, every library step is done; the result must stay visible.
+  await page.route("**/api/v1/setup/status", (route) => route.fulfill({ json: { data: { complete: false, secret_storage_enabled: true, servarr_enabled: false, seerr_intake_enabled: false, steps: [
+    { id: "plex", done: true, optional: false, detail: "Plex" }, { id: "altmount", done: true, optional: false, detail: "AltMount" }, { id: "indexer", done: true, optional: false, detail: "" },
+    { id: "movie_root", done: created, optional: false, detail: "" }, { id: "series_root", done: created, optional: false, detail: "" },
+    { id: "movie_profile", done: created, optional: false, detail: "" }, { id: "series_profile", done: true, optional: false, detail: "" },
+  ] } } }))
+  const root = { media_kind: "movie", name: "Film", destination_root: "/libraries/movies", plex_visible_root: "/data/movies", source_visible_root: "/mnt/altmount", is_default: true, enabled: true }
+  await page.route("**/api/v1/setup/recommended", async (route) => {
+    const apply = JSON.parse(route.request().postData() ?? "{}").apply === true
+    created = created || apply
+    writes.push({ method: "POST", path: "/api/v1/setup/recommended", body: { apply } })
+    await route.fulfill({ json: { data: { applied: apply, steps: [
+      { id: "movie_root", state: apply ? "created" : "create", name: "Film", root, source_proven: true },
+      { id: "movie_profile", state: apply ? "created" : "create", name: "Dansk tekst eller tale" },
+      { id: "series_root", state: "blocked", reason: "no_plex_library" },
+      { id: "series_profile", state: "exists", name: "Dansk tekst eller tale" },
+    ] } } })
+  })
+  await page.goto("/kom-i-gang")
+  await page.getByRole("button", { name: "Vis forslag" }).click()
+  await expect(page.getByText("Plex-biblioteket \"Film\" i /data/movies; Media Manager lægger filerne i /libraries/movies.", { exact: false })).toBeVisible()
+  await expect(page.getByText("Plex har intet seriebibliotek", { exact: false })).toBeVisible()
+  expect(writes).toEqual([{ method: "POST", path: "/api/v1/setup/recommended", body: { apply: false } }])
+  await page.getByRole("button", { name: "Opret det" }).click()
+  await expect(page.getByText("Oprettet \"Dansk tekst eller tale\" som standard", { exact: false })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "7 af 7 trin klaret" })).toBeVisible()
+  await expect(page.getByText("Færdig.", { exact: false })).toBeVisible()
+  expect(writes.map((write) => write.body)).toEqual([{ apply: false }, { apply: true }])
+})
+
 test("the setup checklist links to what is missing", async ({ page }) => {
   await mockApi(page)
   await page.goto("/kom-i-gang")

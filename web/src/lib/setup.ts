@@ -1,4 +1,4 @@
-import type { APILibraryRoot, APISetupStep } from "@/api/client"
+import type { APILibraryRoot, APIRecommendedStep, APISetupStep } from "@/api/client"
 
 /**
  * Suggests where Media Manager should write a new library folder, given the
@@ -92,4 +92,44 @@ export function setupStepDetail(step: APISetupStep): string {
   const commissioned = step.detail.match(/^(\d+) commissioned$/)
   if (commissioned) return `${commissioned[1]} godkendt`
   return step.detail
+}
+
+const recommendedTitles: Record<APIRecommendedStep["id"], string> = {
+  movie_root: "Bibliotek til film",
+  series_root: "Bibliotek til serier",
+  movie_profile: "Kvalitetsprofil til film",
+  series_profile: "Kvalitetsprofil til serier",
+}
+
+export function recommendedTitle(step: APIRecommendedStep): string {
+  return recommendedTitles[step.id] ?? step.id
+}
+
+/** Danish text for one step of "Brug anbefalet opsætning". */
+export function recommendedText(step: APIRecommendedStep): string {
+  const isRoot = step.id.endsWith("_root")
+  const kindWord = step.id.startsWith("movie") ? "film" : "serie"
+  switch (step.state) {
+    case "exists":
+      return `Findes allerede: ${step.name ?? ""}. Den bliver ikke ændret.`
+    case "create":
+    case "created": {
+      const done = step.state === "created"
+      if (!isRoot) return `${done ? "Oprettet" : "Opretter"} "${step.name}" som standard: kræver danske undertekster eller dansk tale.`
+      const root = step.root
+      const where = root ? ` Plex-biblioteket "${step.name}" i ${root.plex_visible_root}; Media Manager lægger filerne i ${root.destination_root}.` : ""
+      return `${done ? "Oprettet" : "Opretter"} som standard.${where}`
+    }
+    default:
+      switch (step.reason) {
+        case "no_plex": return "Forbind Plex først."
+        case "plex_unreachable": return "Plex svarede ikke. Test Plex-forbindelsen under Forbindelser."
+        case "no_altmount": return "Forbind AltMount først, med mappen hvor Media Manager ser AltMount-filerne."
+        case "no_plex_library": return `Plex har intet ${kindWord}bibliotek (4K-biblioteker tæller ikke). Opret et i Plex først.`
+        case "folder_not_shared": return `Media Manager kan ikke skrive i den mappe, Plex bruger (${step.detail}). Giv Media Manager adgang til den samme mappe, eller tilføj biblioteket selv under Biblioteker.`
+        case "source_not_visible": return `Plex kan ikke se AltMount-filerne, som Media Manager ser i ${step.detail}. Giv Plex adgang til den samme mappe.`
+        case "profile_name_taken": return `Der findes allerede en profil, der hedder "${step.name}", men den er ikke standard. Vælg den som standard under Kvalitetsprofiler.`
+        default: return `Kunne ikke oprettes: ${step.detail ?? step.reason ?? "ukendt fejl"}`
+      }
+  }
 }

@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { CheckCircle2, Circle } from "lucide-react"
+import { useState } from "react"
 import { Link } from "react-router"
 
 import { loadSetupStatus } from "@/api/client"
+import { RecommendedSetupCard } from "@/components/recommended-setup"
 import { Badge, Card, CardHeader, ErrorBox, PageHeader, Progress } from "@/components/ui"
 import { setupStepDetail, setupStepText } from "@/lib/setup"
 import { ListSkeleton } from "@/pages/overview"
@@ -11,11 +13,18 @@ export function SetupPage() {
   const query = useQuery({ queryKey: ["setup", "status"], queryFn: ({ signal }) => loadSetupStatus(signal) })
   const required = query.data?.steps.filter((step) => !step.optional) ?? []
   const done = required.filter((step) => step.done).length
+  const stepDone = (id: string) => query.data?.steps.some((step) => step.id === id && step.done) ?? false
+  const librariesMissing = query.data ? ["movie_root", "series_root", "movie_profile", "series_profile"].some((id) => !stepDone(id)) : false
+  // Once shown, the card stays until the page is left, so its result is
+  // still visible after it has made the steps green.
+  const [showRecommended, setShowRecommended] = useState(false)
+  if (librariesMissing && !showRecommended) setShowRecommended(true)
   return (
     <>
       <PageHeader title="Kom i gang" description="Det her skal være på plads, før Media Manager kan hente film og serier. Et punkt bliver grønt, når det er sat op." />
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
       {query.isPending ? <Card><ListSkeleton rows={7} /></Card> : null}
+      {query.data && showRecommended ? <RecommendedSetupCard ready={stepDone("plex") && stepDone("altmount")} /> : null}
       {query.data ? (
         <Card>
           <CardHeader

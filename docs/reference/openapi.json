@@ -1817,6 +1817,54 @@
         },
         "type": "object"
       },
+      "Quicksetup_Report": {
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Quicksetup_Step"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Quicksetup_Step": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "root": {
+            "$ref": "#/components/schemas/Postgres_LibraryRoot"
+          },
+          "source_proven": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RecommendedSetupInput": {
+        "properties": {
+          "apply": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "ReinspectRetainedMovieInput": {
         "properties": {
           "job_id": {
@@ -7378,6 +7426,62 @@
           }
         },
         "summary": "Save the chosen Plex server as a Plex connection",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/setup/recommended": {
+      "post": {
+        "description": "For a media kind without a default library root, uses the first ordinary (non-4K) Plex library of that kind. The folder Media Manager writes is proven, not guessed: Media Manager creates an empty marker folder (mm-opsaetning-tjek-…) in each folder it may write, asks Plex to list the library's folder, keeps the one whose marker Plex shows and removes every marker. Where Plex sees AltMount is proven by comparing the folders both list. For a kind without a default quality profile, creates \"Dansk tekst eller tale\" (Balanced preset, Danish subtitles or Danish speech required). Existing settings are never changed. With apply false (also creates and removes the markers) it only reports; every step that cannot be done says why.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "recommendedSetup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendedSetupInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Quicksetup_Report"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "\"Brug anbefalet opsætning\": create the missing default library roots and quality profiles",
         "tags": [
           "settings"
         ],

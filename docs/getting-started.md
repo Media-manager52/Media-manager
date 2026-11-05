@@ -248,8 +248,14 @@ publishes.
 
 ### Plex
 
-In **Indstillinger → Forbindelser** choose **Tilføj Plex**, enter its address
-(for example `http://plex:32400`) and the Plex token. The test lists Plex's
+In **Indstillinger → Forbindelser** choose **Log ind med Plex**. Sign in to
+Plex in the window that opens and allow Media Manager. Media Manager then lists
+your Plex Media Servers, together with the addresses it can actually reach.
+Choose the server; the recommended address is preselected. The connection is
+saved with the token encrypted and tested. You never handle the token.
+
+**Tilføj manuelt** is still there: enter the address (for example
+`http://plex:32400`) and the Plex token yourself. The test lists Plex's
 libraries. Use HTTPS when possible; an `http://` address is accepted for a
 local Plex.
 
@@ -272,7 +278,23 @@ discovery and descriptive metadata are limited.
 
 ### Library root and profile
 
-Create the libraries in Plex first. Then open **Indstillinger → Biblioteker**
+Create the libraries in Plex first. The quickest way is **Kom i gang → Brug
+anbefalet opsætning** (once Plex and AltMount are connected). Choose **Vis
+forslag**, and Media Manager works out the rest without guessing:
+
+- It takes the first ordinary (not 4K) movie and series library in Plex.
+- It finds the folder it writes that Plex sees as that library. It creates an
+  empty `mm-opsaetning-tjek-…` folder in each folder it may write, asks Plex to
+  list the library folder, and removes the test folders again.
+- It finds where Plex sees AltMount's files by comparing the folders both list.
+- It offers the quality profile **Dansk tekst eller tale**: Danish subtitles or
+  Danish speech are required.
+
+**Opret det** creates the libraries and profiles as defaults. Anything already
+set up is left alone. A step it cannot prove says why, and you set it up by
+hand as below.
+
+To do it by hand, open **Indstillinger → Biblioteker**
 and choose **Tilføj mappe** once per library Media Manager should fill:
 
 - Pick the Plex library; its folder becomes the Plex-visible root.

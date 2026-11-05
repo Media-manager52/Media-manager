@@ -262,6 +262,9 @@ export const restoreRecycle = (id: string) => requestJSON<{ status: string; id: 
 export const restoreAdoptedFiles = (id: string, confirmation: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/restore-adopted`, { method: "POST", body: JSON.stringify({ confirmation }) })
 export const confirmRealFilePurge = (id: string, confirmation: string) => requestJSON<{ status: string; id: string }>(`/api/v1/recycle/${encodeURIComponent(id)}/confirm-purge`, { method: "POST", body: JSON.stringify({ confirmation }) })
 export const createIntegration = (input: Omit<APIIntegration, "id" | "created_at" | "updated_at">) => requestJSON<APIIntegration>("/api/v1/settings/integrations", { method: "POST", body: JSON.stringify(input) })
+export type APIRecommendedStep = { id: "movie_root" | "series_root" | "movie_profile" | "series_profile"; state: "exists" | "create" | "created" | "blocked"; name?: string; reason?: string; detail?: string; root?: Omit<APILibraryRoot, "id"> & { id?: string }; source_proven?: boolean }
+export type APIRecommendedReport = { applied: boolean; steps: APIRecommendedStep[] }
+export const runRecommendedSetup = (apply: boolean) => requestJSON<APIRecommendedReport>("/api/v1/setup/recommended", { method: "POST", body: JSON.stringify({ apply }) })
 export const loadSetupStatus = (signal?: AbortSignal) => requestJSON<APISetupStatus>("/api/v1/setup/status", { signal })
 export const saveIntegrationSecret = (id: string, value: string) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/secret`, { method: "PUT", body: JSON.stringify({ value }) })
 export const updateIntegrationConnection = (id: string, patch: APIConnectionPatch) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/connection`, { method: "PATCH", body: JSON.stringify(patch) })
