@@ -5,7 +5,7 @@ import { Link, useParams } from "react-router"
 import { loadWorkflow, loadWorkflowCandidates, loadWorkflowSearches, type APIWorkflow, type APIWorkflowCandidate } from "@/api/client"
 import { Badge, Card, CardHeader, cx, Empty, ErrorBox, KeyValue, PageHeader, Progress, Skeleton } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
-import { formatBytes, formatDateTime, formatRelative } from "@/format"
+import { formatBytes, formatDateTime, formatRelative, pluralize } from "@/format"
 import { attentionLabel, humanize, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
 import { candidateReasonText } from "@/lib/candidate-reasons"
 import { describeVariant, titleHref } from "@/lib/links"
@@ -114,15 +114,15 @@ function SearchHistory({ id }: { id: string }) {
     <Card>
       <CardHeader title="Søgninger" description="De seneste søgninger og hvad hver indexer svarede." />
       {query.isPending ? <ListSkeleton rows={3} /> : null}
-      {query.error ? <div className="p-4"><ErrorBox error={query.error} /></div> : null}
-      {!query.isPending && runs.length === 0 ? <Empty title="Ingen søgninger endnu" /> : null}
+      {query.error ? <div className="p-4"><ErrorBox error={query.error} retry={() => query.refetch()} /></div> : null}
+      {!query.isPending && !query.error && runs.length === 0 ? <Empty title="Ingen søgninger endnu" /> : null}
       <ul className="divide-y divide-line">
         {runs.map((run) => (
           <li key={run.id} className="px-5 py-3">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">{formatDateTime(run.started_at)}</span>
               <Badge tone={run.state === "complete" || run.state === "completed" ? "good" : run.state === "partial" ? "warn" : "neutral"}>{searchState(run.state)}</Badge>
-              <span className="text-text-2">{run.new_candidates} nye udgivelser</span>
+              <span className="text-text-2">{pluralize(run.new_candidates, "ny udgivelse", "nye udgivelser")}</span>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {run.indexers.map((indexer) => (
@@ -156,10 +156,12 @@ function Candidates({ id }: { id: string }) {
     <Card>
       <CardHeader title="Fundne udgivelser" description="Hvad søgningerne fandt, og hvad Media Manager besluttede om hver." />
       {query.isPending ? <ListSkeleton rows={3} /> : null}
-      {!query.isPending && items.length === 0 ? <Empty title="Ingen udgivelser fundet endnu" /> : null}
+      {query.error ? <div className="p-4"><ErrorBox error={query.error} retry={() => query.refetch()} /></div> : null}
+      {!query.isPending && !query.error && items.length === 0 ? <Empty title="Ingen udgivelser fundet endnu" /> : null}
       <ul className="divide-y divide-line">
         {items.slice(0, 60).map((candidate) => <CandidateRow key={candidate.id} candidate={candidate} />)}
       </ul>
+      {items.length > 60 ? <p className="border-t border-line px-5 py-3 text-xs text-text-3">Viser de 60 bedste af {items.length} udgivelser.</p> : null}
     </Card>
   )
 }
@@ -178,7 +180,7 @@ function CandidateRow({ candidate: c }: { candidate: APIWorkflowCandidate }) {
       <div className="mt-1 text-xs text-text-3">
         {c.indexer_name.replace(/\s*\{DK\}\s*/i, "")} · {formatBytes(c.size_bytes)}{c.decision?.score !== undefined ? ` · score ${c.decision.score}` : ""}{c.attempted ? " · prøvet" : ""}
       </div>
-      {c.exclusion ? <p className="mt-1 break-words text-xs text-bad">{c.exclusion.reason}</p> : reasons ? <p className="mt-1 break-words text-xs text-text-2">{reasons}</p> : null}
+      {c.exclusion ? <p className="mt-1 break-words text-xs text-bad">{translateDetail(c.exclusion.reason)}</p> : reasons ? <p className="mt-1 break-words text-xs text-text-2">{reasons}</p> : null}
     </li>
   )
 }

@@ -5,6 +5,7 @@ import { runWorkflowAction, type APIWorkflow, type APIWorkflowAction } from "@/a
 import { useToast } from "@/components/toast"
 import { Button, Dialog } from "@/components/ui"
 import { actionLabel } from "@/i18n"
+import { actionReasonText } from "@/lib/action-reasons"
 
 const order = ["search", "open_next_round", "open_round_from_known", "discover", "reconcile_altmount", "reconfirm_plex", "retry_access_rejected_release", "cancel"]
 
@@ -29,7 +30,7 @@ export function WorkflowActions({ workflow, showUnavailable = false, compact = f
               key={action.action}
               variant={action.action === "cancel" ? "ghost" : action.available && actions[0] === action ? "primary" : "secondary"}
               disabled={!action.available}
-              title={action.available ? actionLabel(action.action).help : action.reason}
+              title={action.available ? actionLabel(action.action).help : actionReasonText(action.reason)}
               onClick={() => setPending(action)}
               className={compact ? "h-8 px-3 text-xs" : undefined}
             >
@@ -41,7 +42,7 @@ export function WorkflowActions({ workflow, showUnavailable = false, compact = f
       {showUnavailable ? (
         <ul className="mt-3 space-y-1 text-xs text-text-3">
           {actions.filter((action) => !action.available && action.reason).map((action) => (
-            <li key={action.action}><span className="font-medium text-text-2">{actionLabel(action.action).label}:</span> {action.reason}</li>
+            <li key={action.action}><span className="font-medium text-text-2">{actionLabel(action.action).label}:</span> {actionReasonText(action.reason)}</li>
           ))}
         </ul>
       ) : null}
@@ -58,13 +59,14 @@ function ConfirmAction({ action, workflow, onClose }: { action: APIWorkflowActio
   const mutation = useMutation({
     mutationFn: () => runWorkflowAction(action, action.confirmation ? { [confirmationField(action)]: phrase } : undefined),
     onSuccess: async () => {
-      toast("good", `${label}: sat i gang for ${workflow.title}.`)
+      toast("good", action.action === "cancel" ? `Arbejdet for ${workflow.title} er annulleret.` : `${label}: sat i gang for ${workflow.title}.`)
       onClose()
       await queryClient.invalidateQueries()
     },
     onError: (error) => toast("bad", error instanceof Error ? error.message : String(error)),
   })
   const needsPhrase = Boolean(action.confirmation)
+  const note = actionReasonText(action.note)
   return (
     <Dialog
       open
@@ -86,7 +88,7 @@ function ConfirmAction({ action, workflow, onClose }: { action: APIWorkflowActio
     >
       <p>{help}</p>
       {action.effect === "provider" ? <p className="mt-2 text-text-3">Dette kontakter en ekstern tjeneste og tæller med i dagens grænser.</p> : null}
-      {action.note ? <p className="mt-2 text-text-3">{action.note}</p> : null}
+      {note ? <p className="mt-2 text-text-3">{note}</p> : null}
       {needsPhrase ? (
         <label className="mt-4 block">
           <span className="text-text">Skriv <code className="rounded bg-surface-3 px-1 py-0.5 text-xs">{action.confirmation}</code> for at bekræfte</span>

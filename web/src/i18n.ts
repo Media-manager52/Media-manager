@@ -168,7 +168,37 @@ const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
     (m) => `${m[1]} fejlede downloads er gemt (grænse ${m[2]}). Ryd op i lageret, før der hentes igen.`],
   [/^bounded media-info inspection failed for (.+): media-info probe failed$/,
     (m) => `Filen kunne ikke undersøges (media-info fejlede): ${m[1]}`],
+  [/^fast-fail segment check failed: no regular files were successfully processed \(all files failed validation\)$/,
+    () => "Udgivelsen mangler dele hos Usenet-udbyderne (hurtigtjekket fejlede)."],
+  [/^failed to parse NZB file: NZB file contains only PAR2 files\..*$/, () => "NZB-filen indeholder kun reparationsfiler (PAR2). Der mangler dele hos udbyderne."],
+  [/^no files were successfully processed \(all files failed validation\)$/, () => "Ingen af filerne kunne bruges; alle fejlede kontrollen."],
+  [/^exact NZB package was already submitted in this workflow$/, () => "Præcis samme pakke er allerede prøvet i dette arbejde."],
+  [/^NZB validation failed: invalid NZB: total size is zero$/, () => "NZB-filen er ugyldig (størrelsen er 0)."],
+  [/^The file is incomplete or missing parts\..*$/, () => "Filen er ufuldstændig: nogle dele findes ikke hos nogen af dine Usenet-udbydere."],
+  [/^selected release NZB could not be retrieved after two bounded requests \((.+)\)$/, (m) => `NZB-filen kunne ikke hentes fra indexeren efter to forsøg (${m[1]}).`],
+  [/^selected release NZB access was rejected after one bounded request \((.+)\)$/, (m) => `Indexeren afviste adgang til NZB-filen (${m[1]}).`],
+  [/^no valid first RAR part found in archive$/, () => "Arkivet mangler sin første RAR-del."],
+  [/^no files with allowed extensions found\b.*$/, () => "Udgivelsen indeholder ingen video- eller undertekstfiler."],
+  [/^movie release does not have one unambiguous primary media file$/, () => "Udgivelsen har ikke én tydelig filmfil."],
+  [/^season pack is (incomplete|needs_review|invalid)(?:; (\d+) expected episodes are missing)?(?:; first problem: ([a-z_]+)(?: \((.+?)\))?(?: and (\d+) more)?)?$/,
+    (m) => seasonPackText(m)],
 ]
+
+const packVerdicts: Record<string, string> = { incomplete: "er ufuldstændig", needs_review: "skal tjekkes", invalid: "er ugyldig" }
+const packIssues: Record<string, string> = {
+  duplicate: "et afsnit findes mere end én gang",
+  unexpected: "en fil hører ikke til sæsonen",
+  ambiguous: "en fil kunne ikke knyttes til et bestemt afsnit",
+  unsafe_path: "en fil har en usikker sti",
+  path_collision: "to filer ville få samme navn",
+}
+
+function seasonPackText(m: RegExpMatchArray): string {
+  const parts = [`Sæsonpakken ${packVerdicts[m[1]] ?? m[1]}`]
+  if (m[2] && m[2] !== "0") parts.push(m[2] === "1" ? "1 afsnit mangler" : `${m[2]} afsnit mangler`)
+  if (m[3]) parts.push(`første problem: ${packIssues[m[3]] ?? humanize(m[3])}${m[4] ? ` (${m[4]})` : ""}${m[5] ? ` og ${m[5]} til` : ""}`)
+  return `${parts.join("; ")}.`
+}
 
 export function translateDetail(text: string | undefined | null): string {
   if (!text) return ""

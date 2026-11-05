@@ -32,7 +32,7 @@ function TitleView({ detail }: { detail: APIMediaDetail }) {
     kindLabel(media.kind),
     meta?.runtime_minutes ? `${meta.runtime_minutes} min` : null,
     meta?.original_language ? `Original: ${languageName(meta.original_language)}` : null,
-    rating ? `★ ${rating.value.toFixed(1)}` : null,
+    rating ? `★ ${rating.value.toLocaleString("da-DK", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : null,
   ].filter(Boolean)
   return (
     <>
