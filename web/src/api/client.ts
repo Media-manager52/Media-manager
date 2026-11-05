@@ -181,6 +181,8 @@ export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]
 export async function loadCatalogMediaBounded(signal?: AbortSignal): Promise<{ items: APIMedia[]; truncated: boolean }> {
   return loadCatalogMediaPage(signal)
 }
+export type APIMediaStatus = { media_id: string; in_plex: boolean; missing: number; attention: boolean }
+export const loadMediaStatus = async (signal?: AbortSignal) => await requestJSON<APIMediaStatus[] | null>("/api/v1/media/status", { signal }) ?? []
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []
 export const loadWorkflowsPage = async ({ active = true, attention = false, limit = 300, offset = 0, signal }: { active?: boolean; attention?: boolean; limit?: number; offset?: number; signal?: AbortSignal } = {}): Promise<Page<APIWorkflow>> => requestPage<APIWorkflow>(`/api/v1/workflows?limit=${limit}&offset=${offset}&active=${active}${attention ? "&attention=true" : ""}`, limit, offset, signal)
@@ -256,6 +258,11 @@ export type CreateMediaInput = {
 }
 
 export const createMedia = (input: CreateMediaInput) => requestJSON<{ media: APIMedia; workflows: APIWorkflow[] }>("/api/v1/media", { method: "POST", body: JSON.stringify(input) })
+export type CreateMediaWorkflowInput = {
+  root_id?: string; quality_profile_id?: string; search_immediately: boolean
+  season?: { number: number; monitored: boolean; search_immediately: boolean; prefer_season_pack: boolean; episodes: Array<{ number: number; provider_episode_id?: string; title?: string; air_date?: string }> }
+}
+export const createMediaWorkflow = (mediaId: string, input: CreateMediaWorkflowInput) => requestJSON<APIWorkflow>(`/api/v1/media/${encodeURIComponent(mediaId)}/workflows`, { method: "POST", body: JSON.stringify(input) })
 export const refreshMediaMetadata = (id: string) => requestJSON<{ media: APIMedia; enrichment_state: APIDiscoveryDetail["enrichment_state"]; provider_states: Record<string, string> }>(`/api/v1/media/${encodeURIComponent(id)}/metadata/refresh`, { method: "POST" })
 /** Moves the title's links to the recycle bin; cancelOpenWork first stops waiting, searching and monitoring work. */
 export const recycleMedia = (id: string, cancelOpenWork = false) => requestJSON<APIRecycleEntry[]>(`/api/v1/media/${encodeURIComponent(id)}${cancelOpenWork ? "?cancel_open_work=true" : ""}`, { method: "DELETE" })

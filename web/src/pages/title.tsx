@@ -11,6 +11,7 @@ import { TitleActions } from "@/components/title-actions"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDate, formatRelative } from "@/format"
 import { attentionLabel, errorMessage, kindLabel, languageName, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
+import { fileQuality } from "@/lib/file-quality"
 import { describeVariant, workflowHref } from "@/lib/links"
 import { episodeStatus, rollupSeriesSeasons, type EpisodeStatus, type SeriesSeasonRollup } from "@/lib/series-variants"
 import type { Tone } from "@/lib/tone"
@@ -194,14 +195,28 @@ function FilesCard({ files }: { files: APIManagedFile[] }) {
     <Card>
       <CardHeader title="Filer i biblioteket" description={`${current.length} ${current.length === 1 ? "fil" : "filer"}`} />
       <ul className="divide-y divide-line">
-        {sorted.slice(0, 200).map((file) => (
-          <li key={file.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-sm">
-            <Dot tone={file.plex_confirmed ? "good" : "info"} />
-            <span className="min-w-0 flex-1 break-all">{file.destination_relative}</span>
-            <span className="text-text-3">{file.root_name}</span>
-            <span className="tabular text-text-3">{formatBytes(file.source_size_bytes)}</span>
-          </li>
-        ))}
+        {sorted.slice(0, 200).map((file) => {
+          const quality = fileQuality(file)
+          return (
+            <li key={file.id} className="px-5 py-3 text-sm">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <Dot tone={file.plex_confirmed ? "good" : "info"} />
+                <span className="min-w-0 flex-1 break-all">{file.destination_relative}</span>
+                <span className="text-text-3">{file.root_name}</span>
+                <span className="tabular text-text-3">{formatBytes(file.source_size_bytes)}</span>
+              </div>
+              {quality.resolution || quality.video || quality.audio.length || quality.subtitles.length ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-5 text-xs text-text-2">
+                  {quality.resolution ? <Badge tone={quality.resolution === "4K" ? "info" : "neutral"}>{quality.resolution}</Badge> : null}
+                  {quality.video ? <Badge>{quality.video}</Badge> : null}
+                  {quality.audio.length ? <span>Tale: {quality.audio.join(", ")}</span> : null}
+                  {quality.subtitles.length ? <span>· Tekster: {quality.subtitles.join(", ")}</span> : null}
+                  {file.plex_confirmed ? null : <span className="text-text-3">· Venter på Plex</span>}
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
       </ul>
     </Card>
   )

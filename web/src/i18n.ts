@@ -139,6 +139,9 @@ const languageNames: Record<string, string> = {
   da: "Dansk", en: "Engelsk", sv: "Svensk", no: "Norsk", nb: "Norsk", fi: "Finsk", de: "Tysk", fr: "Fransk",
   es: "Spansk", it: "Italiensk", nl: "Hollandsk", pl: "Polsk", pt: "Portugisisk", ja: "Japansk", ko: "Koreansk",
   zh: "Kinesisk", ru: "Russisk", tr: "Tyrkisk", ar: "Arabisk", hi: "Hindi", is: "Islandsk",
+  // Three-letter codes as files and Plex tag them.
+  dan: "Dansk", eng: "Engelsk", swe: "Svensk", nor: "Norsk", nob: "Norsk", fin: "Finsk", ger: "Tysk", deu: "Tysk",
+  fre: "Fransk", fra: "Fransk", spa: "Spansk", ita: "Italiensk", dut: "Hollandsk", nld: "Hollandsk", pol: "Polsk", jpn: "Japansk",
 }
 
 export function languageName(code: string | undefined): string {

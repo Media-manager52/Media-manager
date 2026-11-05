@@ -233,6 +233,15 @@ func (server *Server) listMedia(writer http.ResponseWriter, request *http.Reques
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"limit": limit, "offset": offset, "count": len(items)}})
 }
 
+func (server *Server) listMediaStatus(writer http.ResponseWriter, request *http.Request) {
+	items, err := server.store.MediaStatuses(request.Context())
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load the library status")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items})
+}
+
 func (server *Server) createMedia(writer http.ResponseWriter, request *http.Request) {
 	var input createMediaInput
 	if err := decodeJSON(request, &input, 256<<10); err != nil {

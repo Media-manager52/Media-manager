@@ -341,6 +341,30 @@ The title page shows the acquisition pipeline. After AltMount completes, the
 output is inspected read-only and published as a managed symlink; Plex then
 confirms the exact path and provider identity before the title is success.
 
+### Fetch a film again or add a season
+
+The title page has a button that starts new work on a title already in the
+library:
+
+- **Tilføj sæson** (series) shows the seasons TMDB knows. Seasons that are
+  already being fetched or are complete in Plex cannot be picked. Each new
+  season is frozen from TMDB's exact episode list, like when the series was
+  added.
+- **Hent** (a film that is not in Plex and not being fetched, for example after
+  a cancel) searches for it again. For a film already in Plex the button is
+  **Find bedre udgave**: Media Manager looks for a better copy and keeps the
+  current file until a better one is verified. That needs a quality profile
+  with upgrades enabled.
+
+The new work uses the title's own library folder and quality profile unless you
+choose others. Picking a 4K folder fetches a 4K copy next to the normal one.
+The Danish subtitle and audio requirements of the profile apply as always.
+
+**Bibliotek** shows a small label on titles that are missing something, need
+your action or were never fetched, and the **Status** filter lists only those.
+**Filer i biblioteket** on the title page shows each file's resolution, video
+format, audio and subtitle languages as measured in the file.
+
 ### Move or delete a title
 
 The title page has two buttons next to **Opdatér oplysninger**:

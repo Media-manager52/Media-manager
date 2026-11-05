@@ -1340,6 +1340,24 @@
         },
         "type": "object"
       },
+      "Postgres_MediaStatus": {
+        "properties": {
+          "attention": {
+            "type": "boolean"
+          },
+          "in_plex": {
+            "type": "boolean"
+          },
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "missing": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_Problem": {
         "properties": {
           "area": {
@@ -4257,6 +4275,55 @@
         ],
         "x-mm-auth": "owner_or_player",
         "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/media/status": {
+      "get": {
+        "description": "missing counts wanted scopes (the film, a season or an episode) that no library file covers yet; a season fully present as episode files, or an episode inside a published season pack, is not missing. Upgrades of a present file are not missing.\n\nNo state change and no provider contact. Always safe.",
+        "operationId": "listMediaStatus",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_MediaStatus"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Library status of every active title: in Plex, missing scopes and owner attention",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
       }
     },
     "/api/v1/media/{id}": {

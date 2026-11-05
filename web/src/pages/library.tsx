@@ -3,27 +3,45 @@ import { Plus } from "lucide-react"
 import { useDeferredValue, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router"
 
-import { loadCatalogMediaBounded, type APIMedia } from "@/api/client"
+import { loadCatalogMediaBounded, loadMediaStatus, type APIMedia, type APIMediaStatus } from "@/api/client"
 import { Poster, sizedArtwork } from "@/components/poster"
-import { Button, Card, Empty, ErrorBox, PageHeader, SearchField, Segmented, Skeleton } from "@/components/ui"
+import { Badge, Button, Card, Empty, ErrorBox, PageHeader, SearchField, Segmented, Skeleton } from "@/components/ui"
 import { formatNumber } from "@/format"
 import { titleHref } from "@/lib/links"
 
 type Kind = "alle" | "film" | "serier"
 type Sort = "titel" | "aar-nyeste" | "aar-aeldste"
+type Status = "alle" | "mangler" | "handling" | "ikke-hentet"
+const statuses: Status[] = ["alle", "mangler", "handling", "ikke-hentet"]
 const pageSize = 120
 
 export function LibraryPage() {
   const [params, setParams] = useSearchParams()
   const kind = (["alle", "film", "serier"].includes(params.get("type") ?? "") ? params.get("type") : "alle") as Kind
   const sort = (["titel", "aar-nyeste", "aar-aeldste"].includes(params.get("sort") ?? "") ? params.get("sort") : "titel") as Sort
+  const status = (statuses.includes(params.get("status") as Status) ? params.get("status") : "alle") as Status
   const [search, setSearch] = useState(params.get("q") ?? "")
   const deferredSearch = useDeferredValue(search)
   const [visible, setVisible] = useState(pageSize)
   const catalog = useQuery({ queryKey: ["media", "catalog"], queryFn: ({ signal }) => loadCatalogMediaBounded(signal), staleTime: 60_000 })
   const all = useMemo(() => catalog.data?.items ?? [], [catalog.data])
   const counts = useMemo(() => ({ film: all.filter((item) => item.kind === "movie").length, serier: all.filter((item) => item.kind === "series").length }), [all])
-  const items = useMemo(() => sortMedia(filterMedia(all, kind, deferredSearch), sort), [all, kind, deferredSearch, sort])
+  // The status is an extra: the library still shows every title when it cannot load.
+  const state = useQuery({ queryKey: ["media", "status"], queryFn: ({ signal }) => loadMediaStatus(signal), staleTime: 60_000, retry: false })
+  const byId = useMemo(() => new Map((state.data ?? []).map((entry) => [entry.media_id, entry])), [state.data])
+  const kindItems = useMemo(() => filterMedia(all, kind, ""), [all, kind])
+  const statusCounts = useMemo(() => {
+    const counts: Record<Status, number> = { alle: kindItems.length, mangler: 0, handling: 0, "ikke-hentet": 0 }
+    for (const item of kindItems) {
+      const entry = byId.get(item.id)
+      for (const value of statuses.slice(1)) if (entry && matchesStatus(entry, value)) counts[value]++
+    }
+    return counts
+  }, [kindItems, byId])
+  const items = useMemo(() => {
+    const filtered = filterMedia(all, kind, deferredSearch).filter((item) => status === "alle" || (byId.has(item.id) && matchesStatus(byId.get(item.id)!, status)))
+    return sortMedia(filtered, sort)
+  }, [all, kind, deferredSearch, sort, status, byId])
 
   const update = (key: string, value: string, fallback: string) => {
     const next = new URLSearchParams(params)
@@ -51,6 +69,19 @@ export function LibraryPage() {
             { value: "serier", label: "Serier", count: counts.serier || undefined },
           ]}
         />
+        {state.data ? (
+          <Segmented
+            label="Status"
+            value={status}
+            onChange={(value) => update("status", value, "alle")}
+            options={[
+              { value: "alle", label: "Alle" },
+              { value: "mangler", label: "Mangler noget", count: statusCounts.mangler || undefined },
+              { value: "handling", label: "Kræver handling", count: statusCounts.handling || undefined },
+              { value: "ikke-hentet", label: "Ikke hentet", count: statusCounts["ikke-hentet"] || undefined },
+            ]}
+          />
+        ) : null}
         <SearchField value={search} onChange={(value) => { setSearch(value); setVisible(pageSize) }} placeholder="Søg i titler og originaltitler" label="Søg i biblioteket" />
         <label className="ml-auto flex items-center gap-2 text-sm text-text-2">
           Sortér
@@ -65,10 +96,10 @@ export function LibraryPage() {
       {catalog.data?.truncated ? <p className="mb-4 text-sm text-warn">Biblioteket er større end det, siden kan vise på én gang. Brug søgningen.</p> : null}
       {catalog.isPending ? <PosterGridSkeleton /> : null}
       {!catalog.isPending && items.length === 0 && !catalog.error ? (
-        <Card><Empty title={search ? "Ingen titler passer til søgningen" : all.length > 0 ? (kind === "film" ? "Ingen film endnu" : "Ingen serier endnu") : "Biblioteket er tomt"}>{search ? "Prøv et andet ord, eller tilføj titlen." : all.length > 0 ? "Tilføj en titel, eller vælg en anden type." : "Tilføj din første film eller serie."}</Empty></Card>
+        <Card><Empty title={status !== "alle" && !search ? statusEmpty[status] : search ? "Ingen titler passer til søgningen" : all.length > 0 ? (kind === "film" ? "Ingen film endnu" : "Ingen serier endnu") : "Biblioteket er tomt"}>{search ? "Prøv et andet ord, eller tilføj titlen." : all.length > 0 ? "Tilføj en titel, eller vælg en anden type." : "Tilføj din første film eller serie."}</Empty></Card>
       ) : null}
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
-        {items.slice(0, visible).map((item) => <PosterTile key={item.id} item={item} />)}
+        {items.slice(0, visible).map((item) => <PosterTile key={item.id} item={item} status={byId.get(item.id)} />)}
       </ul>
       {items.length > visible ? (
         <div className="mt-8 flex justify-center">
@@ -79,11 +110,42 @@ export function LibraryPage() {
   )
 }
 
-function PosterTile({ item }: { item: APIMedia }) {
+const statusEmpty: Record<Exclude<Status, "alle">, string> = {
+  mangler: "Intet mangler. Alt, der ventes på, ligger i Plex.",
+  handling: "Intet kræver din handling.",
+  "ikke-hentet": "Alle titler har noget i Plex eller er i gang.",
+}
+
+/**
+ * Which library filter a title falls under: "Mangler noget" while a wanted
+ * film, season or episode has no file yet, "Kræver handling" while open work
+ * waits for the owner, and "Ikke hentet" when nothing is in Plex and nothing
+ * is being fetched (for example after a cancel), so Hent is the next step.
+ */
+export function matchesStatus(entry: APIMediaStatus, status: Status): boolean {
+  if (status === "mangler") return entry.missing > 0
+  if (status === "handling") return entry.attention
+  if (status === "ikke-hentet") return !entry.in_plex && entry.missing === 0
+  return true
+}
+
+function statusBadge(item: APIMedia, entry?: APIMediaStatus): { tone: "warn" | "bad" | "info" | "neutral"; text: string } | null {
+  if (!entry) return null
+  if (entry.attention) return { tone: "warn", text: "Kræver handling" }
+  if (entry.missing > 0) return { tone: "info", text: item.kind === "series" && entry.in_plex ? "Mangler afsnit" : "Mangler" }
+  if (!entry.in_plex) return { tone: "neutral", text: "Ikke hentet" }
+  return null
+}
+
+function PosterTile({ item, status }: { item: APIMedia; status?: APIMediaStatus }) {
+  const badge = statusBadge(item, status)
   return (
     <li className="[content-visibility:auto] [contain-intrinsic-size:auto_300px]">
       <Link to={titleHref(item.id)} className="group block">
-        <Poster src={sizedArtwork(item.metadata?.poster_url, "w342")} title={item.title} kind={item.kind} className="transition-transform group-hover:-translate-y-0.5 group-hover:shadow-card" />
+        <div className="relative">
+          <Poster src={sizedArtwork(item.metadata?.poster_url, "w342")} title={item.title} kind={item.kind} className="transition-transform group-hover:-translate-y-0.5 group-hover:shadow-card" />
+          {badge ? <div className="pointer-events-none absolute left-1.5 top-1.5"><Badge tone={badge.tone}>{badge.text}</Badge></div> : null}
+        </div>
         <div className="mt-2 line-clamp-2 text-sm font-medium leading-snug group-hover:underline">{item.title}</div>
         <div className="text-xs text-text-3">{[item.year, item.kind === "series" ? "Serie" : "Film"].filter(Boolean).join(" · ")}</div>
       </Link>
