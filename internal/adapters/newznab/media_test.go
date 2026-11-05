@@ -42,3 +42,30 @@ func TestProviderMediaAttributesRepeatedAndSeparate(t *testing.T) {
 		t.Fatal("lost repeated attributes")
 	}
 }
+
+// TestTreasureMapsMediaInfoAttributes uses the values treasure-maps sends with
+// extended=1: MediaInfo codec IDs, cinema-cropped frame sizes, "fps" frame
+// rates and a bare tmdb attribute.
+func TestTreasureMapsMediaInfoAttributes(t *testing.T) {
+	o, err := ParseSearch([]byte(`<rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Movie.2025.1080p.BluRay.x264-GRP</title><guid>native-1</guid>`+
+		`<newznab:attr name="video" value="V_MPEG4/ISO/AVC"/><newznab:attr name="resolution" value="1920x800 2.4:1"/><newznab:attr name="framerate" value="23.976 fps"/>`+
+		`<newznab:attr name="tmdb" value="10710"/></item></channel></rss>`), "", "movie", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string][]string{}
+	for _, f := range o[0].Facts {
+		values[f.Name] = f.Values
+	}
+	want := map[string]string{"video_codec": "avc", "resolution": "1080p", "frame_rate": "23.976", "tmdb_id": "10710"}
+	for name, value := range want {
+		if len(values[name]) != 1 || values[name][0] != value {
+			t.Errorf("%s=%v, want [%s]", name, values[name], value)
+		}
+	}
+	for raw, codec := range map[string]string{"V_MPEGH/ISO/HEVC": "hevc", "V_AV1": "av1", "avc1": "avc", "hvc1": "hevc"} {
+		if got := canonicalMediaValue("video_codec", raw); got != codec {
+			t.Errorf("%s -> %s, want %s", raw, got, codec)
+		}
+	}
+}
