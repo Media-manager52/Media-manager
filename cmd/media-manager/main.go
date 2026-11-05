@@ -30,6 +30,7 @@ import (
 	"github.com/media-manager/media-manager/internal/notifications"
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/platform"
+	"github.com/media-manager/media-manager/internal/plexlogin"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/publication"
 	"github.com/media-manager/media-manager/internal/recycle"
@@ -289,7 +290,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, TMDBDiscovery: tmdbSource, TMDBChanged: tmdbSource.Invalidate, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret}, store)
+	plexLogin, err := plexlogin.New(nil)
+	if err != nil {
+		return err
+	}
+	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, TMDBDiscovery: tmdbSource, TMDBChanged: tmdbSource.Invalidate, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, CommissioningV2: liveCAPSService, CommissioningV2Origin: strings.TrimSpace(os.Getenv("COMMISSIONING_V2_OWNER_ORIGIN")), BackupConfigured: backupConfigured, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret, PlexLogin: plexLogin}, store)
 	if err != nil {
 		return err
 	}

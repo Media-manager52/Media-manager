@@ -103,7 +103,7 @@ test("the theme choice is remembered", async ({ page }) => {
 test("adding Plex saves the token encrypted and tests the connection", async ({ page }) => {
   const writes = await mockApi(page)
   await page.goto("/indstillinger/forbindelser")
-  await page.getByRole("button", { name: "Tilføj Plex" }).click()
+  await page.getByRole("button", { name: "Tilføj manuelt" }).click()
   const dialog = page.getByRole("dialog")
   await dialog.getByLabel("Plex-token").fill("plex-token-123")
   await dialog.getByRole("button", { name: "Tilføj og test" }).click()
@@ -115,6 +115,22 @@ test("adding Plex saves the token encrypted and tests the connection", async ({ 
   ])
   expect(writes[0].body).toMatchObject({ kind: "plex", is_default: false, config: { base_url: "http://plex:32400", allow_http: true } })
   expect(writes[1].body).toEqual({ value: "plex-token-123" })
+})
+
+test("Log ind med Plex connects the server Media Manager found", async ({ page, context }) => {
+  const writes = await mockApi(page)
+  await context.route("https://app.plex.tv/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Plex</title>" }))
+  await page.goto("/indstillinger/forbindelser")
+  const [popup] = await Promise.all([page.waitForEvent("popup"), page.getByRole("button", { name: "Log ind med Plex" }).click()])
+  await expect.poll(() => popup.url()).toContain("app.plex.tv/auth")
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByText("Vælg din server")).toBeVisible()
+  await expect(dialog.getByRole("radio", { name: /Plex-containeren/ })).toBeChecked()
+  await dialog.getByRole("button", { name: "Forbind" }).click()
+  await expect(dialog.getByText("Plex er tilføjet.")).toBeVisible()
+  await expect(dialog.getByText("Forbindelsen virker.", { exact: false })).toBeVisible()
+  expect(writes.map((write) => `${write.method} ${write.path}`)).toEqual(["POST /api/v1/setup/plex/login", "POST /api/v1/setup/plex/login/login1/connect"])
+  expect(writes[1].body).toEqual({ server_id: "machine-1", uri: "http://plex:32400" })
 })
 
 test("a library folder is added by picking a Plex library", async ({ page }) => {

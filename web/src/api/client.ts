@@ -266,6 +266,14 @@ export const loadSetupStatus = (signal?: AbortSignal) => requestJSON<APISetupSta
 export const saveIntegrationSecret = (id: string, value: string) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/secret`, { method: "PUT", body: JSON.stringify({ value }) })
 export const updateIntegrationConnection = (id: string, patch: APIConnectionPatch) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/connection`, { method: "PATCH", body: JSON.stringify(patch) })
 export const checkIntegration = (id: string) => requestJSON<APIConnectionCheck>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/check`, { method: "POST" })
+export type APIPlexLoginStarted = { id: string; auth_url: string; expires_at: string }
+export type APIPlexLoginAddress = { uri: string; local: boolean; relay: boolean; reachable: boolean; detail?: string }
+export type APIPlexLoginServer = { id: string; name: string; owned: boolean; addresses: APIPlexLoginAddress[]; recommended?: string }
+export type APIPlexLoginStatus = { state: "waiting" | "approved"; servers: APIPlexLoginServer[] | null }
+export type APIPlexLoginConnected = { integration: APIIntegration; created: boolean; check: APIConnectionCheck }
+export const startPlexLogin = () => requestJSON<APIPlexLoginStarted>("/api/v1/setup/plex/login", { method: "POST" })
+export const pollPlexLogin = (id: string, signal?: AbortSignal) => requestJSON<APIPlexLoginStatus>(`/api/v1/setup/plex/login/${encodeURIComponent(id)}`, { signal })
+export const connectPlexLogin = (id: string, input: { server_id: string; uri?: string; integration_id?: string }) => requestJSON<APIPlexLoginConnected>(`/api/v1/setup/plex/login/${encodeURIComponent(id)}/connect`, { method: "POST", body: JSON.stringify(input) })
 export const loadPlexLibraries = async (id: string, signal?: AbortSignal) => await requestJSON<APIPlexLibrary[] | null>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/plex-libraries`, { signal }) ?? []
 export const loadSeerrWebhook = (id: string, signal?: AbortSignal) => requestJSON<APISeerrWebhookStatus>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/seerr-webhook`, { signal })
 export const configureSeerrWebhook = (id: string, webhookURL: string) => requestJSON<APISeerrWebhookStatus>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/seerr-webhook`, { method: "POST", body: JSON.stringify({ webhook_url: webhookURL }) })

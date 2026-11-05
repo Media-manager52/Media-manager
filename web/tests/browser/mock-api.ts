@@ -84,6 +84,7 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   })],
   [/^\/api\/v1\/settings\/integrations\/[0-9a-f-]+\/seerr-routes$/, () => ({ routes: [{ id: "route-1", seerr_instance_id: ids.seerr, media_kind: "movie", root_folder: "/media/Movies", library_root_id: ids.root, enabled: true, created_at: now, updated_at: now }], observed_folders: [] })],
   [/^\/api\/v1\/settings\/notifications$/, () => []],
+  [/^\/api\/v1\/setup\/plex\/login\/login1$/, () => ({ state: "approved", servers: [{ id: "machine-1", name: "Hjemme", owned: true, recommended: "http://plex:32400", addresses: [{ uri: "http://plex:32400", local: true, relay: false, reachable: true }, { uri: "https://10-0-0-5.abc.plex.direct:32400", local: true, relay: false, reachable: true }] }] })],
   [/^\/api\/v1\/backups$/, () => ({ configured: true, format: "mmbackup", restore_verification: "isolated", automatic_deletion: false, production_restore: false, offsite: { configured: false, kind: "", prefix: "" }, records: [{ id: "b1", state: "verified", format: "mmbackup", size_bytes: 1_000_000, attempts: 1, created_at: now, completed_at: now }] })],
   [/^\/api\/v1\/repairs$/, () => []],
   [/^\/api\/v1\/activity$/, () => [{ id: "act-1", kind: "audit", actor: "owner", action: "workflow.search_requested", aggregate_type: "workflow", aggregate_id: ids.attention, detail: {}, occurred_at: now }]],
@@ -102,6 +103,8 @@ export async function mockApi(page: Page): Promise<Recorded[]> {
     if (request.method() !== "GET") {
       writes.push({ method: request.method(), path: url.pathname, body: request.postData() ? JSON.parse(request.postData()!) : null })
       if (url.pathname.endsWith("/check")) return route.fulfill({ json: { data: { ok: true, detail: "Plex answered and shows 2 libraries" } } })
+      if (url.pathname === "/api/v1/setup/plex/login") return route.fulfill({ status: 201, json: { data: { id: "login1", auth_url: "https://app.plex.tv/auth#?code=abc", expires_at: now } } })
+      if (url.pathname === "/api/v1/setup/plex/login/login1/connect") return route.fulfill({ json: { data: { integration: { id: ids.plex, kind: "plex", name: "Hjemme", enabled: true, is_default: true, config: { base_url: "http://plex:32400" }, created_at: now, updated_at: now }, created: true, check: { ok: true, detail: "Plex answered and shows 2 libraries" } } } })
       if (url.pathname === "/api/v1/media") return route.fulfill({ status: 201, json: { data: { media: { ...media[0], id: ids.movie }, workflows: [] } } })
       return route.fulfill({ status: 202, json: { data: { status: "queued", id: ids.attention } } })
     }
