@@ -47,6 +47,7 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   [/^\/api\/v1\/system\/queue$/, () => ({ checked_at: now, due: 0, scheduled: 1, leased: 0, retrying: 0, completed_last_10m: 4, completed_last_hour: 20, by_type: [{ event_type: "workflow.search_requested", due: 0, scheduled: 1, leased: 0, retrying: 0 }] })],
   [/^\/api\/v1\/calendar$/, () => [{ media_id: ids.series, media_kind: "series", media_title: "Testserien", workflow_id: ids.season, variant: "season:2:episode:1", season: 2, episode: 1, episode_title: "Pilot", air_date: "2026-11-05", monitored: true, workflow_state: "waiting" }]],
   [/^\/api\/v1\/media$/, (url) => (url.searchParams.get("offset") === "0" || !url.searchParams.get("offset") ? media : [])],
+  [/^\/api\/v1\/media\/status$/, () => [{ media_id: ids.movie, in_plex: false, missing: 1, attention: true }, { media_id: ids.series, in_plex: true, missing: 0, attention: false }]],
   [/^\/api\/v1\/media\/[0-9a-f-]+\/detail$/, (url) => {
     const item = url.pathname.includes(ids.series) ? media[1] : media[0]
     return item.kind === "series"

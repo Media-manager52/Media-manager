@@ -124,7 +124,7 @@ func (server *Server) createMediaWorkflow(writer http.ResponseWriter, request *h
 	}
 	workflow, err := server.store.CreateManualWorkflowForExisting(request.Context(), item, resolvedRoot, resolvedProfile, resolvedClient, season, search, input.AdoptedReplacementConfirmation, "owner", time.Now().UTC())
 	if err != nil {
-		writeError(writer, http.StatusConflict, "workflow_create_failed", err.Error())
+		writeConflict(writer, err, "workflow_create_failed", err.Error())
 		return
 	}
 	writer.Header().Set("Location", "/api/v1/workflows/"+workflow.ID.String())

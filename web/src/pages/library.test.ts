@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { APIMedia } from "@/api/client"
-import { filterMedia, sortMedia } from "@/pages/library"
+import { filterMedia, matchesStatus, sortMedia } from "@/pages/library"
 
 const media: APIMedia[] = [
   { id: "1", kind: "movie", title: "Ærø", year: 2001, identities: [] },
@@ -25,5 +25,17 @@ describe("library filtering", () => {
   it("sorts Danish letters after Z", () => {
     expect(sortMedia(media, "titel").map((item) => item.title)).toEqual(["Amélie", "Borgen", "Ærø"])
     expect(sortMedia(media, "aar-nyeste")[0].title).toBe("Borgen")
+  })
+})
+
+describe("library status filter", () => {
+  const wanted = { media_id: "1", in_plex: false, missing: 1, attention: false }
+  const partial = { media_id: "2", in_plex: true, missing: 3, attention: true }
+  const done = { media_id: "3", in_plex: true, missing: 0, attention: false }
+  const cancelled = { media_id: "4", in_plex: false, missing: 0, attention: false }
+  it("sorts titles into Mangler noget, Kræver handling and Ikke hentet", () => {
+    expect([wanted, partial, done, cancelled].filter((entry) => matchesStatus(entry, "mangler")).map((entry) => entry.media_id)).toEqual(["1", "2"])
+    expect([wanted, partial, done, cancelled].filter((entry) => matchesStatus(entry, "handling")).map((entry) => entry.media_id)).toEqual(["2"])
+    expect([wanted, partial, done, cancelled].filter((entry) => matchesStatus(entry, "ikke-hentet")).map((entry) => entry.media_id)).toEqual(["4"])
   })
 })

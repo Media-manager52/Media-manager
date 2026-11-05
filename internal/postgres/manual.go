@@ -304,7 +304,13 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 	rows.Close()
 	hasCurrent := hasCurrentLink || len(adoptedFiles) > 0
 	if hasCurrent && !upgradesEnabled {
-		return workflows.Workflow{}, errors.New("upgrades are disabled for the selected quality profile")
+		return workflows.Workflow{}, refuse("upgrades_disabled", "upgrades are disabled for the selected quality profile", "The title already has a file in this scope; choose a quality profile with upgrades enabled to look for a better one.")
+	}
+	var openWorkflow string
+	if err := transaction.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND edition=$3 AND terminal_at IS NULL LIMIT 1`, item.ID.String(), variant, edition).Scan(&openWorkflow); err == nil {
+		return workflows.Workflow{}, refuse("workflow_already_open", "this scope already has open work", "Open GET /api/v1/workflows/"+openWorkflow+" and use its available_actions (for example search) instead.")
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return workflows.Workflow{}, err
 	}
 	if len(adoptedFiles) > 0 && adoptedReplacementConfirmation != AdoptedReplacementConfirmation {
 		return workflows.Workflow{}, ErrAdoptedReplacementConfirmationRequired

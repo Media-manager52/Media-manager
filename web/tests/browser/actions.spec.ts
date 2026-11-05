@@ -312,3 +312,73 @@ test("a deleted title can be restored from the recycle bin", async ({ page }) =>
   await expect.poll(() => writes.length).toBe(1)
   expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/recycle/e1/restore" })
 })
+
+const seriesRoot = { id: "root-series", media_kind: "series", name: "Serier", destination_root: "/media/Serier", plex_visible_root: "/media/Serier", source_visible_root: "/mnt/altmount", is_default: true, enabled: true, edition: "standard" }
+const seriesProfile = { id: "profile-series", media_kind: "series", name: "Serie dansk tekst", policy_version: 1, policy: {}, upgrades_enabled: true, is_default: true, enabled: true }
+
+test("Tilføj sæson adds a new season next to the series' own folder and profile", async ({ page }) => {
+  const writes = await mockApi(page)
+  const openSeason = { id: "wf-s1", media_id: ids.series, media_kind: "series", title: "Testserien", variant: "season:01", edition: "standard", state: "waiting", revision: 1, root_id: seriesRoot.id, quality_profile_id: seriesProfile.id, adopted_replacement_confirmation_required: false, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", available_actions: [] }
+  await page.route("**/api/v1/settings/library-roots", (route) => route.fulfill({ json: { data: [seriesRoot] } }))
+  await page.route("**/api/v1/settings/quality-profiles", (route) => route.fulfill({ json: { data: [seriesProfile] } }))
+  await page.route(`**/api/v1/media/${ids.series}/detail`, (route) => route.fulfill({ json: { data: {
+    media: { id: ids.series, kind: "series", title: "Testserien", year: 2020, identities: [{ namespace: "tmdb", value: "77" }], metadata: { season_count: 3, genres: [], countries: [], networks: [], aliases: [], sources: [], ratings: [], events: [], observed_at: "2026-01-01T00:00:00Z" } },
+    workflows: [openSeason], seasons: [], files: [],
+  } } }))
+  await page.route("**/api/v1/discovery/tv/77?season=3", (route) => route.fulfill({ json: { data: { kind: "series", title: "Testserien", tmdb_id: 77, identities: [], enrichment_state: "tmdb_via_seerr", provider_states: {}, season: { number: 3, episodes: [{ number: 1, provider_id: "e1", title: "Et", air_date: "2026-01-01" }, { number: 2, provider_id: "e2", title: "To", air_date: "2026-01-08" }] } } } }))
+  await page.goto(`/bibliotek/${ids.series}`)
+  await page.getByRole("button", { name: "Tilføj sæson" }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByRole("button", { name: "1 · i gang" })).toBeDisabled()
+  await dialog.getByRole("button", { name: "3", exact: true }).click()
+  await expect(dialog.getByLabel("Bibliotek")).toHaveValue(seriesRoot.id)
+  await expect(dialog.getByLabel("Kvalitetsprofil")).toHaveValue(seriesProfile.id)
+  await dialog.getByRole("button", { name: "Tilføj sæson" }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toEqual({ method: "POST", path: `/api/v1/media/${ids.series}/workflows`, body: {
+    root_id: seriesRoot.id, quality_profile_id: seriesProfile.id, search_immediately: true,
+    season: { number: 3, monitored: true, search_immediately: true, prefer_season_pack: true, episodes: [{ number: 1, provider_episode_id: "e1", title: "Et", air_date: "2026-01-01" }, { number: 2, provider_episode_id: "e2", title: "To", air_date: "2026-01-08" }] },
+  } })
+  await expect(page.getByRole("status").filter({ hasText: "Sæson 3 er tilføjet, og søgningen starter nu." })).toBeVisible()
+})
+
+test("Hent starts a film again and explains a refusal in Danish", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.route(`**/api/v1/media/${ids.movie}/detail`, (route) => route.fulfill({ json: { data: {
+    media: { id: ids.movie, kind: "movie", title: "Testfilmen", year: 2024, identities: [{ namespace: "tmdb", value: "1" }] }, workflows: [], seasons: [], files: [],
+  } } }))
+  let refuse = true
+  await page.route(`**/api/v1/media/${ids.movie}/workflows`, async (route) => {
+    writes.push({ method: "POST", path: new URL(route.request().url()).pathname, body: JSON.parse(route.request().postData() ?? "null") })
+    if (refuse) {
+      refuse = false
+      return route.fulfill({ status: 409, json: { error: { code: "no_commissioned_indexer", message: "search requires at least one commissioned indexer for this media" } } })
+    }
+    return route.fulfill({ status: 201, json: { data: { id: "wf-new" } } })
+  })
+  await page.goto(`/bibliotek/${ids.movie}`)
+  await page.getByRole("button", { name: "Hent", exact: true }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByText("Media Manager søger efter filmen")).toBeVisible()
+  await dialog.getByRole("button", { name: "Hent filmen" }).click()
+  await expect(dialog.getByRole("alert")).toHaveText("Ingen indexer er klar til at søge. Tilføj eller slå en til under Kilder.")
+  await dialog.getByRole("button", { name: "Hent filmen" }).click()
+  await expect(page.getByRole("status").filter({ hasText: "Testfilmen er sat i gang, og søgningen starter nu." })).toBeVisible()
+  expect(writes.map((write) => write.body)).toEqual([
+    { root_id: ids.root, quality_profile_id: ids.profile, search_immediately: true },
+    { root_id: ids.root, quality_profile_id: ids.profile, search_immediately: true },
+  ])
+})
+
+test("the library shows each title's status and filters on it", async ({ page }) => {
+  await mockApi(page)
+  await page.goto("/bibliotek")
+  const movie = page.getByRole("link", { name: /Testfilmen/ })
+  await expect(movie.getByText("Kræver handling")).toBeVisible()
+  await page.getByRole("radiogroup", { name: "Status" }).getByRole("radio", { name: /Kræver handling/ }).click()
+  await expect(page).toHaveURL(/status=handling/)
+  await expect(movie).toBeVisible()
+  await expect(page.getByRole("link", { name: /Testserien/ })).toHaveCount(0)
+  await page.getByRole("radiogroup", { name: "Status" }).getByRole("radio", { name: /Ikke hentet/ }).click()
+  await expect(page.getByText("Alle titler har noget i Plex eller er i gang.")).toBeVisible()
+})
