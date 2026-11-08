@@ -5,7 +5,8 @@ import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRe
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
-import { errorMessage, humanize } from "@/i18n"
+import { backupStateLabel, errorMessage, externalCopyLabel, humanize } from "@/i18n"
+import { externalCopyState, latestExternalCopy } from "@/lib/backup-evidence"
 import { workflowHref } from "@/lib/links"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -152,22 +153,30 @@ function Backups() {
   if (query.error) return <ErrorBox error={query.error} />
   if (!query.data) return <Card><ListSkeleton /></Card>
   const b = query.data
+  const copiedAt = latestExternalCopy(b.records)
   return (
     <Card>
       <CardHeader
         title="Backup"
-        description={b.offsite.configured ? "Krypterede backups, også kopieret uden for serveren." : "Krypterede backups. Der er ingen kopi uden for serveren endnu."}
+        description="Krypterede databasebackups med prøvegendannelse i en isoleret database."
         action={<Button variant="primary" busy={create.isPending} disabled={!b.configured} onClick={() => create.mutate()}>Tag backup nu</Button>}
       />
       {!b.configured ? <p className="px-5 pb-3 text-sm text-warn">Backups er slået fra, fordi serveren ikke har en backup-nøgle (BACKUP_ENCRYPTION_KEY).</p> : null}
+      <div className="space-y-2 px-5 pb-4 text-sm text-text-2">
+        <p>{b.offsite.configured ? "Ekstern kopiering er sat op." : "Ekstern kopiering er ikke sat op."}</p>
+        <p>{copiedAt ? `Senest bekræftede eksterne kopi: ${formatDateTime(copiedAt)}.` : "Ingen gennemført ekstern kopi er dokumenteret i den viste backupliste."}</p>
+        <p>Prøvegendannelsen kontrollerer databasen. En samlet gendannelse af installation, nøgler, mapper og medier er ikke dokumenteret her.</p>
+        <p>Gem backup-nøglen og nøglen til gemte forbindelser sikkert uden for serveren. Backup-nøglen åbner backupfilen; forbindelsernes nøgle åbner de gemte adgangsoplysninger.</p>
+      </div>
       {b.configured && b.key_file ? <p className="px-5 pb-3 text-sm text-text-2">Backup-nøglen blev lavet automatisk og ligger i <code className="break-all">{b.key_file}</code> i API-containeren. Gem en kopi et sikkert sted: uden den kan en backup ikke gendannes på en anden server.</p> : null}
       {b.records.length === 0 ? <Empty title="Ingen backups endnu" /> : null}
       <ul className="divide-y divide-line">
         {b.records.slice(0, 30).map((record) => (
           <li key={record.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
-            <Badge tone={record.state === "verified" ? "good" : record.state === "failed" ? "bad" : "info"}>{{ verified: "Kontrolleret", failed: "Fejlet", queued: "I kø", running: "Kører" }[record.state] ?? humanize(record.state)}</Badge>
+            <Badge tone={record.state === "verified" ? "good" : record.state === "failed" ? "bad" : "info"}>{backupStateLabel(record.state)}</Badge>
             <span className="flex-1">{formatDateTime(record.completed_at ?? record.created_at)}</span>
             <span className="tabular text-text-3">{formatBytes(record.size_bytes)}</span>
+            <span className="w-full text-text-2">{externalCopyLabel(externalCopyState(record, b.offsite.configured))}</span>
             {record.last_error ? <span className="w-full break-words text-bad">{record.last_error}</span> : null}
           </li>
         ))}

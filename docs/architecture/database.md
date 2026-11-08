@@ -7,7 +7,9 @@ belongs. Reading this before touching SQL saves hours.
 
 - Migrations are **embedded** Go/SQL: `internal/postgres/migrations/NNNN_name.sql`,
   embedded via `//go:embed migrations/*.sql` in `migrate.go`.
-- `CurrentSchemaVersion int64 = 50` in `migrate.go` is the single version gate.
+- `CurrentSchemaVersion` in `internal/postgres/migrate.go` is the single version
+  gate. Read its value from the checked-out source; the running API reports
+  its own schema version in `/api/v1/system/info` and `/health/ready`.
   `Migrate` applies every file whose numeric prefix is `<= CurrentSchemaVersion`
   and not yet in `schema_migrations`.
 - Each migration runs in its own transaction; a global advisory lock

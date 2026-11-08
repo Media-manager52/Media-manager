@@ -280,3 +280,18 @@ export function errorMessage(error: unknown): string {
   }
   return error instanceof Error ? error.message : String(error)
 }
+
+export function externalCopyLabel(state: string): string {
+  const labels: Record<string, string> = {
+    confirmed: "Ekstern kopi bekræftet",
+    failed: "Ekstern kopiering fejlede",
+    pending: "Afventer ekstern kopi",
+    unknown: "Ekstern kopi mangler fuld bekræftelse",
+    not_configured: "Ingen ekstern kopi dokumenteret",
+  }
+  return labels[state] ?? "Ekstern kopistatus er ukendt"
+}
+
+export function backupStateLabel(state: string): string {
+  return ({ verified: "Database kontrolleret", failed: "Backup fejlet", queued: "I kø", running: "Kører" } as Record<string, string>)[state] ?? "Ukendt backupstatus"
+}
