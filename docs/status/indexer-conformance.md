@@ -106,6 +106,18 @@ read, 27 would have been excluded before download; none of the 93 releases
 whose output had Danish would have been. DrunkenSlug had no Danish-verified
 release with an NFO, so its positive control is the other providers'.
 
+### Unsupported treasure-maps NFO (2026-11-08, source)
+
+The adapter no longer treats the measured treasure-maps HTTPS `/api` endpoint
+as an NFO source, whether the observation supplies an `info` link or `nfo=1`.
+Direct NFO inspection also returns unavailable before scheduler acquisition:
+no NFO request, pacing reservation or query budget is spent. Normal NZB
+retrieval, output-language inspection and all other providers' NFO checks remain.
+The exception matches the configured endpoint, including its default HTTPS port,
+not an integration name, release-supplied hostname, subdomain or future API path.
+Local transport and acquisition regressions cover the change. No new live
+provider requests or production rollout are claimed by this source note.
+
 ## Bounded annual-season discovery (2026-10-05)
 
 For series with complete, unambiguous annual frozen season metadata, runtime
