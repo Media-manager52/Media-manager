@@ -35,13 +35,13 @@ func TestVerifyAcceptsOnlyStrictManagedDanishSidecar(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	video := fixtureAsset(t, root, "Show.S01E01.mkv", "video")
-	matching := fixtureAsset(t, root, "Show.S01E01.da-DK.forced.srt", "subtitle")
+	matching := fixtureAsset(t, root, "Show.S01E01.da-DK.sdh.srt", "subtitle")
 	nonmatching := fixtureAsset(t, root, "Show.S01E010.da.srt", "wrong boundary")
 	result, err := Verify(context.Background(), root, []Asset{video}, []Asset{video, matching, nonmatching}, Policy{Required: []string{"da"}}, fixtureProbe{evidence: map[string]mediainfo.Evidence{video.RelativePath: mediaEvidence()}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "verified" || len(result.Companions) != 1 || result.Companions[0].SubtitleAssetID != matching.ID || result.Companions[0].Language != "da" || result.Companions[0].Forced == nil || !*result.Companions[0].Forced {
+	if result.Status != "verified" || len(result.Companions) != 1 || result.Companions[0].SubtitleAssetID != matching.ID || result.Companions[0].Language != "da" || result.Companions[0].HearingImpaired == nil || !*result.Companions[0].HearingImpaired {
 		t.Fatalf("unexpected companions: %+v", result.Companions)
 	}
 }

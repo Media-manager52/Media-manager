@@ -137,6 +137,7 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 		}
 		entry.AudioLanguages = sortedKeys(audio)
 		observed := map[string]bool{}
+		fullSubtitles := map[string]bool{}
 		for _, track := range evidence.SubtitleTracks {
 			if track.CanonicalLanguage == "" {
 				continue
@@ -146,19 +147,27 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 			hearing := explicitTrue(track.HearingImpaired, hasExactTag(track.Title, "sdh") || hasHearingImpairedTag(track.Title))
 			entry.Languages = append(entry.Languages, LanguageEvidence{Kind: "embedded", RawValue: track.Language, Canonical: track.CanonicalLanguage, Source: "stream_language", TrackIndex: &index, Forced: forced, HearingImpaired: hearing})
 			observed[track.CanonicalLanguage], observedAll[track.CanonicalLanguage] = true, true
+			if forced == nil || !*forced {
+				fullSubtitles[track.CanonicalLanguage] = true
+			}
 		}
 		for _, sidecar := range pairs[video.ID] {
 			entry.Languages = append(entry.Languages, LanguageEvidence{Kind: "external", RawValue: sidecar.RawLanguage, Canonical: sidecar.Language, Source: "filename_tag", RelativePath: sidecar.RelativePath, Forced: sidecar.Forced, HearingImpaired: sidecar.HearingImpaired})
 			if sidecar.Language != "" {
 				observed[sidecar.Language], observedAll[sidecar.Language] = true, true
+				if sidecar.Forced == nil || !*sidecar.Forced {
+					fullSubtitles[sidecar.Language] = true
+				}
 				result.Companions = append(result.Companions, sidecar)
 			}
 		}
 		entry.ObservedLanguages = sortedKeys(observed)
 		for _, required := range policy.Required {
-			if !observed[required] && !audio[required] {
+			// Forced tracks only translate selected dialogue. Retain their
+			// evidence and companions, but require a full subtitle or audio.
+			if !fullSubtitles[required] && !audio[required] {
 				entry.MissingRequired = append(entry.MissingRequired, required)
-				result.FailureReasons = append(result.FailureReasons, fmt.Sprintf("%s has no verified %s subtitle or audio track", video.RelativePath, required))
+				result.FailureReasons = append(result.FailureReasons, fmt.Sprintf("%s has no verified full %s subtitle or audio track", video.RelativePath, required))
 			}
 		}
 		for _, required := range policy.RequiredAudio {
@@ -222,6 +231,21 @@ func filenameMetadata(videoPath, sidecarPath string) (string, string, *bool, *bo
 	var forced, hearing *bool
 	conflictingLanguage := false
 	for _, token := range strings.Split(suffix, ".") {
+		// SDH is also a valid ISO language code. In subtitle filenames these
+		// explicit qualifiers must not become a second, conflicting language.
+		switch strings.ToLower(strings.TrimSpace(token)) {
+		case "forced":
+			forced = boolPointer(true)
+			continue
+		case "sdh", "hearing-impaired", "hearingimpaired":
+			hearing = boolPointer(true)
+			continue
+		case "hi":
+			if canonical != "" {
+				hearing = boolPointer(true)
+				continue
+			}
+		}
 		if value, ok := CanonicalLanguage(token); ok {
 			if canonical != "" && canonical != value {
 				raw, canonical = "", ""
@@ -232,12 +256,6 @@ func filenameMetadata(videoPath, sidecarPath string) (string, string, *bool, *bo
 				raw, canonical = token, value
 			}
 			continue
-		}
-		switch strings.ToLower(strings.TrimSpace(token)) {
-		case "forced":
-			forced = boolPointer(true)
-		case "sdh", "hi", "hearing-impaired", "hearingimpaired":
-			hearing = boolPointer(true)
 		}
 	}
 	return raw, canonical, forced, hearing

@@ -7,6 +7,7 @@ import { ApiError, createMediaWorkflow, loadDiscoveryMetadata, loadLibraryRoots,
 import { useToast } from "@/components/toast"
 import { Badge, Button, cx, Dialog } from "@/components/ui"
 import { errorMessage } from "@/i18n"
+import { managedFileEdition, seasonInPlex } from "@/lib/season-coverage"
 
 /** Danish text for the refusals a move or a delete can meet. */
 function actionError(error: unknown): string {
@@ -199,15 +200,7 @@ function GetDialog({ detail, onClose }: { detail: APIMediaDetail; onClose: () =>
   const edition = (roots.data ?? []).find((root) => root.id === rootId)?.edition ?? "standard"
   const sameEdition = (workflowEdition?: string) => (workflowEdition ?? "standard") === edition
   const busyVariant = (variant: string) => detail.workflows.some((workflow) => !workflow.terminal_at && workflow.variant === variant && sameEdition(workflow.edition))
-  const seasonInPlex = (number: number) => {
-    const season = detail.seasons.find((entry) => entry.number === number)
-    const expected = season?.expected_episodes ?? 0
-    const prefix = `Season ${String(number).padStart(2, "0")}/`
-    const present = detail.files.filter((file) => file.state === "current" && file.destination_relative.includes(prefix)).length
-    return expected > 0 && present >= expected
-  }
-  const rootEdition = (name: string) => (roots.data ?? []).find((root) => root.name === name)?.edition ?? "standard"
-  const movieInPlex = detail.files.some((file) => file.state === "current" && rootEdition(file.root_name) === edition)
+  const movieInPlex = detail.files.some((file) => file.state === "current" && managedFileEdition(file, roots.data ?? []) === edition)
   const movieBusy = !series && busyVariant("default")
   const mutation = useMutation({
     mutationFn: async () => {
@@ -253,7 +246,7 @@ function GetDialog({ detail, onClose }: { detail: APIMediaDetail; onClose: () =>
             <div className="flex flex-wrap gap-2">
               {Array.from({ length: seasonCount }, (_, index) => index + 1).map((number) => {
                 const busy = busyVariant(seasonVariant(number))
-                const done = seasonInPlex(number)
+                const done = seasonInPlex(detail.seasons.find((entry) => entry.number === number), detail.files, edition, roots.data ?? [])
                 const blocked = busy || done
                 return (
                   <button key={number} type="button" disabled={blocked} aria-pressed={picked.includes(number)} onClick={() => toggle(number)} title={busy ? "Allerede i gang" : done ? "Ligger allerede i Plex" : undefined}
@@ -263,7 +256,7 @@ function GetDialog({ detail, onClose }: { detail: APIMediaDetail; onClose: () =>
                 )
               })}
             </div>
-            <p className="mt-2 text-xs text-text-3">Sæsoner, der allerede er i gang eller ligger i Plex, kan ikke vælges.</p>
+            <p className="mt-2 text-xs text-text-3">Sæsoner, der allerede er i gang eller har alle afsnit bekræftet i Plex i den valgte udgave, kan ikke vælges.</p>
           </fieldset>
         ) : movieBusy ? (
           <p className="text-warn">Filmen hentes eller ventes allerede. Brug Søg under Status for at søge igen nu.</p>
@@ -274,7 +267,7 @@ function GetDialog({ detail, onClose }: { detail: APIMediaDetail; onClose: () =>
         )}
         <label className="block">
           <span>Bibliotek</span>
-          <select value={rootId} onChange={(event) => setRootChoice(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-3 text-text">
+          <select value={rootId} onChange={(event) => { setRootChoice(event.target.value); setPicked([]) }} className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-3 text-text">
             {kindRoots.map((root) => <option key={root.id} value={root.id}>{root.name}{root.edition === "4k" ? " (4K)" : ""}</option>)}
           </select>
           {edition === "4k" ? <span className="mt-1 block text-xs text-text-3">En 4K-udgave hentes ved siden af den almindelige; den erstatter den ikke.</span> : null}

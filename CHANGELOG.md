@@ -43,6 +43,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **Language and library evidence.** Forced-only embedded or bundled subtitles no longer satisfy a required language; full SDH subtitles and Danish audio still do, and forced tracks remain in the evidence. Library status loading, errors and incomplete responses stay visibly unknown with retry. Setup describes saved configuration rather than tested connections. Season completion uses confirmed distinct frozen episodes in the selected edition, with stable file root/edition metadata instead of display names or file counts.
+
 - Dialogs are announced with their title to screen readers.
 - **A release from a switched-off indexer no longer blocks its workflow.** When an indexer was switched off after one of its releases was selected, fetching that NZB failed and was retried forever, and the workflow never moved on. It is now recorded as a retrieval failure without contacting the indexer, and a known alternative on an enabled indexer is tried, the same way as when an indexer refuses access.
 - **Small errors on the remaining pages.**

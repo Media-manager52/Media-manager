@@ -21,23 +21,23 @@ export function SetupPage() {
   if (librariesMissing && !showRecommended) setShowRecommended(true)
   return (
     <>
-      <PageHeader title="Kom i gang" description="Det her skal være på plads, før Media Manager kan hente film og serier. Et punkt bliver grønt, når det er sat op." />
+      <PageHeader title="Kom i gang" description="Grønt viser gemt opsætning. Test forbindelserne under Forbindelser, og kontrollér en første titel i Plex for at afprøve hele forløbet." />
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
       {query.isPending ? <Card><ListSkeleton rows={7} /></Card> : null}
       {query.data && showRecommended ? <RecommendedSetupCard ready={stepDone("plex") && stepDone("altmount")} /> : null}
       {query.data ? (
         <Card>
           <CardHeader
-            title={query.data.complete ? "Alt det nødvendige er klar" : `${done} af ${required.length} trin klaret`}
-            description={query.data.complete ? "Media Manager kan hente film og serier. Valgfrie trin kan sættes op, når du vil." : "Tag trinnene i rækkefølge; hvert trin linker til siden, hvor det sættes op."}
+            title={query.data.complete ? "Den nødvendige opsætning er gemt" : `${done} af ${required.length} trin sat op`}
+            description={query.data.complete ? "Gemte forbindelser er ikke en bekræftelse af, at de virker. Valgfrie trin kan sættes op, når du vil." : "Tag trinnene i rækkefølge; hvert trin linker til siden, hvor det sættes op."}
           />
-          <div className="px-5 pb-2"><Progress value={done} max={Math.max(required.length, 1)} tone={query.data.complete ? "good" : "info"} label="Trin klaret" /></div>
+          <div className="px-5 pb-2"><Progress value={done} max={Math.max(required.length, 1)} tone={query.data.complete ? "good" : "info"} label="Trin sat op" /></div>
           <ol className="divide-y divide-line">
             {query.data.steps.map((step) => {
               const text = setupStepText[step.id]
               return (
                 <li key={step.id} className="flex items-start gap-3 px-5 py-3">
-                  {step.done ? <CheckCircle2 aria-label="Klaret" className="mt-0.5 size-5 shrink-0 text-good" /> : <Circle aria-label="Mangler" className="mt-0.5 size-5 shrink-0 text-text-3" />}
+                  {step.done ? <CheckCircle2 aria-label="Sat op" className="mt-0.5 size-5 shrink-0 text-good" /> : <Circle aria-label="Mangler" className="mt-0.5 size-5 shrink-0 text-text-3" />}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{text?.title ?? step.id}</span>

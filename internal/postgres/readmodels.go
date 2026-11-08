@@ -114,6 +114,8 @@ type ManagedFile struct {
 	Title                string            `json:"title"`
 	Year                 *uint16           `json:"year,omitempty"`
 	RootName             string            `json:"root_name"`
+	RootID               uuid.UUID         `json:"root_id"`
+	Edition              string            `json:"edition"`
 	DestinationRelative  string            `json:"destination_relative"`
 	SourceRelative       string            `json:"source_relative"`
 	PlexVisibleTarget    string            `json:"plex_visible_target"`
@@ -199,7 +201,7 @@ func (store *Store) managedFilesPage(ctx context.Context, id, mediaID *uuid.UUID
 		item.source_relative,item.plex_visible_target,item.state,item.generation,item.plex_confirmed,
 		item.verified_at,item.displaced_at,item.removed_at,item.variant,item.origin,item.quality_profile,
 		item.quality_evidence_state,item.quality_evidence,item.source_size_bytes,item.source_modified_at,
-		item.original_source_root,item.adoption_batch_id,item.plex_provider_guid,item.plex_target_inside_library
+		item.original_source_root,item.adoption_batch_id,item.plex_provider_guid,item.plex_target_inside_library,item.root_id,item.edition
 		FROM (
 			SELECT version.id::text AS id,media.id::text AS media_id,media.kind AS media_kind,media.title,media.year,
 				root.name AS root_name,link.destination_relative,version.source_relative,
@@ -213,7 +215,7 @@ func (store *Store) managedFilesPage(ctx context.Context, id, mediaID *uuid.UUID
 				NULL::text AS adoption_batch_id,
 				COALESCE(confirmation.provider_namespace || '://' || confirmation.provider_value,'') AS plex_provider_guid,
 				(version.plex_visible_target = root.plex_visible_root OR version.plex_visible_target LIKE root.plex_visible_root || '/%') AS plex_target_inside_library,
-				COALESCE(version.verified_at,workflow.updated_at) AS sort_at
+				COALESCE(version.verified_at,workflow.updated_at) AS sort_at,root.id::text AS root_id,root.edition
 			FROM library_link_versions version
 			JOIN library_links link ON link.id=version.library_link_id
 			JOIN library_roots root ON root.id=link.root_id
@@ -234,7 +236,7 @@ func (store *Store) managedFilesPage(ctx context.Context, id, mediaID *uuid.UUID
 				adopted.state,1,true,adopted.verified_at,adopted.displaced_at,adopted.purged_at,
 				adopted.variant,'adoption'::text,profile.name,adopted.quality_evidence_state,
 				adopted.quality_evidence,adopted.source_size,to_timestamp(adopted.source_modtime_ns / 1000000000.0),
-				adopted.original_source_root,adopted.adoption_batch_id::text,adopted.provider_guid,true,adopted.verified_at
+				adopted.original_source_root,adopted.adoption_batch_id::text,adopted.provider_guid,true,adopted.verified_at,root.id::text,root.edition
 			FROM adopted_files adopted
 			JOIN media_items media ON media.id=adopted.media_id
 			JOIN library_roots root ON root.id=adopted.root_id
@@ -251,16 +253,17 @@ func (store *Store) managedFilesPage(ctx context.Context, id, mediaID *uuid.UUID
 	result := []ManagedFile{}
 	for rows.Next() {
 		var item ManagedFile
-		var idText, mediaText string
+		var idText, mediaText, rootText string
 		var adoptionBatchText *string
 		var year *int16
 		var qualityEvidence []byte
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.RootName, &item.DestinationRelative, &item.SourceRelative, &item.PlexVisibleTarget, &item.State, &item.Generation, &item.PlexConfirmed, &item.VerifiedAt, &item.DisplacedAt, &item.RemovedAt, &item.Variant, &item.Origin, &item.QualityProfile, &item.QualityEvidenceState, &qualityEvidence, &item.SourceSizeBytes, &item.SourceModifiedAt, &item.OriginalSourceRoot, &adoptionBatchText, &item.PlexProviderGUID, &item.PlexTargetInsideLibrary); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.RootName, &item.DestinationRelative, &item.SourceRelative, &item.PlexVisibleTarget, &item.State, &item.Generation, &item.PlexConfirmed, &item.VerifiedAt, &item.DisplacedAt, &item.RemovedAt, &item.Variant, &item.Origin, &item.QualityProfile, &item.QualityEvidenceState, &qualityEvidence, &item.SourceSizeBytes, &item.SourceModifiedAt, &item.OriginalSourceRoot, &adoptionBatchText, &item.PlexProviderGUID, &item.PlexTargetInsideLibrary, &rootText, &item.Edition); err != nil {
 			return nil, err
 		}
 		item.PlexVisibleTarget = managedPublicationPath(item.Origin, item.PlexVisibleTarget, item.PlexTargetInsideLibrary)
 		item.ID, _ = uuid.Parse(idText)
 		item.MediaID, _ = uuid.Parse(mediaText)
+		item.RootID, _ = uuid.Parse(rootText)
 		if year != nil {
 			converted := uint16(*year)
 			item.Year = &converted

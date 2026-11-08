@@ -26,10 +26,12 @@ export function LibraryPage() {
   const catalog = useQuery({ queryKey: ["media", "catalog"], queryFn: ({ signal }) => loadCatalogMediaBounded(signal), staleTime: 60_000 })
   const all = useMemo(() => catalog.data?.items ?? [], [catalog.data])
   const counts = useMemo(() => ({ film: all.filter((item) => item.kind === "movie").length, serier: all.filter((item) => item.kind === "series").length }), [all])
-  // The status is an extra: the library still shows every title when it cannot load.
+  // A failed/missing status is unknown, never a successful empty filter.
   const state = useQuery({ queryKey: ["media", "status"], queryFn: ({ signal }) => loadMediaStatus(signal), staleTime: 60_000, retry: false })
-  const byId = useMemo(() => new Map((state.data ?? []).map((entry) => [entry.media_id, entry])), [state.data])
+  const statusUnavailable = state.data === undefined || state.isError
+  const byId = useMemo(() => new Map((state.isError ? [] : state.data ?? []).map((entry) => [entry.media_id, entry])), [state.data, state.isError])
   const kindItems = useMemo(() => filterMedia(all, kind, ""), [all, kind])
+  const unknownCount = kindItems.filter((item) => !byId.has(item.id)).length
   const statusCounts = useMemo(() => {
     const counts: Record<Status, number> = { alle: kindItems.length, mangler: 0, handling: 0, "ikke-hentet": 0 }
     for (const item of kindItems) {
@@ -39,9 +41,9 @@ export function LibraryPage() {
     return counts
   }, [kindItems, byId])
   const items = useMemo(() => {
-    const filtered = filterMedia(all, kind, deferredSearch).filter((item) => status === "alle" || (byId.has(item.id) && matchesStatus(byId.get(item.id)!, status)))
+    const filtered = filterMedia(all, kind, deferredSearch).filter((item) => status === "alle" || (!statusUnavailable && byId.has(item.id) && matchesStatus(byId.get(item.id)!, status)))
     return sortMedia(filtered, sort)
-  }, [all, kind, deferredSearch, sort, status, byId])
+  }, [all, kind, deferredSearch, sort, status, byId, statusUnavailable])
 
   const update = (key: string, value: string, fallback: string) => {
     const next = new URLSearchParams(params)
@@ -69,7 +71,6 @@ export function LibraryPage() {
             { value: "serier", label: "Serier", count: counts.serier || undefined },
           ]}
         />
-        {state.data ? (
           <Segmented
             label="Status"
             value={status}
@@ -81,7 +82,6 @@ export function LibraryPage() {
               { value: "ikke-hentet", label: "Ikke hentet", count: statusCounts["ikke-hentet"] || undefined },
             ]}
           />
-        ) : null}
         <SearchField value={search} onChange={(value) => { setSearch(value); setVisible(pageSize) }} placeholder="Søg i titler og originaltitler" label="Søg i biblioteket" />
         <label className="ml-auto flex items-center gap-2 text-sm text-text-2">
           Sortér
@@ -93,9 +93,12 @@ export function LibraryPage() {
         </label>
       </div>
       {catalog.error ? <ErrorBox error={catalog.error} retry={() => catalog.refetch()} /> : null}
+      {state.isPending ? <p role="status" className="mb-4 text-sm text-text-2">Henter status…</p> : null}
+      {state.error ? <div className="mb-4 space-y-2"><p className="text-sm text-warn">Titlernes status er ukendt. Prøv igen for at se, hvad der mangler.</p><ErrorBox error={state.error} retry={() => state.refetch()} /></div> : null}
+      {!statusUnavailable && unknownCount > 0 ? <p role="status" className="mb-4 text-sm text-warn">Status mangler for {formatNumber(unknownCount)} titler. Filteret viser kun titler med kendt status.</p> : null}
       {catalog.data?.truncated ? <p className="mb-4 text-sm text-warn">Biblioteket er større end det, siden kan vise på én gang. Brug søgningen.</p> : null}
       {catalog.isPending ? <PosterGridSkeleton /> : null}
-      {!catalog.isPending && items.length === 0 && !catalog.error ? (
+      {!catalog.isPending && items.length === 0 && !catalog.error && (status === "alle" || (!statusUnavailable && unknownCount === 0)) ? (
         <Card><Empty title={status !== "alle" && !search ? statusEmpty[status] : search ? "Ingen titler passer til søgningen" : all.length > 0 ? (kind === "film" ? "Ingen film endnu" : "Ingen serier endnu") : "Biblioteket er tomt"}>{search ? "Prøv et andet ord, eller tilføj titlen." : all.length > 0 ? "Tilføj en titel, eller vælg en anden type." : "Tilføj din første film eller serie."}</Empty></Card>
       ) : null}
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">

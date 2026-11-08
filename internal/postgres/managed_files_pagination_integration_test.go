@@ -12,6 +12,9 @@ func TestListManagedFilesPageAppliesOffset(t *testing.T) {
 	if firstPage[0].ID != version {
 		t.Fatalf("first page id=%s, want published version %s", firstPage[0].ID, version)
 	}
+	if firstPage[0].RootID != fixture.root.ID || firstPage[0].Edition != "standard" {
+		t.Fatalf("file lost its stable library identity: %+v", firstPage[0])
+	}
 	secondPage, err := fixture.store.ListManagedFilesPage(fixture.ctx, 1, 1)
 	if err != nil || len(secondPage) != 0 {
 		t.Fatalf("offset past end=%+v err=%v, want empty", secondPage, err)

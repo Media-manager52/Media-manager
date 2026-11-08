@@ -1304,6 +1304,100 @@
         },
         "type": "object"
       },
+      "Postgres_ManagedFile": {
+        "properties": {
+          "adoption_batch_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "destination_relative": {
+            "type": "string"
+          },
+          "displaced_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "edition": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "original_source_root": {
+            "type": "string"
+          },
+          "plex_confirmed": {
+            "type": "boolean"
+          },
+          "plex_provider_guid": {
+            "type": "string"
+          },
+          "plex_visible_target": {
+            "type": "string"
+          },
+          "quality_evidence": {
+            "description": "Arbitrary JSON."
+          },
+          "quality_evidence_state": {
+            "type": "string"
+          },
+          "quality_profile": {
+            "type": "string"
+          },
+          "removed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "root_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "root_name": {
+            "type": "string"
+          },
+          "source_modified_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source_relative": {
+            "type": "string"
+          },
+          "source_size_bytes": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "variant": {
+            "type": "string"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_ManualEpisode": {
         "properties": {
           "air_date": {
@@ -3609,7 +3703,22 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_ManagedFile"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -3653,7 +3762,19 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Postgres_ManagedFile"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
