@@ -97,7 +97,9 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
   const profiles = useQuery({ queryKey: ["settings", "profiles"], queryFn: ({ signal }) => loadQualityProfiles(signal) })
   const kind = detail.kind
   const seasonCount = detail.metadata?.season_count ?? 0
-  const [seasons, setSeasons] = useState<number[]>(() => Array.from({ length: seasonCount }, (_, index) => index + 1))
+  const [seasonChoice, setSeasonChoice] = useState<"latest" | "custom" | "all">("latest")
+  const [customSeasons, setCustomSeasons] = useState<number[]>([])
+  const seasons = seasonChoice === "latest" ? (seasonCount > 0 ? [seasonCount] : []) : seasonChoice === "all" ? Array.from({ length: seasonCount }, (_, index) => index + 1) : customSeasons
   const [rootId, setRootId] = useState("")
   const [profileId, setProfileId] = useState("")
   const [searchNow, setSearchNow] = useState(true)
@@ -143,7 +145,7 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
     },
   })
   const meta = detail.metadata
-  const toggle = (number: number) => setSeasons((current) => (current.includes(number) ? current.filter((entry) => entry !== number) : [...current, number]))
+  const toggle = (number: number) => setCustomSeasons((current) => (current.includes(number) ? current.filter((entry) => entry !== number) : [...current, number]))
   return (
     <Card>
       <CardHeader title={`${detail.title}${detail.year ? ` (${detail.year})` : ""}`} description={[kindLabel(kind), meta?.original_language ? `Original: ${languageName(meta.original_language)}` : null].filter(Boolean).join(" · ")} action={<Button variant="ghost" onClick={onBack}>Tilbage til resultater</Button>} />
@@ -154,15 +156,22 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
           {kind === "series" ? (
             <fieldset>
               <legend className="mb-2 text-sm font-medium">Sæsoner</legend>
+              <div role="radiogroup" aria-label="Sæsonvalg" className="mb-3 flex flex-wrap gap-4">
+                {([{ value: "latest", label: "Seneste sæson" }, { value: "custom", label: "Vælg sæsoner" }, { value: "all", label: "Alle sæsoner" }] as const).map((choice) => (
+                  <label key={choice.value} className="flex items-center gap-2 text-sm"><input type="radio" name="season-choice" checked={seasonChoice === choice.value} onChange={() => setSeasonChoice(choice.value)} />{choice.label}</label>
+                ))}
+              </div>
               {seasonCount === 0 ? <p className="text-sm text-warn">TMDB kender ingen sæsoner for denne serie endnu.</p> : (
-                <div className="flex flex-wrap gap-2">
+                seasonChoice === "custom" ? <div className="flex flex-wrap gap-2">
                   {Array.from({ length: seasonCount }, (_, index) => index + 1).map((number) => (
                     <button key={number} type="button" aria-pressed={seasons.includes(number)} onClick={() => toggle(number)} className={cx("h-9 min-w-12 rounded-lg border px-3 text-sm font-medium", seasons.includes(number) ? "border-accent bg-accent-soft text-text" : "border-line bg-surface text-text-2")}>
                       {number}
                     </button>
                   ))}
-                </div>
+                </div> : null
               )}
+              <p role="status" className="mt-3 text-sm">{seasons.length ? `Valgt: ${seasons.length === 1 ? "sæson" : "sæsonerne"} ${[...seasons].sort((a, b) => a - b).join(", ")} (${seasons.length} ${seasons.length === 1 ? "sæson" : "sæsoner"}).` : "Vælg mindst én sæson."}</p>
+              <p className="mt-1 text-xs text-text-3">Kun de valgte sæsoners kendte afsnit overvåges. Nye sæsoner tilføjes ikke automatisk.</p>
             </fieldset>
           ) : null}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

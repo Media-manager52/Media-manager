@@ -38,4 +38,7 @@ func TestReplacementRequestNeedsOwnerAndASafePath(t *testing.T) {
 	if response := send(`{not json`, true); response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid body: %d", response.Code)
 	}
+	if response := send(`{"altmount_file_path":"media-manager/a/Movie.mkv","file_id":"not-a-uuid"}`, true); response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_id") {
+		t.Fatalf("invalid publication ID: %d %s", response.Code, response.Body.String())
+	}
 }

@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router"
 
 import { loadMediaDetail, refreshMediaMetadata, type APIManagedFile, type APIMediaDetail, type APIMediaSeason, type APIWorkflow } from "@/api/client"
 import { Poster, sizedArtwork } from "@/components/poster"
+import { ReplaceFile } from "@/components/replace-file"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, Skeleton } from "@/components/ui"
 import { TitleActions } from "@/components/title-actions"
@@ -214,6 +215,7 @@ function FilesCard({ files }: { files: APIManagedFile[] }) {
                   {file.plex_confirmed ? null : <span className="text-text-3">· Venter på Plex</span>}
                 </div>
               ) : null}
+              <ReplaceFile file={file} />
             </li>
           )
         })}

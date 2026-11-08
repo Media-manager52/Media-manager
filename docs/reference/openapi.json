@@ -2226,6 +2226,9 @@
         "properties": {
           "altmount_file_path": {
             "type": "string"
+          },
+          "file_id": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -5288,7 +5291,7 @@
         "x-mm-effect": "read"
       },
       "post": {
-        "description": "For a file AltMount does not report but that plays badly (for example slow seeking because its articles come from a backup provider). altmount_file_path is the file's path as AltMount reports it, e.g. media-manager/\u003crelease\u003e/\u003cfile\u003e.mkv. Opens a repair (reason owner_requested) that acquires a replacement under the publication's profile, excluding the current release title; the old file keeps playing until Plex confirms the replacement. outcome is opened, attached (an open workflow already acquires that title), already_open or needs_attention (detail in GET /api/v1/repairs). 404 when the path backs no current publication, 409 while the publishing workflow is still in flight.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "description": "For a file AltMount does not report but that plays badly (for example slow seeking because its articles come from a backup provider). altmount_file_path is the file's path as AltMount reports it, e.g. media-manager/\u003crelease\u003e/\u003cfile\u003e.mkv. The website also supplies file_id to bind the request to that exact current publication; a mismatched or stale ID is 404. Opens a repair (reason owner_requested) that acquires a replacement under the publication's profile, excluding the current release title; the old file keeps playing until Plex confirms the replacement. outcome is opened, attached (an open workflow already acquires that title), already_open or needs_attention (detail in GET /api/v1/repairs). 404 when the path backs no current publication, 409 while the publishing workflow is still in flight.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
         "operationId": "requestAltMountReplacement",
         "requestBody": {
           "content": {

@@ -356,6 +356,10 @@ export const loadIndexers = async (signal?: AbortSignal) => await requestJSON<AP
 export const loadQueue = (signal?: AbortSignal) => requestJSON<APIQueueSnapshot>("/api/v1/system/queue", { signal })
 export const loadWorkflowCandidates = async (id: string, signal?: AbortSignal) => await requestJSON<APIWorkflowCandidate[] | null>(`/api/v1/workflows/${encodeURIComponent(id)}/candidates?limit=100`, { signal }) ?? []
 export const loadRepairs = async (signal?: AbortSignal) => await requestJSON<APIRepair[] | null>("/api/v1/repairs", { signal }) ?? []
+export type APIReplacementResult = { outcome: "opened" | "attached" | "already_open" | "needs_attention" }
+export const requestFileReplacement = (file: Pick<APIManagedFile, "id" | "source_relative">) => requestJSON<APIReplacementResult>("/api/v1/repairs", {
+  method: "POST", body: JSON.stringify({ file_id: file.id, altmount_file_path: file.source_relative }),
+})
 export const updateIndexer = (id: string, patch: { name?: string; enabled?: boolean; query_limit?: number; grab_limit?: number; minimum_interval_ms?: number }) =>
   requestJSON<unknown>(`/api/v1/settings/integrations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })
 export const updateLibraryRoot = (id: string, patch: { is_default?: boolean; enabled?: boolean }) =>

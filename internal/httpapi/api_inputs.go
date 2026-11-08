@@ -70,6 +70,7 @@ type applyQualityProfilePresetInput struct {
 
 type requestReplacementInput struct {
 	AltMountFilePath string `json:"altmount_file_path"`
+	FileID           string `json:"file_id,omitempty"`
 }
 
 type replacementResult struct {

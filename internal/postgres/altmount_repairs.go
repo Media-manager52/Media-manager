@@ -90,15 +90,25 @@ func (store *Store) PlanMissingAltMountFile(ctx context.Context, altMountID uuid
 // Plex confirms the replacement. A path that backs no current publication is
 // RepairUnmanaged.
 func (store *Store) RequestAltMountReplacement(ctx context.Context, filePath string, now time.Time) (string, error) {
+	return store.RequestAltMountReplacementForFile(ctx, filePath, nil, now)
+}
+
+// RequestAltMountReplacementForFile binds the owner's request to the exact
+// current publication selected in the UI. Nil preserves the older path-only API.
+func (store *Store) RequestAltMountReplacementForFile(ctx context.Context, filePath string, versionID *uuid.UUID, now time.Time) (string, error) {
 	filePath = strings.Trim(strings.TrimSpace(filePath), "/")
+	var versionValue any
+	if versionID != nil {
+		versionValue = versionID.String()
+	}
 	var altMountID string
 	err := store.Pool.QueryRow(ctx, `SELECT job.altmount_instance_id::text
 		FROM altmount_output_inventories inventory
 		JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id AND inventory.root_relative || '/' || asset.relative_path=$1
 		JOIN library_link_versions version ON version.source_asset_id=asset.id AND version.state='current'
 		JOIN altmount_jobs job ON job.id=inventory.job_id
-		WHERE $1 LIKE inventory.root_relative || '/%'
-		ORDER BY version.id LIMIT 1`, filePath).Scan(&altMountID)
+		WHERE $1 LIKE inventory.root_relative || '/%' AND ($2::uuid IS NULL OR version.id=$2::uuid)
+		ORDER BY version.id LIMIT 1`, filePath, versionValue).Scan(&altMountID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RepairUnmanaged, nil
 	}
@@ -109,7 +119,7 @@ func (store *Store) RequestAltMountReplacement(ctx context.Context, filePath str
 	if err != nil {
 		return "", errors.New("publication has an invalid AltMount client")
 	}
-	return store.planManagedRepair(ctx, id, 0, filePath, nil, RepairReasonOwner, now)
+	return store.planManagedRepairForFile(ctx, id, 0, filePath, nil, RepairReasonOwner, now, versionID)
 }
 
 // CurrentAltMountPublications returns the AltMount file path, as AltMount
@@ -148,6 +158,10 @@ func (store *Store) PlanAudioUpgrade(ctx context.Context, altMountID uuid.UUID, 
 }
 
 func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID, healthID int64, filePath string, upgrade *AudioUpgrade, reason string, now time.Time) (string, error) {
+	return store.planManagedRepairForFile(ctx, altMountID, healthID, filePath, upgrade, reason, now, nil)
+}
+
+func (store *Store) planManagedRepairForFile(ctx context.Context, altMountID uuid.UUID, healthID int64, filePath string, upgrade *AudioUpgrade, reason string, now time.Time, versionID *uuid.UUID) (string, error) {
 	filePath = strings.Trim(strings.TrimSpace(filePath), "/")
 	if filePath == "" {
 		return "", errors.New("AltMount health item has no file path")
@@ -157,6 +171,10 @@ func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID,
 		return "", err
 	}
 	defer tx.Rollback(ctx)
+	var versionValue any
+	if versionID != nil {
+		versionValue = versionID.String()
+	}
 	var linkVersionID, workflowID, mediaID, variant, rootID, profileID, assetID, releaseTitle, kind, originalLanguage, edition string
 	var clientID *string
 	var terminal bool
@@ -164,14 +182,15 @@ func (store *Store) planManagedRepair(ctx context.Context, altMountID uuid.UUID,
 			workflow.download_client_id::text,asset.id::text,COALESCE(candidate.title,''),media.kind,workflow.terminal_at IS NOT NULL,
 			COALESCE((SELECT data->>'original_language' FROM media_metadata WHERE media_id=media.id),''),workflow.edition
 		FROM altmount_output_inventories inventory
+		JOIN altmount_jobs inventory_job ON inventory_job.id=inventory.job_id AND inventory_job.altmount_instance_id=$2
 		JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id AND inventory.root_relative || '/' || asset.relative_path=$1
 		JOIN library_link_versions version ON version.source_asset_id=asset.id AND version.state='current'
 		JOIN workflows workflow ON workflow.id=version.workflow_id
 		JOIN media_items media ON media.id=workflow.media_id AND media.deleted_at IS NULL
 		LEFT JOIN altmount_jobs job ON job.id=version.altmount_job_id
 		LEFT JOIN release_candidates candidate ON candidate.id=job.candidate_id
-		WHERE $1 LIKE inventory.root_relative || '/%'
-		ORDER BY version.id LIMIT 1`, filePath).Scan(&linkVersionID, &workflowID, &mediaID, &variant, &rootID, &profileID, &clientID, &assetID, &releaseTitle, &kind, &terminal, &originalLanguage, &edition)
+		WHERE $1 LIKE inventory.root_relative || '/%' AND ($3::uuid IS NULL OR version.id=$3::uuid)
+		ORDER BY version.id LIMIT 1`, filePath, altMountID.String(), versionValue).Scan(&linkVersionID, &workflowID, &mediaID, &variant, &rootID, &profileID, &clientID, &assetID, &releaseTitle, &kind, &terminal, &originalLanguage, &edition)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RepairUnmanaged, nil
 	}
