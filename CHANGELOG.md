@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **The title page** is tidier, mostly on a phone: the poster sits beside the title, a long plot folds behind "Læs mere", and the buttons line up in a grid. **Filer i biblioteket** shows a short name per file (`S01E03 · The Guest`, or the film and year) with its measured quality; a tap opens the library, the full path and "Erstat dårlig fil". Only the display changed: file and folder names on disk are untouched. More subtitle languages are named in Danish.
+
 ## [0.1.0-beta.6] - 2026-11-10
 
 The sixth public beta: `main` at `5f1a890`, database schema 57. Everyday additions to the website. Language and quality requirements are unchanged.

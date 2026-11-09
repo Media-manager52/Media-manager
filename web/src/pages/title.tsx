@@ -12,6 +12,7 @@ import { TitleActions } from "@/components/title-actions"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDate, formatRelative } from "@/format"
 import { attentionLabel, errorMessage, kindLabel, languageName, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
+import { fileLabel, shortLanguages } from "@/lib/file-label"
 import { fileQuality } from "@/lib/file-quality"
 import { describeVariant, workflowHref } from "@/lib/links"
 import { episodeStatus, rollupSeriesSeasons, type EpisodeStatus, type SeriesSeasonRollup } from "@/lib/series-variants"
@@ -38,35 +39,54 @@ function TitleView({ detail }: { detail: APIMediaDetail }) {
     meta?.original_language ? `Original: ${languageName(meta.original_language)}` : null,
     rating ? `★ ${rating.value.toLocaleString("da-DK", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : null,
   ].filter(Boolean)
+  const sources = uniqueSources(meta?.sources)
   return (
     <>
       <div className="relative -mx-4 -mt-6 mb-8 overflow-hidden sm:-mx-6 lg:-mx-10 lg:-mt-10">
         {backdrop ? <img src={backdrop} alt="" className="absolute inset-0 size-full object-cover opacity-30" /> : null}
         <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/80 to-bg/40" />
-        <div className="relative flex flex-col gap-6 px-4 pb-6 pt-8 sm:flex-row sm:px-6 lg:px-10 lg:pt-12">
-          <Poster src={sizedArtwork(meta?.poster_url, "w342")} title={media.title} kind={media.kind} className="w-32 shrink-0 shadow-card sm:w-44" />
+        <div className="relative grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-5 px-4 pb-6 pt-6 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-x-6 sm:gap-y-4 sm:px-6 lg:px-10 lg:pt-12">
+          <Poster src={sizedArtwork(meta?.poster_url, "w342")} title={media.title} kind={media.kind} className="w-full self-start shadow-card sm:row-span-2" />
           <div className="min-w-0 self-end">
             <Link to={`/bibliotek?type=${media.kind === "series" ? "serier" : "film"}`} className="text-sm text-text-3 hover:underline">← Bibliotek</Link>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">{media.title}</h1>
+            <h1 className="mt-1 break-words text-2xl font-semibold tracking-tight sm:text-4xl">{media.title}</h1>
             {meta?.original_title && meta.original_title !== media.title ? <div className="text-text-2">{meta.original_title}</div> : null}
             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-text-2">{facts.map((fact) => <span key={String(fact)}>{fact}</span>)}</div>
             {meta?.genres?.length ? <div className="mt-3 flex flex-wrap gap-1.5">{meta.genres.map((genre) => <Badge key={genre}>{genre}</Badge>)}</div> : null}
-            {meta?.overview ? <p className="mt-4 max-w-3xl text-text-2">{meta.overview}</p> : null}
-            <div className="mt-4 flex flex-wrap items-center gap-3">
+          </div>
+          <div className="col-span-2 min-w-0 sm:col-span-1 sm:col-start-2">
+            {meta?.overview ? <Overview text={meta.overview} /> : null}
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <RefreshMetadata mediaId={media.id} />
               <TitleActions detail={detail} />
-              {uniqueSources(meta?.sources).map((source) => (
-                <a key={`${source.provider}-${source.provider_id}`} href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-text-2 hover:text-text">
-                  {providerName(source.provider)} <ExternalLink aria-hidden className="size-3.5" />
-                </a>
-              ))}
             </div>
+            {sources.length ? (
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-text-3">
+                {sources.map((source) => (
+                  <a key={`${source.provider}-${source.provider_id}`} href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-text">
+                    {providerName(source.provider)} <ExternalLink aria-hidden className="size-3.5" />
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
       {media.kind === "movie" ? <MovieStatus workflows={workflows} files={files} /> : <SeriesSeasons seasons={seasons} workflows={workflows} files={files} />}
       <FilesCard files={files} />
     </>
+  )
+}
+
+/** The plot, kept to a few lines on a phone until the reader asks for the rest. */
+function Overview({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const long = text.length > 220
+  return (
+    <div className="max-w-3xl text-text-2">
+      <p className={cx(long && !open && "line-clamp-4 sm:line-clamp-none")}>{text}</p>
+      {long ? <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="mt-1 text-sm font-medium text-accent-strong hover:underline sm:hidden">{open ? "Vis mindre" : "Læs mere"}</button> : null}
+    </div>
   )
 }
 
@@ -81,7 +101,7 @@ function RefreshMetadata({ mediaId }: { mediaId: string }) {
     },
     onError: (error) => toast("bad", errorMessage(error)),
   })
-  return <Button variant="secondary" busy={mutation.isPending} onClick={() => mutation.mutate()} className="h-8 text-xs"><RefreshCw aria-hidden className="size-3.5" />Opdatér oplysninger</Button>
+  return <Button variant="secondary" busy={mutation.isPending} onClick={() => mutation.mutate()} className="h-10 text-xs sm:h-8"><RefreshCw aria-hidden className="size-3.5" />Opdatér oplysninger</Button>
 }
 
 function MovieStatus({ workflows, files }: { workflows: APIWorkflow[]; files: APIManagedFile[] }) {
@@ -109,7 +129,7 @@ function WorkflowRow({ workflow }: { workflow: APIWorkflow }) {
       </div>
       {workflow.attention_code ? <p className="mt-2 text-sm text-warn">{attentionLabel(workflow.attention_code)}</p> : null}
       {workflow.attention_detail ? <p className="mt-1 break-words text-sm text-text-2">{translateDetail(workflow.attention_detail)}</p> : null}
-      {workflow.terminal_at ? null : <div className="mt-3"><WorkflowActions workflow={workflow} compact /></div>}
+      {hasActions(workflow) ? <div className="mt-3"><WorkflowActions workflow={workflow} compact /></div> : null}
     </li>
   )
 }
@@ -161,14 +181,14 @@ function SeasonRow({ season, rollup }: { season: APIMediaSeason; rollup?: Series
         <div className="border-t border-line bg-surface-2/50 px-5 py-4">
           {waitingReason ? <p className="mb-3 text-sm text-text-2">{waitingReason}</p> : null}
           {pack ? (
-            <div className="mb-4 rounded-xl border border-line bg-surface p-3">
+            <div className="mb-4 rounded-xl border border-line bg-surface px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-medium">Sæsonpakke</span>
                 <Badge tone={stateTone(pack.state)}>{stateLabel(pack.state)}</Badge>
                 {pack.attention_code ? <span className="text-warn">{attentionLabel(pack.attention_code)}</span> : null}
                 <Link to={workflowHref(pack)} className="ml-auto font-medium text-accent-strong hover:underline">Detaljer</Link>
               </div>
-              {pack.terminal_at ? null : <div className="mt-3"><WorkflowActions workflow={pack} compact /></div>}
+              {hasActions(pack) ? <div className="mt-3"><WorkflowActions workflow={pack} compact /></div> : null}
             </div>
           ) : null}
           {statuses.length === 0 ? <p className="text-sm text-text-2">Afsnittene kendes ikke endnu.</p> : null}
@@ -199,32 +219,55 @@ function FilesCard({ files }: { files: APIManagedFile[] }) {
     <Card>
       <CardHeader title="Filer i biblioteket" description={`${current.length} ${current.length === 1 ? "fil" : "filer"}`} />
       <ul className="divide-y divide-line">
-        {sorted.slice(0, 200).map((file) => {
-          const quality = fileQuality(file)
-          return (
-            <li key={file.id} className="px-5 py-3 text-sm">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <Dot tone={file.plex_confirmed ? "good" : "info"} />
-                <span className="min-w-0 flex-1 break-all">{file.destination_relative}</span>
-                <span className="text-text-3">{file.root_name}</span>
-                <span className="tabular text-text-3">{formatBytes(file.source_size_bytes)}</span>
-              </div>
-              {quality.resolution || quality.video || quality.audio.length || quality.subtitles.length ? (
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-5 text-xs text-text-2">
-                  {quality.resolution ? <Badge tone={quality.resolution === "4K" ? "info" : "neutral"}>{quality.resolution}</Badge> : null}
-                  {quality.video ? <Badge>{quality.video}</Badge> : null}
-                  {quality.audio.length ? <span>Tale: {quality.audio.join(", ")}</span> : null}
-                  {quality.subtitles.length ? <span>· Tekster: {quality.subtitles.join(", ")}</span> : null}
-                  {file.plex_confirmed ? null : <span className="text-text-3">· Venter på Plex</span>}
-                </div>
-              ) : null}
-              <ReplaceFile file={file} />
-            </li>
-          )
-        })}
+        {sorted.slice(0, 200).map((file) => <FileRow key={file.id} file={file} startOpen={current.length === 1} />)}
       </ul>
     </Card>
   )
+}
+
+/** One library file: a short name and what was measured, with the path and the repair action folded away. */
+function FileRow({ file, startOpen }: { file: APIManagedFile; startOpen: boolean }) {
+  const [open, setOpen] = useState(startOpen)
+  const quality = fileQuality(file)
+  return (
+    <li className="text-sm">
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-surface-2">
+        <Dot tone={file.plex_confirmed ? "good" : "info"} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-3">
+            <span className="min-w-0 flex-1 truncate font-medium">{fileLabel(file.destination_relative)}</span>
+            <span className="tabular shrink-0 text-xs text-text-3">{formatBytes(file.source_size_bytes)}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-2">
+            {quality.resolution ? <Badge tone={quality.resolution === "4K" ? "info" : "neutral"}>{quality.resolution}</Badge> : null}
+            {quality.video ? <Badge>{quality.video}</Badge> : null}
+            {quality.audio.length ? <span>Tale: {shortLanguages(quality.audio)}</span> : null}
+            {quality.subtitles.length ? <span>Tekster: {shortLanguages(quality.subtitles)}</span> : null}
+            {file.plex_confirmed ? null : <span className="text-text-3">Venter på Plex</span>}
+          </div>
+        </div>
+        <ChevronDown aria-hidden className={cx("size-4 shrink-0 text-text-3 transition-transform", open && "rotate-180")} />
+      </button>
+      {open ? (
+        <div className="space-y-3 border-t border-line bg-surface-2/50 px-5 py-4">
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
+            <dt className="text-text-3">Bibliotek</dt>
+            <dd>{file.root_name}</dd>
+            {quality.audio.length > 2 ? <><dt className="text-text-3">Tale</dt><dd>{quality.audio.join(", ")}</dd></> : null}
+            {quality.subtitles.length > 2 ? <><dt className="text-text-3">Tekster</dt><dd>{quality.subtitles.join(", ")}</dd></> : null}
+            <dt className="text-text-3">Filsti</dt>
+            <dd className="break-all font-mono text-text-2">{file.destination_relative}</dd>
+          </dl>
+          <ReplaceFile file={file} />
+        </div>
+      ) : null}
+    </li>
+  )
+}
+
+/** True when the server offers at least one action the owner can take now. */
+function hasActions(workflow: APIWorkflow): boolean {
+  return !workflow.terminal_at && (workflow.available_actions ?? []).some((action) => action.available)
 }
 
 function providerName(provider: string): string {
