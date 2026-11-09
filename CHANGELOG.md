@@ -4,23 +4,27 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.5] - 2026-11-09
+
+The fifth public beta: `main` at `db81e67`, database schema 57. A plain-text error log, a usability pass over every page and two more fixes for how releases are picked. Language and quality requirements are unchanged.
+
 ### Added
 
-- **Fejllog**: a page in the main menu that lists everything that went wrong in the last 30 days in plain Danish, with search, filters by area, copy and download as text. Credentials are removed. `GET /api/v1/errors` serves the same data.
+- **Fejllog**: a page in the main menu that lists everything that went wrong in the last 30 days in plain Danish, with search, filters by area, copy and download as text. Credentials are removed. `GET /api/v1/errors` serves the same data (#173).
 
 ### Changed
 
-- For contributors: indexer approval and the migration runner moved to their own packages under `internal/postgres`, and the two largest files in that code were split. Behaviour is unchanged.
-- For contributors: five self-contained storage subjects (backups, notifications, import lists, the Radarr/Sonarr views and the error log) moved to their own packages under `internal/postgres`. The build fails if one reaches into another. Behaviour is unchanged.
-- For contributors: an area map (`docs/architecture/areas.md`) and `scripts/dev/test-area.sh` run the tests for one part of the product. The build fails if the map drifts from the code.
-- A pass over every page on computer and phone: English status text is now Danish (repairs, activity, background queue, indexer results, language rules), buttons on phones are easier to hit, the longest lists show a batch at a time with "Vis flere", open repairs come first, and a title or work page that no longer exists offers a way back.
+- For contributors: indexer approval and the migration runner moved to their own packages under `internal/postgres`, and the two largest files in that code were split. Behaviour is unchanged (#179).
+- For contributors: five self-contained storage subjects (backups, notifications, import lists, the Radarr/Sonarr views and the error log) moved to their own packages under `internal/postgres`. The build fails if one reaches into another. Behaviour is unchanged (#178).
+- For contributors: an area map (`docs/architecture/areas.md`) and `scripts/dev/test-area.sh` run the tests for one part of the product. The build fails if the map drifts from the code (#177).
+- A pass over every page on computer and phone: English status text is now Danish (repairs, activity, background queue, indexer results, language rules), buttons on phones are easier to hit, the longest lists show a batch at a time with "Vis flere", open repairs come first, and a title or work page that no longer exists offers a way back (#175).
 
 ### Fixed
 
-- The repairs page no longer scrolls sideways on a phone because of a long file path.
-- A work page whose attempts are used up now says that it watches for new releases and what you can do, instead of saying nothing is needed.
-- A name like `S01E01-E02` no longer counts as a whole season when the season is known to have more episodes. A true short season keeps working, and a season whose length is unknown is read as before.
-- "Start new round from known releases" skips a release that the current title parser no longer accepts or that a later search rejected, instead of spending a slot on an out-of-date approval.
+- The repairs page no longer scrolls sideways on a phone because of a long file path (#175).
+- A work page whose attempts are used up now says that it watches for new releases and what you can do, instead of saying nothing is needed (#175).
+- A name like `S01E01-E02` no longer counts as a whole season when the season is known to have more episodes. A true short season keeps working, and a season whose length is unknown is read as before (#176).
+- "Start new round from known releases" skips a release that the current title parser no longer accepts or that a later search rejected, instead of spending a slot on an out-of-date approval (#174).
 
 ## [0.1.0-beta.4] - 2026-11-09
 
