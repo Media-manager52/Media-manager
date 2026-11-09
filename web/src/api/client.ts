@@ -206,6 +206,7 @@ export const loadIntegrations = async (signal?: AbortSignal) => await requestJSO
 export const loadLibraryRoots = async (signal?: AbortSignal) => await requestJSON<APILibraryRoot[] | null>("/api/v1/settings/library-roots", { signal }) ?? []
 export const loadQualityProfiles = async (signal?: AbortSignal) => await requestJSON<APIQualityProfile[] | null>("/api/v1/settings/quality-profiles", { signal }) ?? []
 export const loadQualityProfilePresets = async (signal?: AbortSignal) => await requestJSON<APIQualityProfilePreset[] | null>("/api/v1/settings/quality-profile-presets", { signal }) ?? []
+export const loadWorkflowVerifications = async (workflowID: string, signal?: AbortSignal) => await requestJSON<APISubtitleVerification[] | null>(`/api/v1/acquisition-verifications?limit=1&workflow_id=${encodeURIComponent(workflowID)}`, { signal }) ?? []
 export const loadSubtitleVerifications = async (signal?: AbortSignal) => await requestJSON<APISubtitleVerification[] | null>("/api/v1/acquisition-verifications?limit=100", { signal }) ?? []
 export const loadRecycle = async (signal?: AbortSignal) => await requestJSON<APIRecycleEntry[] | null>("/api/v1/recycle", { signal }) ?? []
 export const loadDashboard = (signal?: AbortSignal) => requestJSON<APIDashboard>("/api/v1/dashboard", { signal })

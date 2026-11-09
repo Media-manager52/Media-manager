@@ -3,6 +3,7 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"syscall"
@@ -174,11 +175,13 @@ func valueOrNone(value string) string {
 	return value
 }
 
+var supportURLCredentials = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
+
 func redactSupportText(value string) string {
-	lines := strings.Split(value, "\n")
+	lines := strings.Split(supportURLCredentials.ReplaceAllString(value, "://[redacted]@"), "\n")
 	for index, line := range lines {
 		lower := strings.ToLower(line)
-		for _, marker := range []string{"authorization:", "x-plex-token:", "api_key=", "apikey=", "token=", "secret=", "password=", "bearer "} {
+		for _, marker := range []string{"authorization:", "cookie:", "x-plex-token:", "x-plex-token=", "x-api-key:", "api-key:", "api_key=", "apikey=", "apikey:", "token=", "token:", "secret=", "secret:", "password=", "password:", "passphrase=", "bearer "} {
 			if position := strings.Index(lower, marker); position >= 0 {
 				lines[index] = line[:position+len(marker)] + " [redacted]"
 				break

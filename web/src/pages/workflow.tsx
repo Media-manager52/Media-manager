@@ -2,14 +2,15 @@ import { useQuery } from "@tanstack/react-query"
 import { Check } from "lucide-react"
 import { Link, useParams } from "react-router"
 
-import { loadWorkflow, loadWorkflowCandidates, loadWorkflowSearches, type APIWorkflow, type APIWorkflowCandidate } from "@/api/client"
-import { Badge, Card, CardHeader, cx, Empty, ErrorBox, KeyValue, PageHeader, Progress, Skeleton } from "@/components/ui"
+import { loadWorkflow, loadWorkflowCandidates, loadWorkflowDryRun, loadWorkflowSearches, loadWorkflowVerifications, type APIDryRunResult, type APIWorkflow, type APIWorkflowCandidate } from "@/api/client"
+import { Badge, Button, Card, CardHeader, cx, Empty, ErrorBox, KeyValue, PageHeader, Progress, Skeleton } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
-import { formatBytes, formatDateTime, formatRelative, pluralize } from "@/format"
+import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
 import { attentionLabel, humanize, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
 import { candidateReasonText } from "@/lib/candidate-reasons"
 import { describeVariant, titleHref } from "@/lib/links"
 import type { Tone } from "@/lib/tone"
+import { explainWorkflow, languageCheckLines } from "@/lib/workflow-explanation"
 import { workflowStep } from "@/lib/workflow-presentation"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -37,6 +38,7 @@ export function WorkflowPage() {
       ) : null}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-6">
+          <WorkflowExplanation workflow={item} />
           <Card>
             <CardHeader title="Hvad kan du gøre?" description="Serveren tjekker alt igen, når du trykker." />
             <div className="px-5 py-4">
@@ -50,6 +52,38 @@ export function WorkflowPage() {
       </div>
     </>
   )
+}
+
+function WorkflowExplanation({ workflow }: { workflow: APIWorkflow }) {
+  const candidates = useQuery({ queryKey: ["workflow", workflow.id, "candidates"], queryFn: ({ signal }) => loadWorkflowCandidates(workflow.id, signal) })
+  const verification = useQuery({ queryKey: ["workflow", workflow.id, "verification"], queryFn: ({ signal }) => loadWorkflowVerifications(workflow.id, signal) })
+  const explanation = explainWorkflow(workflow, candidates.isError ? undefined : candidates.data)
+  const latest = verification.data?.[0]
+  const rows: Array<[string, string]> = [["Hvorfor har jeg den ikke endnu?", explanation.why], ["Hvad gør Media Manager nu?", explanation.now], ["Skal jeg gøre noget?", explanation.you]]
+  return (
+    <Card>
+      <CardHeader title="Status i klartekst" />
+      <dl className="space-y-3 px-5 py-4 text-sm">
+        {rows.map(([question, answer]) => <div key={question}><dt className="text-text-3">{question}</dt><dd className="mt-0.5 break-words">{answer}</dd></div>)}
+        {latest ? (
+          <div>
+            <dt className="text-text-3">Sprogkontrol af seneste fil</dt>
+            <dd className="mt-0.5 break-words">
+              <Badge tone={latest.status === "verified" ? "good" : "warn"}>{latest.status === "verified" ? "Godkendt" : "Ikke godkendt"}</Badge>
+              <ul className="mt-1 space-y-0.5">{languageCheckLines(latest).map((line) => <li key={line}>{line}</li>)}</ul>
+            </dd>
+          </div>
+        ) : null}
+        {verification.error ? <div><dt className="text-text-3">Sprogkontrol af seneste fil</dt><dd className="mt-0.5 text-warn">Kunne ikke hentes lige nu.</dd></div> : null}
+      </dl>
+    </Card>
+  )
+}
+
+function dryRunText(result: APIDryRunResult): string {
+  const usable = result.candidates.filter((candidate) => candidate.evaluation.verdict === "eligible" && !candidate.excluded).length
+  const best = result.candidates.find((candidate) => candidate.candidate_id === result.best_eligible_candidate_id)
+  return `Efter profilens nuværende regler kan ${formatNumber(usable)} af ${formatNumber(result.candidates.length)} kendte udgivelser bruges.${best ? ` Bedst: ${best.title}.` : ""}${result.truncated ? " Kun en del af udgivelserne er vurderet." : ""} Intet er hentet eller ændret.`
 }
 
 function Stepper({ state }: { state: string }) {
@@ -151,10 +185,14 @@ function indexerTone(state: string): Tone {
 
 function Candidates({ id }: { id: string }) {
   const query = useQuery({ queryKey: ["workflow", id, "candidates"], queryFn: ({ signal }) => loadWorkflowCandidates(id, signal) })
+  // Read-only: replays the stored releases against the profile, only on request.
+  const dryRun = useQuery({ queryKey: ["workflow", id, "dry-run"], queryFn: ({ signal }) => loadWorkflowDryRun(id, signal), enabled: false, retry: false })
   const items = [...(query.data ?? [])].sort(candidateOrder)
   return (
     <Card>
-      <CardHeader title="Fundne udgivelser" description="Hvad søgningerne fandt, og hvad Media Manager besluttede om hver." />
+      <CardHeader title="Fundne udgivelser" description="Hvad søgningerne fandt, og hvad Media Manager besluttede om hver." action={items.length > 0 ? <Button className="h-8 text-xs" busy={dryRun.isFetching} onClick={() => void dryRun.refetch()}>Vurder igen</Button> : undefined} />
+      {dryRun.data ? <p role="status" className="border-b border-line px-5 py-3 text-sm">{dryRunText(dryRun.data)}</p> : null}
+      {dryRun.error ? <div className="p-4"><ErrorBox error={dryRun.error} retry={() => void dryRun.refetch()} /></div> : null}
       {query.isPending ? <ListSkeleton rows={3} /> : null}
       {query.error ? <div className="p-4"><ErrorBox error={query.error} retry={() => query.refetch()} /></div> : null}
       {!query.isPending && !query.error && items.length === 0 ? <Empty title="Ingen udgivelser fundet endnu" /> : null}

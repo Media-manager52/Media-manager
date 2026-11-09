@@ -2573,6 +2573,16 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "description": "Only results for this workflow.",
+            "in": "query",
+            "name": "workflow_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2597,7 +2607,7 @@
             "description": "Error with a stable code."
           }
         },
-        "summary": "Subtitle/output verification results",
+        "summary": "Subtitle/output verification results, newest first",
         "tags": [
           "releases"
         ],

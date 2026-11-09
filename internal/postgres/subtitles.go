@@ -228,9 +228,15 @@ func subtitleVerificationByJob(ctx context.Context, transaction pgx.Tx, jobID uu
 	return item, nil
 }
 
-func (store *Store) ListSubtitleVerifications(ctx context.Context, limit int) ([]SubtitleVerificationRecord, error) {
+// ListSubtitleVerifications returns the newest results first, optionally for
+// one workflow.
+func (store *Store) ListSubtitleVerifications(ctx context.Context, limit int, workflowID *uuid.UUID) ([]SubtitleVerificationRecord, error) {
 	if limit < 1 || limit > 500 {
 		limit = 100
+	}
+	var workflowText any
+	if workflowID != nil {
+		workflowText = workflowID.String()
 	}
 	rows, err := store.Pool.Query(ctx, `SELECT verification.id::text,verification.workflow_id::text,verification.altmount_job_id::text,verification.candidate_id::text,media.title,candidate.title,verification.attempt_generation,verification.status,verification.required_languages,verification.preferred_languages,verification.observed_languages,verification.evidence,verification.failure_reasons,verification.retry_state,
 		verification.status='unverified' AND workflow.state='waiting' AND workflow.attention_code='round_exhausted_waiting_new_identity' AND job.state='needs_attention' AND job.error_code='subtitle_requirements_unverified'
@@ -246,7 +252,7 @@ func (store *Store) ListSubtitleVerifications(ctx context.Context, limit int) ([
 		))
 		AND NOT EXISTS(SELECT 1 FROM library_link_versions WHERE workflow_id=workflow.id AND altmount_job_id=job.id)
 		AND NOT EXISTS(SELECT 1 FROM audit_events WHERE action='subtitle.output_reverification_requested' AND aggregate_type='subtitle_verification' AND aggregate_id=verification.id),verification.created_at
-		FROM subtitle_verifications verification JOIN workflows workflow ON workflow.id=verification.workflow_id JOIN altmount_jobs job ON job.id=verification.altmount_job_id JOIN media_items media ON media.id=workflow.media_id JOIN release_candidates candidate ON candidate.id=verification.candidate_id ORDER BY verification.created_at DESC LIMIT $1`, limit)
+		FROM subtitle_verifications verification JOIN workflows workflow ON workflow.id=verification.workflow_id JOIN altmount_jobs job ON job.id=verification.altmount_job_id JOIN media_items media ON media.id=workflow.media_id JOIN release_candidates candidate ON candidate.id=verification.candidate_id WHERE $2::uuid IS NULL OR verification.workflow_id=$2::uuid ORDER BY verification.created_at DESC LIMIT $1`, limit, workflowText)
 	if err != nil {
 		return nil, err
 	}
