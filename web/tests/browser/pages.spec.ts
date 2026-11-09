@@ -20,6 +20,7 @@ const pages: Array<[string, string]> = [
   ["/indstillinger/seerr", "Indstillinger"],
   ["/indstillinger/notifikationer", "Indstillinger"],
   ["/indstillinger/forbindelser", "Indstillinger"],
+  ["/indstillinger/overtag", "Indstillinger"],
   ["/kom-i-gang", "Kom i gang"],
   ["/system", "System"],
   ["/system/koe", "System"],
