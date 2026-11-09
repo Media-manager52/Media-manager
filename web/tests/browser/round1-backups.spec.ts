@@ -31,3 +31,16 @@ for (const state of ["unconfigured", "pending", "failed", "uploaded", "missing-d
     expect(writes).toEqual([])
   })
 }
+
+test("a deleted backup file is not shown as a checked backup", async ({ page }) => {
+  await mockApi(page)
+  await page.route("**/api/v1/backups", (route) => route.fulfill({ json: { data: {
+    configured: true, format: "mmbackup", restore_verification: "isolated temporary database and exact schema version", automatic_deletion: false, production_restore: false,
+    offsite: { configured: false, kind: "", prefix: "" },
+    records: [{ id: "deleted1", state: "verified", format: "mmbackup", attempts: 1, created_at: "2026-01-01T00:00:00Z", completed_at: "2026-01-01T01:00:00Z", local_file_deleted: true }],
+  } } }))
+  await page.goto("/system/backup")
+  await expect(page.getByText("Filen er slettet", { exact: true })).toBeVisible()
+  await expect(page.getByText("Database kontrolleret", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Ingen prøvegendannelse af databasen er gennemført endnu.", { exact: true })).toBeVisible()
+})

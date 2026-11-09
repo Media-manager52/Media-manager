@@ -1,7 +1,7 @@
 import { expect, it } from "vitest"
 
 import type { APIBackupRecord } from "@/api/client"
-import { confirmedExternalCopy, externalCopyState, latestExternalCopy } from "./backup-evidence"
+import { confirmedExternalCopy, externalCopyState, latestExternalCopy, latestRestoreTest } from "./backup-evidence"
 
 const local: APIBackupRecord = { id: "backup", state: "verified", format: "mmbackup", attempts: 1, created_at: "2026-01-01T00:00:00Z" }
 
@@ -25,4 +25,13 @@ it("keeps historical success evidence even when copying is now disabled and igno
   expect(latestExternalCopy([failed, old, newer])).toBe(newer.offsite_uploaded_at)
   expect(externalCopyState(newer, false)).toBe("confirmed")
   expect(latestExternalCopy([failed, local])).toBeUndefined()
+})
+
+it("does not report a restore test for a backup whose file was deleted", () => {
+  const old = { ...local, id: "old", completed_at: "2026-02-01T00:00:00Z", local_file_deleted: true }
+  const kept = { ...local, id: "kept", completed_at: "2026-01-01T00:00:00Z" }
+  expect(latestRestoreTest([old, kept])).toBe(kept.completed_at)
+  expect(latestRestoreTest([old])).toBeUndefined()
+  const copied = { ...old, offsite_state: "uploaded" as const, offsite_uploaded_at: "2026-02-01T00:00:00Z" }
+  expect(latestRestoreTest([copied, kept])).toBe(copied.completed_at)
 })

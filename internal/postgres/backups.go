@@ -32,6 +32,9 @@ type BackupRecord struct {
 	CreatedAt         time.Time  `json:"created_at"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+	// LocalFileDeleted is not stored. The API sets it when the backup directory
+	// no longer holds this verified backup's file.
+	LocalFileDeleted bool `json:"local_file_deleted,omitempty"`
 }
 
 func (store *Store) CreateBackup(ctx context.Context, now time.Time) (BackupRecord, error) {

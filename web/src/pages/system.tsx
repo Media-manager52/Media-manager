@@ -6,7 +6,7 @@ import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
 import { backupStateLabel, errorMessage, externalCopyLabel, humanize } from "@/i18n"
-import { externalCopyState, latestExternalCopy } from "@/lib/backup-evidence"
+import { confirmedExternalCopy, externalCopyState, latestExternalCopy, latestRestoreTest } from "@/lib/backup-evidence"
 import { workflowHref } from "@/lib/links"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -175,7 +175,7 @@ function Backups() {
   if (!query.data) return <Card><ListSkeleton /></Card>
   const b = query.data
   const copiedAt = latestExternalCopy(b.records)
-  const restoredAt = b.records.filter((record) => record.state === "verified").map((record) => record.completed_at ?? record.created_at).sort().at(-1)
+  const restoredAt = latestRestoreTest(b.records)
   return (
     <Card>
       <CardHeader
@@ -196,10 +196,10 @@ function Backups() {
       <ul className="divide-y divide-line">
         {b.records.slice(0, 30).map((record) => (
           <li key={record.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
-            <Badge tone={record.state === "verified" ? "good" : record.state === "failed" ? "bad" : "info"}>{backupStateLabel(record.state)}</Badge>
+            <Badge tone={record.local_file_deleted ? "neutral" : record.state === "verified" ? "good" : record.state === "failed" ? "bad" : "info"}>{backupStateLabel(record.state, record.local_file_deleted)}</Badge>
             <span className="flex-1">{formatDateTime(record.completed_at ?? record.created_at)}</span>
             <span className="tabular text-text-3">{formatBytes(record.size_bytes)}</span>
-            <span className="w-full text-text-2">{externalCopyLabel(externalCopyState(record, b.offsite.configured))}</span>
+            {!record.local_file_deleted || confirmedExternalCopy(record) ? <span className="w-full text-text-2">{externalCopyLabel(externalCopyState(record, b.offsite.configured))}</span> : null}
             {record.last_error ? <span className="w-full break-words text-bad">{record.last_error}</span> : null}
           </li>
         ))}
