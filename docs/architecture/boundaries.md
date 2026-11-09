@@ -18,8 +18,10 @@ rules below on every test run.
 ## Storage subjects
 
 A storage subject that stands on its own lives in its own package under
-`internal/postgres` (for example `backupstore`), so the compiler keeps it apart
-from the others. It may import `dbcore` but no other storage package.
+`internal/postgres` (for example `backupstore` or `commissioningstore`), so the
+compiler keeps it apart from the others. It may import `dbcore` but no other
+storage package. Its tests live beside it, except the few that need the real
+settings code, which stay in `internal/postgres` and reach it through `Store`.
 `postgres.Store` embeds it, and `stores.go` keeps its types available as
 `postgres.X`, so callers do not change. `TestNewStoreWiresEverySubject` fails if
 a subject is embedded without a database pool.

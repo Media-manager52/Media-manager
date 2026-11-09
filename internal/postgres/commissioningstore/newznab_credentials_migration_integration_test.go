@@ -1,8 +1,9 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 	"net/url"
 	"os"
 	"strings"
@@ -45,12 +46,12 @@ func TestNewznabCredentialMigrationPreservesObservationsAndIsIdempotent(t *testi
 	query := parsed.Query()
 	query.Set("search_path", schema)
 	parsed.RawQuery = query.Encode()
-	store, err := Open(ctx, parsed.String())
+	store, err := openStore(ctx, parsed.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := migrateThrough(ctx, store.Pool, 26); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 26); err != nil {
 		t.Fatal(err)
 	}
 
@@ -78,7 +79,7 @@ func TestNewznabCredentialMigrationPreservesObservationsAndIsIdempotent(t *testi
 		t.Fatal(err)
 	}
 
-	if err := migrateThrough(ctx, store.Pool, 27); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 27); err != nil {
 		t.Fatal(err)
 	}
 	var before, affectedBefore, updated, after, affectedAfter int64
@@ -88,7 +89,7 @@ func TestNewznabCredentialMigrationPreservesObservationsAndIsIdempotent(t *testi
 	if before != 10876 || after != 10876 || affectedBefore != 6 || updated != 6 || affectedAfter != 0 {
 		t.Fatalf("migration aggregate before=%d affected_before=%d updated=%d after=%d affected_after=%d", before, affectedBefore, updated, after, affectedAfter)
 	}
-	if err := migrateThrough(ctx, store.Pool, 28); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 28); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Pool.QueryRow(ctx, `SELECT observations_before,affected_rows_before,rows_updated,observations_after,affected_rows_after FROM security_migration_aggregates WHERE migration_version=28`).Scan(&before, &affectedBefore, &updated, &after, &affectedAfter); err != nil {
@@ -131,7 +132,7 @@ func TestNewznabCredentialMigrationPreservesObservationsAndIsIdempotent(t *testi
 		t.Fatalf("sanitized fixture rows=%d err=%v", seen, err)
 	}
 
-	if err := migrateThrough(ctx, store.Pool, 28); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 28); err != nil {
 		t.Fatal(err)
 	}
 	var repeatedUpdates int64

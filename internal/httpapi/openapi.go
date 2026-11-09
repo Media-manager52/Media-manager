@@ -297,6 +297,11 @@ func (generator schemaGenerator) object(t reflect.Type) map[string]any {
 func componentName(t reflect.Type) string {
 	name := t.Name()
 	pkg := t.PkgPath()
+	// Component names are public API. How storage is divided into packages is
+	// not, so every storage subject keeps the Postgres_ prefix.
+	if strings.Contains(pkg, "/internal/postgres/") {
+		pkg = "postgres"
+	}
 	if index := strings.LastIndex(pkg, "/"); index >= 0 {
 		pkg = pkg[index+1:]
 	}

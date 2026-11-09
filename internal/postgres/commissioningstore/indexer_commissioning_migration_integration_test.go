@@ -1,8 +1,9 @@
-package postgres
+package commissioningstore
 
 import (
 	"bytes"
 	"context"
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 	"net/url"
 	"os"
 	"strings"
@@ -47,12 +48,12 @@ func TestIndexerCommissioningMigrationIsAdditiveAndEnforcesHistory(t *testing.T)
 	query := parsed.Query()
 	query.Set("search_path", schema)
 	parsed.RawQuery = query.Encode()
-	store, err := Open(ctx, parsed.String())
+	store, err := openStore(ctx, parsed.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := migrateThrough(ctx, store.Pool, 33); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 33); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,7 +77,7 @@ func TestIndexerCommissioningMigrationIsAdditiveAndEnforcesHistory(t *testing.T)
 		t.Fatalf("seed schema-33 profile: state=%q err=%v", profile.LifecycleState, err)
 	}
 	before := commissioningSchema33State(t, ctx, store)
-	if err := migrateThrough(ctx, store.Pool, 34); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 34); err != nil {
 		t.Fatal(err)
 	}
 	after := commissioningSchema33State(t, ctx, store)
@@ -402,7 +403,7 @@ func TestIndexerCommissioningMigrationIsAdditiveAndEnforcesHistory(t *testing.T)
 		t.Fatalf("schema-stable run trigger could not resolve its real steps under temporary shadows: %v", err)
 	}
 
-	if err := migrateThrough(ctx, store.Pool, 34); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 34); err != nil {
 		t.Fatalf("repeated migration: %v", err)
 	}
 }
@@ -419,7 +420,7 @@ type commissioningSchema33SnapshotValue struct {
 	profileStateSHA256     []byte
 }
 
-func commissioningSchema33State(t *testing.T, ctx context.Context, store *Store) commissioningSchema33SnapshotValue {
+func commissioningSchema33State(t *testing.T, ctx context.Context, store *Commissioning) commissioningSchema33SnapshotValue {
 	t.Helper()
 	var result commissioningSchema33SnapshotValue
 	err := store.Pool.QueryRow(ctx, `SELECT

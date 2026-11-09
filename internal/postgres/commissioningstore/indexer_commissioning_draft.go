@@ -1,10 +1,11 @@
-package postgres
+package commissioningstore
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -34,7 +35,7 @@ var ErrIndexerCommissioningDraftUnavailable = errors.New("indexer commissioning 
 // completed run returns the existing linked draft without appending a second
 // revision. A stale or mismatched configuration is rejected before any draft
 // is written.
-func (store *Store) FinalizeIndexerCommissioningDraft(ctx context.Context, indexerID, runID uuid.UUID, expectedRevision uint64, now time.Time) (IndexerCommissioningRun, error) {
+func (store *Commissioning) FinalizeIndexerCommissioningDraft(ctx context.Context, indexerID, runID uuid.UUID, expectedRevision uint64, now time.Time) (IndexerCommissioningRun, error) {
 	if indexerID == (uuid.UUID{}) || runID == (uuid.UUID{}) || expectedRevision == 0 {
 		return IndexerCommissioningRun{}, ErrInvalidIndexerCommissioning
 	}
@@ -64,7 +65,7 @@ func (store *Store) FinalizeIndexerCommissioningDraft(ctx context.Context, index
 		return run, nil
 	}
 	if run.Revision != expectedRevision {
-		return IndexerCommissioningRun{}, ErrConcurrentModification
+		return IndexerCommissioningRun{}, dbcore.ErrConcurrentModification
 	}
 	if run.State != commissioningv2.RunSearchesAuthorized && run.State != commissioningv2.RunReadyForDraft {
 		return IndexerCommissioningRun{}, ErrIndexerCommissioningDraftUnavailable
@@ -91,7 +92,7 @@ func (store *Store) FinalizeIndexerCommissioningDraft(ctx context.Context, index
 			return IndexerCommissioningRun{}, err
 		}
 		if command.RowsAffected() != 1 {
-			return IndexerCommissioningRun{}, ErrConcurrentModification
+			return IndexerCommissioningRun{}, dbcore.ErrConcurrentModification
 		}
 		run.State = commissioningv2.RunReadyForDraft
 		run.Revision++
@@ -130,7 +131,7 @@ func (store *Store) FinalizeIndexerCommissioningDraft(ctx context.Context, index
 		return IndexerCommissioningRun{}, err
 	}
 	if command.RowsAffected() != 1 {
-		return IndexerCommissioningRun{}, ErrConcurrentModification
+		return IndexerCommissioningRun{}, dbcore.ErrConcurrentModification
 	}
 	detail, _ := json.Marshal(map[string]any{"profile_id": profileID.String(), "revision": revision, "schema_version": profile.SchemaVersion, "run_id": runID.String()})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','newznab.commissioning_draft_finalized','integration',$2,$3,$4)`, uuid.NewV7().String(), indexerID.String(), string(detail), completionTime); err != nil {
@@ -149,7 +150,7 @@ func (store *Store) FinalizeIndexerCommissioningDraft(ctx context.Context, index
 // scheduler work. A caller treats any error as best-effort: the semantic
 // evidence is already committed, and the owner-triggered FinalizeDraft path
 // remains the idempotent local retry.
-func (store *Store) FinalizeReadyCommissioningDraft(ctx context.Context, indexerID, runID string, expectedRevision uint64, now time.Time) (bool, error) {
+func (store *Commissioning) FinalizeReadyCommissioningDraft(ctx context.Context, indexerID, runID string, expectedRevision uint64, now time.Time) (bool, error) {
 	parsedIndexer, err := uuid.Parse(indexerID)
 	if err != nil {
 		return false, ErrInvalidIndexerCommissioning
@@ -162,7 +163,7 @@ func (store *Store) FinalizeReadyCommissioningDraft(ctx context.Context, indexer
 		return false, ErrInvalidIndexerCommissioning
 	}
 	if _, err := store.FinalizeIndexerCommissioningDraft(ctx, parsedIndexer, parsedRun, expectedRevision, now); err != nil {
-		if errors.Is(err, ErrIndexerCommissioningDraftUnavailable) || errors.Is(err, ErrConcurrentModification) {
+		if errors.Is(err, ErrIndexerCommissioningDraftUnavailable) || errors.Is(err, dbcore.ErrConcurrentModification) {
 			// Not all authorized search steps are terminal safe yet, or a
 			// concurrent completion owns the transition. Leave the run as-is
 			// for the next completion or the owner-triggered retry.

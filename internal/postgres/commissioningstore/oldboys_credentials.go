@@ -1,4 +1,4 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (store *Store) OldBoysCredentialStatus(ctx context.Context) (*time.Time, error) {
+func (store *Commissioning) OldBoysCredentialStatus(ctx context.Context) (*time.Time, error) {
 	var updated time.Time
 	err := store.Pool.QueryRow(ctx, `SELECT updated_at FROM oldboys_credentials WHERE singleton=true`).Scan(&updated)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -21,7 +21,7 @@ func (store *Store) OldBoysCredentialStatus(ctx context.Context) (*time.Time, er
 	return &updated, nil
 }
 
-func (store *Store) SaveOldBoysCredentials(ctx context.Context, sealed []byte) (time.Time, error) {
+func (store *Commissioning) SaveOldBoysCredentials(ctx context.Context, sealed []byte) (time.Time, error) {
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
 		return time.Time{}, err
@@ -41,7 +41,7 @@ func (store *Store) SaveOldBoysCredentials(ctx context.Context, sealed []byte) (
 	return updated, transaction.Commit(ctx)
 }
 
-func (store *Store) LoadOldBoysCredentials(ctx context.Context) ([]byte, error) {
+func (store *Commissioning) LoadOldBoysCredentials(ctx context.Context) ([]byte, error) {
 	var sealed []byte
 	err := store.Pool.QueryRow(ctx, `SELECT sealed FROM oldboys_credentials WHERE singleton=true`).Scan(&sealed)
 	return sealed, err

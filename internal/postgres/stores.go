@@ -3,6 +3,7 @@ package postgres
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/postgres/backupstore"
+	"github.com/media-manager/media-manager/internal/postgres/commissioningstore"
 	"github.com/media-manager/media-manager/internal/postgres/errorlogstore"
 	"github.com/media-manager/media-manager/internal/postgres/importliststore"
 	"github.com/media-manager/media-manager/internal/postgres/notificationstore"
@@ -24,6 +25,7 @@ type Store struct {
 	importliststore.ImportLists
 	servarrstore.ServarrViews
 	errorlogstore.ErrorLogs
+	commissioningstore.Commissioning
 }
 
 func newStore(pool *pgxpool.Pool) *Store {
@@ -34,6 +36,7 @@ func newStore(pool *pgxpool.Pool) *Store {
 		ImportLists:   importliststore.ImportLists{Pool: pool},
 		ServarrViews:  servarrstore.ServarrViews{Pool: pool},
 		ErrorLogs:     errorlogstore.ErrorLogs{Pool: pool},
+		Commissioning: commissioningstore.Commissioning{Pool: pool},
 	}
 }
 
@@ -62,3 +65,31 @@ const ErrorLogWindow = errorlogstore.ErrorLogWindow
 type ErrorLog = errorlogstore.ErrorLog
 type ErrorLogEntry = errorlogstore.ErrorLogEntry
 type ErrorLogFilter = errorlogstore.ErrorLogFilter
+
+const commissionedScopedIndexerSQL = commissioningstore.CommissionedScopedIndexerSQL
+
+const MaxOldBoysGrabLimit = commissioningstore.MaxOldBoysGrabLimit
+const MaxOldBoysQueryLimit = commissioningstore.MaxOldBoysQueryLimit
+
+type CommissioningReservation = commissioningstore.CommissioningReservation
+type IndexerCapabilityProfile = commissioningstore.IndexerCapabilityProfile
+type IndexerCommissioningRun = commissioningstore.IndexerCommissioningRun
+type IndexerCommissioningStep = commissioningstore.IndexerCommissioningStep
+type IndexerCommissioningStepTransition = commissioningstore.IndexerCommissioningStepTransition
+type IndexerOperationStatus = commissioningstore.IndexerOperationStatus
+type IndexerSettingsPatch = commissioningstore.IndexerSettingsPatch
+
+var ErrCommissioningGateUnresolved = commissioningstore.ErrCommissioningGateUnresolved
+var ErrCommissioningReservationStale = commissioningstore.ErrCommissioningReservationStale
+var ErrIndexerCategoryReviewRequired = commissioningstore.ErrIndexerCategoryReviewRequired
+var ErrIndexerCommissioningConfigChanged = commissioningstore.ErrIndexerCommissioningConfigChanged
+var ErrIndexerCommissioningDraftUnavailable = commissioningstore.ErrIndexerCommissioningDraftUnavailable
+var ErrIndexerEndpointConfigurationChanged = commissioningstore.ErrIndexerEndpointConfigurationChanged
+var ErrIndexerProviderContractMismatch = commissioningstore.ErrIndexerProviderContractMismatch
+var ErrInvalidIndexerCapabilityProfile = commissioningstore.ErrInvalidIndexerCapabilityProfile
+var ErrInvalidIndexerCommissioning = commissioningstore.ErrInvalidIndexerCommissioning
+var ErrInvalidIndexerOperationStatus = commissioningstore.ErrInvalidIndexerOperationStatus
+var ErrInvalidOldBoysBudget = commissioningstore.ErrInvalidOldBoysBudget
+var ErrLiveExecutorCancelled = commissioningstore.ErrLiveExecutorCancelled
+var OldBoysMediaAllowed = commissioningstore.OldBoysMediaAllowed
+var ReservationLockKeyForTest = commissioningstore.ReservationLockKeyForTest

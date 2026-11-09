@@ -1,9 +1,10 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"time"
 	"uuid"
 
@@ -19,25 +20,25 @@ func OldBoysMediaAllowed(media catalog.MediaItem) bool {
 // PrepareOldBoysCommission converts only the disabled legacy OldBoys row (if
 // present), preserving its provider UUID. Every attempt gets a fresh identity;
 // no external request takes place inside this transaction.
-func (store *Store) PrepareOldBoysCommission(ctx context.Context, credentialsAt time.Time) (Integration, error) {
+func (store *Commissioning) PrepareOldBoysCommission(ctx context.Context, credentialsAt time.Time) (dbcore.Integration, error) {
 	tx, err := store.Pool.Begin(ctx)
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	defer tx.Rollback(ctx)
 	var saved time.Time
 	if err := tx.QueryRow(ctx, `SELECT updated_at FROM oldboys_credentials WHERE singleton=true FOR UPDATE`).Scan(&saved); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	if !saved.Equal(credentialsAt) {
-		return Integration{}, ErrConcurrentModification
+		return dbcore.Integration{}, dbcore.ErrConcurrentModification
 	}
 	var text string
 	err = tx.QueryRow(ctx, `SELECT id::text FROM integration_instances WHERE kind='oldboys' OR (kind='newznab' AND NOT enabled AND secret_ref='NEWZNAB_OLDBOYS_DK_API_KEY' AND config->>'base_url'='http://danish-intelligence:9699/ob/api') ORDER BY (kind='oldboys') DESC,id LIMIT 1 FOR UPDATE`).Scan(&text)
 	if errors.Is(err, pgx.ErrNoRows) {
 		text = uuid.NewV7().String()
 	} else if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	values := map[string]any{"base_url": oldboys.Origin, "mode": "oldboys_filter", "mode_verified": false, "scope": "danish_original_movies_series", "movie_category_ids": []int{1}, "series_category_ids": []int{2}, "minimum_interval_ms": 5000, "query_limit": 1000, "grab_limit": 100, "budget_window_seconds": 86400, "budget_source": "conservative_fallback", "credentials_updated_at": saved.UTC().Format(time.RFC3339Nano), "commission_attempt": uuid.NewV7().String(), "download_key": "PID", "maximum_pages": oldboys.MaxPage}
 	// An owner-stated plan budget survives recommissioning (for example after a
@@ -52,52 +53,52 @@ func (store *Store) PrepareOldBoysCommission(ctx context.Context, credentialsAt 
 			values["query_limit"], values["grab_limit"], values["budget_source"] = stated.QueryLimit, stated.GrabLimit, "owner_stated"
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	config, _ := json.Marshal(values)
 	_, err = tx.Exec(ctx, `INSERT INTO integration_instances(id,kind,name,enabled,is_default,config,secret_ref,created_at,updated_at) VALUES($1,'oldboys','OldBoys {DK}',false,false,$2,'sealed:oldboys_credentials',clock_timestamp(),clock_timestamp()) ON CONFLICT(id) DO UPDATE SET kind='oldboys',enabled=false,is_default=false,config=EXCLUDED.config,secret_ref=EXCLUDED.secret_ref,updated_at=EXCLUDED.updated_at`, text, string(config))
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	id, _ := uuid.Parse(text)
-	return store.Integration(ctx, id)
+	return dbcore.LoadIntegration(ctx, store.Pool, id)
 }
 
 // ValidateOldBoysSnapshot is the last pre-send guard. Credentials replacement,
 // another commissioning attempt, disablement or config changes stale the client.
-func (store *Store) ValidateOldBoysSnapshot(ctx context.Context, integration Integration, commissioning bool) error {
+func (store *Commissioning) ValidateOldBoysSnapshot(ctx context.Context, integration dbcore.Integration, commissioning bool) error {
 	var valid bool
 	err := store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances i CROSS JOIN oldboys_credentials c WHERE i.id=$1 AND i.kind='oldboys' AND i.config=$2::jsonb AND c.singleton AND (i.config->>'credentials_updated_at')::timestamptz=c.updated_at AND i.enabled=$3)`, integration.ID.String(), string(integration.Config), !commissioning).Scan(&valid)
 	if err != nil {
 		return err
 	}
 	if !valid {
-		return ErrConcurrentModification
+		return dbcore.ErrConcurrentModification
 	}
 	return nil
 }
 
-func (store *Store) CompleteOldBoysCommission(ctx context.Context, expected Integration, now time.Time) (Integration, error) {
+func (store *Commissioning) CompleteOldBoysCommission(ctx context.Context, expected dbcore.Integration, now time.Time) (dbcore.Integration, error) {
 	tx, err := store.Pool.Begin(ctx)
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	defer tx.Rollback(ctx)
 	var stamp time.Time
 	if err := tx.QueryRow(ctx, `SELECT updated_at FROM oldboys_credentials WHERE singleton=true FOR UPDATE`).Scan(&stamp); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	var config map[string]any
 	if json.Unmarshal(expected.Config, &config) != nil {
-		return Integration{}, ErrConcurrentModification
+		return dbcore.Integration{}, dbcore.ErrConcurrentModification
 	}
 	configuredVersion, _ := config["credentials_updated_at"].(string)
 	configuredStamp, err := time.Parse(time.RFC3339Nano, configuredVersion)
 	if err != nil || !configuredStamp.Equal(stamp) {
-		return Integration{}, ErrConcurrentModification
+		return dbcore.Integration{}, dbcore.ErrConcurrentModification
 	}
 	config["mode_verified"] = true
 	config["commissioned_at"] = now.UTC().Format(time.RFC3339Nano)
@@ -105,19 +106,19 @@ func (store *Store) CompleteOldBoysCommission(ctx context.Context, expected Inte
 	encoded, _ := json.Marshal(config)
 	tag, err := tx.Exec(ctx, `UPDATE integration_instances SET enabled=true,config=$3,updated_at=$4 WHERE id=$1 AND kind='oldboys' AND NOT enabled AND config=$2::jsonb`, expected.ID.String(), string(expected.Config), string(encoded), now.UTC())
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	if tag.RowsAffected() != 1 {
-		return Integration{}, ErrConcurrentModification
+		return dbcore.Integration{}, dbcore.ErrConcurrentModification
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','oldboys.commissioned','integration',$2,'{"scope":"danish_original_movies_series","download_key":"PID","requests":5}',$3)`, uuid.NewV7().String(), expected.ID.String(), now.UTC())
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
-	return store.Integration(ctx, expected.ID)
+	return dbcore.LoadIntegration(ctx, store.Pool, expected.ID)
 }
 
 const (
@@ -134,24 +135,24 @@ func validOldBoysBudget(queryLimit, grabLimit int) bool {
 // SetOldBoysBudget records the owner's stated plan limits on the commissioned
 // provider. Pacing, window, scope and credentials are unchanged; the next
 // search or retrieval reads the new limits. grabLimit 0 keeps the current one.
-func (store *Store) SetOldBoysBudget(ctx context.Context, queryLimit, grabLimit int, now time.Time) (Integration, error) {
+func (store *Commissioning) SetOldBoysBudget(ctx context.Context, queryLimit, grabLimit int, now time.Time) (dbcore.Integration, error) {
 	tx, err := store.Pool.Begin(ctx)
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	defer tx.Rollback(ctx)
 	var text string
 	var body []byte
 	err = tx.QueryRow(ctx, `SELECT id::text,config FROM integration_instances WHERE kind='oldboys' AND enabled AND config->'mode_verified'='true'::jsonb FOR UPDATE`).Scan(&text, &body)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Integration{}, ErrNotFound
+		return dbcore.Integration{}, dbcore.ErrNotFound
 	}
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	var config map[string]any
 	if json.Unmarshal(body, &config) != nil {
-		return Integration{}, ErrConcurrentModification
+		return dbcore.Integration{}, dbcore.ErrConcurrentModification
 	}
 	previousQuery, _ := numericJSON(config["query_limit"])
 	previousGrab, _ := numericJSON(config["grab_limit"])
@@ -159,44 +160,44 @@ func (store *Store) SetOldBoysBudget(ctx context.Context, queryLimit, grabLimit 
 		grabLimit = previousGrab
 	}
 	if !validOldBoysBudget(queryLimit, grabLimit) {
-		return Integration{}, ErrInvalidOldBoysBudget
+		return dbcore.Integration{}, ErrInvalidOldBoysBudget
 	}
 	config["query_limit"], config["grab_limit"], config["budget_source"] = queryLimit, grabLimit, "owner_stated"
 	config["budget_updated_at"] = now.UTC().Format(time.RFC3339Nano)
 	encoded, _ := json.Marshal(config)
 	if _, err := tx.Exec(ctx, `UPDATE integration_instances SET config=$2,updated_at=$3 WHERE id=$1`, text, string(encoded), now.UTC()); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	detail, _ := json.Marshal(map[string]any{"previous_query_limit": previousQuery, "previous_grab_limit": previousGrab, "query_limit": queryLimit, "grab_limit": grabLimit, "budget_source": "owner_stated"})
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','oldboys.budget_set','integration',$2,$3,$4)`, uuid.NewV7().String(), text, string(detail), now.UTC()); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	id, _ := uuid.Parse(text)
-	return store.Integration(ctx, id)
+	return dbcore.LoadIntegration(ctx, store.Pool, id)
 }
 
-func (store *Store) OldBoysEnabled(ctx context.Context) (bool, error) {
+func (store *Commissioning) OldBoysEnabled(ctx context.Context) (bool, error) {
 	var enabled bool
 	err := store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM integration_instances i CROSS JOIN oldboys_credentials c WHERE i.kind='oldboys' AND i.enabled AND i.config->'mode_verified'='true'::jsonb AND c.singleton AND (i.config->>'credentials_updated_at')::timestamptz=c.updated_at)`).Scan(&enabled)
 	return enabled, err
 }
 
-const commissionedScopedIndexerSQL = `SELECT EXISTS(SELECT 1 FROM integration_instances i WHERE i.enabled AND i.config->'mode_verified'='true'::jsonb AND (i.kind='newznab' OR (i.kind='oldboys' AND $1 AND EXISTS(SELECT 1 FROM oldboys_credentials c WHERE c.singleton AND (i.config->>'credentials_updated_at')::timestamptz=c.updated_at))))`
+const CommissionedScopedIndexerSQL = `SELECT EXISTS(SELECT 1 FROM integration_instances i WHERE i.enabled AND i.config->'mode_verified'='true'::jsonb AND (i.kind='newznab' OR (i.kind='oldboys' AND $1 AND EXISTS(SELECT 1 FROM oldboys_credentials c WHERE c.singleton AND (i.config->>'credentials_updated_at')::timestamptz=c.updated_at))))`
 
 // OldBoysSearchPhase starts every new commission on page one. Deferred or
 // incomplete scans retain the same request; older Newznab history cannot skip
 // native pages or query shapes when the provider is introduced. The phase is
 // anchored on the commission itself, so budget edits do not restart paging.
-func (store *Store) OldBoysSearchPhase(ctx context.Context, workflowID uuid.UUID, integration Integration) (uint64, error) {
+func (store *Commissioning) OldBoysSearchPhase(ctx context.Context, workflowID uuid.UUID, integration dbcore.Integration) (uint64, error) {
 	var phase uint64
 	err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM search_run_indexers outcome JOIN search_runs run ON run.id=outcome.search_run_id WHERE run.workflow_id=$1 AND outcome.indexer_instance_id=$2 AND outcome.state='succeeded' AND run.state='complete' AND run.started_at>=$3`, workflowID.String(), integration.ID.String(), oldBoysPhaseAnchor(integration)).Scan(&phase)
 	return phase, err
 }
 
-func oldBoysPhaseAnchor(integration Integration) time.Time {
+func oldBoysPhaseAnchor(integration dbcore.Integration) time.Time {
 	var config struct {
 		CommissionedAt string `json:"commissioned_at"`
 	}

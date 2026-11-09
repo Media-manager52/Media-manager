@@ -1,8 +1,9 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -418,7 +419,7 @@ func TestConcurrentCompleteLiveAttemptAppliesExactlyOnce(t *testing.T) {
 	for _, err := range errs {
 		if err == nil {
 			succeeded++
-		} else if !errors.Is(err, ErrConcurrentModification) {
+		} else if !errors.Is(err, dbcore.ErrConcurrentModification) {
 			t.Fatalf("unexpected concurrent-complete error: %v", err)
 		}
 	}
@@ -1350,7 +1351,7 @@ func TestNoRawBodyURLHeaderOrSecretColumnAdded(t *testing.T) {
 
 // liveTestSchemaName returns the search_path schema of the disposable
 // per-test store connection (schema-limited cleanup scope).
-func liveTestSchemaName(t *testing.T, ctx context.Context, store *Store) string {
+func liveTestSchemaName(t *testing.T, ctx context.Context, store *Commissioning) string {
 	t.Helper()
 	var schema string
 	if err := store.Pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
@@ -2382,7 +2383,7 @@ func TestAcquireCommissioningV2RejectsNonCanonicalIdentityDurable(t *testing.T) 
 // raw Budget parameter.
 func TestReserveCommissioningRequestCarriesSnapshotType(t *testing.T) {
 	t.Parallel()
-	if stringTypeOfStore().Name() != "Store" {
+	if stringTypeOfStore().Name() != "Commissioning" {
 		t.Fatal("Store type renamed; contract-shape reasoning changed")
 	}
 	method := storeMethodByName(t, "ReserveCommissioningRequest")

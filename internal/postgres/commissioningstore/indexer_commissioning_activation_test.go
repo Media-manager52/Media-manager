@@ -1,4 +1,4 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"uuid"
 )
 
-func countCapabilityActivationAudits(t *testing.T, ctx context.Context, store *Store, indexerID uuid.UUID) int {
+func countCapabilityActivationAudits(t *testing.T, ctx context.Context, store *Commissioning, indexerID uuid.UUID) int {
 	t.Helper()
 	var count int
 	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE aggregate_id=$1 AND action='newznab.capability_profile_activated'`, indexerID.String()).Scan(&count); err != nil {
@@ -20,7 +20,7 @@ func countCapabilityActivationAudits(t *testing.T, ctx context.Context, store *S
 	return count
 }
 
-func countCommissioningRunSteps(t *testing.T, ctx context.Context, store *Store, runID uuid.UUID) int {
+func countCommissioningRunSteps(t *testing.T, ctx context.Context, store *Commissioning, runID uuid.UUID) int {
 	t.Helper()
 	var count int
 	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM indexer_commissioning_steps WHERE run_id=$1`, runID.String()).Scan(&count); err != nil {

@@ -120,7 +120,7 @@ From `AGENTS.md` plus observed practice:
 ### 5.2 Add a migration + column
 
 1. `internal/postgres/migrations/00NN_name.sql`.
-2. Bump `CurrentSchemaVersion` in `internal/postgres/migrate.go`.
+2. Bump `CurrentSchemaVersion` in `internal/postgres/migrations/migrate.go`.
 3. Update the store read/write paths.
 4. Add a migration integration test
    (`*_migration_integration_test.go` pattern) that applies migrations and

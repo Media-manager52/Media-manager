@@ -6,8 +6,8 @@ belongs. Reading this before touching SQL saves hours.
 ## 1. Migration mechanism
 
 - Migrations are **embedded** Go/SQL: `internal/postgres/migrations/NNNN_name.sql`,
-  embedded via `//go:embed migrations/*.sql` in `migrate.go`.
-- `CurrentSchemaVersion` in `internal/postgres/migrate.go` is the single version
+  embedded via `//go:embed *.sql` in `migrations/migrate.go`.
+- `CurrentSchemaVersion` in `internal/postgres/migrations/migrate.go` is the single version
   gate. Read its value from the checked-out source; the running API reports
   its own schema version in `/api/v1/system/info` and `/health/ready`.
   `Migrate` applies every file whose numeric prefix is `<= CurrentSchemaVersion`
@@ -24,7 +24,7 @@ belongs. Reading this before touching SQL saves hours.
 
 1. Create `internal/postgres/migrations/00NN_your_change.sql` (additive,
    idempotent where practical, `IF NOT EXISTS` for new objects).
-2. Bump `CurrentSchemaVersion` in `internal/postgres/migrate.go` in the same
+2. Bump `CurrentSchemaVersion` in `internal/postgres/migrations/migrate.go` in the same
    commit.
 3. Add/extend repository methods and their integration tests.
 4. Run `MEDIA_MANAGER_TEST_DATABASE_URL=... go test ./internal/postgres/...`
@@ -192,7 +192,7 @@ methods at the snapshot. Group by file:
 | File | Domain (approx. methods) |
 | --- | --- |
 | `store.go` | Open/Close/Ping, media+workflow creation (14), metadata persistence, error sentinels. |
-| `migrate.go` | Migration runner, `CurrentSchemaVersion`, `SchemaVersion`. |
+| `migrations/migrate.go` | Migration runner, `CurrentSchemaVersion`, `SchemaVersion`. |
 | `outbox.go` | Claim/complete/fail/defer/renew lease (9). |
 | `readmodels.go` | Dashboard, activity, managed files, media detail, calendar, wanted, tasks, source status, release candidates, system health (14). |
 | `settings.go` | Integrations, library roots, quality profiles (14). |
@@ -215,10 +215,10 @@ methods at the snapshot. Group by file:
 | `metadata.go` | Metadata load/persist/refresh. |
 | `subtitles.go`, `subtitle_reverification.go` | Verification records, retained-output reverification. |
 | `seerr_intake.go`, `seerr_status.go`, `seerr_requests.go` | Seerr dedup, status sync, request read models. |
-| `indexer_capabilities.go` | Capability profile CRUD/activation (19). |
-| `indexer_commissioning.go` | v1 commissioning runs/steps (50). |
-| `indexer_commissioning_live.go` | v2 live gate + activation (29). |
-| `indexer_commissioning_draft.go` | Draft persistence. |
+| `commissioningstore/indexer_capabilities.go` | Capability profile CRUD/activation (19). |
+| `commissioningstore/indexer_commissioning*.go` | v1 commissioning runs/steps (50). |
+| `commissioningstore/indexer_commissioning_live*.go` | v2 live gate + activation (29). |
+| `commissioningstore/indexer_commissioning_draft.go` | Draft persistence. |
 | `notificationstore/` | Destinations + deliveries (8). |
 | `importliststore/` | Lists/snapshots/items (9). |
 | `backupstore/` | Backup records + verified downloads (7). |

@@ -1,8 +1,9 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 	"net/url"
 	"strings"
 	"testing"
@@ -60,7 +61,7 @@ func migrationTestPool(t *testing.T, maximumVersion int64) (*pgxpool.Pool, strin
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if err := migrateThrough(ctx, pool, maximumVersion); err != nil {
+	if err := migrations.Through(ctx, pool, maximumVersion); err != nil {
 		t.Fatal(err)
 	}
 	return pool, schema, ctx
@@ -80,14 +81,14 @@ func migrationIndexer(t *testing.T, ctx context.Context, pool *pgxpool.Pool, now
 // A-1: migration 35 applies cleanly from 34.
 func TestMigration35AppliesCleanlyFrom34(t *testing.T) {
 	pool, schema, ctx := migrationTestPool(t, 34)
-	version, err := SchemaVersion(ctx, pool)
+	version, err := migrations.SchemaVersion(ctx, pool)
 	if err != nil || version != 34 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
-	if err := migrateThrough(ctx, pool, 35); err != nil {
+	if err := migrations.Through(ctx, pool, 35); err != nil {
 		t.Fatal(err)
 	}
-	version, err = SchemaVersion(ctx, pool)
+	version, err = migrations.SchemaVersion(ctx, pool)
 	if err != nil || version != 35 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
@@ -135,7 +136,7 @@ func TestMigration35PreservesExistingBudgetRows(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT indexer_instance_id::text,minimum_interval_ms,next_allowed_at,cooldown_until,consecutive_failure,last_outcome,revision,updated_at FROM indexer_budget_state WHERE indexer_instance_id=$1`, indexerID.String()).Scan(&bID, &bMin, &bNext, &bCooldown, &bFail, &bOutcome, &bRevision, &bUpdated); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateThrough(ctx, pool, 35); err != nil {
+	if err := migrations.Through(ctx, pool, 35); err != nil {
 		t.Fatal(err)
 	}
 	var aID string
@@ -179,7 +180,7 @@ func TestMigration35DoesNotBackfillOutcomeTime(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO indexer_budget_state(indexer_instance_id,minimum_interval_ms,next_allowed_at,cooldown_until,consecutive_failure,last_outcome,revision,updated_at) VALUES($1,3000,$2,NULL,0,'success',1,$3)`, indexerID.String(), now, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateThrough(ctx, pool, 35); err != nil {
+	if err := migrations.Through(ctx, pool, 35); err != nil {
 		t.Fatal(err)
 	}
 	var outcomeAt *time.Time
@@ -254,7 +255,7 @@ func TestMigration35IsAdditiveOnly(t *testing.T) {
 		beforeIndexes[table+"."+name] = def
 	}
 	indexRows.Close()
-	if err := migrateThrough(ctx, pool, 35); err != nil {
+	if err := migrations.Through(ctx, pool, 35); err != nil {
 		t.Fatal(err)
 	}
 	rows, err = pool.Query(ctx, `SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name IN ('indexer_budget_state','indexer_commissioning_runs','indexer_commissioning_steps','indexer_request_reservations') ORDER BY table_name,column_name`, schema)
@@ -383,7 +384,7 @@ func TestMigration35IsAdditiveOnly(t *testing.T) {
 // repo helpers would need a scheduler; instead the step is driven through
 // TransitionIndexerCommissioningStep planned->intent->transmitting, which is
 // the same durable transition graph the trigger observes).
-func migrationGateFixtures(t *testing.T, ctx context.Context, store *Store, indexerID uuid.UUID, now time.Time) (IndexerCommissioningRun, IndexerCommissioningStep) {
+func migrationGateFixtures(t *testing.T, ctx context.Context, store *Commissioning, indexerID uuid.UUID, now time.Time) (IndexerCommissioningRun, IndexerCommissioningStep) {
 	t.Helper()
 	run, step := liveRunAndIntentStep(t, ctx, store, indexerID, now)
 	_, err := store.TransitionIndexerCommissioningStep(ctx, indexerID, run.ID, step.ID, commissioningv2.StepIntentCommitted, IndexerCommissioningStepTransition{State: commissioningv2.StepTransmitting}, now.Add(500*time.Millisecond))
@@ -411,7 +412,7 @@ func migrationGateFixtures(t *testing.T, ctx context.Context, store *Store, inde
 // usable and the genuine gate persists.
 func TestGateTriggerResolvesUnderHostileSearchPath(t *testing.T) {
 	pool, schema, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -489,7 +490,7 @@ func TestGateTriggerResolvesUnderHostileSearchPath(t *testing.T) {
 // transmitted_at set).
 func TestGateAcceptsStepOfSameIndexer(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -501,7 +502,7 @@ func TestGateAcceptsStepOfSameIndexer(t *testing.T) {
 // A-7: gate rejects a step of a different indexer.
 func TestGateRejectsStepOfDifferentIndexer(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerA := migrationIndexer(t, ctx, pool, now)
 	indexerB := migrationIndexer(t, ctx, pool, now.Add(time.Second))
@@ -516,7 +517,7 @@ func TestGateRejectsStepOfDifferentIndexer(t *testing.T) {
 // message, proved with real durable step states.
 func TestGateRejectsNonTransmittingStep(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	// planned: use a raw new run whose step never leaves planned.
 	indexerPlanned := migrationIndexer(t, ctx, pool, now)
@@ -579,7 +580,7 @@ func completedEvidenceDoc(t *testing.T, now time.Time) *commissioningv2.StepEvid
 	return &evidence
 }
 
-func mustCAPSPlan(t *testing.T, ctx context.Context, store *Store, indexerID uuid.UUID) commissioningv2.ProbePlan {
+func mustCAPSPlan(t *testing.T, ctx context.Context, store *Commissioning, indexerID uuid.UUID) commissioningv2.ProbePlan {
 	t.Helper()
 	digestBytes, err := store.IndexerEndpointConfigurationDigest(ctx, indexerID)
 	if err != nil {
@@ -599,7 +600,7 @@ func mustCAPSPlan(t *testing.T, ctx context.Context, store *Store, indexerID uui
 // A-9: an unresolved gate cannot be replaced.
 func TestUnresolvedGateCannotBeReplaced(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -617,7 +618,7 @@ func TestUnresolvedGateCannotBeReplaced(t *testing.T) {
 // A-10: gated budget row / gated step / gated integration cannot be deleted.
 func TestGateBearingBudgetRowCannotBeDeleted(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -631,7 +632,7 @@ func TestGateBearingBudgetRowCannotBeDeleted(t *testing.T) {
 
 func TestGatedStepCannotBeDeleted(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -645,7 +646,7 @@ func TestGatedStepCannotBeDeleted(t *testing.T) {
 
 func TestGatedIntegrationCannotBeDeleted(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -670,7 +671,7 @@ func TestGatedIntegrationCannotBeDeleted(t *testing.T) {
 // fails loudly; that refusal is NOT credited as index evidence.
 func TestOneBudgetRowPerGateStep(t *testing.T) {
 	pool, schema, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerA := migrationIndexer(t, ctx, pool, now)
 	indexerB := migrationIndexer(t, ctx, pool, now.Add(time.Second))
@@ -774,7 +775,7 @@ func TestLastOutcomeAtRequiresLastOutcome(t *testing.T) {
 // closedStepWithOutcome drives a gated transmitting step to completed with
 // the given safe outcome through the 0034 transition API (with evidence
 // where 0034 requires it), returning the step id.
-func closedStepWithOutcome(t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool, indexerID uuid.UUID, now time.Time, outcome commissioningv2.SafeOutcome) uuid.UUID {
+func closedStepWithOutcome(t *testing.T, ctx context.Context, store *Commissioning, pool *pgxpool.Pool, indexerID uuid.UUID, now time.Time, outcome commissioningv2.SafeOutcome) uuid.UUID {
 	t.Helper()
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
 	if _, err := pool.Exec(ctx, `INSERT INTO indexer_budget_state(indexer_instance_id,minimum_interval_ms,revision,updated_at,commissioning_gate_step_id) VALUES($1,3000,1,$2,$3) ON CONFLICT(indexer_instance_id) DO UPDATE SET commissioning_gate_step_id=EXCLUDED.commissioning_gate_step_id`, indexerID.String(), now, step.ID.String()); err != nil {
@@ -817,7 +818,7 @@ func closedStepWithOutcome(t *testing.T, ctx context.Context, store *Store, pool
 // no_plausible_match) and count-bearing evidence outcomes (unsupported,
 // permission_restricted, contradicted) cannot be represented on a CAPS step,
 // so they need a real sealed/authorized search plan.
-func closedSearchStepWithOutcome(t *testing.T, ctx context.Context, store *Store, pool *pgxpool.Pool, indexerID uuid.UUID, now time.Time, outcome commissioningv2.SafeOutcome) uuid.UUID {
+func closedSearchStepWithOutcome(t *testing.T, ctx context.Context, store *Commissioning, pool *pgxpool.Pool, indexerID uuid.UUID, now time.Time, outcome commissioningv2.SafeOutcome) uuid.UUID {
 	t.Helper()
 	run, categories, searchPlan := commissioningRepositoryAwaitingCategoryReview(t, ctx, store, indexerID, now)
 	run = sealAndAuthorizeCommissioningSearchPlan(t, ctx, store, indexerID, run, categories, searchPlan, now.Add(6*time.Second))
@@ -878,7 +879,7 @@ func mustSearchTarget() newznab.EvidenceTarget {
 // durable state — never by editing production SQL or the trigger.
 func TestRetryAfterDeferredOnCompletedStepCannotClearGate(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -918,7 +919,7 @@ func TestRetainedGateOutcomesCannotClearGate(t *testing.T) {
 		commissioningv2.OutcomeCredentialUnavailable,
 	} {
 		pool, _, ctx := migrationTestPool(t, 35)
-		store := newStore(pool)
+		store := &Commissioning{Pool: pool}
 		now := time.Now().UTC().Truncate(time.Microsecond)
 		indexerID := migrationIndexer(t, ctx, pool, now)
 		_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -948,7 +949,7 @@ func TestRetainedGateOutcomesCannotClearGate(t *testing.T) {
 	// predicate refuses; the gate stays held.
 	for _, outcome := range []commissioningv2.SafeOutcome{commissioningv2.OutcomeCancelled, commissioningv2.OutcomeIndeterminate} {
 		pool, _, ctx := migrationTestPool(t, 35)
-		store := newStore(pool)
+		store := &Commissioning{Pool: pool}
 		now := time.Now().UTC().Truncate(time.Microsecond)
 		indexerID := migrationIndexer(t, ctx, pool, now)
 		run, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -1028,7 +1029,7 @@ func TestRetainedGateOutcomesCannotClearGate(t *testing.T) {
 // smuggle unresolved accounting past the gate.
 func TestCancelledStepCannotEstablishGate(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := newStore(pool)
+	store := &Commissioning{Pool: pool}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	run, step := liveRunAndIntentStep(t, ctx, store, indexerID, now)
@@ -1092,7 +1093,7 @@ func TestAllowlistedOutcomesClearGate(t *testing.T) {
 		}
 		seen[outcome] = true
 		pool, _, ctx := migrationTestPool(t, 35)
-		store := newStore(pool)
+		store := &Commissioning{Pool: pool}
 		now := time.Now().UTC().Truncate(time.Microsecond)
 		indexerID := migrationIndexer(t, ctx, pool, now)
 		// Search-only outcomes and count-bearing evidence outcomes cannot be

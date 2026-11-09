@@ -1,4 +1,4 @@
-package postgres
+package commissioningstore
 
 import (
 	"os"
@@ -40,17 +40,17 @@ func readSourceFile(name, marker string) (string, error) {
 // that single statement. Full DB execution remains Pass 2.
 func TestAuthorizedTransmittingStepUsesSingleStatement(t *testing.T) {
 	t.Parallel()
-	source, err := readSourceFile("indexer_commissioning_live.go", "func (store *Store) authorizedTransmittingStep")
+	source, err := readSourceFile("indexer_commissioning_live_validation.go", "func (store *Commissioning) authorizedTransmittingStep")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Isolate the authorizer function body: from its declaration to the
 	// next top-level func/var declaration.
-	start := strings.Index(source, "func (store *Store) authorizedTransmittingStep")
+	start := strings.Index(source, "func (store *Commissioning) authorizedTransmittingStep")
 	body := source[start:]
 	for _, marker := range []string{"\nfunc ", "\nvar ", "\nconst ", "\ntype "} {
-		if index := strings.Index(body[len("func (store *Store) authorizedTransmittingStep"):], marker); index >= 0 {
-			body = body[:len("func (store *Store) authorizedTransmittingStep")+index]
+		if index := strings.Index(body[len("func (store *Commissioning) authorizedTransmittingStep"):], marker); index >= 0 {
+			body = body[:len("func (store *Commissioning) authorizedTransmittingStep")+index]
 			break
 		}
 	}

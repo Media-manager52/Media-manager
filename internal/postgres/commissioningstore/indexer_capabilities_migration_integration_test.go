@@ -1,9 +1,10 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 	"net/url"
 	"os"
 	"strings"
@@ -46,12 +47,12 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 	query := parsed.Query()
 	query.Set("search_path", schema)
 	parsed.RawQuery = query.Encode()
-	store, err := Open(ctx, parsed.String())
+	store, err := openStore(ctx, parsed.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := migrateThrough(ctx, store.Pool, 32); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 32); err != nil {
 		t.Fatal(err)
 	}
 
@@ -120,7 +121,7 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := migrateThrough(ctx, store.Pool, 33); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 33); err != nil {
 		t.Fatal(err)
 	}
 	var schemaVersion int64
@@ -276,7 +277,7 @@ func TestIndexerCapabilityMigrationIsAdditiveAndTruthful(t *testing.T) {
 		t.Fatal("database accepted an operation status for another indexer's profile")
 	}
 
-	if err := migrateThrough(ctx, store.Pool, 33); err != nil {
+	if err := migrations.Through(ctx, store.Pool, 33); err != nil {
 		t.Fatalf("repeated migration: %v", err)
 	}
 }
