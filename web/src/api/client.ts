@@ -316,6 +316,7 @@ export const saveSeerrRoute = (instanceID: string, input: { media_kind: "movie" 
 export const deleteSeerrRoute = (instanceID: string, routeID: string) => requestJSON<void>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes/${encodeURIComponent(routeID)}`, { method: "DELETE" })
 export const createLibraryRoot = (input: Omit<APILibraryRoot, "id">) => requestJSON<APILibraryRoot>("/api/v1/settings/library-roots", { method: "POST", body: JSON.stringify(input) })
 export const createQualityProfile = (input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>("/api/v1/settings/quality-profiles", { method: "POST", body: JSON.stringify(input) })
+export const deleteQualityProfile = (id: string) => requestJSON<void>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, { method: "DELETE" })
 export const updateQualityProfile = (id: string, input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })
 export type APIPolicyApplication = { profile_id: string; policy_version: number; applied: number; skipped: number }
 export const applyQualityProfilePolicy = (id: string) => requestJSON<APIPolicyApplication>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}/apply-policy`, { method: "POST" })

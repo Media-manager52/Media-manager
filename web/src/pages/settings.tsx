@@ -4,7 +4,7 @@ import { useState } from "react"
 import { NavLink, useParams } from "react-router"
 
 import {
-  applyQualityProfilePolicy, deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
+  applyQualityProfilePolicy, deleteQualityProfile, deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
   setNotificationDestinationEnabled, updateLibraryRoot,
   type APIIntegration, type APILibraryRoot, type APIQualityProfile,
 } from "@/api/client"
@@ -69,6 +69,17 @@ function Profiles() {
   const [editing, setEditing] = useState<APIQualityProfile>()
   const [copying, setCopying] = useState<APIQualityProfile>()
   const [applying, setApplying] = useState<APIQualityProfile>()
+  const [deleting, setDeleting] = useState<APIQualityProfile>()
+  const queryClient = useQueryClient()
+  const toast = useToast()
+  const remove = useMutation({
+    mutationFn: (profile: APIQualityProfile) => deleteQualityProfile(profile.id),
+    onSuccess: async (_, profile) => {
+      toast("good", `Profilen ${profile.name} er slettet.`)
+      setDeleting(undefined)
+      await queryClient.invalidateQueries({ queryKey: ["settings", "profiles"] })
+    },
+  })
   if (query.error) return <ErrorBox error={query.error} retry={() => query.refetch()} />
   if (query.isPending) return <Card><ListSkeleton /></Card>
   const groups: Array<[string, APIQualityProfile[]]> = [["Film", query.data.filter((p) => p.media_kind === "movie")], ["Serier", query.data.filter((p) => p.media_kind === "series")]]
@@ -82,6 +93,19 @@ function Profiles() {
       {editing ? <EditProfileDialog key={editing.id} profile={editing} onClose={() => setEditing(undefined)} /> : null}
       {copying ? <AddProfileDialog key={copying.id} copyFrom={copying} onClose={() => setCopying(undefined)} /> : null}
       {applying ? <ApplyProfileDialog key={applying.id} profile={applying} onClose={() => setApplying(undefined)} /> : null}
+      {deleting ? (
+        <Dialog
+          open
+          onClose={() => { if (!remove.isPending) setDeleting(undefined) }}
+          title={`Slet profilen ${deleting.name}?`}
+          footer={<><Button variant="ghost" disabled={remove.isPending} onClick={() => setDeleting(undefined)}>Fortryd</Button><Button variant="danger" busy={remove.isPending} onClick={() => remove.mutate(deleting)}>Slet profil</Button></>}
+        >
+          <div className="space-y-3">
+            <p>Profilen fjernes helt. Det kan kun lade sig gøre, når ingen titler og ingen Seerr-regel bruger den, så intet i biblioteket ændrer sig.</p>
+            {remove.error ? <p role="alert" className="text-sm text-bad">{errorMessage(remove.error)}</p> : null}
+          </div>
+        </Dialog>
+      ) : null}
       {groups.map(([title, profiles]) => (
         <Card key={title}>
           <CardHeader title={title} />
@@ -103,6 +127,7 @@ function Profiles() {
                       <Button aria-label={`Rediger ${profile.name}`} className="h-8 text-xs" onClick={() => setEditing(profile)}>Rediger</Button>
                       <Button aria-label={`Kopier ${profile.name}`} variant="ghost" className="h-8 text-xs" onClick={() => setCopying(profile)}>Kopier</Button>
                       <Button aria-label={`Brug ${profile.name} på ventende opgaver`} variant="ghost" className="h-8 text-xs" onClick={() => setApplying(profile)}>Brug på ventende</Button>
+                      {!profile.is_default ? <Button aria-label={`Slet ${profile.name}`} variant="ghost" className="h-8 text-xs" onClick={() => { remove.reset(); setDeleting(profile) }}>Slet</Button> : null}
                     </div>
                   </div>
                   <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">

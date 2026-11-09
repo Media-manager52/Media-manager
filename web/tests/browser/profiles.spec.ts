@@ -117,3 +117,30 @@ test("Brug på ventende only runs when confirmed and reports what happened", asy
   await expect(dialog.getByRole("status")).toContainText("3 opgaver bruger nu de nye regler. 2 blev sprunget over")
   expect(sent).toEqual([{ path: "/apply-policy", body: null }])
 })
+
+test("Slet removes an unused profile after a confirmation", async ({ page }) => {
+  const sent = await openProfiles(page)
+  const methods: string[] = []
+  page.on("request", (request) => { if (request.url().endsWith("/quality-profiles/p1")) methods.push(request.method()) })
+  await page.getByRole("button", { name: "Slet Dansk" }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toContainText("Slet profilen Dansk?")
+  expect(sent).toHaveLength(0)
+  await dialog.getByRole("button", { name: "Slet profil" }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText("Profilen Dansk er slettet.")).toBeVisible()
+  expect(sent).toEqual([{ path: "patch", body: null }])
+  expect(methods).toEqual(["DELETE"])
+})
+
+test("Slet explains why a profile in use stays, and the default has no Slet", async ({ page }) => {
+  await openProfiles(page, {}, () => ({ status: 409, json: { error: { code: "quality_profile_in_use", message: "in use" } } }))
+  await page.getByRole("button", { name: "Slet Dansk" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByRole("button", { name: "Slet profil" }).click()
+  await expect(dialog.getByRole("alert")).toContainText("Profilen kan ikke slettes")
+  await dialog.getByRole("button", { name: "Fortryd" }).click()
+  await openProfiles(page, { is_default: true })
+  await expect(page.getByRole("button", { name: "Rediger Dansk" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Slet Dansk" })).toHaveCount(0)
+})

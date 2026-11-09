@@ -227,6 +227,27 @@ func (server *Server) updateQualityProfile(writer http.ResponseWriter, request *
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: updated})
 }
 
+func (server *Server) deleteQualityProfile(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "quality profile ID is invalid")
+		return
+	}
+	err = server.store.DeleteQualityProfile(request.Context(), id, "owner", time.Now().UTC())
+	switch {
+	case errors.Is(err, postgres.ErrNotFound):
+		writeError(writer, http.StatusNotFound, "not_found", "quality profile was not found")
+	case errors.Is(err, postgres.ErrQualityProfileIsDefault):
+		writeError(writer, http.StatusConflict, "quality_profile_is_default", "the default quality profile cannot be deleted; make another profile the default first")
+	case errors.Is(err, postgres.ErrQualityProfileInUse):
+		writeError(writer, http.StatusConflict, "quality_profile_in_use", "the quality profile is used by titles, files or a Seerr route and cannot be deleted; disable it instead")
+	case err != nil:
+		writeError(writer, http.StatusInternalServerError, "internal_error", "could not delete the quality profile")
+	default:
+		writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]string{"status": "removed"}})
+	}
+}
+
 func (server *Server) applyQualityProfilePolicy(writer http.ResponseWriter, request *http.Request) {
 	id, err := uuid.Parse(request.PathValue("id"))
 	if err != nil {

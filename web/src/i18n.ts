@@ -189,6 +189,7 @@ const activityActions: Record<string, string> = {
   "integration.request_budgets_updated": "Søgebudgetter ændret",
   "integration.settings_changed": "Forbindelse ændret",
   "quality_profile.policy_applied": "Kvalitetsprofil anvendt",
+  "quality_profile.deleted": "Kvalitetsprofil slettet",
   "output.movie_reinspection_requested": "Film sat til ny undersøgelse",
   "subtitle.output_reverification_requested": "Ny sprogkontrol bestilt",
   "subtitle.output_reverified": "Sprogkontrol kørt igen",
@@ -397,6 +398,8 @@ const errorCodes: Record<string, string> = {
   replacement_confirmation_required: "Overtagelsen kan erstatte en fil, du allerede har, og kræver en ekstra bekræftelse.",
   relocation_in_progress: "Titlen er allerede ved at blive flyttet. En afbrudt flytning skal gøres færdig: vælg det samme bibliotek igen.",
   quality_profile_changed: "Profilen er blevet ændret imens, så intet er gemt. Luk vinduet, åbn profilen igen, og lav ændringen igen.",
+  quality_profile_in_use: "Profilen kan ikke slettes, fordi titler i biblioteket eller en Seerr-regel bruger den. Slå den fra under Rediger, hvis den ikke skal bruges til nye titler.",
+  quality_profile_is_default: "Standardprofilen kan ikke slettes. Gør først en anden profil til standard.",
   policy_application_failed: "Opgaverne ændrede sig imens, så intet blev flyttet over på profilen. Prøv igen.",
 }
 

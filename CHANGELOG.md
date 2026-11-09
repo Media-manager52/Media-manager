@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Kvalitetsprofiler** have a **Slet** button. It removes a profile that nothing uses. A profile that any title (finished ones included), adopted file, import list or Seerr rule uses is refused with an explanation, and so is the default, so deleting can never change what an existing title requires. `DELETE /api/v1/settings/quality-profiles/{id}` does the same.
+
 ### Changed
 
 - **The title page** is tidier, mostly on a phone: the poster sits beside the title, a long plot folds behind "Læs mere", and the buttons line up in a grid. **Filer i biblioteket** shows a short name per file (`S01E03 · The Guest`, or the film and year) with its measured quality; a tap opens the library, the full path and "Erstat dårlig fil". Only the display changed: file and folder names on disk are untouched. More subtitle languages are named in Danish.
