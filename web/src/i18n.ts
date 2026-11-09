@@ -258,6 +258,8 @@ const errorCodes: Record<string, string> = {
   secret_storage_unavailable: "Serveren kan ikke gemme nøgler endnu (SECRET_ENCRYPTION_KEY mangler).",
   metadata_unavailable: "TMDB er ikke sat op. Tilføj TMDB under Indstillinger → Forbindelser.",
   seerr_unavailable: "Seerr svarer ikke lige nu. Prøv igen om lidt.",
+  quality_profile_changed: "Profilen er blevet ændret imens, så intet er gemt. Luk vinduet, åbn profilen igen, og lav ændringen igen.",
+  policy_application_failed: "Opgaverne ændrede sig imens, så intet blev flyttet over på profilen. Prøv igen.",
 }
 
 /** A replacement request is an acquisition attempt, never proof of a new file. */

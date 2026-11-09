@@ -4,15 +4,15 @@ import { useState } from "react"
 import { NavLink, useParams } from "react-router"
 
 import {
-  deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
+  applyQualityProfilePolicy, deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
   setNotificationDestinationEnabled, updateLibraryRoot,
   type APIIntegration, type APILibraryRoot, type APIQualityProfile,
 } from "@/api/client"
 import { OptionPicker } from "@/components/option-picker"
-import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection } from "@/components/setup-forms"
+import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection, EditProfileDialog } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dialog, Empty, ErrorBox, PageHeader } from "@/components/ui"
-import { formatRelative, pluralize } from "@/format"
+import { formatNumber, formatRelative, pluralize } from "@/format"
 import { errorMessage, kindLabel, languageName } from "@/i18n"
 import { profileOptions, rootOptions } from "@/lib/pickers"
 import { audioLabel, resolutionLabel, type RuleRecord } from "@/lib/quality-profile-rules"
@@ -63,6 +63,9 @@ function languages(values: unknown): string {
 function Profiles() {
   const query = useQuery({ queryKey: ["settings", "profiles"], queryFn: ({ signal }) => loadQualityProfiles(signal) })
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<APIQualityProfile>()
+  const [copying, setCopying] = useState<APIQualityProfile>()
+  const [applying, setApplying] = useState<APIQualityProfile>()
   if (query.error) return <ErrorBox error={query.error} retry={() => query.refetch()} />
   if (query.isPending) return <Card><ListSkeleton /></Card>
   const groups: Array<[string, APIQualityProfile[]]> = [["Film", query.data.filter((p) => p.media_kind === "movie")], ["Serier", query.data.filter((p) => p.media_kind === "series")]]
@@ -73,6 +76,9 @@ function Profiles() {
         <Button onClick={() => setAdding(true)}>Ny profil</Button>
       </div>
       {adding ? <AddProfileDialog onClose={() => setAdding(false)} /> : null}
+      {editing ? <EditProfileDialog key={editing.id} profile={editing} onClose={() => setEditing(undefined)} /> : null}
+      {copying ? <AddProfileDialog key={copying.id} copyFrom={copying} onClose={() => setCopying(undefined)} /> : null}
+      {applying ? <ApplyProfileDialog key={applying.id} profile={applying} onClose={() => setApplying(undefined)} /> : null}
       {groups.map(([title, profiles]) => (
         <Card key={title}>
           <CardHeader title={title} />
@@ -90,11 +96,16 @@ function Profiles() {
                     {profile.is_default ? <Badge tone="info">Standard</Badge> : null}
                     {!profile.enabled ? <Badge>Slået fra</Badge> : null}
                     {profile.upgrades_enabled ? <Badge tone="good">Opgraderer</Badge> : null}
+                    <div className="ml-auto flex flex-wrap gap-2">
+                      <Button aria-label={`Rediger ${profile.name}`} className="h-8 text-xs" onClick={() => setEditing(profile)}>Rediger</Button>
+                      <Button aria-label={`Kopier ${profile.name}`} variant="ghost" className="h-8 text-xs" onClick={() => setCopying(profile)}>Kopier</Button>
+                      <Button aria-label={`Brug ${profile.name} på ventende opgaver`} variant="ghost" className="h-8 text-xs" onClick={() => setApplying(profile)}>Brug på ventende</Button>
+                    </div>
                   </div>
                   <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                     <div><dt className="inline text-text-3">Opløsning: </dt><dd className="inline">{danishRuleLabel(resolutionLabel(rules))}</dd></div>
                     <div><dt className="inline text-text-3">Lyd: </dt><dd className="inline">{danishRuleLabel(audioLabel(rules))}</dd></div>
-                    <div><dt className="inline text-text-3">Krævede undertekster: </dt><dd className="inline">{subs || "Ingen"}</dd></div>
+                    <div><dt className="inline text-text-3">Kræver tekst eller tale: </dt><dd className="inline">{subs || "Ingen"}</dd></div>
                     <div><dt className="inline text-text-3">Krævet tale: </dt><dd className="inline">{audio || "Ingen"}</dd></div>
                     {preferredSubs ? <div><dt className="inline text-text-3">Foretrukne undertekster: </dt><dd className="inline">{preferredSubs}</dd></div> : null}
                   </dl>
@@ -105,6 +116,27 @@ function Profiles() {
         </Card>
       ))}
     </div>
+  )
+}
+
+/** Moves waiting work onto the profile's current rules, only when asked. */
+function ApplyProfileDialog({ profile, onClose }: { profile: APIQualityProfile; onClose: () => void }) {
+  const mutation = useMutation({ mutationFn: () => applyQualityProfilePolicy(profile.id) })
+  const result = mutation.data
+  return (
+    <Dialog open onClose={onClose} title={`Brug ${profile.name} på ventende opgaver?`} footer={result ? <Button variant="primary" onClick={onClose}>Luk</Button> : <><Button variant="ghost" disabled={mutation.isPending} onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} onClick={() => mutation.mutate()}>Brug på ventende</Button></>}>
+      <div className="space-y-3">
+        {result ? (
+          <p role="status">{formatNumber(result.applied)} {result.applied === 1 ? "opgave bruger" : "opgaver bruger"} nu de nye regler. {result.skipped > 0 ? `${formatNumber(result.skipped)} blev sprunget over, fordi de er i gang med at hente eller udgive, eller kræver afklaring.` : "Ingen blev sprunget over."}</p>
+        ) : (
+          <>
+            <p>Opgaver, der venter på denne profil, skifter til profilens nuværende regler. Det kan betyde nye søgninger.</p>
+            <p>Opgaver, der er i gang med at hente eller udgive, bliver ikke ændret. Filer, du allerede har, bliver ikke rørt.</p>
+          </>
+        )}
+        {mutation.error ? <p role="alert" className="text-sm text-bad">{errorMessage(mutation.error)}</p> : null}
+      </div>
+    </Dialog>
   )
 }
 
