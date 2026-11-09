@@ -34,6 +34,20 @@ type ProblemFeed struct {
 func (store *Store) Problems(ctx context.Context, now time.Time) (ProblemFeed, error) {
 	feed := ProblemFeed{Problems: []Problem{}, CheckedAt: now.UTC()}
 
+	// A move resumes by itself; one that still is not done needs the owner.
+	var unfinishedMoves int64
+	var oldestMove, latestMove *time.Time
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*),min(created_at),max(updated_at) FROM media_relocations WHERE state='running' AND created_at<$1`, now.UTC().Add(-2*relocationRetryDelay)).Scan(&unfinishedMoves, &oldestMove, &latestMove); err != nil {
+		return ProblemFeed{}, err
+	}
+	if unfinishedMoves > 0 {
+		feed.Problems = append(feed.Problems, Problem{
+			Code: "library.move_unfinished", Area: "library", Level: "error",
+			Title: "Library move not finished", Detail: "Media Manager keeps retrying. Open the title and choose Flyt to the same library to see why it stops.",
+			Count: unfinishedMoves, OldestAt: oldestMove, LatestAt: latestMove, Href: "/bibliotek",
+		})
+	}
+
 	// Use the exact predicate that Dashboard's needs_attention count uses:
 	// every owner-blocked state plus a waiting workflow whose paced discovery
 	// found a release that only the owner can approve. Keeping one query means
