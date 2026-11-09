@@ -3,9 +3,9 @@ import { CheckCircle2, XCircle } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import {
-  checkIntegration, commissionIntegration, configureSeerrWebhook, createIntegration, createLibraryRoot, createNotificationDestination, createQualityProfile,
+  applyQualityProfilePreset, checkIntegration, commissionIntegration, configureSeerrWebhook, createIntegration, createLibraryRoot, createNotificationDestination, createQualityProfile,
   loadIntegrations, loadLibraryRoots, loadPlexLibraries, loadQualityProfilePresets, loadQualityProfiles, loadSeerrWebhook, loadSetupStatus,
-  saveIntegrationSecret, updateIntegrationConnection,
+  saveIntegrationSecret, updateIntegrationConnection, updateQualityProfile,
   type APIConnectionCheck, type APIConnectionPatch, type APIIntegration, type APIQualityProfile,
 } from "@/api/client"
 import { PlexLoginButton } from "@/components/plex-login"
@@ -13,6 +13,7 @@ import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox } from "@/components/ui"
 import { errorMessage, languageName } from "@/i18n"
 import { indexerPresetFor, indexerPresets } from "@/lib/indexers"
+import { deriveSelections, mergeQualityRules, type AudioRequirement, type ResolutionRequirement, type RuleRecord } from "@/lib/quality-profile-rules"
 import { checkText, samePath, suggestDestination, suggestSourceRoot } from "@/lib/setup"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -616,20 +617,127 @@ function LanguageRow({ label, values, onChange }: { label: string; values: strin
   )
 }
 
+function profileLanguagesOf(profile: APIQualityProfile) {
+  const policy = profile.policy as { required_subtitle_languages?: string[]; required_audio_languages?: string[]; preferred_subtitle_languages?: string[] }
+  return { requiredSubs: policy.required_subtitle_languages ?? [], requiredAudio: policy.required_audio_languages ?? [], preferredSubs: policy.preferred_subtitle_languages ?? [] }
+}
+
+function ProfileLanguageFields({ requiredSubs, requiredAudio, preferredSubs, onRequiredSubs, onRequiredAudio, onPreferredSubs }: {
+  requiredSubs: string[]; requiredAudio: string[]; preferredSubs: string[]
+  onRequiredSubs: (values: string[]) => void; onRequiredAudio: (values: string[]) => void; onPreferredSubs: (values: string[]) => void
+}) {
+  return (
+    <>
+      <LanguageRow label="Kræv tekst eller tale på" values={requiredSubs} onChange={onRequiredSubs} />
+      <LanguageRow label="Kræv tale på" values={requiredAudio} onChange={onRequiredAudio} />
+      <LanguageRow label="Foretræk undertekster på" values={preferredSubs} onChange={onPreferredSubs} />
+      <p className="text-xs text-text-3">Et krav betyder, at en udgivelse uden sproget aldrig bliver valgt. "Tekst eller tale" er opfyldt af fulde undertekster fra udgivelsen eller af tale på sproget. Det kontrolleres i filen, før den lægges i Plex.</p>
+    </>
+  )
+}
+
+const presetKeep = "keep"
+
+/** Edits a profile. Rules the form cannot show are saved exactly as they are. */
+export function EditProfileDialog({ profile, onClose }: { profile: APIQualityProfile; onClose: () => void }) {
+  const toast = useToast()
+  const refresh = useRefreshSetup()
+  const presets = useQuery({ queryKey: ["settings", "presets"], queryFn: ({ signal }) => loadQualityProfilePresets(signal) })
+  const stored = profileLanguagesOf(profile)
+  const rules = ((profile.policy as { rules?: RuleRecord[] }).rules ?? [])
+  const current = deriveSelections(rules)
+  const [name, setName] = useState(profile.name)
+  const [requiredSubs, setRequiredSubs] = useState(stored.requiredSubs)
+  const [requiredAudio, setRequiredAudio] = useState(stored.requiredAudio)
+  const [preferredSubs, setPreferredSubs] = useState(stored.preferredSubs)
+  const [resolution, setResolution] = useState<ResolutionRequirement>(current.resolutionRequirement)
+  const [audio, setAudio] = useState<AudioRequirement>(current.audioRequirement)
+  const [preset, setPreset] = useState(presetKeep)
+  const [upgrades, setUpgrades] = useState(profile.upgrades_enabled)
+  const [isDefault, setIsDefault] = useState(profile.is_default)
+  const [enabled, setEnabled] = useState(profile.enabled)
+  const removed = [...stored.requiredSubs.filter((code) => !requiredSubs.includes(code)), ...stored.requiredAudio.filter((code) => !requiredAudio.includes(code))]
+  const hasLanguageRouting = Boolean((profile.policy as { original_language_routing?: unknown }).original_language_routing)
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const policy = {
+        ...profile.policy,
+        rules: mergeQualityRules(rules, { ...current, resolutionRequirement: resolution, audioRequirement: audio }),
+        required_subtitle_languages: requiredSubs,
+        required_audio_languages: requiredAudio,
+        preferred_subtitle_languages: preferredSubs,
+      }
+      const saved = await updateQualityProfile(profile.id, { media_kind: profile.media_kind, name: name.trim(), policy_version: profile.policy_version, policy, upgrades_enabled: upgrades, is_default: isDefault, enabled })
+      if (preset === presetKeep) return
+      try {
+        await applyQualityProfilePreset(profile.id, preset, saved.policy_version)
+      } catch (error) {
+        throw new Error(`Profilen er gemt, men præferencerne blev ikke ændret: ${errorText(error)}`, { cause: error })
+      }
+    },
+    onSuccess: async () => {
+      toast("good", `${name.trim()} er gemt. Det gælder nye søgninger. Vil du også bruge det på ventende opgaver, skal du trykke Brug på ventende.`)
+      await refresh()
+      onClose()
+    },
+    onError: async (error) => { toast("bad", errorText(error)); await refresh() },
+  })
+  return (
+    <Dialog open onClose={onClose} title={`Rediger ${profile.name}`} footer={<><Button variant="ghost" onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} disabled={!name.trim()} onClick={() => mutation.mutate()}>Gem ændringer</Button></>}>
+      <div className="space-y-3">
+        <Field label="Navn"><input value={name} onChange={(event) => setName(event.target.value)} className={fieldClass} /></Field>
+        <ProfileLanguageFields requiredSubs={requiredSubs} requiredAudio={requiredAudio} preferredSubs={preferredSubs} onRequiredSubs={setRequiredSubs} onRequiredAudio={setRequiredAudio} onPreferredSubs={setPreferredSubs} />
+        {removed.length > 0 ? <p role="alert" className="text-sm text-warn">Du fjerner et sprogkrav: {[...new Set(removed)].map(languageName).join(", ")}. Nye søgninger kan så vælge udgivelser uden sproget.</p> : null}
+        {hasLanguageRouting ? <p className="text-xs text-text-3">Profilens regler om filmens originalsprog bevares uændret.</p> : null}
+        <Field label="Opløsning" hint="Et krav betyder, at andre opløsninger aldrig bliver valgt.">
+          <select value={resolution} onChange={(event) => setResolution(event.target.value as ResolutionRequirement)} className={fieldClass}>
+            <option value="none">Intet krav</option>
+            <option value="2160p">Kun 2160p (4K)</option>
+            <option value="1080p">Kun 1080p</option>
+            <option value="720p">Kun 720p</option>
+            {current.resolutionRequirement === "custom" ? <option value="custom">Særligt krav (beholdes)</option> : null}
+          </select>
+        </Field>
+        {current.audioRequirement === "custom" ? (
+          <Field label="Lydformat" hint="Profilen kræver bestemte lydformater.">
+            <select value={audio} onChange={(event) => setAudio(event.target.value as AudioRequirement)} className={fieldClass}>
+              <option value="custom">Behold kravet</option>
+              <option value="none">Fjern kravet</option>
+            </select>
+          </Field>
+        ) : null}
+        <Field label="Foretrækker" hint="Vælger den bedste blandt de udgivelser, der opfylder kravene. Ændrer ingen krav.">
+          <select value={preset} onChange={(event) => setPreset(event.target.value)} className={fieldClass}>
+            <option value={presetKeep}>Behold de nuværende præferencer</option>
+            {(presets.data ?? []).map((entry) => <option key={entry.preset} value={entry.preset}>{presetNames[entry.preset] ?? entry.name}</option>)}
+          </select>
+        </Field>
+        <Check checked={upgrades} onChange={setUpgrades}>Opgrader, når en bedre udgivelse dukker op</Check>
+        <Check checked={isDefault} onChange={setIsDefault} disabled={profile.is_default}>Brug som standard for {profile.media_kind === "movie" ? "film" : "serier"}</Check>
+        {profile.is_default ? <p className="text-xs text-text-3">Gør en anden profil til standard for at ændre dette.</p> : null}
+        <Check checked={enabled} onChange={setEnabled} disabled={profile.is_default}>Profilen er slået til</Check>
+        <p className="text-xs text-text-3">Ændringer gælder nye søgninger. Opgaver, der allerede venter, beholder deres regler, indtil du vælger Brug på ventende.</p>
+      </div>
+    </Dialog>
+  )
+}
+
 /** Creates a quality profile from a preset or a copy of an existing profile. */
-export function AddProfileDialog({ onClose }: { onClose: () => void }) {
+export function AddProfileDialog({ onClose, copyFrom }: { onClose: () => void; copyFrom?: APIQualityProfile }) {
   const toast = useToast()
   const refresh = useRefreshSetup()
   const presets = useQuery({ queryKey: ["settings", "presets"], queryFn: ({ signal }) => loadQualityProfilePresets(signal) })
   const profiles = useQuery({ queryKey: ["settings", "profiles"], queryFn: ({ signal }) => loadQualityProfiles(signal) })
-  const [kind, setKind] = useState<"movie" | "series">("movie")
-  const [start, setStart] = useState("preset:balanced")
-  const [name, setName] = useState("")
-  const [requiredSubs, setRequiredSubs] = useState<string[]>([])
-  const [requiredAudio, setRequiredAudio] = useState<string[]>([])
-  const [preferredSubs, setPreferredSubs] = useState<string[]>([])
-  const [upgrades, setUpgrades] = useState(true)
-  const [isDefault, setIsDefault] = useState<boolean | null>(null)
+  const copied = copyFrom ? profileLanguagesOf(copyFrom) : undefined
+  const [kind, setKind] = useState<"movie" | "series">(copyFrom?.media_kind ?? "movie")
+  const [start, setStart] = useState(copyFrom ? `profile:${copyFrom.id}` : "preset:balanced")
+  const [name, setName] = useState(copyFrom ? `Kopi af ${copyFrom.name}` : "")
+  const [requiredSubs, setRequiredSubs] = useState<string[]>(copied?.requiredSubs ?? [])
+  const [requiredAudio, setRequiredAudio] = useState<string[]>(copied?.requiredAudio ?? [])
+  const [preferredSubs, setPreferredSubs] = useState<string[]>(copied?.preferredSubs ?? [])
+  const [upgrades, setUpgrades] = useState(copyFrom?.upgrades_enabled ?? true)
+  // A copy starts as an extra profile; the owner chooses if it becomes the default.
+  const [isDefault, setIsDefault] = useState<boolean | null>(copyFrom ? false : null)
   const sameKind = (profiles.data ?? []).filter((profile) => profile.media_kind === kind)
   const hasDefault = sameKind.some((profile) => profile.is_default && profile.enabled)
   const makeDefault = isDefault ?? !hasDefault
@@ -637,10 +745,10 @@ export function AddProfileDialog({ onClose }: { onClose: () => void }) {
     setStart(value)
     const source = sameKind.find((profile) => `profile:${profile.id}` === value)
     if (!source) return
-    const policy = source.policy as { required_subtitle_languages?: string[]; required_audio_languages?: string[]; preferred_subtitle_languages?: string[] }
-    setRequiredSubs(policy.required_subtitle_languages ?? [])
-    setRequiredAudio(policy.required_audio_languages ?? [])
-    setPreferredSubs(policy.preferred_subtitle_languages ?? [])
+    const languages = profileLanguagesOf(source)
+    setRequiredSubs(languages.requiredSubs)
+    setRequiredAudio(languages.requiredAudio)
+    setPreferredSubs(languages.preferredSubs)
     setUpgrades(source.upgrades_enabled)
   }
   const mutation = useMutation({
@@ -676,10 +784,7 @@ export function AddProfileDialog({ onClose }: { onClose: () => void }) {
             {sameKind.map((profile) => <option key={profile.id} value={`profile:${profile.id}`}>Kopi af {profile.name}</option>)}
           </select>
         </Field>
-        <LanguageRow label="Kræv undertekster på" values={requiredSubs} onChange={setRequiredSubs} />
-        <LanguageRow label="Kræv tale på" values={requiredAudio} onChange={setRequiredAudio} />
-        <LanguageRow label="Foretræk undertekster på" values={preferredSubs} onChange={setPreferredSubs} />
-        <p className="text-xs text-text-3">Et krav betyder, at en udgivelse uden sproget aldrig bliver valgt. Undertekster kontrolleres i filen, før den lægges i Plex.</p>
+        <ProfileLanguageFields requiredSubs={requiredSubs} requiredAudio={requiredAudio} preferredSubs={preferredSubs} onRequiredSubs={setRequiredSubs} onRequiredAudio={setRequiredAudio} onPreferredSubs={setPreferredSubs} />
         <Check checked={upgrades} onChange={setUpgrades}>Opgrader, når en bedre udgivelse dukker op</Check>
         <Check checked={makeDefault} onChange={setIsDefault}>Brug som standard for {kind === "movie" ? "film" : "serier"}</Check>
       </div>
