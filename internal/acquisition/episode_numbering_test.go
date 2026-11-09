@@ -36,15 +36,32 @@ func TestAnnualSearchAlternatesWithoutAdditionalProviderCalls(t *testing.T) {
 		t.Fatal("unidentified broad query enabled")
 	}
 }
-func TestAnnualSearchAlternateSkipsOldTargets(t *testing.T) {
+func TestAnnualSearchAsksForAirDateOnOldTargets(t *testing.T) {
 	s := numberingSearch()
 	s.Variant = "season:33:episode:29"
-	s.EpisodeNumbering = packs.AnnualEpisodeNumbering(33, []packs.ExpectedEpisode{{Key: packs.EpisodeKey{Season: 33, Episode: 29}, AirDate: "2025-07-21"}})
-	s.CompleteSearches = 1
+	s.Media.Title = "Raw"
+	s.EpisodeNumbering = packs.AnnualEpisodeNumbering(33, []packs.ExpectedEpisode{{Key: packs.EpisodeKey{Season: 33, Episode: 29}, AirDate: "2025-07-21"}, {Key: packs.EpisodeKey{Season: 33, Episode: 30}, AirDate: "2025-07-28"}})
 	req := newznab.SearchRequest{Mode: "tvsearch", Limit: 100, Extended: true, Categories: []int{5000}, Params: []newznab.Param{{Name: "q", Value: "Raw"}, {Name: "tvdbid", Value: "76779"}, {Name: "season", Value: "33"}, {Name: "ep", Value: "29"}}}
-	got := numberedSearchRequest(s, req, time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC))
-	if len(got.Params) != 4 {
-		t.Fatalf("old target used the ID-only alternate: %+v", got.Params)
+	now := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	if got := numberedSearchRequest(s, req, now); len(got.Params) != 4 {
+		t.Fatalf("primary scan changed: %+v", got.Params)
+	}
+	s.CompleteSearches = 1
+	got := numberedSearchRequest(s, req, now)
+	if len(got.Params) != 1 || got.Params[0].Name != "q" || got.Params[0].Value != "Raw 2025 07 21" {
+		t.Fatalf("old episode alternate=%+v", got.Params)
+	}
+	if got.Mode != "tvsearch" || got.Limit != 100 || !got.Extended || got.Categories[0] != 5000 {
+		t.Fatalf("request shape changed: %+v", got)
+	}
+	s.Variant = "season:33"
+	if got = numberedSearchRequest(s, req, now); len(got.Params) != 4 {
+		t.Fatalf("a whole season has no single date: %+v", got.Params)
+	}
+	s.Variant = "season:33:episode:29"
+	noText := newznab.SearchRequest{Mode: "tvsearch", Params: []newznab.Param{{Name: "tvdbid", Value: "76779"}, {Name: "season", Value: "33"}}}
+	if got = numberedSearchRequest(s, noText, now); len(got.Params) != 2 {
+		t.Fatalf("indexer without text search changed: %+v", got.Params)
 	}
 }
 
