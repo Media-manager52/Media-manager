@@ -9,11 +9,23 @@ rules below on every test run.
 |---|---|---|---|
 | Domain | `catalog`, `languages`, `library`, `packs`, `releases`, `workflows` | other domain packages, the standard library | anything else in `internal/` |
 | Adapters | `internal/adapters/*` | domain packages, `indexers` (pacing), `subtitles`, other adapters | storage, services, HTTP, platform |
-| Storage | `internal/postgres` | domain and policy packages | adapters, services, HTTP |
+| Storage | `internal/postgres` and its subject packages | domain and policy packages | adapters, services, HTTP |
 | Services | `acquisition`, `publication`, `intake`, `adoptionexec`, `commissioning*`, … | domain, storage, adapters | HTTP |
 | HTTP | `internal/httpapi` | services, storage, domain | adapters |
 | MCP | `internal/mcpserver` | the public HTTP API only | anything in `internal/` |
 | Wiring | `cmd/media-manager` | everything | — |
+
+## Storage subjects
+
+A storage subject that stands on its own lives in its own package under
+`internal/postgres` (for example `backupstore`), so the compiler keeps it apart
+from the others. It may import `dbcore` but no other storage package.
+`postgres.Store` embeds it, and `stores.go` keeps its types available as
+`postgres.X`, so callers do not change. `TestNewStoreWiresEverySubject` fails if
+a subject is embedded without a database pool.
+
+The subjects at the centre (settings, rounds, search, publication) use each
+other in the same transactions and stay in `internal/postgres`.
 
 ## Known violations
 

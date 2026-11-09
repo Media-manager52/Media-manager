@@ -1,4 +1,4 @@
-package postgres
+package errorlogstore
 
 import (
 	"context"
@@ -90,7 +90,7 @@ const errorLogEntries = `WITH entries AS (
 
 // ErrorLog returns the newest entries that match the filter and how many
 // entries each area holds under the same search.
-func (store *Store) ErrorLog(ctx context.Context, filter ErrorLogFilter, now time.Time) (ErrorLog, error) {
+func (store *ErrorLogs) ErrorLog(ctx context.Context, filter ErrorLogFilter, now time.Time) (ErrorLog, error) {
 	since := now.Add(-ErrorLogWindow).UTC()
 	result := ErrorLog{Entries: []ErrorLogEntry{}, Areas: map[string]int64{}, Since: since}
 	counts, err := store.Pool.Query(ctx, errorLogEntries+` SELECT area,count(*) FROM matching GROUP BY area`, since, filter.Query)

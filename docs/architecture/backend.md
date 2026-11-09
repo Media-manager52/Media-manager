@@ -419,7 +419,7 @@ that Seerr speaks when Media Manager replaces the *arr applications:
 `CommandResponse`, `SyntheticID`, `Slug`, and `AutoRootPath`/`IsAutoRootPath`
 (the single synthetic `/srv/media/Auto` root folder Seerr is shown; intake
 routes Auto requests by metadata in `internal/postgres/seerr_routes.go`). No I/O. The handlers live in
-`internal/httpapi/servarr.go` and the data in `internal/postgres/servarr.go`.
+`internal/httpapi/servarr.go` and the data in `internal/postgres/servarrstore`.
 
 ## internal/httpapi — HTTP transport
 

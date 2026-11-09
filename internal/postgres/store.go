@@ -13,19 +13,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/indexers"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-type Store struct {
-	Pool              *pgxpool.Pool
-	acquisitionLimits AcquisitionLimits
-	// relocateCheckpoint lets tests interrupt a move at every boundary.
-	relocateCheckpoint func() error
-}
-
 var (
-	ErrConcurrentModification      = errors.New("concurrent modification")
-	ErrNotFound                    = errors.New("record not found")
+	ErrConcurrentModification      = dbcore.ErrConcurrentModification
+	ErrNotFound                    = dbcore.ErrNotFound
 	ErrInvalidQualityProfilePolicy = errors.New("invalid quality profile policy")
 )
 
@@ -45,7 +39,7 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &Store{Pool: pool}, nil
+	return newStore(pool), nil
 }
 
 func (store *Store) Close()                         { store.Pool.Close() }
@@ -371,12 +365,7 @@ func (store *Store) RecordSeerrDelivery(ctx context.Context, instanceID, request
 	return true, nil
 }
 
-func nullableTime(value time.Time) any {
-	if value.IsZero() {
-		return nil
-	}
-	return value
-}
+func nullableTime(value time.Time) any { return dbcore.NullableTime(value) }
 
 func (store *Store) Ready(ctx context.Context) error {
 	if err := store.Ping(ctx); err != nil {

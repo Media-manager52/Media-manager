@@ -411,7 +411,7 @@ func migrationGateFixtures(t *testing.T, ctx context.Context, store *Store, inde
 // usable and the genuine gate persists.
 func TestGateTriggerResolvesUnderHostileSearchPath(t *testing.T) {
 	pool, schema, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -489,7 +489,7 @@ func TestGateTriggerResolvesUnderHostileSearchPath(t *testing.T) {
 // transmitted_at set).
 func TestGateAcceptsStepOfSameIndexer(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -501,7 +501,7 @@ func TestGateAcceptsStepOfSameIndexer(t *testing.T) {
 // A-7: gate rejects a step of a different indexer.
 func TestGateRejectsStepOfDifferentIndexer(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerA := migrationIndexer(t, ctx, pool, now)
 	indexerB := migrationIndexer(t, ctx, pool, now.Add(time.Second))
@@ -516,7 +516,7 @@ func TestGateRejectsStepOfDifferentIndexer(t *testing.T) {
 // message, proved with real durable step states.
 func TestGateRejectsNonTransmittingStep(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	// planned: use a raw new run whose step never leaves planned.
 	indexerPlanned := migrationIndexer(t, ctx, pool, now)
@@ -599,7 +599,7 @@ func mustCAPSPlan(t *testing.T, ctx context.Context, store *Store, indexerID uui
 // A-9: an unresolved gate cannot be replaced.
 func TestUnresolvedGateCannotBeReplaced(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -617,7 +617,7 @@ func TestUnresolvedGateCannotBeReplaced(t *testing.T) {
 // A-10: gated budget row / gated step / gated integration cannot be deleted.
 func TestGateBearingBudgetRowCannotBeDeleted(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -631,7 +631,7 @@ func TestGateBearingBudgetRowCannotBeDeleted(t *testing.T) {
 
 func TestGatedStepCannotBeDeleted(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -645,7 +645,7 @@ func TestGatedStepCannotBeDeleted(t *testing.T) {
 
 func TestGatedIntegrationCannotBeDeleted(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -670,7 +670,7 @@ func TestGatedIntegrationCannotBeDeleted(t *testing.T) {
 // fails loudly; that refusal is NOT credited as index evidence.
 func TestOneBudgetRowPerGateStep(t *testing.T) {
 	pool, schema, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerA := migrationIndexer(t, ctx, pool, now)
 	indexerB := migrationIndexer(t, ctx, pool, now.Add(time.Second))
@@ -878,7 +878,7 @@ func mustSearchTarget() newznab.EvidenceTarget {
 // durable state — never by editing production SQL or the trigger.
 func TestRetryAfterDeferredOnCompletedStepCannotClearGate(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -918,7 +918,7 @@ func TestRetainedGateOutcomesCannotClearGate(t *testing.T) {
 		commissioningv2.OutcomeCredentialUnavailable,
 	} {
 		pool, _, ctx := migrationTestPool(t, 35)
-		store := &Store{Pool: pool}
+		store := newStore(pool)
 		now := time.Now().UTC().Truncate(time.Microsecond)
 		indexerID := migrationIndexer(t, ctx, pool, now)
 		_, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -948,7 +948,7 @@ func TestRetainedGateOutcomesCannotClearGate(t *testing.T) {
 	// predicate refuses; the gate stays held.
 	for _, outcome := range []commissioningv2.SafeOutcome{commissioningv2.OutcomeCancelled, commissioningv2.OutcomeIndeterminate} {
 		pool, _, ctx := migrationTestPool(t, 35)
-		store := &Store{Pool: pool}
+		store := newStore(pool)
 		now := time.Now().UTC().Truncate(time.Microsecond)
 		indexerID := migrationIndexer(t, ctx, pool, now)
 		run, step := migrationGateFixtures(t, ctx, store, indexerID, now)
@@ -1028,7 +1028,7 @@ func TestRetainedGateOutcomesCannotClearGate(t *testing.T) {
 // smuggle unresolved accounting past the gate.
 func TestCancelledStepCannotEstablishGate(t *testing.T) {
 	pool, _, ctx := migrationTestPool(t, 35)
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	indexerID := migrationIndexer(t, ctx, pool, now)
 	run, step := liveRunAndIntentStep(t, ctx, store, indexerID, now)
@@ -1092,7 +1092,7 @@ func TestAllowlistedOutcomesClearGate(t *testing.T) {
 		}
 		seen[outcome] = true
 		pool, _, ctx := migrationTestPool(t, 35)
-		store := &Store{Pool: pool}
+		store := newStore(pool)
 		now := time.Now().UTC().Truncate(time.Microsecond)
 		indexerID := migrationIndexer(t, ctx, pool, now)
 		// Search-only outcomes and count-bearing evidence outcomes cannot be

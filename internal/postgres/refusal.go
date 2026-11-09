@@ -1,16 +1,8 @@
 package postgres
 
-// ActionRefusal is a guard refusal an owner or agent can act on: a stable
-// snake_case code, the human message, and the next step. The HTTP layer
-// returns it as 409 {"error": {"code", "message", "hint"}}.
-type ActionRefusal struct {
-	Code    string
-	Message string
-	Hint    string
-}
+import "github.com/media-manager/media-manager/internal/postgres/dbcore"
 
-func (refusal ActionRefusal) Error() string { return refusal.Message }
+// ActionRefusal is a guard refusal an owner or agent can act on. See dbcore.
+type ActionRefusal = dbcore.ActionRefusal
 
-func refuse(code, message, hint string) error {
-	return ActionRefusal{Code: code, Message: message, Hint: hint}
-}
+func refuse(code, message, hint string) error { return dbcore.Refuse(code, message, hint) }

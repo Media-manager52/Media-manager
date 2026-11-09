@@ -55,3 +55,4 @@ The website itself is in `web/`: `src/pages` has one file per page and
 Find the area it belongs to and work there. Rules that apply everywhere are in
 [boundaries.md](boundaries.md) and [../invariants.md](../invariants.md). If a
 new file is added to `internal/postgres`, add it to `scripts/dev/areas.conf`.
+How storage is divided is explained in [boundaries.md](boundaries.md#storage-subjects).
