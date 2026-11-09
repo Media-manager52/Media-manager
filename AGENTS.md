@@ -23,6 +23,9 @@ truthful, and safe for an owner-operated production media system.
 
 ## Code map
 
+`docs/architecture/areas.md` maps each product area to its code, page and quick
+test (`scripts/dev/test-area.sh <area>`). Start there for a change or a bug.
+
 - `cmd/media-manager`: Go API and worker entry point.
 - `internal/workflows`, `catalog`, `releases`, and neighboring packages: focused
   domain rules and durable types.
