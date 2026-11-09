@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.3] - 2026-11-09
+
+The third public beta: `main` at `c11b899`, database schema 57. Plex login, a recommended setup, title actions on the website, plain-language status and safer long-running work.
+
 ### Added
 
 - **When something was last checked.** **Kom i gang** remembers the last connection test, the library shows when status was checked with a **Kontrollér igen** button, **System → Backup** shows the latest database restore test, and the work page says when a language is only claimed by the indexer.
@@ -55,6 +59,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 - **Library and quality profile are chosen from described choices.** On **Tilføj film eller serie** and in Seerr rules, the two plain menus are replaced by a field that shows the choice with one explaining line and opens a list (a sheet from the bottom on a phone): each library shows its Plex folder, a *Standard* or *4K* badge and 4K folders in their own group; each profile says in Danish what it demands (Danish subtitles or speech, Danish speech, no language demand, required resolution, chosen automatically for a language). *Automatisk* names the library and profile it means today. What is sent to the API is unchanged.
 
 ### Fixed
+
+- **A deleted backup no longer looks checked.** **System → Backup** showed a verified backup as checked after its file was removed, and counted it as the latest restore test. It now says *Filen er slettet* and leaves it out of that line, unless a confirmed external copy still exists.
 
 - **Language and library evidence.** Forced-only embedded or bundled subtitles no longer satisfy a required language; full SDH subtitles and Danish audio still do, and forced tracks remain in the evidence. An embedded track that only carries the forced flag is checked against its content first, because some releases flag their complete track so players show it by default: a few short windows are read and running dialogue counts as a full subtitle. A track named "forced" and a bundled `.forced.` file are taken at their word. Library status loading, errors and incomplete responses stay visibly unknown with retry. Setup describes saved configuration rather than tested connections, and **Test forbindelser** shows per connection whether it answered just now. **Seneste sæson** picks the newest season that has aired, not one that is only announced. Season completion uses confirmed distinct frozen episodes in the selected edition, with stable file root/edition metadata instead of display names or file counts.
 
@@ -352,5 +358,6 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.3]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.1
