@@ -8,6 +8,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 - **Fejllog**: a page in the main menu that lists everything that went wrong in the last 30 days in plain Danish, with search, filters by area, copy and download as text. Credentials are removed. `GET /api/v1/errors` serves the same data.
 
+### Fixed
+
+- "Start new round from known releases" skips a release that the current title parser no longer accepts or that a later search rejected, instead of spending a slot on an out-of-date approval.
+
 ## [0.1.0-beta.4] - 2026-11-09
 
 The fourth public beta: `main` at `f928173`, database schema 57. Finds more of the releases that already exist. Language and quality requirements are unchanged.

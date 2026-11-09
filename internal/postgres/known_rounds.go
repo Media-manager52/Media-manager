@@ -8,6 +8,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -59,18 +60,17 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		WHERE workflow.id=$1`, workflowID.String()).Scan(&policyVersion, &policy); err != nil {
 		return err
 	}
-	var candidateText string
 	// A decision made under an earlier version whose frozen rules equal the
 	// current policy (the profile was only renamed or made default since) is
 	// as valid as one made under the current version; the new round then keeps
 	// that version so the decision and later retrieval checks stay consistent.
-	var decisionVersion int64
-	err = transaction.QueryRow(ctx, `SELECT candidate.id::text,decision.policy_version
+	rows, err := transaction.Query(ctx, `SELECT candidate.id::text,decision.policy_version,observation.title
 		FROM release_candidates candidate
 		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
 		  AND (decision.policy_version=$2 OR EXISTS(SELECT 1 FROM acquisition_rounds same WHERE same.workflow_id=candidate.workflow_id AND same.policy_version=decision.policy_version AND `+samePolicyRulesSQL("same.policy_snapshot", "$3::jsonb")+`))
 		JOIN release_observations observation ON observation.id=candidate.observation_id
 		WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
+		  AND NOT EXISTS (SELECT 1 FROM candidate_decisions newer WHERE newer.workflow_id=candidate.workflow_id AND newer.candidate_id=candidate.id AND newer.decided_at>decision.decided_at AND newer.verdict<>'eligible')
 		  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
 		  AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions exclusion WHERE exclusion.workflow_id=candidate.workflow_id AND exclusion.indexer_instance_id=candidate.indexer_instance_id AND exclusion.native_key=candidate.native_key)`+" AND NOT "+knownSubtitleFailureSQL("candidate")+`
 		ORDER BY
@@ -79,12 +79,16 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 		  decision.score DESC,
 		  decision.policy_version=$2 DESC,
 		  candidate.first_seen_sequence
-		LIMIT 1`, workflowID.String(), policyVersion, string(policy)).Scan(&candidateText, &decisionVersion)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return refuse("no_known_eligible_release", "no known eligible release is available for a new acquisition round", "Wait for paced discovery or queue one with discover.")
-	}
+		`, workflowID.String(), policyVersion, string(policy))
 	if err != nil {
 		return err
+	}
+	candidateText, decisionVersion, err := firstCurrentKnownCandidate(rows)
+	if err != nil {
+		return err
+	}
+	if candidateText == "" {
+		return refuse("no_known_eligible_release", "no known eligible release is available for a new acquisition round", "Wait for paced discovery or queue one with discover.")
 	}
 	candidateID, err := uuid.Parse(candidateText)
 	if err != nil {
@@ -192,4 +196,23 @@ func (store *Store) RevivePreSubmissionRejections(ctx context.Context, workflowI
 		return 0, err
 	}
 	return len(jobIDs), nil
+}
+
+// firstCurrentKnownCandidate returns the best approved release that the current
+// title parser still agrees with. Decisions are kept per policy version, so an
+// approval made before a parser fix survives it; without this check a new round
+// would spend its first slot on a release a fresh search now rejects.
+func firstCurrentKnownCandidate(rows pgx.Rows) (string, int64, error) {
+	defer rows.Close()
+	for rows.Next() {
+		var candidate, title string
+		var version int64
+		if err := rows.Scan(&candidate, &version, &title); err != nil {
+			return "", 0, err
+		}
+		if !releases.MultiEpisodeRelease(title) {
+			return candidate, version, nil
+		}
+	}
+	return "", 0, rows.Err()
 }

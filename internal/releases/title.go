@@ -137,6 +137,13 @@ var seasonTokenFirst = regexp.MustCompile(`^(?:s\d{1,4}(?:e\d{1,4})?|\d{4} \d{2}
 // partialEpisodeRange reports a name that covers only some episodes of a
 // season: two joined episodes (S03E20E21) or a range that does not start at
 // the first episode (S07E09-E11). Those are not season packs.
+// MultiEpisodeRelease reports whether title names a few episodes of a season
+// rather than one episode or a whole season. No acquisition rule accepts that
+// scope, so an older approval of such a title is out of date.
+func MultiEpisodeRelease(title string) bool {
+	return episodeRange.MatchString(title) && partialEpisodeRange(title)
+}
+
 func partialEpisodeRange(title string) bool {
 	match := episodeRangeParts.FindStringSubmatch(title)
 	if match == nil {
