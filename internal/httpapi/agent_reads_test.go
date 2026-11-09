@@ -66,6 +66,23 @@ func TestAgentReadEndpointsReportUsageQueueSearchesAndCandidates(t *testing.T) {
 	if !found {
 		t.Fatal("created indexer missing from usage")
 	}
+	var recent []postgres.RecentAddition
+	if get("/api/v1/media/recent?limit=5", &recent) != 200 || recent == nil {
+		t.Fatal("recent additions unavailable", recent)
+	}
+	for _, invalid := range []string{"0", "51", "x"} {
+		if status := get("/api/v1/media/recent?limit="+invalid, &recent); status != 400 {
+			t.Fatalf("recent additions limit=%s: status %d, want 400", invalid, status)
+		}
+	}
+	anonymous, err := http.Get(testServer.URL + "/api/v1/media/recent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anonymous.Body.Close()
+	if anonymous.StatusCode != 401 {
+		t.Fatalf("anonymous recent additions: status %d, want 401", anonymous.StatusCode)
+	}
 	var queue postgres.QueueSnapshot
 	if get("/api/v1/system/queue", &queue) != 200 || queue.ByType == nil || queue.CheckedAt.IsZero() {
 		t.Fatal("queue snapshot unavailable", queue)

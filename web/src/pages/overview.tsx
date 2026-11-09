@@ -2,11 +2,12 @@ import { useQuery } from "@tanstack/react-query"
 import { CheckCircle2, ChevronRight } from "lucide-react"
 import { Link } from "react-router"
 
-import { loadAttentionWorkflows, loadCalendar, loadDashboard, loadSetupStatus, loadSystemHealth, type APIWorkflow } from "@/api/client"
+import { loadAttentionWorkflows, loadCalendar, loadDashboard, loadRecentAdditions, loadSetupStatus, loadSystemHealth, type APIWorkflow } from "@/api/client"
+import { Poster, sizedArtwork } from "@/components/poster"
 import { Badge, Card, CardHeader, Dot, Empty, ErrorBox, PageHeader, Skeleton, Stat } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative, formatWeekday } from "@/format"
 import { attentionLabel, stateLabel, stateTone, workflowDisplayState } from "@/i18n"
-import { describeVariant, workflowHref } from "@/lib/links"
+import { describeVariant, titleHref, workflowHref } from "@/lib/links"
 
 export function OverviewPage() {
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: ({ signal }) => loadDashboard(signal), refetchInterval: 60_000 })
@@ -22,6 +23,7 @@ export function OverviewPage() {
         <Stat label="Film" value={counts ? formatNumber(counts.movies) : <Skeleton className="h-9 w-16" />} to="/bibliotek?type=film" />
         <Stat label="Serier" value={counts ? formatNumber(counts.series) : <Skeleton className="h-9 w-16" />} to="/bibliotek?type=serier" />
       </div>
+      <RecentlyAdded />
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <div className="flex min-w-0 flex-col gap-6">
           <AttentionPreview />
@@ -49,6 +51,34 @@ function SetupBanner() {
       </div>
       <ChevronRight aria-hidden className="size-4 shrink-0" />
     </Link>
+  )
+}
+
+/** The titles that most recently got a verified file in the library. */
+function RecentlyAdded() {
+  const query = useQuery({ queryKey: ["media", "recent"], queryFn: ({ signal }) => loadRecentAdditions(signal), refetchInterval: 60_000 })
+  const items = query.data ?? []
+  return (
+    <Card className="mt-6">
+      <CardHeader title="Senest tilføjet" description="De nyeste film og afsnit, der er hentet, kontrolleret og lagt i biblioteket." action={<Link to="/bibliotek?sort=senest-tilfoejet" className="text-sm font-medium text-accent-strong hover:underline">Se alle</Link>} />
+      {query.error ? <div className="p-4"><ErrorBox error={query.error} retry={() => query.refetch()} /></div> : null}
+      {query.isPending ? <div className="flex gap-3 overflow-hidden px-5 py-4">{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="aspect-[2/3] w-28 shrink-0 rounded-xl" />)}</div> : null}
+      {!query.isPending && !query.error && items.length === 0 ? <Empty title="Intet er hentet endnu">Når en film eller et afsnit er lagt i biblioteket, vises det her.</Empty> : null}
+      {items.length > 0 ? (
+        <ul aria-label="Senest tilføjet" className="flex gap-3 overflow-x-auto px-5 py-4">
+          {items.map((item) => (
+            <li key={item.media_id} className="w-28 shrink-0">
+              <Link to={titleHref(item.media_id)} className="group block">
+                <Poster src={sizedArtwork(item.poster_url, "w185")} title={item.title} kind={item.media_kind} />
+                <div className="mt-2 truncate text-sm font-medium group-hover:underline">{item.title}</div>
+                <div className="truncate text-xs text-text-2">{describeVariant(item)}</div>
+                <div className="truncate text-xs text-text-3">{formatRelative(item.added_at)}</div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </Card>
   )
 }
 
@@ -162,6 +192,7 @@ function UpcomingCard() {
       <ul className="divide-y divide-line">
         {upcoming.slice(0, 8).map((entry) => (
           <li key={`${entry.workflow_id}-${entry.season}-${entry.episode}`} className="flex items-center gap-3 px-5 py-3">
+            <Poster compact src={sizedArtwork(entry.poster_url, "w185")} title={entry.media_title} kind={entry.media_kind} className="w-9 shrink-0 rounded-md" />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium">{entry.media_title}</div>
               <div className="truncate text-sm text-text-2">S{String(entry.season).padStart(2, "0")}E{String(entry.episode).padStart(2, "0")}{entry.episode_title ? ` · ${entry.episode_title}` : ""}</div>

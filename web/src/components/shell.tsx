@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
 import {
-  Activity, AlertTriangle, CalendarDays, Clapperboard, Home, Inbox, ListChecks, Menu, Monitor, Moon, Plus, Radio, Settings, Sun, X, Server, Bug,
+  Activity, AlertTriangle, CalendarDays, Clapperboard, Home, Inbox, ListChecks, Menu, Monitor, Moon, Plus, Radio, Search, Settings, Sun, X, Server, Bug,
 } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 import { NavLink, Outlet, useLocation } from "react-router"
 
 import { loadDashboard } from "@/api/client"
+import { GlobalSearch } from "@/components/global-search"
 import { cx } from "@/components/ui"
 
 type NavItem = { to: string; label: string; icon: typeof Home; end?: boolean; badge?: "attention" }
@@ -116,6 +117,7 @@ function Sidebar({ count, onNavigate }: { count?: number; onNavigate?: () => voi
   return (
     <nav aria-label="Hovedmenu" className="flex h-full flex-col gap-6 px-3 py-5">
       <Brand />
+      <GlobalSearch onNavigate={onNavigate} />
       <div className="flex flex-col gap-0.5">
         {primary.map((item) => <NavEntry key={item.to} item={item} count={count} onNavigate={onNavigate} />)}
       </div>
@@ -133,6 +135,7 @@ function Sidebar({ count, onNavigate }: { count?: number; onNavigate?: () => voi
 export function AppShell({ children }: { children?: ReactNode }) {
   const count = useAttentionCount()
   const [drawer, setDrawer] = useState(false)
+  const [searching, setSearching] = useState(false)
   const location = useLocation()
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -168,8 +171,16 @@ export function AppShell({ children }: { children?: ReactNode }) {
             <Menu className="size-5" />
           </button>
           <img src="/favicon.svg" alt="" className="size-6" />
-          <span className="font-semibold">Media Manager</span>
+          <span className="flex-1 font-semibold">Media Manager</span>
+          <button type="button" onClick={() => setSearching((value) => !value)} aria-label={searching ? "Luk søgning" : "Søg i dine titler"} aria-expanded={searching} className="-mr-2 rounded-md p-2.5 text-text-2 hover:text-text">
+            {searching ? <X className="size-5" /> : <Search className="size-5" />}
+          </button>
         </header>
+        {searching ? (
+          <div className="sticky top-14 z-30 border-b border-line bg-bg px-3 py-3 lg:hidden">
+            <GlobalSearch autoFocus onNavigate={() => setSearching(false)} />
+          </div>
+        ) : null}
         <main id="main" className="mx-auto w-full max-w-7xl px-4 pb-28 pt-6 sm:px-6 lg:px-10 lg:pb-12 lg:pt-10">
           {children ?? <Outlet />}
         </main>

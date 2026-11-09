@@ -3,8 +3,8 @@ import { useState } from "react"
 
 import { cx } from "@/components/ui"
 
-/** Poster with a calm placeholder when artwork is missing or blocked. */
-export function Poster({ src, title, kind, className }: { src?: string; title: string; kind?: string; className?: string }) {
+/** Poster with a calm placeholder when artwork is missing or blocked. `compact` is for thumbnails too small for the title. */
+export function Poster({ src, title, kind, className, compact = false }: { src?: string; title: string; kind?: string; className?: string; compact?: boolean }) {
   const [failed, setFailed] = useState<string | null>(null)
   const usable = src && failed !== src ? src : undefined
   const Icon = kind === "series" ? Tv : Clapperboard
@@ -13,9 +13,9 @@ export function Poster({ src, title, kind, className }: { src?: string; title: s
       {usable ? (
         <img src={usable} alt="" loading="lazy" decoding="async" onError={() => setFailed(usable)} className="size-full object-cover" />
       ) : (
-        <div className="flex size-full flex-col items-center justify-center gap-2 p-3 text-center text-text-2">
-          <Icon aria-hidden className="size-6" />
-          <span className="line-clamp-3 text-xs font-medium text-text-2">{title}</span>
+        <div className={cx("flex size-full flex-col items-center justify-center gap-2 text-center text-text-2", !compact && "p-3")}>
+          <Icon aria-hidden className={compact ? "size-4" : "size-6"} />
+          {compact ? null : <span className="line-clamp-3 text-xs font-medium text-text-2">{title}</span>}
         </div>
       )}
     </div>

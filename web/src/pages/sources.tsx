@@ -15,7 +15,7 @@ export function SourcesPage() {
   const [adding, setAdding] = useState(false)
   return (
     <>
-      <PageHeader title="Kilder" description="Indexerne, Media Manager søger hos, og hvor meget af dagens grænse der er brugt. Grænserne gælder et rullende døgn." actions={<Button variant="primary" onClick={() => setAdding(true)}>Tilføj indexer</Button>} />
+      <PageHeader title="Kilder" description="Indexerne, Media Manager søger hos, hvor meget af dagens grænse der er brugt, og hvor mange downloads fra hver der blev godkendt. Grænserne gælder et rullende døgn." actions={<Button variant="primary" onClick={() => setAdding(true)}>Tilføj indexer</Button>} />
       {adding ? <AddIndexerDialog onClose={() => setAdding(false)} /> : null}
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
       {query.isPending ? <Card><ListSkeleton rows={6} /></Card> : null}
@@ -39,6 +39,7 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
   const succeeded = countOf("succeeded")
   const deferred = countOf("deferred")
   const failed = countOf("failed")
+  const downloads = indexer.downloads_30d
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
@@ -64,6 +65,13 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
           <div className="mb-1 flex justify-between"><span className="text-text-2">Hentninger (NZB)</span><span className="tabular">{formatNumber(usage.grabs_used)} / {formatNumber(budget.grab_limit)}</span></div>
           <Progress value={usage.grabs_used} max={budget.grab_limit} tone="info" label="Hentninger brugt" />
         </div>
+        {downloads ? (
+          <div>
+            <div className="mb-1 flex justify-between gap-3"><span className="text-text-2">Godkendte downloads, 30 dage</span><span className="tabular">{downloads.finished ? `${formatNumber(downloads.verified)} af ${formatNumber(downloads.finished)} (${formatNumber(Math.round((downloads.verified / downloads.finished) * 100))} %)` : "Ingen downloads"}</span></div>
+            {downloads.finished ? <Progress value={downloads.verified} max={downloads.finished} tone="good" label="Godkendte downloads de seneste 30 dage" /> : null}
+            <p className="mt-1 text-xs text-text-3">Godkendt betyder, at filen blev hentet og bestod kontrollen af sprog og kvalitet.</p>
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-3">
           <span>Automatiske søgninger tilbage: {formatNumber(usage.background_queries_remaining)}</span>
           {outcomes.length ? <span>Sidste døgn: {formatNumber(succeeded)} svar · {formatNumber(deferred)} udsat (grænse/pause){failed ? ` · ${formatNumber(failed)} fejl` : ""}</span> : null}

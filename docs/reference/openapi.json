@@ -1072,6 +1072,17 @@
         },
         "type": "object"
       },
+      "Postgres_IndexerDownloads": {
+        "properties": {
+          "finished": {
+            "type": "integer"
+          },
+          "verified": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_IndexerOutcomeCount": {
         "properties": {
           "count": {
@@ -1136,6 +1147,9 @@
           },
           "commissioned": {
             "type": "boolean"
+          },
+          "downloads_30d": {
+            "$ref": "#/components/schemas/Postgres_IndexerDownloads"
           },
           "enabled": {
             "type": "boolean"
@@ -1436,6 +1450,10 @@
       },
       "Postgres_MediaStatus": {
         "properties": {
+          "added_at": {
+            "format": "date-time",
+            "type": "string"
+          },
           "attention": {
             "type": "boolean"
           },
@@ -1448,6 +1466,13 @@
           },
           "missing": {
             "type": "integer"
+          },
+          "root_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -1587,6 +1612,37 @@
             "type": "integer"
           },
           "scheduled": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_RecentAddition": {
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "edition": {
+            "type": "string"
+          },
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "poster_url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "variant": {
+            "type": "string"
+          },
+          "year": {
             "type": "integer"
           }
         },
@@ -4445,6 +4501,66 @@
         "x-mm-effect": "provider"
       }
     },
+    "/api/v1/media/recent": {
+      "get": {
+        "description": "One row per title with the scope of its newest file. Only files Media Manager downloaded and verified are listed; adopted files are not. limit is 1 to 50 and defaults to 12.\n\nNo state change and no provider contact. Always safe.",
+        "operationId": "listRecentAdditions",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_RecentAddition"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Titles that most recently got a verified file in the library, newest first",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
     "/api/v1/media/status": {
       "get": {
         "description": "missing counts wanted scopes (the film, a season or an episode) that no library file covers yet; a season fully present as episode files, or an episode inside a published season pack, is not missing. Upgrades of a present file are not missing.\n\nNo state change and no provider contact. Always safe.",
@@ -4486,7 +4602,7 @@
             "description": "Error with a stable code."
           }
         },
-        "summary": "Library status of every active title: in Plex, missing scopes and owner attention",
+        "summary": "Library status of every active title: in Plex, missing scopes, owner attention, library folders and when it was last added to",
         "tags": [
           "media"
         ],

@@ -242,6 +242,24 @@ func (server *Server) listMediaStatus(writer http.ResponseWriter, request *http.
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items})
 }
 
+func (server *Server) listRecentAdditions(writer http.ResponseWriter, request *http.Request) {
+	limit := 0
+	if value := request.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 50 {
+			writeError(writer, http.StatusBadRequest, "invalid_request", "limit must be a whole number from 1 to 50")
+			return
+		}
+		limit = parsed
+	}
+	items, err := server.store.RecentAdditions(request.Context(), limit)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load recent additions")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items, Meta: map[string]int{"count": len(items)}})
+}
+
 func (server *Server) createMedia(writer http.ResponseWriter, request *http.Request) {
 	var input createMediaInput
 	if err := decodeJSON(request, &input, 256<<10); err != nil {

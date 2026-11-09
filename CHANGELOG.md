@@ -4,6 +4,15 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Senest tilføjet** on the overview: posters of the titles that most recently got a verified file in the library. `GET /api/v1/media/recent` serves the same list.
+- **A search field in the menu** on every page finds a title in the library, and offers to look the words up as a new title when nothing matches.
+- **Bibliotek** can be sorted by "Senest tilføjet" and filtered by library folder. `GET /api/v1/media/status` now also returns each title's folders and when it last got a file.
+- **Kræver handling** has one button per group for an action that several cases share. It sends the same request as the single-case button, one case at a time and at most 25 per click, and then says which cases were started and which were not. Cancelling and actions that need a typed confirmation are never offered for a group.
+- **Kilder** shows, per indexer, how many downloads from the last 30 days passed the check of language and quality (`downloads_30d` on `GET /api/v1/indexers`).
+- **Kalender** shows a poster per episode and marks episodes that have not been sent yet as "Kommer". Progress, problems and "I Plex" keep their own label.
+
 ## [0.1.0-beta.5] - 2026-11-09
 
 The fifth public beta: `main` at `db81e67`, database schema 57. A plain-text error log, a usability pass over every page and two more fixes for how releases are picked. Language and quality requirements are unchanged.
