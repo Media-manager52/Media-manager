@@ -16,3 +16,8 @@ export function externalCopyState(record: APIBackupRecord, configured: boolean):
   if (record.offsite_state === "uploaded") return "unknown"
   return configured ? "pending" : "not_configured"
 }
+
+/** A restore test only says something about a backup that still exists somewhere. */
+export function latestRestoreTest(records: APIBackupRecord[]): string | undefined {
+  return records.filter((record) => record.state === "verified" && (!record.local_file_deleted || confirmedExternalCopy(record))).map((record) => record.completed_at ?? record.created_at).sort().at(-1)
+}

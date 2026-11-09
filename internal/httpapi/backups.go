@@ -21,6 +21,7 @@ func (server *Server) listBackups(writer http.ResponseWriter, request *http.Requ
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load backups")
 		return
 	}
+	markDeletedBackupFiles(server.config.BackupDirectory, items)
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{
 		"configured":           server.config.BackupConfigured,
 		"key_file":             server.config.BackupKeyFile,
@@ -35,6 +36,28 @@ func (server *Server) listBackups(writer http.ResponseWriter, request *http.Requ
 		},
 		"records": items,
 	}})
+}
+
+// markDeletedBackupFiles flags verified backups whose local file is gone, so a
+// removed file is never presented as a usable backup. Only a confirmed absence
+// counts: a missing backup directory or an unreadable path says nothing about
+// the individual files.
+func markDeletedBackupFiles(directory string, items []postgres.BackupRecord) {
+	if directory == "" {
+		return
+	}
+	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		return
+	}
+	for index := range items {
+		item := &items[index]
+		if item.State != "verified" || item.Filename == "" || filepath.Base(item.Filename) != item.Filename {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(directory, item.Filename)); errors.Is(err, os.ErrNotExist) {
+			item.LocalFileDeleted = true
+		}
+	}
 }
 
 func (server *Server) createBackup(writer http.ResponseWriter, request *http.Request) {

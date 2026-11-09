@@ -305,6 +305,7 @@ export function externalCopyLabel(state: string): string {
   return labels[state] ?? "Ekstern kopistatus er ukendt"
 }
 
-export function backupStateLabel(state: string): string {
+export function backupStateLabel(state: string, localFileDeleted = false): string {
+  if (localFileDeleted) return "Filen er slettet"
   return ({ verified: "Database kontrolleret", failed: "Backup fejlet", queued: "I kø", running: "Kører" } as Record<string, string>)[state] ?? "Ukendt backupstatus"
 }
