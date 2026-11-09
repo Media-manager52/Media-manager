@@ -80,6 +80,9 @@ export function stateTone(state: string | undefined | null): Tone {
 
 const attentionLabels: Record<string, string> = {
   duplicate_package_no_alternate: "Kun samme pakke fundet – intet alternativ",
+  duplicate_package_skip_limit: "Samme pakke dukkede op for mange gange",
+  altmount_submission_rejected: "AltMount afviste udgivelsen",
+  subtitle_verification_failed: "Sprogkontrollen fejlede",
   altmount_output_unavailable: "AltMount-filen kan ikke læses",
   altmount_mount_unavailable: "AltMount-drevet er ikke tilgængeligt",
   output_inspection_failed: "Filen bestod ikke kontrollen",
@@ -123,6 +126,104 @@ export function actionLabel(action: string): { label: string; help: string } {
   return actionLabels[action] ?? { label: humanize(action), help: "" }
 }
 
+const repairReasons: Record<string, string> = {
+  corrupted: "Ødelagt fil",
+  missing_required_audio: "Mangler dansk tale",
+  missing_file: "Fil forsvundet",
+  owner_requested: "Ønsket erstattet",
+}
+
+export function repairReasonLabel(reason: string): string {
+  return repairReasons[reason] ?? humanize(reason)
+}
+
+const componentOutcomes: Record<string, string> = {
+  success: "OK",
+  no_results: "OK, intet fundet",
+  rate_limited: "Søgegrænse nået",
+  auth_failed: "Login afvist",
+  system_failure: "Fejl",
+  cancelled: "Afbrudt",
+}
+
+/** The last answer from a connection or indexer on the status page. */
+export function componentOutcomeLabel(outcome: string): string {
+  return componentOutcomes[outcome] ?? humanize(outcome)
+}
+
+const activityActions: Record<string, string> = {
+  "library.repair_opened": "Reparation startet",
+  "upgrade.displaced_link_removed": "Gammelt link fjernet efter udskiftning",
+  "library.links_relocated": "Links flyttet til andet bibliotek",
+  "library.root_updated": "Biblioteksmappe ændret",
+  "media.created": "Titel oprettet",
+  "media.archived": "Titel arkiveret",
+  "media.unarchived": "Titel gendannet fra arkivet",
+  "media.metadata_refreshed": "Titeloplysninger opdateret",
+  "request.intake": "Anmodning modtaget",
+  "season.airing_coordinated": "Igangværende sæson planlagt",
+  "release.nfo_checked": "NFO-fil tjekket",
+  "release.blocked": "Udgivelse blokeret",
+  "backup.requested": "Backup bestilt",
+  "backup.verified": "Backup kontrolleret",
+  "seerr.route_saved": "Seerr-rute gemt",
+  "newznab.commissioned": "Indexer godkendt",
+  "oldboys.commissioned": "Indexer godkendt",
+  "oldboys.credentials_saved": "Indexer-login gemt",
+  "oldboys.budget_set": "Indexerbudget ændret",
+  "prowlarr.backup_imported": "Prowlarr-backup importeret",
+  "integration.request_budgets_updated": "Søgebudgetter ændret",
+  "integration.settings_changed": "Forbindelse ændret",
+  "quality_profile.policy_applied": "Kvalitetsprofil anvendt",
+  "output.movie_reinspection_requested": "Film sat til ny undersøgelse",
+  "subtitle.output_reverification_requested": "Ny sprogkontrol bestilt",
+  "subtitle.output_reverified": "Sprogkontrol kørt igen",
+  "workflow.created": "Arbejde oprettet",
+  "workflow.archive_rejections_revived": "Afviste arkiver fik en ny chance",
+  "workflow.plex_reconfirm_requested": "Plex bedt om at bekræfte igen",
+  "workflow.access_rejected_release_retried": "Afvist udgivelse prøvet igen",
+  "workflow.discovery_requested": "Bedt om at lede efter nye udgivelser",
+  "workflow.quality_policy_applied": "Kvalitetsprofil anvendt på arbejdet",
+}
+
+/** One activity line. A workflow's state changes are stored as workflow.<state>. */
+export function activityLabel(action: string): string {
+  const known = activityActions[action]
+  if (known) return known
+  if (action.startsWith("workflow.")) return `Status: ${stateLabel(action.slice("workflow.".length))}`
+  return humanize(action.replaceAll(".", " "))
+}
+
+const activityActors: Record<string, string> = { owner: "Dig", worker: "Baggrundsarbejde", policy: "Regler", seerr: "Seerr", system: "System", migration: "Opdatering" }
+
+export function activityActorLabel(actor: string): string {
+  return activityActors[actor] ?? humanize(actor)
+}
+
+const queueEvents: Record<string, string> = {
+  "workflow.search_requested": "Søgning",
+  "workflow.discovery_rescan_requested": "Leder efter nye udgivelser",
+  "workflow.transitioned": "Statusskift",
+  "seerr.reconcile": "Tjek af Seerr",
+  "seerr.status_sync_requested": "Status sendes til Seerr",
+  "altmount.reconcile_requested": "Tjek af AltMount",
+  "altmount.repair_sweep_requested": "Tjek af ødelagte filer",
+  "altmount.movie_reinspect_requested": "Ny undersøgelse af film",
+  "altmount.output_reverify_requested": "Ny sprogkontrol",
+  "release.retrieve_requested": "Hentning af NZB",
+  "library.publish_requested": "Udgivelse til biblioteket",
+  "library.displaced_remove_requested": "Fjernelse af udskiftet fil",
+  "library.unmanaged_broken_remove_requested": "Fjernelse af ødelagt link",
+  "plex.scan_requested": "Plex-scanning",
+  "plex.confirm_requested": "Plex-bekræftelse",
+  "plex.displaced_refresh_requested": "Plex opdateres efter udskiftning",
+  "backup.create_requested": "Backup",
+}
+
+export function queueEventLabel(event: string): string {
+  return queueEvents[event] ?? humanize(event.replaceAll(".", " "))
+}
+
 export function kindLabel(kind: string | undefined): string {
   if (kind === "movie") return "Film"
   if (kind === "series") return "Serie"
@@ -155,6 +256,15 @@ export function languageName(code: string | undefined): string {
  */
 const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^no eligible release yet$/i, () => "Ingen egnet udgivelse fundet endnu."],
+  [/^replacement confirmed in Plex; the old (?:file was retired|symlink was removed)$/, () => "Erstatningen er bekræftet i Plex, og den gamle fil er fjernet."],
+  [/^the file has no ([a-z]{2,3}) audio track; a dubbed replacement is being acquired$/, (m) => `Filen har ikke ${languageName(m[1]).toLowerCase()} tale. Media Manager henter en udgave med ${languageName(m[1]).toLowerCase()} tale.`],
+  [/^no dubbed release was found; the current file stays and is tried again later$/, () => "Ingen udgave med tale fundet. Den nuværende fil bliver liggende, og der prøves igen senere."],
+  [/^AltMount reports missing Usenet articles; a replacement is being acquired$/, () => "AltMount melder, at dele af filen mangler hos Usenet. Media Manager henter en erstatning."],
+  [/^AltMount no longer has the published file \(its Usenet articles went missing\); a replacement is being acquired$/, () => "AltMount har ikke længere filen, fordi dele af den er forsvundet hos Usenet. Media Manager henter en erstatning."],
+  [/^the owner asked for this file to be replaced; it keeps playing until the replacement is confirmed$/, () => "Du har bedt om en erstatning. Filen kan afspilles, indtil erstatningen er bekræftet."],
+  [/^the title's original language is ([a-z]{2,3}); its own audio needs no upgrade$/, (m) => `Titlens originalsprog er ${languageName(m[1]).toLowerCase()}, så talen behøver ingen udskiftning.`],
+  [/^season (\d+) episode (\d+) could not be verified: Plex and TMDB disagree on the episode \(numbering differs\)$/, (m) => `Sæson ${m[1]} afsnit ${m[2]} kunne ikke bekræftes, fordi Plex og TMDB nummererer afsnittene forskelligt.`],
+  [/^Plex has no single item at (.+)$/, (m) => `Plex har ikke ét bestemt emne for filen: ${m[1]}`],
   [/^All (\d+) acquisition slots in this round were used\. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner\.$/,
     (m) => `Alle ${m[1]} forsøg i runden er brugt. Media Manager holder øje med nye udgivelser; en ny runde kræver dig.`],
   [/^Two release-attributable acquisition slots were used\. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner\.$/,

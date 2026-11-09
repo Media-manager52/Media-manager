@@ -131,6 +131,12 @@ export function ErrorBox({ error, retry }: { error: unknown; retry?: () => void 
   )
 }
 
+/** The end of a long list: shows the next batch, and nothing once all are shown. */
+export function ShowMore({ remaining, onClick }: { remaining: number; onClick: () => void }) {
+  if (remaining <= 0) return null
+  return <div className="flex justify-center border-t border-line p-4"><Button onClick={onClick}>Vis flere ({remaining.toLocaleString("da-DK")} tilbage)</Button></div>
+}
+
 export function Empty({ title, children, icon }: { title: string; children?: ReactNode; icon?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-14 text-center">
@@ -170,7 +176,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
           aria-checked={value === option.value}
           onClick={() => onChange(option.value)}
           className={cx(
-            "flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors",
+            "flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors sm:h-8",
             value === option.value ? "bg-surface text-text shadow-sm" : "text-text-2 hover:text-text",
           )}
         >

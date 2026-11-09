@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Check } from "lucide-react"
 import { Link, useParams } from "react-router"
 
-import { loadWorkflow, loadWorkflowCandidates, loadWorkflowDryRun, loadWorkflowSearches, loadWorkflowVerifications, type APIDryRunResult, type APIWorkflow, type APIWorkflowCandidate } from "@/api/client"
+import { isNotFound, loadWorkflow, loadWorkflowCandidates, loadWorkflowDryRun, loadWorkflowSearches, loadWorkflowVerifications, type APIDryRunResult, type APIWorkflow, type APIWorkflowCandidate } from "@/api/client"
 import { Badge, Button, Card, CardHeader, cx, Empty, ErrorBox, KeyValue, PageHeader, Progress, Skeleton } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
@@ -19,6 +19,7 @@ const steps = ["Søg", "Vælg", "Send", "Hent", "Importér", "Kontrollér", "Udg
 export function WorkflowPage() {
   const { id = "" } = useParams()
   const workflow = useQuery({ queryKey: ["workflow", id], queryFn: ({ signal }) => loadWorkflow(id, signal), refetchInterval: 20_000 })
+  if (isNotFound(workflow.error)) return <Card><Empty title="Dette arbejde findes ikke længere">Det kan være afsluttet og ryddet op, eller linket kan være gammelt. <Link to="/arbejde" className="font-medium text-accent-strong hover:underline">Se alt arbejde</Link></Empty></Card>
   if (workflow.error) return <ErrorBox error={workflow.error} retry={() => workflow.refetch()} />
   if (!workflow.data) return <Skeleton className="h-64" />
   const item = workflow.data

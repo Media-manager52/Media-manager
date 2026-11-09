@@ -27,3 +27,16 @@ describe("candidate reasons", () => {
     expect(candidateReasonText("rejected", reasons)).toBe("requested title: release title does not begin with a saved canonical, original or alias title")
   })
 })
+
+describe("candidateReasonText rule names", () => {
+  const failed = (rule: string) => ({ rule, rule_kind: "required" as const, decision: "fail" as const, reason: "observed evidence does not satisfy the rule" })
+
+  it("names the generated language rules in Danish", () => {
+    expect(candidateReasonText("rejected", [failed("Required subtitle or audio da")])).toBe("Dansk tale eller undertekst: opfylder ikke kravet")
+    expect(candidateReasonText("rejected", [failed("Required audio da")])).toBe("Dansk tale: opfylder ikke kravet")
+  })
+
+  it("keeps the name of a rule the owner wrote", () => {
+    expect(candidateReasonText("rejected", [failed("Danske undertekster")])).toBe("Danske undertekster: opfylder ikke kravet")
+  })
+})

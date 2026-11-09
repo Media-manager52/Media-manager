@@ -32,7 +32,7 @@ export function WorkflowActions({ workflow, showUnavailable = false, compact = f
               disabled={!action.available}
               title={action.available ? actionLabel(action.action).help : actionReasonText(action.reason)}
               onClick={() => setPending(action)}
-              className={compact ? "h-8 px-3 text-xs" : undefined}
+              className={compact ? "h-10 px-3 text-xs sm:h-8" : undefined}
             >
               {label}
             </Button>

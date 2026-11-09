@@ -4,11 +4,12 @@ import { useDeferredValue, useState } from "react"
 import { Link } from "react-router"
 
 import { loadErrorLog, type APIErrorLogEntry } from "@/api/client"
-import { Badge, Button, Card, CardHeader, Empty, ErrorBox, PageHeader, SearchField, Segmented } from "@/components/ui"
+import { Badge, Button, Card, CardHeader, Empty, ErrorBox, PageHeader, SearchField, Segmented, ShowMore } from "@/components/ui"
 import { useToast } from "@/components/toast"
 import { formatDateTime, formatRelative } from "@/format"
 import { errorAreaLabel, errorDetail, errorEntryText, errorExplanation, errorLogAreas, errorLogText, type ErrorLogArea } from "@/lib/error-log"
 import { describeVariant, titleHref, workflowHref } from "@/lib/links"
+import { useShowMore } from "@/lib/show-more"
 import { ListSkeleton } from "@/pages/overview"
 
 function scopeOf(entry: APIErrorLogEntry): string {
@@ -52,6 +53,7 @@ export function ErrorLogPage() {
     link.click()
     URL.revokeObjectURL(link.href)
   }
+  const { shown, remaining, showMore } = useShowMore(entries, 50)
   const allCount = Object.values(data?.areas ?? {}).reduce((sum, count) => sum + count, 0)
   return (
     <>
@@ -75,7 +77,7 @@ export function ErrorLogPage() {
           description="Kopiér teksten, hvis du vil bede om hjælp eller melde en fejl. Læs den igennem først: den kan indeholde navne på dine titler."
           action={
             <div className="flex flex-wrap gap-2">
-              <Button disabled={entries.length === 0} onClick={() => void copy(errorLogText(entries, data?.total ?? 0, scopeOf), "Fejlloggen er kopieret")}><Copy aria-hidden className="size-4" />Kopiér det viste</Button>
+              <Button disabled={entries.length === 0} onClick={() => void copy(errorLogText(entries, data?.total ?? 0, scopeOf), "Fejlloggen er kopieret")}><Copy aria-hidden className="size-4" />Kopiér listen</Button>
               <Button disabled={entries.length === 0} onClick={download}><Download aria-hidden className="size-4" />Hent som tekstfil</Button>
             </div>
           }
@@ -83,7 +85,7 @@ export function ErrorLogPage() {
         {log.isPending ? <ListSkeleton rows={6} /> : null}
         {data && entries.length === 0 ? <Empty title={search || area ? "Ingen fejl passer til din søgning" : "Ingen fejl de seneste 30 dage"} /> : null}
         <ul className="divide-y divide-line">
-          {entries.map((entry) => {
+          {shown.map((entry) => {
             const { what, next } = errorExplanation(entry)
             const scope = scopeOf(entry)
             const href = linkOf(entry)
@@ -109,6 +111,7 @@ export function ErrorLogPage() {
             )
           })}
         </ul>
+        <ShowMore remaining={remaining} onClick={showMore} />
       </Card>
     </>
   )

@@ -164,7 +164,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
       ) : null}
       <div className="lg:pl-60">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-bg/90 px-4 backdrop-blur lg:hidden">
-          <button type="button" onClick={() => setDrawer(true)} aria-label="Åbn menu" className="-ml-1 rounded-md p-1.5 text-text-2 hover:text-text">
+          <button type="button" onClick={() => setDrawer(true)} aria-label="Åbn menu" className="-ml-2 rounded-md p-2.5 text-text-2 hover:text-text">
             <Menu className="size-5" />
           </button>
           <img src="/favicon.svg" alt="" className="size-6" />

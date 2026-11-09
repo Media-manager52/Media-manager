@@ -65,7 +65,7 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
           <Progress value={usage.grabs_used} max={budget.grab_limit} tone="info" label="Hentninger brugt" />
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-3">
-          <span>Baggrund tilbage: {formatNumber(usage.background_queries_remaining)}</span>
+          <span>Automatiske søgninger tilbage: {formatNumber(usage.background_queries_remaining)}</span>
           {outcomes.length ? <span>Sidste døgn: {formatNumber(succeeded)} svar · {formatNumber(deferred)} udsat (grænse/pause){failed ? ` · ${formatNumber(failed)} fejl` : ""}</span> : null}
           {pacing.last_outcome_at ? <span>Seneste svar {formatRelative(pacing.last_outcome_at)}</span> : null}
           {cooling ? <span>Pause til {formatDateTime(pacing.cooldown_until)}</span> : null}
