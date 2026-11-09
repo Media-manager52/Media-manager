@@ -962,7 +962,7 @@ func subtitleIntegrationStore(t *testing.T, ctx context.Context, databaseURL str
 		pool.Close()
 		t.Fatal(err)
 	}
-	store := &Store{Pool: pool}
+	store := newStore(pool)
 	version := CurrentSchemaVersion
 	if len(versions) > 0 {
 		version = versions[0]

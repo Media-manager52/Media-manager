@@ -75,3 +75,23 @@ func areaStem(name string) string {
 	stem = strings.TrimSuffix(stem, "_test")
 	return strings.TrimSuffix(stem, "_integration")
 }
+
+// TestStorageSubjectsStayApart is what makes a subject package worth having:
+// a change to one cannot reach into another.
+func TestStorageSubjectsStayApart(t *testing.T) {
+	subjects := 0
+	for _, file := range productionFiles(t) {
+		if !strings.HasPrefix(file.pkg, "internal/postgres/") {
+			continue
+		}
+		subjects++
+		for _, imported := range file.imports {
+			if within(imported, "internal/postgres") && imported != "internal/postgres/dbcore" {
+				t.Errorf("%s imports %s; a storage subject may only import internal/postgres/dbcore", file.path, imported)
+			}
+		}
+	}
+	if subjects == 0 {
+		t.Fatal("found no storage subject packages; the walk is broken")
+	}
+}

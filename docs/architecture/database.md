@@ -219,9 +219,9 @@ methods at the snapshot. Group by file:
 | `indexer_commissioning.go` | v1 commissioning runs/steps (50). |
 | `indexer_commissioning_live.go` | v2 live gate + activation (29). |
 | `indexer_commissioning_draft.go` | Draft persistence. |
-| `notifications.go` | Destinations + deliveries (8). |
-| `importlists.go` | Lists/snapshots/items (9). |
-| `backups.go` | Backup records + verified downloads (7). |
+| `notificationstore/` | Destinations + deliveries (8). |
+| `importliststore/` | Lists/snapshots/items (9). |
+| `backupstore/` | Backup records + verified downloads (7). |
 | `commission.go` | Staged Newznab commissioning completion. |
 | `prowlarr.go` | Backup imports + candidate approval. |
 | `failure_recovery_integration_test.go`, `held_recovery_integration_test.go`, `legacy_exhausted_round_recovery_migration_integration_test.go` | Recovery migrations/tests. |

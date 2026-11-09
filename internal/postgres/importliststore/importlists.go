@@ -1,9 +1,10 @@
-package postgres
+package importliststore
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"regexp"
 	"strings"
 	"time"
@@ -58,7 +59,7 @@ type ImportListItem struct {
 	ExistingMediaID *uuid.UUID `json:"existing_media_id,omitempty"`
 }
 
-func (store *Store) CreateImportList(ctx context.Context, item ImportList, now time.Time) (ImportList, error) {
+func (store *ImportLists) CreateImportList(ctx context.Context, item ImportList, now time.Time) (ImportList, error) {
 	item.Name, item.Provider = strings.TrimSpace(item.Name), strings.ToLower(strings.TrimSpace(item.Provider))
 	if item.Name == "" || len(item.Name) > 200 || item.Provider != "imdb_export" {
 		return ImportList{}, errors.New("invalid import list")
@@ -93,7 +94,7 @@ func (store *Store) CreateImportList(ctx context.Context, item ImportList, now t
 	return item, transaction.Commit(ctx)
 }
 
-func (store *Store) ListImportLists(ctx context.Context) ([]ImportList, error) {
+func (store *ImportLists) ListImportLists(ctx context.Context) ([]ImportList, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT list.id::text,list.name,list.provider,list.enabled,list.movie_root_id::text,COALESCE(root.name,''),list.movie_quality_profile_id::text,COALESCE(profile.name,''),list.created_at,list.updated_at,snapshot.id::text,snapshot.source_digest,snapshot.item_count,snapshot.pending_count,snapshot.existing_count,snapshot.unsupported_count,snapshot.created_at FROM import_lists list LEFT JOIN library_roots root ON root.id=list.movie_root_id LEFT JOIN quality_profiles profile ON profile.id=list.movie_quality_profile_id LEFT JOIN LATERAL (SELECT * FROM import_list_snapshots candidate WHERE candidate.import_list_id=list.id ORDER BY candidate.created_at DESC,candidate.id DESC LIMIT 1) snapshot ON true ORDER BY list.name`)
 	if err != nil {
 		return nil, err
@@ -110,11 +111,11 @@ func (store *Store) ListImportLists(ctx context.Context) ([]ImportList, error) {
 	return result, rows.Err()
 }
 
-func (store *Store) ImportList(ctx context.Context, id uuid.UUID) (ImportList, error) {
+func (store *ImportLists) ImportList(ctx context.Context, id uuid.UUID) (ImportList, error) {
 	row := store.Pool.QueryRow(ctx, `SELECT list.id::text,list.name,list.provider,list.enabled,list.movie_root_id::text,COALESCE(root.name,''),list.movie_quality_profile_id::text,COALESCE(profile.name,''),list.created_at,list.updated_at,snapshot.id::text,snapshot.source_digest,snapshot.item_count,snapshot.pending_count,snapshot.existing_count,snapshot.unsupported_count,snapshot.created_at FROM import_lists list LEFT JOIN library_roots root ON root.id=list.movie_root_id LEFT JOIN quality_profiles profile ON profile.id=list.movie_quality_profile_id LEFT JOIN LATERAL (SELECT * FROM import_list_snapshots candidate WHERE candidate.import_list_id=list.id ORDER BY candidate.created_at DESC,candidate.id DESC LIMIT 1) snapshot ON true WHERE list.id=$1`, id.String())
 	item, err := scanImportList(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ImportList{}, ErrNotFound
+		return ImportList{}, dbcore.ErrNotFound
 	}
 	if err != nil {
 		return ImportList{}, err
@@ -129,9 +130,7 @@ func (store *Store) ImportList(ctx context.Context, id uuid.UUID) (ImportList, e
 	return item, nil
 }
 
-type rowScanner interface{ Scan(...any) error }
-
-func scanImportList(row rowScanner) (ImportList, error) {
+func scanImportList(row dbcore.RowScanner) (ImportList, error) {
 	var item ImportList
 	var idText string
 	var rootText, profileText, snapshotText *string
@@ -151,7 +150,7 @@ func scanImportList(row rowScanner) (ImportList, error) {
 	return item, nil
 }
 
-func (store *Store) CreateImportListSnapshot(ctx context.Context, listID uuid.UUID, digest string, parsed []importlists.Item, now time.Time) (ImportListSnapshot, error) {
+func (store *ImportLists) CreateImportListSnapshot(ctx context.Context, listID uuid.UUID, digest string, parsed []importlists.Item, now time.Time) (ImportListSnapshot, error) {
 	if !snapshotDigest.MatchString(digest) || len(parsed) < 1 || len(parsed) > importlists.MaxItems {
 		return ImportListSnapshot{}, errors.New("invalid import-list snapshot")
 	}
@@ -162,7 +161,7 @@ func (store *Store) CreateImportListSnapshot(ctx context.Context, listID uuid.UU
 	defer transaction.Rollback(ctx)
 	var enabled bool
 	if err := transaction.QueryRow(ctx, `SELECT enabled FROM import_lists WHERE id=$1 FOR UPDATE`, listID.String()).Scan(&enabled); errors.Is(err, pgx.ErrNoRows) {
-		return ImportListSnapshot{}, ErrNotFound
+		return ImportListSnapshot{}, dbcore.ErrNotFound
 	} else if err != nil {
 		return ImportListSnapshot{}, err
 	}
@@ -224,7 +223,7 @@ func (store *Store) CreateImportListSnapshot(ctx context.Context, listID uuid.UU
 	return snapshot, transaction.Commit(ctx)
 }
 
-func (store *Store) importListSnapshotItems(ctx context.Context, snapshotID uuid.UUID) ([]ImportListItem, error) {
+func (store *ImportLists) importListSnapshotItems(ctx context.Context, snapshotID uuid.UUID) ([]ImportListItem, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT id::text,snapshot_id::text,ordinal,media_kind,provider,provider_id,title,year,state,COALESCE(attention,''),existing_media_id::text FROM import_list_snapshot_items WHERE snapshot_id=$1 ORDER BY ordinal`, snapshotID.String())
 	if err != nil {
 		return nil, err

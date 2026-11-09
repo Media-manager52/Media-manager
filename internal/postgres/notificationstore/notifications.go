@@ -1,9 +1,10 @@
-package postgres
+package notificationstore
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"net/url"
 	"regexp"
 	"strings"
@@ -72,7 +73,7 @@ func RedactNotificationEndpoint(value string) string {
 	return parsed.Scheme + "://" + parsed.Host + "/…"
 }
 
-func (store *Store) CreateNotificationDestination(ctx context.Context, item NotificationDestination, now time.Time) (NotificationDestination, error) {
+func (store *Notifications) CreateNotificationDestination(ctx context.Context, item NotificationDestination, now time.Time) (NotificationDestination, error) {
 	item, err := validateNotificationDestination(item)
 	if err != nil {
 		return NotificationDestination{}, err
@@ -94,7 +95,7 @@ func (store *Store) CreateNotificationDestination(ctx context.Context, item Noti
 	return item, transaction.Commit(ctx)
 }
 
-func (store *Store) ListNotificationDestinations(ctx context.Context) ([]NotificationDestination, error) {
+func (store *Notifications) ListNotificationDestinations(ctx context.Context) ([]NotificationDestination, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT id::text,name,endpoint,allow_http,enabled,events,COALESCE(secret_ref,''),created_at,updated_at FROM notification_destinations ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -118,7 +119,7 @@ func (store *Store) ListNotificationDestinations(ctx context.Context) ([]Notific
 	return result, rows.Err()
 }
 
-func (store *Store) SetNotificationDestinationEnabled(ctx context.Context, id uuid.UUID, enabled bool, now time.Time) error {
+func (store *Notifications) SetNotificationDestinationEnabled(ctx context.Context, id uuid.UUID, enabled bool, now time.Time) error {
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -126,7 +127,7 @@ func (store *Store) SetNotificationDestinationEnabled(ctx context.Context, id uu
 	defer transaction.Rollback(ctx)
 	var name string
 	if err := transaction.QueryRow(ctx, `UPDATE notification_destinations SET enabled=$2,updated_at=$3 WHERE id=$1 RETURNING name`, id.String(), enabled, now.UTC()).Scan(&name); errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
+		return dbcore.ErrNotFound
 	} else if err != nil {
 		return err
 	}
@@ -137,7 +138,7 @@ func (store *Store) SetNotificationDestinationEnabled(ctx context.Context, id uu
 	return transaction.Commit(ctx)
 }
 
-func (store *Store) ListNotificationDeliveries(ctx context.Context, limit int) ([]NotificationDelivery, error) {
+func (store *Notifications) ListNotificationDeliveries(ctx context.Context, limit int) ([]NotificationDelivery, error) {
 	if limit < 1 || limit > 500 {
 		limit = 200
 	}
@@ -171,13 +172,13 @@ type NotificationDeliveryContext struct {
 	Enabled   bool
 }
 
-func (store *Store) NotificationDeliveryContext(ctx context.Context, id uuid.UUID) (NotificationDeliveryContext, error) {
+func (store *Notifications) NotificationDeliveryContext(ctx context.Context, id uuid.UUID) (NotificationDeliveryContext, error) {
 	var result NotificationDeliveryContext
 	var idText, destinationText, auditText string
 	var payload []byte
 	err := store.Pool.QueryRow(ctx, `SELECT delivery.id::text,delivery.destination_id::text,destination.name,delivery.audit_event_id::text,delivery.payload,delivery.state,delivery.attempts,delivery.response_status,COALESCE(delivery.last_error,''),delivery.created_at,delivery.delivered_at,destination.endpoint,destination.allow_http,COALESCE(destination.secret_ref,''),destination.enabled FROM notification_deliveries delivery JOIN notification_destinations destination ON destination.id=delivery.destination_id WHERE delivery.id=$1`, id.String()).Scan(&idText, &destinationText, &result.Delivery.Destination, &auditText, &payload, &result.Delivery.State, &result.Delivery.Attempts, &result.Delivery.ResponseStatus, &result.Delivery.LastError, &result.Delivery.CreatedAt, &result.Delivery.DeliveredAt, &result.Endpoint, &result.AllowHTTP, &result.SecretRef, &result.Enabled)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return NotificationDeliveryContext{}, ErrNotFound
+		return NotificationDeliveryContext{}, dbcore.ErrNotFound
 	}
 	if err != nil {
 		return NotificationDeliveryContext{}, err
@@ -189,7 +190,7 @@ func (store *Store) NotificationDeliveryContext(ctx context.Context, id uuid.UUI
 	return result, nil
 }
 
-func (store *Store) MarkNotificationDelivery(ctx context.Context, id uuid.UUID, delivered bool, status int, detail string, now time.Time) error {
+func (store *Notifications) MarkNotificationDelivery(ctx context.Context, id uuid.UUID, delivered bool, status int, detail string, now time.Time) error {
 	state := "failed"
 	var deliveredAt any
 	if delivered {

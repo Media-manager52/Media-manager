@@ -1,7 +1,8 @@
-package postgres
+package servarrstore
 
 import (
 	"context"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"uuid"
 )
 
@@ -79,7 +80,7 @@ func scanServarrMovies(rows interface {
 	return result, rows.Err()
 }
 
-func (store *Store) ListServarrMovies(ctx context.Context, edition string) ([]ServarrMovie, error) {
+func (store *ServarrViews) ListServarrMovies(ctx context.Context, edition string) ([]ServarrMovie, error) {
 	rows, err := store.Pool.Query(ctx, servarrMovieSelect+` ORDER BY media.title,media.id`, edition)
 	if err != nil {
 		return nil, err
@@ -88,7 +89,7 @@ func (store *Store) ListServarrMovies(ctx context.Context, edition string) ([]Se
 	return scanServarrMovies(rows)
 }
 
-func (store *Store) ServarrMovieByTMDB(ctx context.Context, tmdbID, edition string) (ServarrMovie, error) {
+func (store *ServarrViews) ServarrMovieByTMDB(ctx context.Context, tmdbID, edition string) (ServarrMovie, error) {
 	rows, err := store.Pool.Query(ctx, servarrMovieSelect+` AND identity.value=$2 ORDER BY media.id LIMIT 1`, edition, tmdbID)
 	if err != nil {
 		return ServarrMovie{}, err
@@ -99,7 +100,7 @@ func (store *Store) ServarrMovieByTMDB(ctx context.Context, tmdbID, edition stri
 		return ServarrMovie{}, err
 	}
 	if len(movies) == 0 {
-		return ServarrMovie{}, ErrNotFound
+		return ServarrMovie{}, dbcore.ErrNotFound
 	}
 	return movies[0], nil
 }
@@ -108,7 +109,7 @@ func (store *Store) ServarrMovieByTMDB(ctx context.Context, tmdbID, edition stri
 // the frozen expectation size and how many episode files Plex has confirmed.
 // A confirmed complete-season workflow counts all its expected episodes;
 // confirmed per-episode workflows count individually.
-func (store *Store) servarrSeasons(ctx context.Context, edition string) (map[string][]ServarrSeriesSeason, error) {
+func (store *ServarrViews) servarrSeasons(ctx context.Context, edition string) (map[string][]ServarrSeriesSeason, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT monitoring.media_id::text,monitoring.season_number,monitoring.monitored,
 		COALESCE(expectation.expected_episodes,0),
 		(CASE WHEN workflow.state='plex_confirmed' THEN COALESCE(expectation.expected_episodes,0) ELSE 0 END) + COALESCE(episodes.confirmed_episodes,0)
@@ -180,7 +181,7 @@ func scanServarrSeries(rows interface {
 	return result, rows.Err()
 }
 
-func (store *Store) ListServarrSeries(ctx context.Context, edition string) ([]ServarrSeries, error) {
+func (store *ServarrViews) ListServarrSeries(ctx context.Context, edition string) ([]ServarrSeries, error) {
 	seasons, err := store.servarrSeasons(ctx, edition)
 	if err != nil {
 		return nil, err
@@ -193,7 +194,7 @@ func (store *Store) ListServarrSeries(ctx context.Context, edition string) ([]Se
 	return scanServarrSeries(rows, seasons)
 }
 
-func (store *Store) ServarrSeriesByTVDB(ctx context.Context, tvdbID, edition string) (ServarrSeries, error) {
+func (store *ServarrViews) ServarrSeriesByTVDB(ctx context.Context, tvdbID, edition string) (ServarrSeries, error) {
 	seasons, err := store.servarrSeasons(ctx, edition)
 	if err != nil {
 		return ServarrSeries{}, err
@@ -208,7 +209,7 @@ func (store *Store) ServarrSeriesByTVDB(ctx context.Context, tvdbID, edition str
 		return ServarrSeries{}, err
 	}
 	if len(series) == 0 {
-		return ServarrSeries{}, ErrNotFound
+		return ServarrSeries{}, dbcore.ErrNotFound
 	}
 	return series[0], nil
 }
