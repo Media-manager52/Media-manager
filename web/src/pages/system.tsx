@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { NavLink, Link, useParams } from "react-router"
 
-import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRepairs, loadSystemHealth, loadSystemInfo, restoreRecycle, type APIRecycleEntry } from "@/api/client"
+import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRepairs, loadSupportBundle, loadSystemHealth, loadSystemInfo, restoreRecycle, type APIRecycleEntry } from "@/api/client"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
@@ -99,7 +99,28 @@ function Status() {
           </Card>
         ) : null}
       </div>
+      <SupportFile />
     </div>
+  )
+}
+
+function SupportFile() {
+  const toast = useToast()
+  const download = useMutation({
+    mutationFn: loadSupportBundle,
+    onSuccess: (text) => {
+      const link = document.createElement("a")
+      link.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }))
+      link.download = "media-manager-support.txt"
+      link.click()
+      URL.revokeObjectURL(link.href)
+    },
+    onError: (error) => toast("bad", errorMessage(error)),
+  })
+  return (
+    <Card className="xl:col-span-2">
+      <CardHeader title="Supportfil" description="En tekstfil med problemer, version og forbindelsers tilstand, til når du beder om hjælp. Nøgler og adgangskoder fjernes automatisk, men læs filen igennem, før du deler den." action={<Button busy={download.isPending} onClick={() => download.mutate()}>Hent supportfil</Button>} />
+    </Card>
   )
 }
 

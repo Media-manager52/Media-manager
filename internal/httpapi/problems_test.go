@@ -16,6 +16,21 @@ func TestRedactSupportText(t *testing.T) {
 	}
 }
 
+func TestRedactSupportTextCoversEveryCredentialShape(t *testing.T) {
+	for _, line := range []string{
+		"detail: GET https://user:hunter2@example.test/api failed",
+		"X-Api-Key: hunter2",
+		"Cookie: session=hunter2",
+		"https://example.test/api?apikey=hunter2&t=search",
+		"X-Plex-Token=hunter2",
+		"password: hunter2",
+	} {
+		if got := redactSupportText(line); strings.Contains(got, "hunter2") {
+			t.Fatalf("secret survived redaction: %q", got)
+		}
+	}
+}
+
 func TestHumanBytesValue(t *testing.T) {
 	if got := humanBytesValue(0); got != "0 B" {
 		t.Fatalf("0 bytes = %q", got)

@@ -632,9 +632,17 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if failedSummary == nil || failedSummary.AcquisitionAttempts != 2 || failedSummary.RoundOrdinal != 1 || failedSummary.RoundState != "exhausted" || failedSummary.RoundSlotsUsed != 2 || failedSummary.RoundAttemptLimit != 2 || failedSummary.RetryDiscoveryState != "waiting" || failedSummary.NewReleaseReady || failedSummary.RetainedOutputCount != 2 || failedSummary.ExcludedReleaseCount != 3 || failedSummary.SearchAllowed || failedSummary.SearchBlockedReason == "" {
 		t.Fatalf("failed workflow recovery summary=%+v", failedSummary)
 	}
-	review, err := store.ListSubtitleVerifications(ctx, 10)
+	review, err := store.ListSubtitleVerifications(ctx, 10, nil)
 	if err != nil || len(review) != 2 || review[0].Status != "unverified" || !review[0].CanReverify || !review[1].CanReverify {
 		t.Fatalf("owner review=%+v err=%v", review, err)
+	}
+	onlyThis, err := store.ListSubtitleVerifications(ctx, 10, &review[0].WorkflowID)
+	if err != nil || len(onlyThis) == 0 || onlyThis[0].WorkflowID != review[0].WorkflowID {
+		t.Fatalf("filter by workflow=%+v err=%v", onlyThis, err)
+	}
+	other := uuid.NewV7()
+	if none, err := store.ListSubtitleVerifications(ctx, 10, &other); err != nil || len(none) != 0 {
+		t.Fatalf("filter by another workflow=%+v err=%v", none, err)
 	}
 	if err := store.RequestRetainedSubtitleReverification(ctx, workflowID, firstJob.JobID, time.Now().UTC()); err != nil {
 		t.Fatal(err)

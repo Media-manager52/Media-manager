@@ -136,7 +136,7 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "POST", Path: "/api/v1/integrations/seerr/webhook", Handler: s.seerrWebhook, Auth: authSeerrWebhook, Effect: effectWrite, Tag: "requests", Summary: "Seerr webhook receiver (called by Seerr, not by agents)"},
 
 		{Method: "GET", Path: "/api/v1/intelligence/releases", Handler: s.listReleaseCandidates, Auth: owner, Effect: effectRead, Tag: "releases", Summary: "Recently observed release candidates with their decisions, evidence time and last-seen time", Query: []apiParam{limitParam}, Response: []postgres.ReleaseCandidateSummary{}},
-		{Method: "GET", Path: "/api/v1/acquisition-verifications", Handler: s.listSubtitleVerifications, Auth: owner, Effect: effectRead, Tag: "releases", Summary: "Subtitle/output verification results", Query: []apiParam{limitParam}},
+		{Method: "GET", Path: "/api/v1/acquisition-verifications", Handler: s.listSubtitleVerifications, Auth: owner, Effect: effectRead, Tag: "releases", Summary: "Subtitle/output verification results, newest first", Query: []apiParam{limitParam, {Name: "workflow_id", Type: "string", Format: "uuid", Description: "Only results for this workflow."}}},
 		{Method: "GET", Path: "/api/v1/blocklist", Handler: s.listReleaseBlocks, Auth: owner, Effect: effectRead, Tag: "releases", Summary: "Blocked releases", Query: []apiParam{limitParam}},
 		{Method: "POST", Path: "/api/v1/blocklist", Handler: s.createReleaseBlock, Auth: owner, Effect: effectWrite, Tag: "releases", Summary: "Block a release candidate", Body: createReleaseBlockInput{}, Required: []string{"candidate_id"}},
 		{Method: "DELETE", Path: "/api/v1/blocklist/{id}", Handler: s.deleteReleaseBlock, Auth: owner, Effect: effectWrite, Tag: "releases", Summary: "Remove a release block"},

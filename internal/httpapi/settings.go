@@ -247,7 +247,16 @@ func (server *Server) applyQualityProfilePolicy(writer http.ResponseWriter, requ
 
 func (server *Server) listSubtitleVerifications(writer http.ResponseWriter, request *http.Request) {
 	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
-	items, err := server.store.ListSubtitleVerifications(request.Context(), limit)
+	var workflowID *uuid.UUID
+	if value := request.URL.Query().Get("workflow_id"); value != "" {
+		parsed, err := uuid.Parse(value)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
+			return
+		}
+		workflowID = &parsed
+	}
+	items, err := server.store.ListSubtitleVerifications(request.Context(), limit, workflowID)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load subtitle verifications")
 		return
