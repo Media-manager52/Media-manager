@@ -1,8 +1,23 @@
 import type { APIDecisionReason } from "@/api/client"
+import { languageName } from "@/i18n"
 
 const reasonTexts: Record<string, string> = {
   "observed evidence does not satisfy the rule": "opfylder ikke kravet",
   "the provider supplied no conclusive evidence": "ukendt, udgivelsen oplyser det ikke",
+}
+
+const ruleNames: Array<[RegExp, (language: string) => string]> = [
+  [/^Required subtitle or audio ([a-z]{2,3})$/, (language) => `${language} tale eller undertekst`],
+  [/^Required audio ([a-z]{2,3})$/, (language) => `${language} tale`],
+]
+
+/** The server names its generated language rules in English; a saved profile's own rule keeps its name. */
+function ruleName(rule: string): string {
+  for (const [pattern, render] of ruleNames) {
+    const match = rule.match(pattern)
+    if (match) return render(languageName(match[1]))
+  }
+  return rule
 }
 
 /**
@@ -18,7 +33,7 @@ export function candidateReasonText(verdict: string | undefined, reasons: APIDec
     .slice(0, limit)
     .map((reason) => {
       const text = reasonTexts[reason.reason] ?? reason.reason
-      return reason.rule ? `${reason.rule}: ${text}` : text
+      return reason.rule ? `${ruleName(reason.rule)}: ${text}` : text
     })
     .join(" · ")
 }

@@ -3,7 +3,7 @@ import { ChevronDown, ExternalLink, RefreshCw } from "lucide-react"
 import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router"
 
-import { loadMediaDetail, refreshMediaMetadata, type APIManagedFile, type APIMediaDetail, type APIMediaSeason, type APIWorkflow } from "@/api/client"
+import { isNotFound, loadMediaDetail, refreshMediaMetadata, type APIManagedFile, type APIMediaDetail, type APIMediaSeason, type APIWorkflow } from "@/api/client"
 import { Poster, sizedArtwork } from "@/components/poster"
 import { ReplaceFile } from "@/components/replace-file"
 import { useToast } from "@/components/toast"
@@ -20,6 +20,7 @@ import type { Tone } from "@/lib/tone"
 export function TitlePage() {
   const { id = "" } = useParams()
   const detail = useQuery({ queryKey: ["media", id, "detail"], queryFn: ({ signal }) => loadMediaDetail(id, signal), refetchInterval: 60_000 })
+  if (isNotFound(detail.error)) return <Card><Empty title="Titlen findes ikke længere">Den kan være slettet, eller linket kan være gammelt. <Link to="/bibliotek" className="font-medium text-accent-strong hover:underline">Gå til Bibliotek</Link></Empty></Card>
   if (detail.error) return <ErrorBox error={detail.error} retry={() => detail.refetch()} />
   if (!detail.data) return <TitleSkeleton />
   return <TitleView detail={detail.data} />
@@ -140,6 +141,7 @@ function SeasonRow({ season, rollup }: { season: APIMediaSeason; rollup?: Series
   const allDone = total > 0 && acquired >= total
   const tone: Tone = attention > 0 ? "warn" : allDone ? "good" : acquired > 0 ? "info" : "neutral"
   const pack = rollup?.packWorkflow
+  const waitingReason = season.waiting_reason && !allDone ? translateDetail(season.waiting_reason) : ""
   return (
     <li>
       <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-surface-2">
@@ -149,14 +151,15 @@ function SeasonRow({ season, rollup }: { season: APIMediaSeason; rollup?: Series
           <div className="text-sm text-text-2">
             {total > 0 ? `${acquired} af ${total} afsnit i Plex` : "Antal afsnit ukendt"}
             {attention > 0 ? ` · ${attention} kræver handling` : ""}
-            {season.waiting_reason && !allDone ? ` · ${translateDetail(season.waiting_reason)}` : ""}
           </div>
+          {waitingReason && !open ? <div className="truncate text-xs text-text-3">{waitingReason}</div> : null}
         </div>
         {season.next_search_at && !allDone ? <span className="hidden text-xs text-text-3 sm:block">Næste søgning {formatRelative(season.next_search_at)}</span> : null}
         <ChevronDown aria-hidden className={cx("size-4 shrink-0 text-text-3 transition-transform", open && "rotate-180")} />
       </button>
       {open ? (
         <div className="border-t border-line bg-surface-2/50 px-5 py-4">
+          {waitingReason ? <p className="mb-3 text-sm text-text-2">{waitingReason}</p> : null}
           {pack ? (
             <div className="mb-4 rounded-xl border border-line bg-surface p-3">
               <div className="flex flex-wrap items-center gap-2 text-sm">

@@ -22,7 +22,7 @@ function candidateSummary(candidates: APIWorkflowCandidate[] | undefined): strin
   if (!candidates) return "Media Manager venter på en udgivelse, der opfylder kravene."
   if (candidates.length === 0) return "Ingen indexer har fundet en udgivelse til den endnu."
   const usable = candidates.filter((candidate) => candidate.decision?.verdict === "eligible" && !candidate.exclusion).length
-  if (usable > 0) return `${usable} egnede ${usable === 1 ? "udgivelse venter" : "udgivelser venter"} på at blive prøvet.`
+  if (usable > 0) return `${usable} ${usable === 1 ? "egnet udgivelse venter" : "egnede udgivelser venter"} på at blive prøvet.`
   const excluded = candidates.filter((candidate) => candidate.exclusion).length
   const counts = new Map<string, number>()
   for (const candidate of candidates) {
@@ -38,8 +38,17 @@ function candidateSummary(candidates: APIWorkflowCandidate[] | undefined): strin
   ].filter(Boolean).join(" ")
 }
 
+/** The round is spent and discovery only watches for a release not tried before. */
+function roundUsedUp(workflow: APIWorkflow): boolean {
+  return workflow.search_allowed === false && workflow.retry_discovery_state === "waiting"
+}
+
 function nextStep(workflow: APIWorkflow, now: number): string {
   if (workflow.new_release_ready || workflow.retry_discovery_state === "ready") return `En ny egnet udgivelse er fundet${workflow.ready_release_title ? `: ${workflow.ready_release_title}` : ""}.`
+  if (roundUsedUp(workflow)) {
+    const next = workflow.next_rescan_at ? new Date(workflow.next_rescan_at).getTime() : 0
+    return next > now ? `Alle forsøg er brugt. Den holder øje med nye udgivelser og kigger igen ${formatRelative(workflow.next_rescan_at, now)}.` : "Alle forsøg er brugt. Den holder øje med, om en ny egnet udgivelse dukker op."
+  }
   if (workflow.search_allowed === false) return "Den søger ikke lige nu, fordi søgning er spærret for denne opgave."
   if (workflow.next_rescan_at) {
     const due = new Date(workflow.next_rescan_at).getTime() <= now
@@ -57,7 +66,11 @@ export function explainWorkflow(workflow: APIWorkflow, candidates: APIWorkflowCa
     ? "Ja. Se Hvad kan du gøre? herunder."
     : workflow.new_release_ready || workflow.retry_discovery_state === "ready"
       ? "Ja, hvis du vil prøve den nye udgivelse. Se Hvad kan du gøre? herunder."
-      : "Nej. Media Manager klarer det selv."
+      : roundUsedUp(workflow)
+        ? workflow.available_actions?.some((action) => action.action === "open_round_from_known" && action.available)
+          ? "Ikke nødvendigt. Du kan prøve en kendt udgivelse nu. Ellers venter den på en ny."
+          : "Ikke lige nu. Når en ny udgivelse dukker op, skal du starte en ny runde."
+        : "Nej. Media Manager klarer det selv."
   const running = inFlight[workflow.state]
   if (running) {
     const percent = workflow.download_percent === undefined ? "" : ` ${Math.round(workflow.download_percent)} % er klar.`

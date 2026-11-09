@@ -8,8 +8,14 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 - **Fejllog**: a page in the main menu that lists everything that went wrong in the last 30 days in plain Danish, with search, filters by area, copy and download as text. Credentials are removed. `GET /api/v1/errors` serves the same data.
 
+### Changed
+
+- A pass over every page on computer and phone: English status text is now Danish (repairs, activity, background queue, indexer results, language rules), buttons on phones are easier to hit, the longest lists show a batch at a time with "Vis flere", open repairs come first, and a title or work page that no longer exists offers a way back.
+
 ### Fixed
 
+- The repairs page no longer scrolls sideways on a phone because of a long file path.
+- A work page whose attempts are used up now says that it watches for new releases and what you can do, instead of saying nothing is needed.
 - "Start new round from known releases" skips a release that the current title parser no longer accepts or that a later search rejected, instead of spending a slot on an out-of-date approval.
 
 ## [0.1.0-beta.4] - 2026-11-09

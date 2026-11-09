@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMemo } from "react"
 import { NavLink, Link, useParams } from "react-router"
 
 import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRepairs, loadSupportBundle, loadSystemHealth, loadSystemInfo, restoreRecycle, type APIRecycleEntry } from "@/api/client"
 import { useToast } from "@/components/toast"
-import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader } from "@/components/ui"
+import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader, ShowMore } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
-import { backupStateLabel, errorMessage, externalCopyLabel, humanize } from "@/i18n"
+import { activityActorLabel, activityLabel, backupStateLabel, componentOutcomeLabel, errorMessage, externalCopyLabel, humanize, queueEventLabel, repairReasonLabel, translateDetail } from "@/i18n"
 import { confirmedExternalCopy, externalCopyState, latestExternalCopy, latestRestoreTest } from "@/lib/backup-evidence"
 import { workflowHref } from "@/lib/links"
+import { useShowMore } from "@/lib/show-more"
+import type { Tone } from "@/lib/tone"
 import { ListSkeleton } from "@/pages/overview"
 
 const sections = [
@@ -60,7 +63,7 @@ function Status() {
                 <span className="min-w-0 flex-1 truncate font-medium">{component.name.replace(/\s*\{DK\}\s*/i, "")}</span>
                 <span className="text-text-3">{component.kind}</span>
                 <span className="w-36 text-right text-text-2">
-                  {!component.enabled ? "Slået fra" : component.consecutive_failure > 0 ? `${component.consecutive_failure} fejl i træk` : component.last_outcome ? humanize(component.last_outcome) : "OK"}
+                  {!component.enabled ? "Slået fra" : component.consecutive_failure > 0 ? `${component.consecutive_failure} fejl i træk` : component.last_outcome ? componentOutcomeLabel(component.last_outcome) : "OK"}
                 </span>
               </li>
             )
@@ -147,7 +150,7 @@ function Queue() {
           <tbody className="divide-y divide-line">
             {q.by_type.map((row) => (
               <tr key={row.event_type}>
-                <td className="px-5 py-2 font-mono text-xs">{row.event_type}</td>
+                <td className="px-5 py-2" title={row.event_type}>{queueEventLabel(row.event_type)}</td>
                 <td className="tabular px-3 py-2 text-right">{formatNumber(row.due)}</td>
                 <td className="tabular px-3 py-2 text-right">{formatNumber(row.leased)}</td>
                 <td className={cx("tabular px-3 py-2 text-right", row.retrying > 0 && "text-warn")}>{formatNumber(row.retrying)}</td>
@@ -208,11 +211,20 @@ function Backups() {
   )
 }
 
-const repairState: Record<string, string> = { open: "Åben", searching: "Søger", resolved: "Repareret", not_found: "Intet fundet", cancelled: "Annulleret" }
-const repairReason: Record<string, string> = { corrupted: "Ødelagt fil", missing_required_audio: "Mangler dansk tale", missing_file: "Fil forsvundet", owner_requested: "Ønsket erstattet" }
+const repairState: Record<string, string> = { open: "Åben", searching: "Søger", resolved: "Repareret", repaired: "Repareret", needs_attention: "Kræver handling", not_found: "Intet fundet", skipped: "Sprunget over", cancelled: "Annulleret" }
+const repairDone = new Set(["resolved", "repaired", "not_found", "skipped", "cancelled"])
+
+function repairTone(state: string): Tone {
+  if (state === "resolved" || state === "repaired") return "good"
+  if (state === "not_found" || state === "needs_attention") return "warn"
+  return state === "skipped" || state === "cancelled" ? "neutral" : "info"
+}
 
 function Repairs() {
   const query = useQuery({ queryKey: ["repairs"], queryFn: ({ signal }) => loadRepairs(signal), refetchInterval: 60_000 })
+  // Cases still being worked on first; the API already orders each part newest first.
+  const repairs = useMemo(() => [...(query.data ?? [])].sort((a, b) => Number(repairDone.has(a.state)) - Number(repairDone.has(b.state))), [query.data])
+  const { shown, remaining, showMore } = useShowMore(repairs, 50)
   if (query.error) return <ErrorBox error={query.error} />
   if (!query.data) return <Card><ListSkeleton /></Card>
   return (
@@ -220,18 +232,19 @@ function Repairs() {
       <CardHeader title="Reparationer" description="Filer, som AltMount har meldt ødelagte eller har fjernet, eller som mangler dansk tale. Media Manager finder selv en erstatning." />
       {query.data.length === 0 ? <Empty title="Ingen reparationer" /> : null}
       <ul className="divide-y divide-line">
-        {query.data.slice(0, 200).map((repair) => (
+        {shown.map((repair) => (
           <li key={repair.id} className="px-5 py-3 text-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{repair.title || repair.altmount_file_path.split("/").pop()}</span>
-              <Badge tone={repair.state === "resolved" ? "good" : repair.state === "not_found" ? "warn" : "info"}>{repairState[repair.state] ?? humanize(repair.state)}</Badge>
-              <Badge>{repairReason[repair.reason] ?? "Ødelagt fil"}</Badge>
+              <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{repair.title || repair.altmount_file_path.split("/").pop()}</span>
+              <Badge tone={repairTone(repair.state)}>{repairState[repair.state] ?? humanize(repair.state)}</Badge>
+              <Badge>{repairReasonLabel(repair.reason)}</Badge>
               {repair.repair_workflow_id ? <Link to={workflowHref({ id: repair.repair_workflow_id })} className="ml-auto font-medium text-accent-strong hover:underline">Arbejde</Link> : null}
             </div>
-            <div className="mt-0.5 text-xs text-text-3">Oprettet {formatRelative(repair.created_at)}{repair.detail ? ` · ${repair.detail}` : ""}</div>
+            <div className="mt-0.5 text-xs text-text-3 [overflow-wrap:anywhere]">Oprettet {formatRelative(repair.created_at)}{repair.detail ? ` · ${translateDetail(repair.detail)}` : ""}</div>
           </li>
         ))}
       </ul>
+      <ShowMore remaining={remaining} onClick={showMore} />
     </Card>
   )
 }
@@ -286,6 +299,7 @@ function RecycleBin() {
 
 function ActivityLog() {
   const query = useQuery({ queryKey: ["activity"], queryFn: ({ signal }) => loadActivity(signal), refetchInterval: 30_000 })
+  const { shown, remaining, showMore } = useShowMore(query.data ?? [], 50)
   if (query.error) return <ErrorBox error={query.error} />
   if (!query.data) return <Card><ListSkeleton /></Card>
   return (
@@ -293,15 +307,16 @@ function ActivityLog() {
       <CardHeader title="Aktivitet" description="De seneste ændringer og handlinger, nyeste først." />
       {query.data.length === 0 ? <Empty title="Ingen aktivitet endnu" /> : null}
       <ul className="divide-y divide-line">
-        {query.data.slice(0, 200).map((entry) => (
+        {shown.map((entry) => (
           <li key={entry.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-5 py-2.5 text-sm">
             <span className="w-28 shrink-0 text-text-3">{formatRelative(entry.occurred_at)}</span>
-            <span className="font-mono text-xs">{entry.action}</span>
-            <span className="text-text-3">{entry.actor}</span>
+            <span title={entry.action}>{activityLabel(entry.action)}</span>
+            <span className="text-text-3">{activityActorLabel(entry.actor)}</span>
             {entry.aggregate_type === "workflow" && entry.aggregate_id ? <Link to={workflowHref({ id: entry.aggregate_id })} className="ml-auto text-accent-strong hover:underline">Arbejde</Link> : null}
           </li>
         ))}
       </ul>
+      <ShowMore remaining={remaining} onClick={showMore} />
     </Card>
   )
 }

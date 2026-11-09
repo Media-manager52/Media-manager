@@ -9,6 +9,33 @@ const rejected = (reason: string) => candidate({ decision: { verdict: "rejected"
 const now = Date.parse("2026-11-09T12:00:00Z")
 
 describe("explainWorkflow", () => {
+  const usedUp = { state: "waiting", search_allowed: false, retry_discovery_state: "waiting" } as const
+  const eligible = (id: string) => candidate({ id, decision: { verdict: "eligible" } as APIWorkflowCandidate["decision"] })
+
+  it("counts eligible releases in correct Danish", () => {
+    expect(explainWorkflow(workflow({}), [eligible("a")], now).why).toBe("1 egnet udgivelse venter på at blive prøvet.")
+    expect(explainWorkflow(workflow({}), [eligible("a"), eligible("b")], now).why).toBe("2 egnede udgivelser venter på at blive prøvet.")
+  })
+
+  it("does not call a used-up round finished or blocked", () => {
+    const later = new Date(now + 3_600_000).toISOString()
+    const watching = explainWorkflow(workflow({ ...usedUp, next_rescan_at: later }), [], now)
+    expect(watching.now).toContain("Den holder øje med nye udgivelser og kigger igen")
+    expect(watching.now).not.toContain("spærret")
+    expect(watching.you).toBe("Ikke lige nu. Når en ny udgivelse dukker op, skal du starte en ny runde.")
+    expect(explainWorkflow(workflow({ ...usedUp }), [], now).now).toBe("Alle forsøg er brugt. Den holder øje med, om en ny egnet udgivelse dukker op.")
+  })
+
+  it("offers known releases only when that action is really available", () => {
+    const withAction = (available: boolean) => workflow({ ...usedUp, available_actions: [{ action: "open_round_from_known", available }] as APIWorkflow["available_actions"] })
+    expect(explainWorkflow(withAction(true), [], now).you).toBe("Ikke nødvendigt. Du kan prøve en kendt udgivelse nu. Ellers venter den på en ny.")
+    expect(explainWorkflow(withAction(false), [], now).you).toBe("Ikke lige nu. Når en ny udgivelse dukker op, skal du starte en ny runde.")
+  })
+
+  it("still says searching is blocked when it is blocked for another reason", () => {
+    expect(explainWorkflow(workflow({ search_allowed: false }), [], now).now).toBe("Den søger ikke lige nu, fordi søgning er spærret for denne opgave.")
+  })
+
   it("never calls unconfirmed work finished", () => {
     expect(explainWorkflow(workflow({ state: "plex_scanning" }), []).why).toContain("ikke færdig")
     expect(explainWorkflow(workflow({ state: "plex_confirmed" }), []).why).toContain("bekræftet")

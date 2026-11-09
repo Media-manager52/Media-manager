@@ -4,11 +4,12 @@ import { useMemo, useState } from "react"
 import { Link } from "react-router"
 
 import { loadAttentionWorkflows, loadProblems, type APIWorkflow } from "@/api/client"
-import { Badge, Card, CardHeader, Empty, ErrorBox, PageHeader, SearchField } from "@/components/ui"
+import { Badge, Card, CardHeader, Empty, ErrorBox, PageHeader, SearchField, ShowMore } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatRelative, pluralize } from "@/format"
-import { attentionLabel, stateLabel, translateDetail } from "@/i18n"
+import { attentionLabel, repairReasonLabel, stateLabel, translateDetail } from "@/i18n"
 import { describeVariant, titleHref, workflowHref } from "@/lib/links"
+import { useShowMore } from "@/lib/show-more"
 import { ListSkeleton } from "@/pages/overview"
 
 export function AttentionPage() {
@@ -52,16 +53,22 @@ export function AttentionPage() {
       ) : null}
       {total > 0 && groups.length === 0 ? <Card><Empty title="Ingen sager passer til søgningen" /></Card> : null}
       <div className="flex flex-col gap-6">
-        {groups.map(([reason, items]) => (
-          <Card key={reason}>
-            <CardHeader title={reason} description={pluralize(items.length, "sag", "sager")} />
-            <ul className="divide-y divide-line">
-              {items.map((workflow) => <AttentionItem key={workflow.id} workflow={workflow} />)}
-            </ul>
-          </Card>
-        ))}
+        {groups.map(([reason, items]) => <AttentionGroup key={reason} reason={reason} items={items} />)}
       </div>
     </>
+  )
+}
+
+function AttentionGroup({ reason, items }: { reason: string; items: APIWorkflow[] }) {
+  const { shown, remaining, showMore } = useShowMore(items, 20)
+  return (
+    <Card>
+      <CardHeader title={reason} description={pluralize(items.length, "sag", "sager")} />
+      <ul className="divide-y divide-line">
+        {shown.map((workflow) => <AttentionItem key={workflow.id} workflow={workflow} />)}
+      </ul>
+      <ShowMore remaining={remaining} onClick={showMore} />
+    </Card>
   )
 }
 
@@ -99,6 +106,8 @@ const workerTasks: Record<string, string> = {
 function problemTitle(title: string): string {
   const retrying = title.match(/^Worker retrying: (.+)$/)
   if (retrying) return `Baggrundsopgave prøver igen: ${workerTasks[retrying[1]] ?? retrying[1]}`
+  const repair = title.match(/^Repair: (.+)$/)
+  if (repair) return `Reparation: ${repairReasonLabel(repair[1].toLowerCase().replaceAll(" ", "_"))}`
   return title
 }
 

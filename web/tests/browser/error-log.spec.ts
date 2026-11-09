@@ -19,7 +19,7 @@ test("the error log explains a failure in plain Danish and copies it", async ({ 
   await expect(page.getByText("Testfilmen.2024.1080p.WEB")).toBeVisible()
   await expect(page.getByText(/Det sker nu:/)).toBeVisible()
 
-  await page.getByRole("button", { name: "Kopiér det viste" }).click()
+  await page.getByRole("button", { name: "Kopiér listen" }).click()
   await expect(page.getByText("Fejlloggen er kopieret")).toBeVisible()
   const copied = await page.evaluate(() => navigator.clipboard.readText())
   expect(copied).toContain("Media Manager fejllog: 1 fejl")
