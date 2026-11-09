@@ -41,6 +41,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.4.md](releases/v0.1.0-beta.4.md) | Fourth public beta (2026-11-09): finds more existing releases; IMDb, Danish name, escaped name and date-search fixes. |
 | [releases/v0.1.0-beta.3.md](releases/v0.1.0-beta.3.md) | Third public beta (2026-11-09): Plex login, recommended setup, title actions, plain-language status; images and verification |
 | [releases/v0.1.0-beta.2.md](releases/v0.1.0-beta.2.md) | Second public beta (2026-11-04): website setup, encrypted keys, Seerr without `.env`, 4K editions; images and verification |
 | [releases/v0.1.0-beta.1.md](releases/v0.1.0-beta.1.md) | First public beta (2026-11-04): images, verification, limitations and how each publication gate was closed |
