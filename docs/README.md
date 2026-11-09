@@ -42,6 +42,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.6.md](releases/v0.1.0-beta.6.md) | Sixth public beta (2026-11-10): recently added row, menu search, library sort and folder filter, group actions, indexer download numbers and calendar posters. |
 | [releases/v0.1.0-beta.5.md](releases/v0.1.0-beta.5.md) | Fifth public beta (2026-11-09): Fejllog, a usability pass over every page, and two more release-picking fixes. |
 | [releases/v0.1.0-beta.4.md](releases/v0.1.0-beta.4.md) | Fourth public beta (2026-11-09): finds more existing releases; IMDb, Danish name, escaped name and date-search fixes. |
 | [releases/v0.1.0-beta.3.md](releases/v0.1.0-beta.3.md) | Third public beta (2026-11-09): Plex login, recommended setup, title actions, plain-language status; images and verification |
