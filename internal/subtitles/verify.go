@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,6 +24,7 @@ type Asset struct {
 
 type Probe interface {
 	InspectWithin(context.Context, string, string) (mediainfo.Evidence, error)
+	CountSubtitleCues(ctx context.Context, rootPath, relative string, streamIndex int, starts []float64, windowSeconds float64) ([]int, error)
 }
 
 type LanguageEvidence struct {
@@ -34,6 +36,11 @@ type LanguageEvidence struct {
 	RelativePath    string `json:"relative_path,omitempty"`
 	Forced          *bool  `json:"forced,omitempty"`
 	HearingImpaired *bool  `json:"hearing_impaired,omitempty"`
+	// FullDialogue is set only for a track flagged forced whose content was
+	// checked. DialogueCues is empty when the result comes from an earlier
+	// file of the same release.
+	FullDialogue *bool `json:"full_dialogue,omitempty"`
+	DialogueCues []int `json:"dialogue_cues,omitempty"`
 }
 
 type Companion struct {
@@ -120,6 +127,7 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 	}
 	pairs := pairSidecars(selectedVideos, inventory)
 	observedAll := map[string]bool{}
+	dialogue := dialogueSampler{probe: probe, root: authorizedRoot, sampled: map[dialogueKey]*dialogueSample{}}
 	for _, video := range selectedVideos {
 		evidence, probeErr := probe.InspectWithin(verificationContext, authorizedRoot, video.RelativePath)
 		if probeErr != nil {
@@ -138,6 +146,7 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 		entry.AudioLanguages = sortedKeys(audio)
 		observed := map[string]bool{}
 		fullSubtitles := map[string]bool{}
+		flaggedForced := map[string]flaggedTrack{}
 		for _, track := range evidence.SubtitleTracks {
 			if track.CanonicalLanguage == "" {
 				continue
@@ -149,6 +158,8 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 			observed[track.CanonicalLanguage], observedAll[track.CanonicalLanguage] = true, true
 			if forced == nil || !*forced {
 				fullSubtitles[track.CanonicalLanguage] = true
+			} else if _, seen := flaggedForced[track.CanonicalLanguage]; !seen && !hasExactTag(track.Title, "forced") {
+				flaggedForced[track.CanonicalLanguage] = flaggedTrack{index: track.Index, codec: track.Codec, evidence: len(entry.Languages) - 1}
 			}
 		}
 		for _, sidecar := range pairs[video.ID] {
@@ -165,7 +176,17 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 		for _, required := range policy.Required {
 			// Forced tracks only translate selected dialogue. Retain their
 			// evidence and companions, but require a full subtitle or audio.
-			if !fullSubtitles[required] && !audio[required] {
+			// Some releases set the forced flag on their complete track so that
+			// players show it by default, so a flag alone is checked against
+			// the track's content; a track named "forced" is taken at its word.
+			full := fullSubtitles[required]
+			if track, flagged := flaggedForced[required]; flagged && !full && !audio[required] {
+				var sampleErr error
+				if full, sampleErr = dialogue.check(verificationContext, video.RelativePath, required, track, evidence.DurationSeconds, &entry.Languages[track.evidence]); sampleErr != nil {
+					return Verification{}, fmt.Errorf("bounded subtitle sample failed for %s: %w", video.RelativePath, sampleErr)
+				}
+			}
+			if !full && !audio[required] {
 				entry.MissingRequired = append(entry.MissingRequired, required)
 				result.FailureReasons = append(result.FailureReasons, fmt.Sprintf("%s has no verified full %s subtitle or audio track", video.RelativePath, required))
 			}
@@ -190,6 +211,95 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 		return result.Companions[i].VideoAssetID.String() < result.Companions[j].VideoAssetID.String()
 	})
 	return result, nil
+}
+
+const (
+	// Each sampled file costs a few short reads. Verification has one shared
+	// time limit, so a season pack samples its first files and the remaining
+	// files of the same release, with the same track layout, follow them.
+	maxDialogueSamples   = 2
+	dialogueWindow       = 60.0
+	minDialogueDuration  = 240.0
+	textCuesPerWindow    = 3
+	bitmapCuesPerWindow  = 6
+	activeDialogueWindow = 2
+)
+
+var dialoguePositions = []float64{0.20, 0.50, 0.75}
+
+type flaggedTrack struct {
+	index    int
+	codec    string
+	evidence int
+}
+
+type dialogueKey struct {
+	language string
+	index    int
+}
+
+type dialogueSample struct {
+	count int
+	full  bool
+}
+
+type dialogueSampler struct {
+	probe   Probe
+	root    string
+	sampled map[dialogueKey]*dialogueSample
+}
+
+// check reports whether a track flagged forced carries running dialogue, and
+// records the answer on the track's evidence. A track that cannot be judged
+// does not count as full.
+func (sampler dialogueSampler) check(ctx context.Context, relative, language string, track flaggedTrack, duration *float64, evidence *LanguageEvidence) (bool, error) {
+	key := dialogueKey{language: language, index: track.index}
+	state := sampler.sampled[key]
+	if state == nil {
+		state = &dialogueSample{full: true}
+		sampler.sampled[key] = state
+	}
+	if state.count >= maxDialogueSamples {
+		full := state.full
+		evidence.FullDialogue = &full
+		return full, nil
+	}
+	state.count++
+	full := false
+	if duration != nil && *duration >= minDialogueDuration {
+		starts := make([]float64, 0, len(dialoguePositions))
+		for _, position := range dialoguePositions {
+			starts = append(starts, math.Floor(*duration*position))
+		}
+		cues, err := sampler.probe.CountSubtitleCues(ctx, sampler.root, relative, track.index, starts, dialogueWindow)
+		if err != nil {
+			return false, err
+		}
+		evidence.DialogueCues = cues
+		full = runningDialogue(track.codec, cues)
+	}
+	state.full = state.full && full
+	evidence.FullDialogue = &full
+	return full, nil
+}
+
+// runningDialogue separates a complete track from a real forced track.
+// Measured on production files, complete Danish tracks had 3-24 cues in every
+// 60-second window and real forced tracks had none. Bitmap subtitles use one
+// packet to show a line and one to clear it, so they need twice the packets.
+func runningDialogue(codec string, cues []int) bool {
+	needed := textCuesPerWindow
+	switch strings.ToLower(codec) {
+	case "hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub":
+		needed = bitmapCuesPerWindow
+	}
+	active := 0
+	for _, count := range cues {
+		if count >= needed {
+			active++
+		}
+	}
+	return active >= activeDialogueWindow
 }
 
 func pairSidecars(videos, inventory []Asset) map[uuid.UUID][]Companion {

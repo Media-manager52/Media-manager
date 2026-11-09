@@ -33,7 +33,9 @@ titler og oplysninger. Seerr er valgfri og kan levere familiens anmodninger.
    efter installationsvejledningen; gæt ikke på nye mapper til eksisterende filer.
 8. Kontrollér **Indstillinger → Biblioteker** og **Kvalitetsprofiler**. Den
    normale danske profil kræver fulde danske undertekster fra udgivelsen eller
-   dansk tale. Forced-tekster oversætter kun dele af dialogen. Børneindhold
+   dansk tale. Rigtige forced-tekster oversætter kun dele af dialogen og tæller
+   ikke. Er et spor kun mærket forced, læser Media Manager et lille udsnit for at
+   se, om det er en fuld tekst. Børneindhold
    kræver dansk tale. En 4K-udgave hentes ved siden af den almindelige udgave.
 
 ## Afprøv den første titel

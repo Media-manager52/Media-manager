@@ -49,9 +49,34 @@ test("saved setup does not claim tested connections or a completed acquisition",
   } } }))
   await page.goto("/kom-i-gang")
   await expect(page.getByText("Den nødvendige opsætning er gemt")).toBeVisible()
-  await expect(page.getByText(/Test forbindelserne/)).toBeVisible()
+  await expect(page.getByText(/Tryk Test forbindelser/)).toBeVisible()
   await expect(page.getByText("Alt det nødvendige er klar")).toHaveCount(0)
   expect(writes).toEqual([])
+})
+
+test("Test forbindelser shows what answered now, per connection", async ({ page }) => {
+  await mockApi(page)
+  const component = (id: string, kind: string, enabled = true) => ({ id, kind, name: kind, enabled, is_default: true, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", configuration_state: "configured", consecutive_failure: 0 })
+  await page.route("**/api/v1/system/health", (route) => route.fulfill({ json: { data: { database_state: "ready", database_latency_ms: 1, schema_version: 55, expected_schema: 55, outbox: { pending: 0, due: 0, retrying: 0 }, components: [component("c-plex", "plex"), component("c-altmount", "altmount"), component("c-seerr", "seerr", false)], mounts: [], checked_at: "2026-11-09T12:00:00Z" } } }))
+  await page.route("**/api/v1/setup/status", (route) => route.fulfill({ json: { data: {
+    complete: true, secret_storage_enabled: true, servarr_enabled: false, seerr_intake_enabled: false,
+    steps: ["plex", "altmount", "seerr"].map((id) => ({ id, done: true, optional: false, detail: "Saved" })),
+  } } }))
+  const checked: string[] = []
+  await page.route("**/api/v1/settings/integrations/*/check", (route) => {
+    checked.push(route.request().url())
+    return route.request().url().includes("c-altmount")
+      ? route.fulfill({ status: 502, json: { error: { code: "upstream", message: "AltMount did not answer" } } })
+      : route.fulfill({ json: { data: { ok: true, detail: "Plex answered and shows 2 libraries" } } })
+  })
+  await page.goto("/kom-i-gang")
+  await expect(page.getByText("Ikke testet endnu")).toHaveCount(2)
+  expect(checked).toEqual([])
+  await page.getByRole("button", { name: "Test forbindelser" }).click()
+  await expect(page.getByText(/Testet lige nu: virker\./)).toHaveCount(1)
+  await expect(page.getByText(/Testet lige nu: virker ikke\./)).toHaveCount(1)
+  await expect(page.getByText("Ikke testet endnu")).toHaveCount(0)
+  expect(checked).toHaveLength(2)
 })
 
 async function seriesFiles(page: Page, tokens: string[]) {

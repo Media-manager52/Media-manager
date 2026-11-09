@@ -16,6 +16,10 @@ func (probe fixtureProbe) InspectWithin(_ context.Context, _ string, relative st
 	return probe.evidence[relative], nil
 }
 
+func (probe fixtureProbe) CountSubtitleCues(context.Context, string, string, int, []float64, float64) ([]int, error) {
+	return nil, nil
+}
+
 func TestVerifyAcceptsEmbeddedCanonicalDanish(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

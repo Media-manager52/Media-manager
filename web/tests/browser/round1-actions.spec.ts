@@ -117,7 +117,8 @@ for (const mode of ["latest", "custom", "all"] as const) {
     expect(writes).toEqual([])
     await page.getByRole("button", { name: "Tilføj serie", exact: true }).click()
     await expect.poll(() => writes.length).toBe(1)
-    expect(snapshots).toEqual(expected)
+    // The first lookup checks that the newest season has aired.
+    expect(snapshots.slice(1)).toEqual(expected)
     expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/media", body: {
       kind: "series", search_immediately: mode !== "all", seasons: expected.map((number) => ({ number, monitored: true, search_immediately: mode !== "all", prefer_season_pack: true, episodes: [{ number: 1, provider_episode_id: `s${number}e1`, title: "Et", air_date: "2024-01-01" }] })),
     } })

@@ -12,6 +12,7 @@ import { Poster, sizedArtwork } from "@/components/poster"
 import { useToast } from "@/components/toast"
 import { Button, Card, CardHeader, cx, Empty, ErrorBox, PageHeader, Spinner } from "@/components/ui"
 import { errorMessage, kindLabel, languageName } from "@/i18n"
+import { latestAiredSeason } from "@/lib/latest-season"
 import { titleHref } from "@/lib/links"
 import { profileOptions, rootOptions } from "@/lib/pickers"
 
@@ -99,7 +100,12 @@ function AddFormBody({ detail, onBack }: { detail: APIDiscoveryDetail; onBack: (
   const seasonCount = detail.metadata?.season_count ?? 0
   const [seasonChoice, setSeasonChoice] = useState<"latest" | "custom" | "all">("latest")
   const [customSeasons, setCustomSeasons] = useState<number[]>([])
-  const seasons = seasonChoice === "latest" ? (seasonCount > 0 ? [seasonCount] : []) : seasonChoice === "all" ? Array.from({ length: seasonCount }, (_, index) => index + 1) : customSeasons
+  const latestSeason = useQuery({
+    queryKey: ["discovery", "latest-aired-season", detail.tmdb_id, seasonCount],
+    enabled: kind === "series" && seasonCount > 0,
+    queryFn: ({ signal }) => latestAiredSeason(seasonCount, (number) => loadDiscoveryMetadata("tv", detail.tmdb_id, number, signal), new Date().toISOString().slice(0, 10)),
+  })
+  const seasons = seasonChoice === "latest" ? (latestSeason.data ? [latestSeason.data] : []) : seasonChoice === "all" ? Array.from({ length: seasonCount }, (_, index) => index + 1) : customSeasons
   const [rootId, setRootId] = useState("")
   const [profileId, setProfileId] = useState("")
   const [searchNow, setSearchNow] = useState(true)
