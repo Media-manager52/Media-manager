@@ -30,6 +30,13 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	config.MaxConns = 12
 	config.MinConns = 1
 	config.MaxConnLifetime = 30 * time.Minute
+	// The owner read models are wide queries over few rows. PostgreSQL's cost
+	// estimate for them crosses the JIT threshold, and compiling then takes
+	// seconds while running takes milliseconds. A database URL that sets jit
+	// itself keeps its choice.
+	if _, set := config.ConnConfig.RuntimeParams["jit"]; !set {
+		config.ConnConfig.RuntimeParams["jit"] = "off"
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, err

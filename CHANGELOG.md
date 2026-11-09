@@ -15,6 +15,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 - **Aktivitet** under System names the title, and the season or episode, each entry is about, with a link to the title. `GET /api/v1/activity` returns `media_id`, `title` and `variant` for entries that belong to a title or one of its workflows.
 - **Small tidy-ups across the website:** **Reparationer** shows which episode a repair is for. **Forbindelser** on the status page shows whole names with a plain word for what each connection does. **Baggrundskø** fits a phone screen without scrolling sideways. Library folders and connections in **Indstillinger** stack their buttons under the name on a phone. **Anmodninger** keeps posters in shape and drops "0 af 1 dele" for a single film. **Kilder** no longer repeats the same explanation on every indexer.
 
+### Fixed
+
+- **Kræver handling, Arbejde and other lists open in a fraction of the time.** PostgreSQL spent two to three seconds compiling each list query (JIT) before running it for a few milliseconds. Media Manager now turns JIT off for its own database connections; a `DATABASE_URL` that sets `jit` itself keeps its choice.
+
 ## [0.1.0-beta.6] - 2026-11-10
 
 The sixth public beta: `main` at `5f1a890`, database schema 57. Everyday additions to the website. Language and quality requirements are unchanged.
