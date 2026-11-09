@@ -19,6 +19,8 @@ import (
 type Store struct {
 	Pool              *pgxpool.Pool
 	acquisitionLimits AcquisitionLimits
+	// relocateCheckpoint lets tests interrupt a move at every boundary.
+	relocateCheckpoint func() error
 }
 
 var (

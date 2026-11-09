@@ -268,6 +268,7 @@ const errorCodes: Record<string, string> = {
   approval_failed: "Planen kunne ikke låses. Alle filer skal være gennemgået, og højst 25 må være godkendt.",
   confirmation_required: "Bekræftelsen skal skrives præcist som vist.",
   replacement_confirmation_required: "Overtagelsen kan erstatte en fil, du allerede har, og kræver en ekstra bekræftelse.",
+  relocation_in_progress: "Titlen er allerede ved at blive flyttet. En afbrudt flytning skal gøres færdig: vælg det samme bibliotek igen.",
   quality_profile_changed: "Profilen er blevet ændret imens, så intet er gemt. Luk vinduet, åbn profilen igen, og lav ændringen igen.",
   policy_application_failed: "Opgaverne ændrede sig imens, så intet blev flyttet over på profilen. Prøv igen.",
 }

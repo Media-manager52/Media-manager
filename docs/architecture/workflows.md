@@ -525,6 +525,16 @@ normal guards:
   never touched, destinations are never overwritten, and a partially applied
   move is completed by a rerun. Use it when a title was published into the
   wrong Plex folder (for example before Seerr root routing existed).
+- `POST /api/v1/media/{id}/relocate` (`Store.RelocateMedia`, the owner's
+  **Flyt**) first stores a plan in `media_relocations` and
+  `media_relocation_steps`: every workflow, every Plex folder and a delayed
+  `media.relocation_resume_requested` recovery event. Steps are safe to repeat
+  and finished ones are recorded, so a restart resumes at the first unfinished
+  step. A lease keeps the owner's retry and the recovery event from working at
+  once. Plex refreshes are queued in the transaction that closes the move, so
+  they happen once and only after every file moved. An unfinished move cannot
+  be redirected to another root, and one still open after 30 minutes appears
+  as the `library.move_unfinished` problem.
 
 ## 6. Retrieval and AltMount submission
 

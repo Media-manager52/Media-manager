@@ -17,7 +17,9 @@ import (
 // root of the same media kind, updates the link and workflow records, and
 // records an audit event. The link targets and the read-only AltMount content
 // are never touched. Moves are resumable: a rerun completes a partially
-// applied change because RelocateSymlink is idempotent.
+// applied change: links already recorded in the target root are not moved
+// again, while their subtitles are still finished because RelocateSymlink is
+// idempotent.
 func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targetRootID uuid.UUID, now time.Time) (int, error) {
 	var mediaKind, oldRootID, fromRoot, state string
 	var revision int64
@@ -81,8 +83,8 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 	rows, err = store.Pool.Query(ctx, `SELECT c.destination_relative,c.plex_visible_target
 		FROM library_link_companions c
 		JOIN library_link_versions v ON v.id=c.link_version_id AND v.state='current'
-		JOIN library_links l ON l.id=v.library_link_id AND l.root_id=$2
-		WHERE v.workflow_id=$1 AND c.state IN ('verified','current') ORDER BY c.destination_relative`, workflowID.String(), oldRootID)
+		JOIN library_links l ON l.id=v.library_link_id AND l.root_id IN ($2,$3)
+		WHERE v.workflow_id=$1 AND c.state IN ('verified','current') ORDER BY c.destination_relative`, workflowID.String(), oldRootID, targetRootID.String())
 	if err != nil {
 		return 0, err
 	}
@@ -101,10 +103,14 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 	// An open workflow without published links still moves: its root decides
 	// where future output is published (for example the waiting episodes of
 	// a series that is being moved to another library).
-	if len(links) == 0 && len(companions) == 0 && terminal {
+	var alreadyMoved int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM library_links l JOIN library_link_versions v ON v.library_link_id=l.id AND v.state='current' WHERE v.workflow_id=$1 AND l.root_id=$2`, workflowID.String(), targetRootID.String()).Scan(&alreadyMoved); err != nil {
+		return 0, err
+	}
+	if len(links) == 0 && len(companions) == 0 && alreadyMoved == 0 && terminal {
 		return 0, refuse("no_current_links", "workflow has no current links in its library root", "Only open workflows, or finished workflows with published links, can be relocated.")
 	}
-	moved := 0
+	moved := alreadyMoved
 	for _, item := range links {
 		if err := library.RelocateSymlink(fromRoot, toRoot, item.relative, item.relative, item.target); err != nil {
 			return moved, fmt.Errorf("relocate %s: %w", item.relative, err)
@@ -113,12 +119,18 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 			return moved, err
 		}
 		moved++
+		if err := store.checkpointRelocation(); err != nil {
+			return moved, err
+		}
 	}
 	for _, item := range companions {
 		if err := library.RelocateSymlink(fromRoot, toRoot, item.relative, item.relative, item.target); err != nil {
 			return moved, fmt.Errorf("relocate subtitle %s: %w", item.relative, err)
 		}
 		moved++
+		if err := store.checkpointRelocation(); err != nil {
+			return moved, err
+		}
 	}
 	tx, err := store.Pool.Begin(ctx)
 	if err != nil {

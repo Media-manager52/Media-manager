@@ -89,6 +89,22 @@ func (store *Store) RelocateMedia(ctx context.Context, mediaID, targetRootID uui
 	if !enabled {
 		return result, refuse("library_root_disabled", "target library root is disabled", "Choose an enabled root from GET /api/v1/settings/library-roots.")
 	}
+	// A move that was interrupted is finished first; it cannot be redirected,
+	// or the title would end up in three places.
+	var activeID, activeTarget string
+	switch err := store.Pool.QueryRow(ctx, `SELECT id::text,target_root_id::text FROM media_relocations WHERE media_id=$1 AND state='running'`, mediaID.String()).Scan(&activeID, &activeTarget); {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return result, err
+	case activeTarget != targetRootID.String():
+		return result, refuse("relocation_in_progress", "an earlier move of this title has not finished", "Finish the earlier move by choosing the same library again.")
+	default:
+		id, parseErr := uuid.Parse(activeID)
+		if parseErr != nil {
+			return result, parseErr
+		}
+		return store.runMediaRelocation(ctx, id, now)
+	}
 	all, err := store.mediaWorkflowRows(ctx, mediaID)
 	if err != nil {
 		return result, err
@@ -124,24 +140,20 @@ func (store *Store) RelocateMedia(ctx context.Context, mediaID, targetRootID uui
 		}
 	}
 	for _, row := range move {
-		moved, err := store.RelocateWorkflowLinks(ctx, row.id, targetRootID, now)
-		result.Moved += moved
-		if err != nil {
-			return result, err
-		}
-		result.Workflows++
 		for _, relative := range row.links {
 			addFolder(row.rootID, relative)
 			addFolder(targetRootID.String(), relative)
 		}
 	}
-	for _, item := range folders {
-		payload, _ := json.Marshal(map[string]string{"root_id": item.root, "relative": item.relative})
-		if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'plex_folder',$2,1,'plex.folder_refresh_requested',$3,$4,$4)`, uuid.NewV7().String(), uuid.NewV7().String(), string(payload), now.UTC()); err != nil {
-			return result, err
-		}
+	steps := make([]relocationFolder, len(folders))
+	for index, item := range folders {
+		steps[index] = relocationFolder(item)
 	}
-	return result, nil
+	id, err := store.planMediaRelocation(ctx, mediaID, targetRootID, move, steps, now)
+	if err != nil {
+		return result, err
+	}
+	return store.runMediaRelocation(ctx, id, now)
 }
 
 // PlexFolder is a folder below a library root that Plex should rescan.
