@@ -20,6 +20,7 @@ behavioral truth is always the code and the SQL migrations.
 
 | Document | Contents |
 | --- | --- |
+| [architecture/areas.md](architecture/areas.md) | Where to go for a change or a bug: each product area, its code, page, Fejllog area and quick test |
 | [architecture/overview.md](architecture/overview.md) | System context, processes, networks, outbox, workflow state machine, data ownership, safety invariants |
 | [architecture/backend.md](architecture/backend.md) | Package-by-package Go reference (`cmd/`, `internal/`) |
 | [architecture/database.md](architecture/database.md) | Migrations, conventions, table catalog, `*Store` file map, concurrency rules |
