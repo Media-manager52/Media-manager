@@ -718,7 +718,7 @@ func providerIdentityEqual(factName, observed, expected string) bool {
 func normalizeIMDbID(value string) (string, bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	value = strings.TrimPrefix(value, "tt")
-	if len(value) < 7 || len(value) > 9 {
+	if len(value) == 0 || len(value) > 9 {
 		return "", false
 	}
 	for _, character := range value {
@@ -726,7 +726,9 @@ func normalizeIMDbID(value string) (string, bool) {
 			return "", false
 		}
 	}
-	return value, true
+	// Indexers pad the number to different widths: 0362165 and 00362165 are
+	// the same title.
+	return strings.TrimLeft(value, "0"), true
 }
 
 func buildRequest(search postgres.SearchContext, config indexerConfig) newznab.SearchRequest {

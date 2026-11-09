@@ -282,3 +282,36 @@ func TestCanonicalResolutionFromFrameSize(t *testing.T) {
 		}
 	}
 }
+
+func TestPartialEpisodeRangeIsNotASeasonPack(t *testing.T) {
+	for title, want := range map[string]string{
+		"Show.S03E20E21.Two.Parts.1080p.WEB": "multi_episode",
+		"Show.S07E09-E11.Three.Parts.1080p":  "multi_episode",
+		"Show.S01E01E02.Pilot.1080p":         "multi_episode",
+		"Show.S01E01-E10.1080p.WEB":          "season_pack",
+		"Show.S01.1080p.WEB":                 "season_pack",
+		"Show.S01E05.1080p.WEB":              "episode",
+	} {
+		observation := InferTitleFacts(Observation{Title: title}, time.Unix(1, 0))
+		got := ""
+		for _, fact := range observation.Facts {
+			if fact.Name == "release_scope" {
+				got = fact.Values[0]
+			}
+		}
+		if got != want {
+			t.Errorf("%s scope=%q, want %q", title, got, want)
+		}
+	}
+}
+
+func TestTitleMatchesEscapedNames(t *testing.T) {
+	for _, name := range []string{"Law &amp; Order S19E07 1080i", "Law.&amp;amp;.Order.S21E06.1080p", "Law.and.Order.S01E01"} {
+		if !TitleMatches(name, "Law & Order") {
+			t.Errorf("%s did not match", name)
+		}
+	}
+	if TitleMatches("Law &amp; Order: Toronto S01E01", "Lawless") {
+		t.Error("unrelated title matched")
+	}
+}

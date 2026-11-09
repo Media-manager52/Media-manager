@@ -20,8 +20,10 @@ func TestOldBoysCatalogueBindingIsInferredScopedAndPreservesUnknownIDs(t *testin
 		{"Operation.X.2026.06.10.DANiSH.1080p.WEB", "oldboys-v1", "da", "", true},
 		{"Operation.X.2010.S23E02.DANiSH.1080p.WEB", "oldboys-v1", "da", "", false},
 		{"Operation.X.S2025E02.DANiSH.1080p.WEB", "oldboys-v1", "da", "", false},
-		{"Operation.X.S2026E02.DANiSH.1080p.WEB", "newznab-v1", "da", "", false},
-		{"Operation.X.S2026E02.DANiSH.1080p.WEB", "oldboys-v1", "en", "", false},
+		// An exact series name with a Danish tag identifies the series on any indexer.
+		{"Operation.X.S2026E02.DANiSH.1080p.WEB", "newznab-v1", "da", "", true},
+		{"Operation.X.S2026E02.DANiSH.1080p.WEB", "oldboys-v1", "en", "", true},
+		{"Operation.X.S2026E02.NORDiC.1080p.WEB", "newznab-v1", "da", "", false},
 		{"Operation.X.Unrelated.Spinoff.S2026E02.DANiSH.1080p.WEB", "oldboys-v1", "da", "", false},
 		{"Operation.X.S2026E02.NORDiC.1080p.WEB", "oldboys-v1", "da", "", true},
 		{"Operation.X.S2026E02.DANiSH.1080p.WEB", "oldboys-v1", "da", "tt9999999", false},
