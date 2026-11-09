@@ -169,6 +169,7 @@ func (server *Server) apiOperations() []apiOperation {
 
 		{Method: "GET", Path: "/api/v1/system/health", Handler: s.systemHealth, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Integration health, outbox and failure counters"},
 		{Method: "GET", Path: "/api/v1/problems", Handler: s.listProblems, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Grouped owner-actionable problems derived from persisted workflows, integrations, backups, notifications and repairs", Response: postgres.ProblemFeed{}},
+		{Method: "GET", Path: "/api/v1/errors", Handler: s.listErrorLog, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Everything that went wrong, newest first, with credentials removed"},
 		{Method: "GET", Path: "/api/v1/problems/support", Handler: s.supportBundle, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Redacted plain-text support bundle with problems, schema, components and recent backup/queue state"},
 		{Method: "GET", Path: "/api/v1/system/queue", Handler: s.systemQueue, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Background queue: due, scheduled, leased and retrying events per type, plus recent throughput", Response: postgres.QueueSnapshot{}},
 		{Method: "GET", Path: "/api/v1/indexers", Handler: s.listIndexerUsage, Auth: owner, Effect: effectRead, Tag: "system", Summary: "Every indexer's effective budget, rolling-window usage, remaining requests, pacing and 24h search outcomes", Response: []postgres.IndexerUsage{}},

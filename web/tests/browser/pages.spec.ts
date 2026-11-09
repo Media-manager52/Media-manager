@@ -27,6 +27,7 @@ const pages: Array<[string, string]> = [
   ["/system/backup", "System"],
   ["/system/reparationer", "System"],
   ["/system/aktivitet", "System"],
+  ["/fejl", "Fejllog"],
 ]
 
 for (const [path, heading] of pages) {

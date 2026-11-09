@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import {
-  Activity, AlertTriangle, CalendarDays, Clapperboard, Home, Inbox, ListChecks, Menu, Monitor, Moon, Plus, Radio, Settings, Sun, X, Server,
+  Activity, AlertTriangle, CalendarDays, Clapperboard, Home, Inbox, ListChecks, Menu, Monitor, Moon, Plus, Radio, Settings, Sun, X, Server, Bug,
 } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 import { NavLink, Outlet, useLocation } from "react-router"
@@ -13,6 +13,7 @@ type NavItem = { to: string; label: string; icon: typeof Home; end?: boolean; ba
 const primary: NavItem[] = [
   { to: "/", label: "Oversigt", icon: Home, end: true },
   { to: "/handling", label: "Kræver handling", icon: AlertTriangle, badge: "attention" },
+  { to: "/fejl", label: "Fejllog", icon: Bug },
   { to: "/bibliotek", label: "Bibliotek", icon: Clapperboard },
   { to: "/tilfoej", label: "Tilføj", icon: Plus },
   { to: "/anmodninger", label: "Anmodninger", icon: Inbox },
@@ -25,7 +26,7 @@ const secondary: NavItem[] = [
   { to: "/system", label: "System", icon: Server },
   { to: "/kom-i-gang", label: "Kom i gang", icon: ListChecks },
 ]
-const mobileBar: NavItem[] = [primary[0], primary[2], primary[1], primary[4]]
+const mobileBar: NavItem[] = [primary[0], primary[3], primary[1], primary[5]]
 
 function useAttentionCount(): number | undefined {
   const { data } = useQuery({ queryKey: ["dashboard"], queryFn: ({ signal }) => loadDashboard(signal), refetchInterval: 60_000 })
