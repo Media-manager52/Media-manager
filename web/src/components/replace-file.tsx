@@ -23,8 +23,8 @@ export function ReplaceFile({ file }: { file: APIManagedFile }) {
   if (file.origin !== "altmount" || file.state !== "current" || !file.plex_confirmed || !file.source_relative) return null
   const close = () => { if (!mutation.isPending) setOpen(false) }
   return (
-    <div className="mt-2 pl-5">
-      <Button variant="ghost" onClick={() => { mutation.reset(); setOpen(true) }}>Erstat dårlig fil</Button>
+    <div>
+      <Button variant="secondary" className="h-10 text-xs sm:h-8" onClick={() => { mutation.reset(); setOpen(true) }}>Erstat dårlig fil</Button>
       {mutation.data ? <p role="status" className="mt-2 text-sm text-text-2">{replacementOutcomeText(mutation.data.outcome)} <Link to="/system/reparationer" className="underline">Se status</Link></p> : null}
       {open ? (
         <Dialog open onClose={close} title="Erstat dårlig fil?" footer={<><Button variant="ghost" disabled={mutation.isPending} onClick={close}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} onClick={() => mutation.mutate()}>Søg efter erstatning</Button></>}>

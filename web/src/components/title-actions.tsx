@@ -46,10 +46,10 @@ export function TitleActions({ detail }: { detail: APIMediaDetail }) {
   return (
     <>
       {movieOpen && !inPlex ? null : (
-        <Button variant={series || inPlex ? "secondary" : "primary"} className="h-8 text-xs" onClick={() => setDialog("get")}>{series ? <Plus aria-hidden className="size-3.5" /> : <Download aria-hidden className="size-3.5" />}{getLabel}</Button>
+        <Button variant={series || inPlex ? "secondary" : "primary"} className="h-10 text-xs sm:h-8" onClick={() => setDialog("get")}>{series ? <Plus aria-hidden className="size-3.5" /> : <Download aria-hidden className="size-3.5" />}{getLabel}</Button>
       )}
-      <Button variant="secondary" className="h-8 text-xs" onClick={() => setDialog("move")}><FolderInput aria-hidden className="size-3.5" />Flyt</Button>
-      <Button variant="ghost" className="h-8 text-xs text-bad" onClick={() => setDialog("delete")}><Trash2 aria-hidden className="size-3.5" />Slet</Button>
+      <Button variant="secondary" className="h-10 text-xs sm:h-8" onClick={() => setDialog("move")}><FolderInput aria-hidden className="size-3.5" />Flyt</Button>
+      <Button variant="ghost" className="h-10 text-xs text-bad sm:h-8" onClick={() => setDialog("delete")}><Trash2 aria-hidden className="size-3.5" />Slet</Button>
       {dialog === "get" ? <GetDialog detail={detail} onClose={() => setDialog(null)} /> : null}
       {dialog === "move" ? <MoveDialog detail={detail} onClose={() => setDialog(null)} /> : null}
       {dialog === "delete" ? <DeleteDialog detail={detail} onClose={() => setDialog(null)} /> : null}

@@ -243,6 +243,9 @@ const languageNames: Record<string, string> = {
   // Three-letter codes as files and Plex tag them.
   dan: "Dansk", eng: "Engelsk", swe: "Svensk", nor: "Norsk", nob: "Norsk", fin: "Finsk", ger: "Tysk", deu: "Tysk",
   fre: "Fransk", fra: "Fransk", spa: "Spansk", ita: "Italiensk", dut: "Hollandsk", nld: "Hollandsk", pol: "Polsk", jpn: "Japansk",
+  por: "Portugisisk", kor: "Koreansk", chi: "Kinesisk", zho: "Kinesisk", rus: "Russisk", tur: "Tyrkisk", ara: "Arabisk", hin: "Hindi",
+  ice: "Islandsk", isl: "Islandsk", cze: "Tjekkisk", ces: "Tjekkisk", gre: "Græsk", ell: "Græsk", heb: "Hebraisk", hun: "Ungarsk",
+  rum: "Rumænsk", ron: "Rumænsk", ukr: "Ukrainsk", tha: "Thai", vie: "Vietnamesisk", ind: "Indonesisk", hrv: "Kroatisk",
 }
 
 export function languageName(code: string | undefined): string {
