@@ -1,10 +1,11 @@
 # Versioning and image identity
 
 This document defines the contract every Media Manager release follows. The
-current release, `v0.1.0-beta.2`, was published on 2026-11-04; see
-[`v0.1.0-beta.2.md`](v0.1.0-beta.2.md) and its
-[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.2).
-The first release was [`v0.1.0-beta.1`](v0.1.0-beta.1.md).
+current release, `v0.1.0-beta.3`, was published on 2026-11-09; see
+[`v0.1.0-beta.3.md`](v0.1.0-beta.3.md) and its
+[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.3).
+Earlier releases: [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
+[`v0.1.0-beta.1`](v0.1.0-beta.1.md).
 
 ## Versions
 
@@ -41,6 +42,15 @@ under `/usr/share/doc/media-manager/`, and carries the
 `org.opencontainers.image.licenses="AGPL-3.0-only"` label. The corresponding
 source is <https://github.com/Media-manager52/Media-manager>. Release checks must
 verify the label and both files in the published image.
+
+Released images (`v0.1.0-beta.3`, commit `c11b8997c7cf40bc5fdb4518fb1dc75a542b80a7`):
+
+```text
+api index         sha256:15cc6381bcf68a0244ed40acb34d709266521b5987e2da0980ffb2407b685f94
+api linux/amd64   sha256:19935042fb3022dd26240b0e736d072cce6810019c6cf3416db64699288cc8a4
+ui  index         sha256:0075d0d9bc5f06909b8b907025eeb2d187a0d27db20c975e830e467cdd1a64f8
+ui  linux/amd64   sha256:441c01a5c14147921895724ce7f25a135e82355505335d1ded9c906653f09569
+```
 
 Released images (`v0.1.0-beta.2`, commit `bb24c654a6c881a896f863bf24a88962312d5aec`):
 
