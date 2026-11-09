@@ -24,12 +24,14 @@ type Worker struct {
 	// Limits caps how long one event type's handler may run (default
 	// DefaultHandlerLimit). AbandonGrace is how long a cancelled handler gets
 	// to return before it is abandoned (default HandlerAbandonGrace).
-	Limits          map[string]time.Duration
-	AbandonGrace    time.Duration
+	Limits       map[string]time.Duration
+	AbandonGrace time.Duration
+	// Lane limits which event types this worker claims (default: all).
+	Lane            postgres.OutboxLane
 	preferDiscovery bool
 }
 
-// The worker handles one event at a time, so a handler that never returns
+// A worker handles one event at a time, so a handler that never returns
 // stops every search, publication, repair and Seerr update behind it. On
 // 2026-10-17 a read blocked inside the AltMount FUSE mount, which no context
 // can interrupt, stalled the worker for two hours. A handler that exceeds its
@@ -149,7 +151,7 @@ func (worker *Worker) Run(ctx context.Context) error {
 }
 
 func (worker *Worker) runBatch(ctx context.Context) error {
-	events, err := worker.Store.ClaimOutbox(ctx, worker.Owner, 1, worker.Lease, worker.preferDiscovery)
+	events, err := worker.Store.ClaimOutboxLane(ctx, worker.Owner, 1, worker.Lease, worker.preferDiscovery, worker.Lane)
 	if err != nil {
 		return err
 	}
