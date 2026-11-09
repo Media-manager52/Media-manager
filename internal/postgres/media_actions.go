@@ -147,7 +147,7 @@ func (store *Store) RelocateMedia(ctx context.Context, mediaID, targetRootID uui
 	}
 	steps := make([]relocationFolder, len(folders))
 	for index, item := range folders {
-		steps[index] = relocationFolder{root: item.root, relative: item.relative}
+		steps[index] = relocationFolder(item)
 	}
 	id, err := store.planMediaRelocation(ctx, mediaID, targetRootID, move, steps, now)
 	if err != nil {
