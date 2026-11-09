@@ -1,6 +1,7 @@
-package postgres
+package commissioningstore
 
 import (
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 	"strings"
 	"testing"
 	"time"
@@ -261,7 +262,7 @@ func splitSQLStatements(source string) []string {
 // must not name a raw body/URL/header/secret persistence surface.
 func TestMigration35SourceIsAdditiveOnlyAndSecretFree(t *testing.T) {
 	t.Parallel()
-	body, err := migrationFiles.ReadFile("migrations/0035_indexer_commissioning_live_gate.sql")
+	body, err := migrations.Files.ReadFile("0035_indexer_commissioning_live_gate.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

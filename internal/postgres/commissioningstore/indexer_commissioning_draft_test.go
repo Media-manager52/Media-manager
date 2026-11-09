@@ -1,9 +1,10 @@
-package postgres
+package commissioningstore
 
 import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func draftSearchEvidence(step IndexerCommissioningStep, outcome commissioningv2.
 // point where every search step has durable accepted evidence but the run has
 // not yet been finalized. The movie primary verifies, the season primary
 // returns no results, and both fallbacks pass their own probe.
-func draftCompletedCommissioningRun(t *testing.T, ctx context.Context, store *Store, indexerID uuid.UUID, now time.Time) IndexerCommissioningRun {
+func draftCompletedCommissioningRun(t *testing.T, ctx context.Context, store *Commissioning, indexerID uuid.UUID, now time.Time) IndexerCommissioningRun {
 	t.Helper()
 	run, categories, searchPlan := commissioningRepositoryAwaitingCategoryReview(t, ctx, store, indexerID, now)
 	run = sealAndAuthorizeCommissioningSearchPlan(t, ctx, store, indexerID, run, categories, searchPlan, now.Add(10*time.Second))
@@ -99,7 +100,7 @@ func draftCompletedCommissioningRun(t *testing.T, ctx context.Context, store *St
 	return reloaded
 }
 
-func draftProfileForRun(t *testing.T, ctx context.Context, store *Store, run IndexerCommissioningRun) IndexerCapabilityProfile {
+func draftProfileForRun(t *testing.T, ctx context.Context, store *Commissioning, run IndexerCommissioningRun) IndexerCapabilityProfile {
 	t.Helper()
 	if run.GeneratedProfileID == nil {
 		t.Fatal("run has no generated profile")
@@ -117,7 +118,7 @@ func TestFinalizeIndexerCommissioningDraftCreatesImmutableLinkedDraft(t *testing
 	indexerID := insertCommissioningIndexer(t, ctx, store, now)
 	run := draftCompletedCommissioningRun(t, ctx, store, indexerID, now)
 
-	if _, err := store.FinalizeIndexerCommissioningDraft(ctx, indexerID, run.ID, run.Revision+1, now.Add(time.Minute)); !errors.Is(err, ErrConcurrentModification) {
+	if _, err := store.FinalizeIndexerCommissioningDraft(ctx, indexerID, run.ID, run.Revision+1, now.Add(time.Minute)); !errors.Is(err, dbcore.ErrConcurrentModification) {
 		t.Fatalf("wrong revision error=%v", err)
 	}
 	if _, err := store.FinalizeIndexerCommissioningDraft(ctx, indexerID, run.ID, run.Revision, now.Add(time.Minute)); err != nil {
@@ -229,7 +230,7 @@ func TestFinalizeIndexerCommissioningDraftRejectsDifferentIndexer(t *testing.T) 
 	indexerID := insertCommissioningIndexer(t, ctx, store, now)
 	otherIndexerID := insertCommissioningIndexer(t, ctx, store, now)
 	run := draftCompletedCommissioningRun(t, ctx, store, indexerID, now)
-	if _, err := store.FinalizeIndexerCommissioningDraft(ctx, otherIndexerID, run.ID, run.Revision, now.Add(time.Minute)); !errors.Is(err, ErrNotFound) {
+	if _, err := store.FinalizeIndexerCommissioningDraft(ctx, otherIndexerID, run.ID, run.Revision, now.Add(time.Minute)); !errors.Is(err, dbcore.ErrNotFound) {
 		t.Fatalf("cross-indexer finalization error=%v", err)
 	}
 }

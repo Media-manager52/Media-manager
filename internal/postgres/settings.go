@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -23,17 +24,8 @@ import (
 	"github.com/media-manager/media-manager/internal/subtitles"
 )
 
-type Integration struct {
-	ID        uuid.UUID       `json:"id"`
-	Kind      string          `json:"kind"`
-	Name      string          `json:"name"`
-	Enabled   bool            `json:"enabled"`
-	Default   bool            `json:"is_default"`
-	Config    json.RawMessage `json:"config"`
-	SecretRef string          `json:"secret_ref,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-}
+type Integration = dbcore.Integration
+
 type LibraryRoot struct {
 	ID                uuid.UUID         `json:"id"`
 	MediaKind         catalog.MediaKind `json:"media_kind"`
@@ -617,19 +609,7 @@ func (store *Store) ListQualityProfiles(ctx context.Context) ([]QualityProfile, 
 }
 
 func (store *Store) Integration(ctx context.Context, id uuid.UUID) (Integration, error) {
-	var item Integration
-	var idText string
-	var config []byte
-	err := store.Pool.QueryRow(ctx, `SELECT id::text,kind,name,enabled,is_default,config,COALESCE(secret_ref,''),created_at,updated_at FROM integration_instances WHERE id=$1`, id.String()).Scan(&idText, &item.Kind, &item.Name, &item.Enabled, &item.Default, &config, &item.SecretRef, &item.CreatedAt, &item.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Integration{}, ErrNotFound
-	}
-	if err != nil {
-		return Integration{}, err
-	}
-	item.ID, _ = uuid.Parse(idText)
-	item.Config = append(json.RawMessage(nil), config...)
-	return item, nil
+	return dbcore.LoadIntegration(ctx, store.Pool, id)
 }
 
 func allowedIntegration(kind string) bool {

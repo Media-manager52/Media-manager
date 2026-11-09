@@ -48,7 +48,7 @@ func transitiveProductionClosure(t *testing.T, moduleRoot, root string) []listed
 
 const (
 	liveExecutorPackage = "github.com/media-manager/media-manager/internal/commissioningv2"
-	liveStorePackage    = "github.com/media-manager/media-manager/internal/postgres"
+	liveStorePackage    = "github.com/media-manager/media-manager/internal/postgres/commissioningstore"
 	liveGuardPackage    = "github.com/media-manager/media-manager/internal/adapters/newznab"
 	// liveOwnerServicePackage is the SINGLE Milestone-B production package
 	// allowed to construct the live executor: the owner-authorized CAPS

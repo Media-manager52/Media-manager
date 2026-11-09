@@ -1,8 +1,10 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 	"net/url"
 	"os"
 	"strings"
@@ -605,7 +607,7 @@ func TestIndexerCommissioningRunCreationSerializesPerInstance(t *testing.T) {
 	for authorizeErr := range errorsSeen {
 		if authorizeErr == nil {
 			successes++
-		} else if errors.Is(authorizeErr, ErrConcurrentModification) {
+		} else if errors.Is(authorizeErr, dbcore.ErrConcurrentModification) {
 			conflicts++
 		}
 	}
@@ -727,7 +729,7 @@ func TestIndexerCommissioningRunCreationSerializesPerInstance(t *testing.T) {
 						return
 					}
 				}
-				read <- readResult{err: ErrNotFound}
+				read <- readResult{err: dbcore.ErrNotFound}
 			}()
 			waitForCommissioningStepReadLock(t, snapshotContext, snapshotStore)
 			sealCommissioningSearchPlanInTransaction(t, snapshotContext, writer, snapshotIndexerID, snapshotRun, categories, searchPlan, snapshotNow.Add(6*time.Second))
@@ -750,7 +752,7 @@ func TestIndexerCommissioningRunCreationSerializesPerInstance(t *testing.T) {
 	}
 }
 
-func waitForCommissioningStepReadLock(t *testing.T, ctx context.Context, store *Store) {
+func waitForCommissioningStepReadLock(t *testing.T, ctx context.Context, store *Commissioning) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -809,7 +811,7 @@ func sealCommissioningSearchPlanInTransaction(t *testing.T, ctx context.Context,
 	}
 }
 
-func transitionCommissioningStepToTransmission(t *testing.T, ctx context.Context, store *Store, indexerID, runID uuid.UUID, step IndexerCommissioningStep, now time.Time) IndexerCommissioningStep {
+func transitionCommissioningStepToTransmission(t *testing.T, ctx context.Context, store *Commissioning, indexerID, runID uuid.UUID, step IndexerCommissioningStep, now time.Time) IndexerCommissioningStep {
 	t.Helper()
 	leaseUntil := now.Add(time.Minute)
 	_, err := store.TransitionIndexerCommissioningStep(ctx, indexerID, runID, step.ID, commissioningv2.StepPlanned, IndexerCommissioningStepTransition{
@@ -827,7 +829,7 @@ func transitionCommissioningStepToTransmission(t *testing.T, ctx context.Context
 	return updated
 }
 
-func commissioningRepositoryAwaitingCategoryReview(t *testing.T, ctx context.Context, store *Store, indexerID uuid.UUID, now time.Time) (IndexerCommissioningRun, newznab.NewznabCategorySelection, commissioningv2.ProbePlan) {
+func commissioningRepositoryAwaitingCategoryReview(t *testing.T, ctx context.Context, store *Commissioning, indexerID uuid.UUID, now time.Time) (IndexerCommissioningRun, newznab.NewznabCategorySelection, commissioningv2.ProbePlan) {
 	t.Helper()
 	digestBytes, err := store.IndexerEndpointConfigurationDigest(ctx, indexerID)
 	if err != nil {
@@ -892,7 +894,7 @@ func commissioningRepositoryAwaitingCategoryReview(t *testing.T, ctx context.Con
 	return run, categories, searchPlan
 }
 
-func sealAndAuthorizeCommissioningSearchPlan(t *testing.T, ctx context.Context, store *Store, indexerID uuid.UUID, run IndexerCommissioningRun, categories newznab.NewznabCategorySelection, plan commissioningv2.ProbePlan, now time.Time) IndexerCommissioningRun {
+func sealAndAuthorizeCommissioningSearchPlan(t *testing.T, ctx context.Context, store *Commissioning, indexerID uuid.UUID, run IndexerCommissioningRun, categories newznab.NewznabCategorySelection, plan commissioningv2.ProbePlan, now time.Time) IndexerCommissioningRun {
 	t.Helper()
 	updated, err := store.SealIndexerCommissioningSearchPlan(ctx, indexerID, run.ID, run.Revision, categories, plan, now)
 	if err != nil {
@@ -949,7 +951,7 @@ func commissioningRepositoryCAPSEvidence(observedAt time.Time) commissioningv2.S
 	}
 }
 
-func insertCommissioningIndexer(t *testing.T, ctx context.Context, store *Store, now time.Time) uuid.UUID {
+func insertCommissioningIndexer(t *testing.T, ctx context.Context, store *Commissioning, now time.Time) uuid.UUID {
 	t.Helper()
 	id := uuid.NewV7()
 	name := "Commissioning repository fixture " + id.String()
@@ -959,7 +961,7 @@ func insertCommissioningIndexer(t *testing.T, ctx context.Context, store *Store,
 	return id
 }
 
-func isolatedCommissioningStore(t *testing.T) (*Store, context.Context) {
+func isolatedCommissioningStore(t *testing.T) (*Commissioning, context.Context) {
 	t.Helper()
 	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -982,11 +984,11 @@ func isolatedCommissioningStore(t *testing.T) (*Store, context.Context) {
 	query := parsed.Query()
 	query.Set("search_path", schema)
 	parsed.RawQuery = query.Encode()
-	store, err := Open(ctx, parsed.String())
+	store, err := openStore(ctx, parsed.String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, store.Pool); err != nil {
+	if err := migrations.Migrate(ctx, store.Pool); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

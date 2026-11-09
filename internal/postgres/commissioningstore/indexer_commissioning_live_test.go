@@ -1,9 +1,11 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 	"net/url"
 	"os"
 	"strings"
@@ -23,7 +25,7 @@ import (
 // liveTestStore opens a disposable per-test schema via
 // MEDIA_MANAGER_TEST_DATABASE_URL and migrates to the CURRENT schema (35).
 // It skips when the variable is unset; NO application database is used.
-func liveTestStore(t *testing.T) (*Store, context.Context) {
+func liveTestStore(t *testing.T) (*Commissioning, context.Context) {
 	t.Helper()
 	databaseURL := liveTestDatabaseURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -43,11 +45,11 @@ func liveTestStore(t *testing.T) (*Store, context.Context) {
 	query := parsed.Query()
 	query.Set("search_path", schema)
 	parsed.RawQuery = query.Encode()
-	store, err := Open(ctx, parsed.String())
+	store, err := openStore(ctx, parsed.String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, store.Pool); err != nil {
+	if err := migrations.Migrate(ctx, store.Pool); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -75,7 +77,7 @@ func liveTestDatabaseURL(t *testing.T) string {
 	return databaseURL
 }
 
-func liveIndexer(t *testing.T, ctx context.Context, store *Store, now time.Time) uuid.UUID {
+func liveIndexer(t *testing.T, ctx context.Context, store *Commissioning, now time.Time) uuid.UUID {
 	t.Helper()
 	id := uuid.NewV7()
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO integration_instances(id,kind,name,enabled,is_default,config,secret_ref,created_at,updated_at) VALUES($1,'newznab',$2,false,false,$3,'LIVE_TEST_KEY',$4,$4)`, id.String(), "Live fixture "+id.String(), `{"base_url":"https://live-test.invalid/api","movie_category_ids":[2000],"series_category_ids":[5000],"category_selection_review_required":false}`, now); err != nil {
@@ -84,7 +86,7 @@ func liveIndexer(t *testing.T, ctx context.Context, store *Store, now time.Time)
 	return id
 }
 
-func liveRunAndIntentStep(t *testing.T, ctx context.Context, store *Store, indexerID uuid.UUID, now time.Time) (IndexerCommissioningRun, IndexerCommissioningStep) {
+func liveRunAndIntentStep(t *testing.T, ctx context.Context, store *Commissioning, indexerID uuid.UUID, now time.Time) (IndexerCommissioningRun, IndexerCommissioningStep) {
 	t.Helper()
 	digestBytes, err := store.IndexerEndpointConfigurationDigest(ctx, indexerID)
 	if err != nil {
@@ -1223,7 +1225,7 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 		if err == nil {
 			return false
 		}
-		return errors.Is(err, ErrConcurrentModification) ||
+		return errors.Is(err, dbcore.ErrConcurrentModification) ||
 			errors.Is(err, ErrCommissioningGateUnresolved) ||
 			errors.Is(err, ErrInvalidIndexerCommissioning) ||
 			errors.Is(err, ErrLiveExecutorCancelled) ||
@@ -1515,7 +1517,7 @@ func TestConcurrentCommissioningTransactionsDoNotDeadlock(t *testing.T) {
 // touching t.Fatal (safe for worker goroutines): it returns the current
 // durable run revision and step state for the marker's expected-state
 // fields.
-func loadRunStep(ctx context.Context, store *Store, runID, stepID uuid.UUID) (IndexerCommissioningRun, IndexerCommissioningStep, error) {
+func loadRunStep(ctx context.Context, store *Commissioning, runID, stepID uuid.UUID) (IndexerCommissioningRun, IndexerCommissioningStep, error) {
 	run, err := store.IndexerCommissioningRun(ctx, runID)
 	if err != nil {
 		return IndexerCommissioningRun{}, IndexerCommissioningStep{}, err

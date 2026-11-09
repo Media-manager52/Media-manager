@@ -10,6 +10,7 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Changed
 
+- For contributors: indexer approval and the migration runner moved to their own packages under `internal/postgres`, and the two largest files in that code were split. Behaviour is unchanged.
 - For contributors: five self-contained storage subjects (backups, notifications, import lists, the Radarr/Sonarr views and the error log) moved to their own packages under `internal/postgres`. The build fails if one reaches into another. Behaviour is unchanged.
 - For contributors: an area map (`docs/architecture/areas.md`) and `scripts/dev/test-area.sh` run the tests for one part of the product. The build fails if the map drifts from the code.
 - A pass over every page on computer and phone: English status text is now Danish (repairs, activity, background queue, indexer results, language rules), buttons on phones are easier to hit, the longest lists show a batch at a time with "Vis flere", open repairs come first, and a title or work page that no longer exists offers a way back.

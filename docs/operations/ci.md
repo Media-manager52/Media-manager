@@ -62,7 +62,7 @@ Two things keep the groups from waiting on each other:
 
 - `Migrate` locks per schema. The production schema `public` keeps the single
   historical advisory key; any other schema locks on its own
-  `(namespace, schema)` key (`internal/postgres/migrate.go`, pinned by
+  `(namespace, schema)` key (`internal/postgres/migrations/migrate.go`, pinned by
   `TestMigrationLockKeepsProductionKeyAndIsolatesTestSchemas`). Before this,
   every test schema queued behind one database-wide lock, and more groups made
   the suite slower.

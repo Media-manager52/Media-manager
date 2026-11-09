@@ -1,4 +1,4 @@
-package postgres
+package commissioningstore
 
 import (
 	"reflect"
@@ -7,11 +7,11 @@ import (
 	"github.com/media-manager/media-manager/internal/indexers"
 )
 
-func stringTypeOfStore() reflect.Type { return reflect.TypeOf(Store{}) }
+func stringTypeOfStore() reflect.Type { return reflect.TypeOf(Commissioning{}) }
 
 func storeMethodByName(t *testing.T, name string) reflect.Method {
 	t.Helper()
-	method, ok := reflect.TypeOf(&Store{}).MethodByName(name)
+	method, ok := reflect.TypeOf(&Commissioning{}).MethodByName(name)
 	if !ok {
 		t.Fatalf("Store method %q not found", name)
 	}

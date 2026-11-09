@@ -1,9 +1,10 @@
-package postgres
+package commissioningstore
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"time"
 	"uuid"
 
@@ -12,25 +13,25 @@ import (
 	"github.com/media-manager/media-manager/internal/indexers"
 )
 
-func (store *Store) CompleteNewznabCommission(ctx context.Context, integrationID uuid.UUID, caps newznab.CapsSnapshot, dialects newznab.SearchDialects, now time.Time) (Integration, error) {
+func (store *Commissioning) CompleteNewznabCommission(ctx context.Context, integrationID uuid.UUID, caps newznab.CapsSnapshot, dialects newznab.SearchDialects, now time.Time) (dbcore.Integration, error) {
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	defer transaction.Rollback(ctx)
 	var kind string
 	var configBody []byte
 	if err := transaction.QueryRow(ctx, `SELECT kind,config FROM integration_instances WHERE id=$1 FOR UPDATE`, integrationID.String()).Scan(&kind, &configBody); errors.Is(err, pgx.ErrNoRows) {
-		return Integration{}, ErrNotFound
+		return dbcore.Integration{}, dbcore.ErrNotFound
 	} else if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	var config map[string]any
 	if kind != "newznab" || json.Unmarshal(configBody, &config) != nil {
-		return Integration{}, errors.New("integration is not a valid Newznab endpoint")
+		return dbcore.Integration{}, errors.New("integration is not a valid Newznab endpoint")
 	}
 	if dialects.Movie.Mode == "" || dialects.Series.Mode == "" {
-		return Integration{}, errors.New("commissioned Newznab search dialects are incomplete")
+		return dbcore.Integration{}, errors.New("commissioned Newznab search dialects are incomplete")
 	}
 	config["mode"] = "search" // Backward-compatible fallback for pre-dialect readers.
 	config["mode_verified"] = true
@@ -52,19 +53,19 @@ func (store *Store) CompleteNewznabCommission(ctx context.Context, integrationID
 	config["server_version"] = caps.ServerVersion
 	encoded, err := json.Marshal(config)
 	if err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE integration_instances SET enabled=true,is_default=false,config=$2,updated_at=$3 WHERE id=$1`, integrationID.String(), string(encoded), now.UTC()); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	detail, _ := json.Marshal(map[string]any{"caps_sha256": caps.BodyHash, "server_version": caps.ServerVersion, "movie_search_mode": dialects.Movie.Mode, "series_search_mode": dialects.Series.Mode})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','newznab.commissioned','integration',$2,$3,$4)`, uuid.NewV7().String(), integrationID.String(), string(detail), now.UTC()); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
 	if err := transaction.Commit(ctx); err != nil {
-		return Integration{}, err
+		return dbcore.Integration{}, err
 	}
-	return store.Integration(ctx, integrationID)
+	return dbcore.LoadIntegration(ctx, store.Pool, integrationID)
 }
 
 func numericJSON(value any) (int, bool) {

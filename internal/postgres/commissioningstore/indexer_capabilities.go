@@ -1,10 +1,11 @@
-package postgres
+package commissioningstore
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"regexp"
 	"strings"
 	"time"
@@ -60,13 +61,13 @@ const activeCapabilityProfileColumns = `profile.id::text,profile.indexer_instanc
 
 // IndexerEndpointConfigurationDigest returns the non-secret endpoint identity
 // that commissioning must bind to any observations it produces.
-func (store *Store) IndexerEndpointConfigurationDigest(ctx context.Context, indexerID uuid.UUID) ([]byte, error) {
+func (store *Commissioning) IndexerEndpointConfigurationDigest(ctx context.Context, indexerID uuid.UUID) ([]byte, error) {
 	if indexerID == (uuid.UUID{}) {
 		return nil, ErrInvalidIndexerCapabilityProfile
 	}
 	var digest []byte
 	if err := store.Pool.QueryRow(ctx, `SELECT media_manager_newznab_endpoint_config_sha256(config,secret_ref) FROM integration_instances WHERE id=$1 AND kind='newznab'`, indexerID.String()).Scan(&digest); errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, dbcore.ErrNotFound
 	} else if err != nil {
 		return nil, err
 	}
@@ -80,7 +81,7 @@ func (store *Store) IndexerEndpointConfigurationDigest(ctx context.Context, inde
 // The integration row lock serializes revision allocation without requiring
 // callers to retry a serializable transaction. expectedEndpointDigest must be
 // captured before commissioning so evidence cannot be rebound to later config.
-func (store *Store) CreateIndexerCapabilityProfile(ctx context.Context, indexerID uuid.UUID, document json.RawMessage, expectedEndpointDigest []byte, now time.Time) (IndexerCapabilityProfile, error) {
+func (store *Commissioning) CreateIndexerCapabilityProfile(ctx context.Context, indexerID uuid.UUID, document json.RawMessage, expectedEndpointDigest []byte, now time.Time) (IndexerCapabilityProfile, error) {
 	profile, canonical, err := canonicalCapabilityProfile(document)
 	if err != nil || indexerID == (uuid.UUID{}) || len(expectedEndpointDigest) != 32 {
 		return IndexerCapabilityProfile{}, ErrInvalidIndexerCapabilityProfile
@@ -94,7 +95,7 @@ func (store *Store) CreateIndexerCapabilityProfile(ctx context.Context, indexerI
 	var kind string
 	var endpointDigest []byte
 	if err := transaction.QueryRow(ctx, `SELECT kind,media_manager_newznab_endpoint_config_sha256(config,secret_ref) FROM integration_instances WHERE id=$1 FOR UPDATE`, indexerID.String()).Scan(&kind, &endpointDigest); errors.Is(err, pgx.ErrNoRows) {
-		return IndexerCapabilityProfile{}, ErrNotFound
+		return IndexerCapabilityProfile{}, dbcore.ErrNotFound
 	} else if err != nil {
 		return IndexerCapabilityProfile{}, err
 	}
@@ -127,7 +128,7 @@ func (store *Store) CreateIndexerCapabilityProfile(ctx context.Context, indexerI
 
 // ActivateIndexerCapabilityProfile is the explicit owner review gate. It never
 // edits category selection; that selection must already have been reviewed.
-func (store *Store) ActivateIndexerCapabilityProfile(ctx context.Context, indexerID, profileID uuid.UUID, actor string, now time.Time) (IndexerCapabilityProfile, error) {
+func (store *Commissioning) ActivateIndexerCapabilityProfile(ctx context.Context, indexerID, profileID uuid.UUID, actor string, now time.Time) (IndexerCapabilityProfile, error) {
 	if indexerID == (uuid.UUID{}) || profileID == (uuid.UUID{}) || strings.TrimSpace(actor) != "owner" {
 		return IndexerCapabilityProfile{}, ErrInvalidIndexerCapabilityProfile
 	}
@@ -140,7 +141,7 @@ func (store *Store) ActivateIndexerCapabilityProfile(ctx context.Context, indexe
 	var configuration []byte
 	var currentEndpointDigest []byte
 	if err := transaction.QueryRow(ctx, `SELECT config,media_manager_newznab_endpoint_config_sha256(config,secret_ref) FROM integration_instances WHERE id=$1 AND kind='newznab' FOR UPDATE`, indexerID.String()).Scan(&configuration, &currentEndpointDigest); errors.Is(err, pgx.ErrNoRows) {
-		return IndexerCapabilityProfile{}, ErrNotFound
+		return IndexerCapabilityProfile{}, dbcore.ErrNotFound
 	} else if err != nil {
 		return IndexerCapabilityProfile{}, err
 	}
@@ -151,7 +152,7 @@ func (store *Store) ActivateIndexerCapabilityProfile(ctx context.Context, indexe
 	var document, documentDigest, observedEndpointDigest []byte
 	var documentDigestMatches bool
 	if err := transaction.QueryRow(ctx, `SELECT lifecycle_state,profile_document,document_sha256,endpoint_config_sha256,document_sha256=sha256(convert_to(profile_document::text,'UTF8')) FROM indexer_capability_profiles WHERE indexer_instance_id=$1 AND id=$2 FOR UPDATE`, indexerID.String(), profileID.String()).Scan(&state, &document, &documentDigest, &observedEndpointDigest, &documentDigestMatches); errors.Is(err, pgx.ErrNoRows) {
-		return IndexerCapabilityProfile{}, ErrNotFound
+		return IndexerCapabilityProfile{}, dbcore.ErrNotFound
 	} else if err != nil {
 		return IndexerCapabilityProfile{}, err
 	}
@@ -189,7 +190,7 @@ func (store *Store) ActivateIndexerCapabilityProfile(ctx context.Context, indexe
 		return IndexerCapabilityProfile{}, err
 	}
 	if command.RowsAffected() != 1 {
-		return IndexerCapabilityProfile{}, ErrConcurrentModification
+		return IndexerCapabilityProfile{}, dbcore.ErrConcurrentModification
 	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','newznab.capability_profile_activated','integration',$2,$3,$4)`, uuid.NewV7().String(), indexerID.String(), `{"profile_id":"`+profileID.String()+`"}`, now); err != nil {
 		return IndexerCapabilityProfile{}, err
@@ -200,7 +201,7 @@ func (store *Store) ActivateIndexerCapabilityProfile(ctx context.Context, indexe
 	return store.IndexerCapabilityProfile(ctx, profileID)
 }
 
-func (store *Store) InvalidateIndexerCapabilityProfile(ctx context.Context, indexerID, profileID uuid.UUID, reason, actor string, now time.Time) (IndexerCapabilityProfile, error) {
+func (store *Commissioning) InvalidateIndexerCapabilityProfile(ctx context.Context, indexerID, profileID uuid.UUID, reason, actor string, now time.Time) (IndexerCapabilityProfile, error) {
 	reason, actor = strings.TrimSpace(reason), strings.TrimSpace(actor)
 	if indexerID == (uuid.UUID{}) || profileID == (uuid.UUID{}) || actor != "owner" || !capabilitySafeKeyPattern.MatchString(reason) {
 		return IndexerCapabilityProfile{}, ErrInvalidIndexerCapabilityProfile
@@ -215,7 +216,7 @@ func (store *Store) InvalidateIndexerCapabilityProfile(ctx context.Context, inde
 	var document, documentDigest []byte
 	var digestMatches bool
 	if err := transaction.QueryRow(ctx, `SELECT lifecycle_state,profile_document,document_sha256,document_sha256=sha256(convert_to(profile_document::text,'UTF8')) FROM indexer_capability_profiles WHERE indexer_instance_id=$1 AND id=$2 FOR UPDATE`, indexerID.String(), profileID.String()).Scan(&state, &document, &documentDigest, &digestMatches); errors.Is(err, pgx.ErrNoRows) {
-		return IndexerCapabilityProfile{}, ErrNotFound
+		return IndexerCapabilityProfile{}, dbcore.ErrNotFound
 	} else if err != nil {
 		return IndexerCapabilityProfile{}, err
 	}
@@ -246,21 +247,21 @@ func (store *Store) InvalidateIndexerCapabilityProfile(ctx context.Context, inde
 	return store.IndexerCapabilityProfile(ctx, profileID)
 }
 
-func (store *Store) IndexerCapabilityProfile(ctx context.Context, profileID uuid.UUID) (IndexerCapabilityProfile, error) {
+func (store *Commissioning) IndexerCapabilityProfile(ctx context.Context, profileID uuid.UUID) (IndexerCapabilityProfile, error) {
 	result, err := scanIndexerCapabilityProfile(store.Pool.QueryRow(ctx, `SELECT `+capabilityProfileColumns+`,document_sha256=sha256(convert_to(profile_document::text,'UTF8')) FROM indexer_capability_profiles WHERE id=$1`, profileID.String()))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return IndexerCapabilityProfile{}, ErrNotFound
+		return IndexerCapabilityProfile{}, dbcore.ErrNotFound
 	}
 	return result, err
 }
 
-func (store *Store) ActiveIndexerCapabilityProfile(ctx context.Context, indexerID uuid.UUID) (IndexerCapabilityProfile, error) {
+func (store *Commissioning) ActiveIndexerCapabilityProfile(ctx context.Context, indexerID uuid.UUID) (IndexerCapabilityProfile, error) {
 	result, configuration, endpointDigestMatches, err := scanActiveIndexerCapabilityProfile(store.Pool.QueryRow(ctx, `SELECT `+activeCapabilityProfileColumns+`,profile.document_sha256=sha256(convert_to(profile.profile_document::text,'UTF8')),integration.config,profile.endpoint_config_sha256 IS NOT DISTINCT FROM media_manager_newznab_endpoint_config_sha256(integration.config,integration.secret_ref)
 		FROM indexer_capability_profiles profile
 		JOIN integration_instances integration ON integration.id=profile.indexer_instance_id AND integration.kind='newznab'
 		WHERE profile.indexer_instance_id=$1 AND profile.lifecycle_state='active'`, indexerID.String()))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return IndexerCapabilityProfile{}, ErrNotFound
+		return IndexerCapabilityProfile{}, dbcore.ErrNotFound
 	}
 	if err != nil {
 		return IndexerCapabilityProfile{}, err
@@ -285,7 +286,7 @@ func (store *Store) ActiveIndexerCapabilityProfile(ctx context.Context, indexerI
 	return result, nil
 }
 
-func (store *Store) ListIndexerCapabilityProfiles(ctx context.Context, indexerID uuid.UUID) ([]IndexerCapabilityProfile, error) {
+func (store *Commissioning) ListIndexerCapabilityProfiles(ctx context.Context, indexerID uuid.UUID) ([]IndexerCapabilityProfile, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT `+capabilityProfileColumns+`,document_sha256=sha256(convert_to(profile_document::text,'UTF8')) FROM indexer_capability_profiles WHERE indexer_instance_id=$1 ORDER BY revision`, indexerID.String())
 	if err != nil {
 		return nil, err
@@ -302,7 +303,7 @@ func (store *Store) ListIndexerCapabilityProfiles(ctx context.Context, indexerID
 	return result, rows.Err()
 }
 
-func (store *Store) SaveIndexerOperationStatus(ctx context.Context, status IndexerOperationStatus) error {
+func (store *Commissioning) SaveIndexerOperationStatus(ctx context.Context, status IndexerOperationStatus) error {
 	status.OperationKey, status.RecipeKey = strings.TrimSpace(status.OperationKey), strings.TrimSpace(status.RecipeKey)
 	status.LastOutcome, status.SafeCode, status.LastFailureScope = strings.TrimSpace(status.LastOutcome), strings.TrimSpace(status.SafeCode), strings.TrimSpace(status.LastFailureScope)
 	if !validIndexerOperationStatus(status) {
@@ -318,7 +319,7 @@ func (store *Store) SaveIndexerOperationStatus(ctx context.Context, status Index
 	return err
 }
 
-func (store *Store) LoadIndexerOperationStatus(ctx context.Context, indexerID, profileID uuid.UUID, operationKey, recipeKey string) (IndexerOperationStatus, error) {
+func (store *Commissioning) LoadIndexerOperationStatus(ctx context.Context, indexerID, profileID uuid.UUID, operationKey, recipeKey string) (IndexerOperationStatus, error) {
 	result := IndexerOperationStatus{IndexerInstanceID: indexerID, CapabilityProfileID: profileID, OperationKey: strings.TrimSpace(operationKey), RecipeKey: strings.TrimSpace(recipeKey), Availability: "unknown"}
 	if err := store.validateIndexerOperationStatusTarget(ctx, indexerID, profileID, result.OperationKey, result.RecipeKey); err != nil {
 		return IndexerOperationStatus{}, err
@@ -330,13 +331,13 @@ func (store *Store) LoadIndexerOperationStatus(ctx context.Context, indexerID, p
 	return result, err
 }
 
-func (store *Store) validateIndexerOperationStatusTarget(ctx context.Context, indexerID, profileID uuid.UUID, operationKey, recipeKey string) error {
+func (store *Commissioning) validateIndexerOperationStatusTarget(ctx context.Context, indexerID, profileID uuid.UUID, operationKey, recipeKey string) error {
 	if indexerID == (uuid.UUID{}) || profileID == (uuid.UUID{}) || !newznab.ValidOperation(newznab.Operation(operationKey)) || recipeKey != "" && (operationKey != string(newznab.OperationSearch) || !capabilitySafeKeyPattern.MatchString(recipeKey)) {
 		return ErrInvalidIndexerOperationStatus
 	}
 	profile, err := store.IndexerCapabilityProfile(ctx, profileID)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidIndexerCapabilityProfile) {
+		if errors.Is(err, dbcore.ErrNotFound) || errors.Is(err, ErrInvalidIndexerCapabilityProfile) {
 			return ErrInvalidIndexerOperationStatus
 		}
 		return err
