@@ -21,7 +21,19 @@ type OutboxEvent struct {
 	LastError         string
 }
 
+// OutboxLane limits which event types a worker may claim. Long, self-contained
+// jobs get their own lane so they cannot hold up everything else.
+type OutboxLane struct {
+	Only   []string
+	Except []string
+}
+
 func (store *Store) ClaimOutbox(ctx context.Context, owner string, limit int, lease time.Duration, preferDiscovery bool) ([]OutboxEvent, error) {
+	return store.ClaimOutboxLane(ctx, owner, limit, lease, preferDiscovery, OutboxLane{})
+}
+
+// ClaimOutboxLane claims due events within a lane.
+func (store *Store) ClaimOutboxLane(ctx context.Context, owner string, limit int, lease time.Duration, preferDiscovery bool, lane OutboxLane) ([]OutboxEvent, error) {
 	if limit < 1 || limit > 100 {
 		limit = 10
 	}
@@ -35,6 +47,7 @@ func (store *Store) ClaimOutbox(ctx context.Context, owner string, limit int, le
 	rows, err := store.Pool.Query(ctx, `WITH picked AS (
   SELECT id FROM outbox_events
   WHERE completed_at IS NULL AND available_at <= now() AND (lease_until IS NULL OR lease_until < now())
+    AND ($5::text[] IS NULL OR event_type = ANY($5)) AND ($6::text[] IS NULL OR NOT event_type = ANY($6))
   ORDER BY CASE event_type
     WHEN 'workflow.discovery_rescan_requested' THEN CASE WHEN $4 THEN 1 ELSE 2 END
     WHEN 'workflow.search_requested' THEN CASE WHEN $4 THEN 2 ELSE 1 END
@@ -43,7 +56,7 @@ func (store *Store) ClaimOutbox(ctx context.Context, owner string, limit int, le
 UPDATE outbox_events AS event
 SET lease_owner=$2,lease_until=now()+($3 * interval '1 second'),attempts=attempts+1
 FROM picked WHERE event.id=picked.id
-RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at,COALESCE(event.last_error,'')`, limit, owner, lease.Seconds(), preferDiscovery)
+RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at,COALESCE(event.last_error,'')`, limit, owner, lease.Seconds(), preferDiscovery, lane.Only, lane.Except)
 	if err != nil {
 		return nil, err
 	}

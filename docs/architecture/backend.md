@@ -59,6 +59,11 @@ type Worker struct { Store *postgres.Store; Owner string; Handlers map[string]Ha
 func (worker *Worker) Run(ctx context.Context) error
 ```
 
+- The main worker runs one event at a time and keeps indexer pacing. Backups
+  (`backup.create_requested`, `backup.offsite_requested`) run in a separate
+  `OutboxLane`, also one at a time, because they take far longer than other
+  handlers and touch only their own files and verification database. Do not
+  add a type to that lane unless it is equally self-contained.
 - Claims one event per iteration, renews the lease while the handler runs,
   completes/defer/fails as described in [overview.md](overview.md#3-the-durable-outbox-the-heart-of-the-system).
 - Unknown event type → failed with "no handler registered" and a 30-minute retry.

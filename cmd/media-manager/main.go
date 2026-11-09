@@ -361,13 +361,23 @@ func run() error {
 		handlers["seerr.status_sync_requested"] = statusService.Handle
 	}
 	// A backup dumps and restores the database into an isolated copy, which
-	// can take far longer than any other handler.
-	worker := &platform.Worker{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: map[string]time.Duration{"backup.create_requested": 3 * time.Hour, "backup.offsite_requested": 3 * time.Hour}}
-	go func() {
-		if workerErr := worker.Run(workerContext); workerErr != nil && !errors.Is(workerErr, context.Canceled) {
-			slog.Error("outbox worker stopped", "error", workerErr)
-		}
-	}()
+	// can take far longer than any other handler. It works on its own files
+	// and its own database, so it runs in a lane of its own, one at a time,
+	// and searches, publishing and repairs carry on meanwhile. Every other
+	// event stays on the single main worker, which keeps indexer pacing.
+	backupEvents := []string{"backup.create_requested", "backup.offsite_requested"}
+	handlerLimits := map[string]time.Duration{"backup.create_requested": 3 * time.Hour, "backup.offsite_requested": 3 * time.Hour}
+	lanes := []*platform.Worker{
+		{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: handlerLimits, Lane: postgres.OutboxLane{Except: backupEvents}},
+		{Store: store, Owner: workerOwner() + "-backup", Handlers: handlers, Limits: handlerLimits, PollInterval: 10 * time.Second, Lane: postgres.OutboxLane{Only: backupEvents}},
+	}
+	for _, worker := range lanes {
+		go func() {
+			if workerErr := worker.Run(workerContext); workerErr != nil && !errors.Is(workerErr, context.Canceled) {
+				slog.Error("outbox worker stopped", "error", workerErr)
+			}
+		}()
+	}
 	go func() {
 		_, _ = store.PlanDueRecyclePurges(workerContext, time.Now().UTC(), 100)
 		_ = store.DeleteExpiredSearchPartialRetries(workerContext, time.Now().UTC())
