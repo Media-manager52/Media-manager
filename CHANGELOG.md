@@ -16,6 +16,7 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 - The repairs page no longer scrolls sideways on a phone because of a long file path.
 - A work page whose attempts are used up now says that it watches for new releases and what you can do, instead of saying nothing is needed.
+- A name like `S01E01-E02` no longer counts as a whole season when the season is known to have more episodes. A true short season keeps working, and a season whose length is unknown is read as before.
 - "Start new round from known releases" skips a release that the current title parser no longer accepts or that a later search rejected, instead of spending a slot on an out-of-date approval.
 
 ## [0.1.0-beta.4] - 2026-11-09

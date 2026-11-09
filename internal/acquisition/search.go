@@ -445,6 +445,7 @@ func evaluateCandidateObservation(observation releases.Observation, search postg
 		observation = bindOldBoysCatalogue(observation, search, now)
 	}
 	observation = applyEpisodeNumbering(observation, search, now)
+	observation = releases.NarrowPartialSeasonRange(observation, search.SeasonLastEpisode)
 	observationRules := rules
 	if oldboys {
 		observation, observationRules = oldBoysRangeScope(observation, search, scopeRules, qualityRules)

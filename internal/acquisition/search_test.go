@@ -560,3 +560,33 @@ func TestRequiredAudioAcceptsIndexerReportedDanishAudio(t *testing.T) {
 		t.Fatalf("Danish audio must satisfy and rank a required-Danish profile: %+v err=%v", evaluation, err)
 	}
 }
+
+func TestSearchRejectsARangeShorterThanTheSeason(t *testing.T) {
+	now := time.Unix(1, 0).UTC()
+	rules, err := workflowScopeRules("season:01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const title = "Rivalerne.S01E01-E02.DANiSH.1080p.WEB-DL.H.264.AAC2.0-SHOWTiME"
+	for _, test := range []struct {
+		last int
+		want releases.RuleDecision
+	}{{10, releases.DecisionFail}, {2, releases.DecisionPass}, {0, releases.DecisionPass}} {
+		_, evaluation, err := evaluateCandidateObservation(releases.Observation{Title: title}, postgres.SearchContext{SeasonLastEpisode: test.last}, rules, rules, rules, nil, false, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, explanation := range evaluation.Explanations {
+			if explanation.Rule == "Complete season pack" {
+				found = true
+				if explanation.Decision != test.want {
+					t.Errorf("last episode %d: complete season pack=%q, want %q", test.last, explanation.Decision, test.want)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("last episode %d: the season rule was not evaluated", test.last)
+		}
+	}
+}

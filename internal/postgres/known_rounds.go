@@ -64,6 +64,10 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 	// current policy (the profile was only renamed or made default since) is
 	// as valid as one made under the current version; the new round then keeps
 	// that version so the decision and later retrieval checks stay consistent.
+	lastEpisode, err := seasonLastEpisode(ctx, transaction, workflowID)
+	if err != nil {
+		return err
+	}
 	rows, err := transaction.Query(ctx, `SELECT candidate.id::text,decision.policy_version,observation.title
 		FROM release_candidates candidate
 		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
@@ -83,7 +87,7 @@ func (store *Store) OpenKnownAcquisitionRound(ctx context.Context, workflowID uu
 	if err != nil {
 		return err
 	}
-	candidateText, decisionVersion, err := firstCurrentKnownCandidate(rows)
+	candidateText, decisionVersion, err := firstCurrentKnownCandidate(rows, lastEpisode)
 	if err != nil {
 		return err
 	}
@@ -198,11 +202,22 @@ func (store *Store) RevivePreSubmissionRejections(ctx context.Context, workflowI
 	return len(jobIDs), nil
 }
 
+// seasonLastEpisode is the highest episode in the workflow's latest frozen
+// season expectation, or 0 when it has none.
+func seasonLastEpisode(ctx context.Context, querier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, workflowID uuid.UUID) (int, error) {
+	var last int
+	err := querier.QueryRow(ctx, `SELECT COALESCE(max(episode.episode),0) FROM pack_expected_episodes episode
+		WHERE episode.expectation_id=(SELECT id FROM pack_expectation_sets WHERE workflow_id=$1 ORDER BY frozen_at DESC,id DESC LIMIT 1)`, workflowID.String()).Scan(&last)
+	return last, err
+}
+
 // firstCurrentKnownCandidate returns the best approved release that the current
 // title parser still agrees with. Decisions are kept per policy version, so an
 // approval made before a parser fix survives it; without this check a new round
 // would spend its first slot on a release a fresh search now rejects.
-func firstCurrentKnownCandidate(rows pgx.Rows) (string, int64, error) {
+func firstCurrentKnownCandidate(rows pgx.Rows, lastEpisode int) (string, int64, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var candidate, title string
@@ -210,7 +225,7 @@ func firstCurrentKnownCandidate(rows pgx.Rows) (string, int64, error) {
 		if err := rows.Scan(&candidate, &version, &title); err != nil {
 			return "", 0, err
 		}
-		if !releases.MultiEpisodeRelease(title) {
+		if !releases.MultiEpisodeRelease(title) && !releases.RangeEndsBeforeEpisode(title, lastEpisode) {
 			return candidate, version, nil
 		}
 	}
