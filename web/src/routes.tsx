@@ -4,6 +4,7 @@ import { AppShell } from "@/components/shell"
 import { ErrorBox } from "@/components/ui"
 import { AddPage } from "@/pages/add"
 import { AttentionPage } from "@/pages/attention"
+import { ErrorLogPage } from "@/pages/error-log"
 import { CalendarPage } from "@/pages/calendar"
 import { LibraryPage } from "@/pages/library"
 import { NotFoundPage } from "@/pages/not-found"
@@ -51,6 +52,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <OverviewPage /> },
       { path: "handling", element: <AttentionPage /> },
+      { path: "fejl", element: <ErrorLogPage /> },
       { path: "bibliotek", element: <LibraryPage /> },
       { path: "bibliotek/:id", element: <TitlePage /> },
       { path: "media/movies/:id", element: <TitlePage /> },

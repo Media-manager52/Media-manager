@@ -296,6 +296,9 @@ and writes results to `.sites-runtime/live-playwright-results/`.
   completed/attempts/latest) and `/system/logs` (persisted audit + workflow
   transitions). Container stdout is **not** the audit log and the UI must not
   present it as such.
+- **Fejllog** (`/fejl`, `GET /api/v1/errors`) lists every stored failure from the
+  last 30 days and all open cases in plain Danish, with credentials removed. It
+  is the first place to look when something is missing.
 - Outbox diagnosis: `pending`/`due`/`retrying` counts in `/api/v1/system/health`.
   A single future non-due event is normal; a growing `retrying` count is not.
 - `indexer_operation_status` exposes the latest persisted indexer outcome per

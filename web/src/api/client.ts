@@ -112,6 +112,8 @@ export type APIImportList = { id: string; name: string; provider: "imdb_export";
 export type APIBackupRecord = { id: string; local_file_deleted?: boolean; state: "queued" | "running" | "verified" | "failed"; format: string; filename?: string; size_bytes?: number; sha256?: string; schema_version?: number; attempts: number; last_error?: string; offsite_state?: "uploaded" | "failed"; offsite_key?: string; offsite_error?: string; offsite_uploaded_at?: string; created_at: string; started_at?: string; completed_at?: string }
 export type APIBackupOverview = { configured: boolean; key_file?: string; format: string; restore_verification: string; automatic_deletion: boolean; production_restore: boolean; offsite: { configured: boolean; kind: string; prefix: string }; records: APIBackupRecord[] }
 export type APIProblem = { code: string; area: string; level: "error" | "warning"; title: string; detail?: string; count: number; oldest_at?: string; latest_at?: string; href?: string }
+export type APIErrorLogEntry = { id: string; area: string; code: string; title?: string; media_id?: string; media_kind?: string; workflow_id?: string; variant?: string; subject?: string; detail?: string; count: number; open: boolean; occurred_at: string }
+export type APIErrorLog = { entries: APIErrorLogEntry[]; total: number; areas: Record<string, number>; since: string }
 export type APIProblemFeed = { problems: APIProblem[]; checked_at: string }
 type Envelope<T> = { data: T; meta?: { count?: number; limit?: number; offset?: number } }
 
@@ -239,6 +241,12 @@ export const loadImportLists = async (signal?: AbortSignal) => await requestJSON
 export const loadImportList = (id: string, signal?: AbortSignal) => requestJSON<APIImportList>(`/api/v1/import-lists/${encodeURIComponent(id)}`, { signal })
 export const loadBackups = (signal?: AbortSignal) => requestJSON<APIBackupOverview>("/api/v1/backups", { signal })
 export const loadProblems = (signal?: AbortSignal) => requestJSON<APIProblemFeed>("/api/v1/problems", { signal })
+export const loadErrorLog = (filter: { area: string; q: string }, signal?: AbortSignal) => {
+  const query = new URLSearchParams({ limit: "500" })
+  if (filter.area) query.set("area", filter.area)
+  if (filter.q) query.set("q", filter.q)
+  return requestJSON<APIErrorLog>(`/api/v1/errors?${query}`, { signal })
+}
 export const loadSupportBundle = async () => {
   const response = await fetch("/api/v1/problems/support", { credentials: "same-origin" })
   if (!response.ok) throw new Error(`Support bundle returned HTTP ${response.status}`)
