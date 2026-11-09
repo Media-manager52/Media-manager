@@ -6,8 +6,8 @@ import { useToast } from "@/components/toast"
 import { Button, Dialog } from "@/components/ui"
 import { actionLabel, errorMessage } from "@/i18n"
 import { actionReasonText } from "@/lib/action-reasons"
+import { actionOrder as order } from "@/lib/bulk-actions"
 
-const order = ["search", "open_next_round", "open_round_from_known", "discover", "reconcile_altmount", "reconfirm_plex", "retry_access_rejected_release", "cancel"]
 
 /**
  * Renders the owner actions the server lists for a workflow. The server

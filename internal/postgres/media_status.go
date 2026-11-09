@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"time"
 	"uuid"
+
+	"github.com/media-manager/media-manager/internal/catalog"
 )
 
 // MediaStatus is the library overview of one title: whether Plex has any of
@@ -15,6 +18,11 @@ type MediaStatus struct {
 	InPlex    bool      `json:"in_plex"`
 	Missing   int       `json:"missing"`
 	Attention bool      `json:"attention"`
+	// RootIDs lists the library folders that hold a current file of the title.
+	RootIDs []uuid.UUID `json:"root_ids"`
+	// AddedAt is when the newest current file of the title was verified in
+	// its library folder; absent while the title has no file.
+	AddedAt *time.Time `json:"added_at,omitempty"`
 }
 
 var (
@@ -89,7 +97,7 @@ func (store *Store) MediaStatuses(ctx context.Context) ([]MediaStatus, error) {
 		mediaID, _ := uuid.Parse(mediaText)
 		status := statuses[mediaID]
 		if status == nil {
-			status = &MediaStatus{MediaID: mediaID}
+			status = &MediaStatus{MediaID: mediaID, RootIDs: []uuid.UUID{}}
 			statuses[mediaID] = status
 			order = append(order, mediaID)
 		}
@@ -113,6 +121,33 @@ func (store *Store) MediaStatuses(ctx context.Context) ([]MediaStatus, error) {
 		if status := statuses[scope.media]; status != nil {
 			status.InPlex = true
 		}
+	}
+	folders, err := store.Pool.Query(ctx, `SELECT media_id,root_id,max(verified_at) FROM (
+		SELECT workflow.media_id::text AS media_id,link.root_id::text AS root_id,version.verified_at FROM library_link_versions version JOIN library_links link ON link.id=version.library_link_id JOIN workflows workflow ON workflow.id=version.workflow_id WHERE version.state='current'
+		UNION ALL SELECT media_id::text,root_id::text,verified_at FROM adopted_files WHERE state='current') file GROUP BY 1,2 ORDER BY 1,2`)
+	if err != nil {
+		return nil, err
+	}
+	defer folders.Close()
+	for folders.Next() {
+		var mediaText, rootText string
+		var verified *time.Time
+		if err := folders.Scan(&mediaText, &rootText, &verified); err != nil {
+			return nil, err
+		}
+		mediaID, _ := uuid.Parse(mediaText)
+		status := statuses[mediaID]
+		if status == nil {
+			continue
+		}
+		rootID, _ := uuid.Parse(rootText)
+		status.RootIDs = append(status.RootIDs, rootID)
+		if verified != nil && (status.AddedAt == nil || verified.After(*status.AddedAt)) {
+			status.AddedAt = verified
+		}
+	}
+	if err := folders.Err(); err != nil {
+		return nil, err
 	}
 	result := make([]MediaStatus, 0, len(order))
 	for _, id := range order {
@@ -140,4 +175,51 @@ func scopeCovered(present map[fileScope]bool, expectedEpisodes []int, media uuid
 		return true
 	}
 	return false
+}
+
+// RecentAddition is one title whose newest downloaded file was verified in
+// the library, for the overview's "recently added" row.
+type RecentAddition struct {
+	MediaID   uuid.UUID         `json:"media_id"`
+	MediaKind catalog.MediaKind `json:"media_kind"`
+	Title     string            `json:"title"`
+	Year      int               `json:"year,omitempty"`
+	PosterURL string            `json:"poster_url,omitempty"`
+	// Variant is the scope of the newest file: "default" for a film, or a
+	// season or episode scope for a series.
+	Variant string    `json:"variant"`
+	Edition string    `json:"edition"`
+	AddedAt time.Time `json:"added_at"`
+}
+
+// RecentAdditions lists the titles that most recently got a verified file
+// published by Media Manager, newest first and one row per title. Adopted
+// files are left out: taking over an existing library is not a new arrival.
+func (store *Store) RecentAdditions(ctx context.Context, limit int) ([]RecentAddition, error) {
+	if limit < 1 || limit > 50 {
+		limit = 12
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT media.id::text,media.kind,media.title,COALESCE(media.year,0),COALESCE(metadata.data->>'poster_url',''),latest.variant,latest.edition,latest.verified_at
+		FROM (SELECT DISTINCT ON (workflow.media_id) workflow.media_id,workflow.variant,COALESCE(NULLIF(workflow.edition,''),'standard') AS edition,version.verified_at
+			FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id
+			WHERE version.state='current' AND version.verified_at IS NOT NULL
+			ORDER BY workflow.media_id,version.verified_at DESC,version.id) latest
+		JOIN media_items media ON media.id=latest.media_id AND media.deleted_at IS NULL
+		LEFT JOIN media_metadata metadata ON metadata.media_id=media.id
+		ORDER BY latest.verified_at DESC,media.id LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []RecentAddition{}
+	for rows.Next() {
+		var item RecentAddition
+		var mediaText string
+		if err := rows.Scan(&mediaText, &item.MediaKind, &item.Title, &item.Year, &item.PosterURL, &item.Variant, &item.Edition, &item.AddedAt); err != nil {
+			return nil, err
+		}
+		item.MediaID, _ = uuid.Parse(mediaText)
+		result = append(result, item)
+	}
+	return result, rows.Err()
 }

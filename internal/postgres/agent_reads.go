@@ -56,6 +56,16 @@ type IndexerUsage struct {
 	Usage             IndexerUsageWindow    `json:"usage"`
 	Pacing            IndexerPacingView     `json:"pacing"`
 	SearchOutcomes24h []IndexerOutcomeCount `json:"search_outcomes_24h"`
+	Downloads30d      IndexerDownloads      `json:"downloads_30d"`
+}
+
+// IndexerDownloads counts the downloads of an indexer's releases that were
+// sent to AltMount in the last 30 days and have a final outcome. Verified
+// means the downloaded file passed every check; the rest were rejected or
+// failed.
+type IndexerDownloads struct {
+	Finished int `json:"finished"`
+	Verified int `json:"verified"`
 }
 
 // IndexerUsages reports every Newznab and native indexer with the effective
@@ -148,7 +158,28 @@ func (store *Store) IndexerUsages(ctx context.Context, now time.Time) ([]Indexer
 			item.SearchOutcomes24h = append(item.SearchOutcomes24h, count)
 		}
 	}
-	return result, outcomes.Err()
+	if err := outcomes.Err(); err != nil {
+		return nil, err
+	}
+	outcomes.Close()
+	downloads, err := store.Pool.Query(ctx, `SELECT candidate.indexer_instance_id::text,count(*),count(*) FILTER (WHERE job.acquisition_outcome='output_verified')
+		FROM altmount_jobs job JOIN release_candidates candidate ON candidate.id=job.candidate_id
+		WHERE job.submitted_at>$1 AND job.acquisition_outcome IS NOT NULL GROUP BY 1`, now.Add(-30*24*time.Hour))
+	if err != nil {
+		return nil, err
+	}
+	defer downloads.Close()
+	for downloads.Next() {
+		var id string
+		var count IndexerDownloads
+		if err := downloads.Scan(&id, &count.Finished, &count.Verified); err != nil {
+			return nil, err
+		}
+		if item := byID[id]; item != nil {
+			item.Downloads30d = count
+		}
+	}
+	return result, downloads.Err()
 }
 
 type QueueEventCounts struct {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { APIMedia } from "@/api/client"
-import { filterMedia, matchesStatus, sortMedia } from "@/pages/library"
+import { filterMedia, inFolder, libraryFolders, matchesStatus, sortMedia } from "@/pages/library"
 
 const media: APIMedia[] = [
   { id: "1", kind: "movie", title: "Ærø", year: 2001, identities: [] },
@@ -37,5 +37,36 @@ describe("library status filter", () => {
     expect([wanted, partial, done, cancelled].filter((entry) => matchesStatus(entry, "mangler")).map((entry) => entry.media_id)).toEqual(["1", "2"])
     expect([wanted, partial, done, cancelled].filter((entry) => matchesStatus(entry, "handling")).map((entry) => entry.media_id)).toEqual(["2"])
     expect([wanted, partial, done, cancelled].filter((entry) => matchesStatus(entry, "ikke-hentet")).map((entry) => entry.media_id)).toEqual(["4"])
+  })
+})
+
+describe("library folders", () => {
+  const roots = [
+    { id: "film", name: "Film", media_kind: "movie" as const },
+    { id: "boern", name: "Børnefilm", media_kind: "movie" as const },
+    { id: "serier", name: "Serier", media_kind: "series" as const },
+    { id: "tom", name: "Tom mappe", media_kind: "movie" as const },
+  ]
+  const statuses = [
+    { media_id: "1", in_plex: true, missing: 0, attention: false, root_ids: ["film", "boern"] },
+    { media_id: "2", in_plex: true, missing: 0, attention: false, root_ids: ["serier"] },
+    { media_id: "3", in_plex: true, missing: 0, attention: false, root_ids: ["film"] },
+    { media_id: "4", in_plex: false, missing: 1, attention: false },
+  ]
+
+  it("lists the folders that hold a title, in setup order, with counts", () => {
+    expect(libraryFolders(roots, "alle", statuses)).toEqual([{ id: "film", name: "Film", count: 2 }, { id: "boern", name: "Børnefilm", count: 1 }, { id: "serier", name: "Serier", count: 1 }])
+  })
+
+  it("follows the chosen type", () => {
+    expect(libraryFolders(roots, "serier", statuses).map((entry) => entry.id)).toEqual(["serier"])
+    expect(libraryFolders(roots, "film", statuses).map((entry) => entry.id)).toEqual(["film", "boern"])
+  })
+
+  it("matches only a title with a file in that folder", () => {
+    expect(inFolder(statuses[0], "boern")).toBe(true)
+    expect(inFolder(statuses[2], "boern")).toBe(false)
+    expect(inFolder(statuses[3], "film")).toBe(false)
+    expect(inFolder(undefined, "film")).toBe(false)
   })
 })

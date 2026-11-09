@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Search } from "lucide-react"
 import { useState, type FormEvent } from "react"
-import { Link, useNavigate } from "react-router"
+import { Link, useNavigate, useSearchParams } from "react-router"
 
 import {
   ApiError, createMedia, loadDiscoveryMetadata, loadLibraryRoots, loadQualityProfiles, searchMetadata,
@@ -16,9 +16,16 @@ import { latestAiredSeason } from "@/lib/latest-season"
 import { titleHref } from "@/lib/links"
 import { profileOptions, rootOptions } from "@/lib/pickers"
 
+/** `?q=` from the search field in the menu starts a search right away. */
 export function AddPage() {
-  const [query, setQuery] = useState("")
-  const [submitted, setSubmitted] = useState("")
+  const [params] = useSearchParams()
+  const initial = (params.get("q") ?? "").trim().slice(0, 200)
+  return <AddView key={initial} initial={initial} />
+}
+
+function AddView({ initial }: { initial: string }) {
+  const [query, setQuery] = useState(initial)
+  const [submitted, setSubmitted] = useState(initial)
   const [picked, setPicked] = useState<APIDiscoverySearchResult | null>(null)
   const results = useQuery({
     queryKey: ["discovery", submitted], queryFn: ({ signal }) => searchMetadata(submitted, 1, signal), enabled: submitted.length >= 2, staleTime: 300_000,

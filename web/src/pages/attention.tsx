@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { Link } from "react-router"
 
 import { loadAttentionWorkflows, loadProblems, type APIWorkflow } from "@/api/client"
+import { BulkActions } from "@/components/bulk-actions"
 import { Badge, Card, CardHeader, Empty, ErrorBox, PageHeader, SearchField, ShowMore } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatRelative, pluralize } from "@/format"
@@ -63,7 +64,7 @@ function AttentionGroup({ reason, items }: { reason: string; items: APIWorkflow[
   const { shown, remaining, showMore } = useShowMore(items, 20)
   return (
     <Card>
-      <CardHeader title={reason} description={pluralize(items.length, "sag", "sager")} />
+      <CardHeader title={reason} description={pluralize(items.length, "sag", "sager")} action={<BulkActions workflows={items} />} />
       <ul className="divide-y divide-line">
         {shown.map((workflow) => <AttentionItem key={workflow.id} workflow={workflow} />)}
       </ul>

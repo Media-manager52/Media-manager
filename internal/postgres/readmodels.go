@@ -462,6 +462,7 @@ type CalendarEntry struct {
 	MediaID       uuid.UUID         `json:"media_id"`
 	MediaKind     catalog.MediaKind `json:"media_kind"`
 	MediaTitle    string            `json:"media_title"`
+	PosterURL     string            `json:"poster_url,omitempty"`
 	WorkflowID    uuid.UUID         `json:"workflow_id"`
 	Variant       string            `json:"variant"`
 	Season        uint16            `json:"season"`
@@ -476,7 +477,7 @@ func (store *Store) ListCalendar(ctx context.Context, from, to time.Time, limit 
 	if limit < 1 || limit > 1000 {
 		limit = 500
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT media_id,media_kind,media_title,workflow_id,variant,season,episode,episode_title,air_date,monitored,workflow_state FROM (
+	rows, err := store.Pool.Query(ctx, `SELECT item.media_id,media_kind,media_title,workflow_id,variant,season,episode,episode_title,air_date,monitored,workflow_state,COALESCE(metadata.data->>'poster_url','') FROM (
 		SELECT DISTINCT ON (media.id,episode.season,episode.episode) media.id::text AS media_id,media.kind AS media_kind,media.title AS media_title,workflow.id::text AS workflow_id,workflow.variant,episode.season,episode.episode,episode.title AS episode_title,episode.air_date,monitoring.monitored,workflow.state AS workflow_state,expectation.frozen_at
 		FROM pack_expected_episodes episode
 		JOIN pack_expectation_sets expectation ON expectation.id=episode.expectation_id
@@ -489,7 +490,7 @@ func (store *Store) ListCalendar(ctx context.Context, from, to time.Time, limit 
 		-- Plex-confirmed one first, then the episode's own workflow, then the
 		-- newest snapshot.
 		ORDER BY media.id,episode.season,episode.episode,workflow.state='cancelled',workflow.state<>'plex_confirmed',workflow.variant NOT LIKE '%:episode:%',expectation.frozen_at DESC,workflow.id
-		) item ORDER BY air_date,media_title,season,episode LIMIT $3`, from.UTC(), to.UTC(), limit)
+		) item LEFT JOIN media_metadata metadata ON metadata.media_id=item.media_id::uuid ORDER BY air_date,media_title,season,episode LIMIT $3`, from.UTC(), to.UTC(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +500,7 @@ func (store *Store) ListCalendar(ctx context.Context, from, to time.Time, limit 
 		var item CalendarEntry
 		var mediaText, workflowText string
 		var season, episode int16
-		if err := rows.Scan(&mediaText, &item.MediaKind, &item.MediaTitle, &workflowText, &item.Variant, &season, &episode, &item.EpisodeTitle, &item.AirDate, &item.Monitored, &item.WorkflowState); err != nil {
+		if err := rows.Scan(&mediaText, &item.MediaKind, &item.MediaTitle, &workflowText, &item.Variant, &season, &episode, &item.EpisodeTitle, &item.AirDate, &item.Monitored, &item.WorkflowState, &item.PosterURL); err != nil {
 			return nil, err
 		}
 		item.MediaID, _ = uuid.Parse(mediaText)

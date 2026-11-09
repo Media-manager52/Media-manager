@@ -103,7 +103,7 @@ export type APIReleaseBlock = { id: string; scope: "native_release" | "pack_rele
 export type APIAdoptionItem = { id: string; batch_id: string; original_relative: string; proposed_relative?: string; media_id?: string; root_id?: string; quality_profile_id?: string; variant?: string; monitoring_enabled?: boolean; search_immediately?: boolean; recognized_companions: string[]; unknown_companions: string[]; review_state: "pending" | "approved" | "rejected" | "needs_attention"; execution_state: string }
 export type APIAdoptionBatch = { id: string; source_root: string; media_kind: "movie" | "series"; default_root_id: string; default_quality_profile_id: string; monitoring_enabled: boolean; search_immediately: boolean; replacement_search_authorized: boolean; state: string; created_at: string; approved_at?: string; completed_at?: string; pending_items: number; approved_items: number; rejected_items: number; attention_items: number; items?: APIAdoptionItem[] }
 export type APICollection = { id: string; name: string; description: string; created_at: string; updated_at: string; members: APIMedia[] }
-export type APICalendarEntry = { media_id: string; media_kind: "movie" | "series"; media_title: string; workflow_id: string; variant: string; season: number; episode: number; episode_title?: string; air_date: string; monitored: boolean; workflow_state: string }
+export type APICalendarEntry = { media_id: string; media_kind: "movie" | "series"; media_title: string; poster_url?: string; workflow_id: string; variant: string; season: number; episode: number; episode_title?: string; air_date: string; monitored: boolean; workflow_state: string }
 export type APINotificationDestination = { id: string; name: string; endpoint: string; allow_http: boolean; enabled: boolean; events: string[]; secret_ref?: string; created_at: string; updated_at: string }
 export type APINotificationDelivery = { id: string; destination_id: string; destination: string; audit_event_id: string; payload: { event_id: string; action: string; aggregate_type: string; aggregate_id?: string; occurred_at: string }; state: string; attempts: number; response_status?: number; last_error?: string; created_at: string; delivered_at?: string }
 export type APIImportListItem = { id: string; snapshot_id: string; ordinal: number; media_kind: "movie" | "series" | "unknown"; provider: string; provider_id: string; title: string; year?: number; state: "pending_review" | "already_cataloged" | "unsupported"; attention?: string; existing_media_id?: string }
@@ -187,7 +187,10 @@ export async function loadCatalogMedia(signal?: AbortSignal): Promise<APIMedia[]
 export async function loadCatalogMediaBounded(signal?: AbortSignal): Promise<{ items: APIMedia[]; truncated: boolean }> {
   return loadCatalogMediaPage(signal)
 }
-export type APIMediaStatus = { media_id: string; in_plex: boolean; missing: number; attention: boolean }
+/** `root_ids` are the library folders holding a file of the title; `added_at` is when its newest file was verified. */
+export type APIMediaStatus = { media_id: string; in_plex: boolean; missing: number; attention: boolean; root_ids?: string[]; added_at?: string }
+export type APIRecentAddition = { media_id: string; media_kind: "movie" | "series"; title: string; year?: number; poster_url?: string; variant: string; edition?: "standard" | "4k"; added_at: string }
+export const loadRecentAdditions = async (signal?: AbortSignal) => await requestJSON<APIRecentAddition[] | null>("/api/v1/media/recent?limit=12", { signal }) ?? []
 export const loadMediaStatus = async (signal?: AbortSignal) => await requestJSON<APIMediaStatus[] | null>("/api/v1/media/status", { signal }) ?? []
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []
@@ -352,6 +355,8 @@ export type APIIndexerUsage = {
   usage: { queries_used: number; queries_remaining: number; background_queries_remaining: number; grabs_used: number; grabs_remaining: number; oldest_reservation_at?: string }
   pacing: { last_outcome?: string; last_outcome_at?: string; consecutive_failures: number; next_allowed_at?: string; cooldown_until?: string }
   search_outcomes_24h?: Array<{ state: string; detail?: string; count: number }>
+  /** Downloads with a final outcome in the last 30 days; verified ones passed every check. */
+  downloads_30d?: { finished: number; verified: number }
 }
 export type APIQueueSnapshot = {
   checked_at: string; due: number; scheduled: number; leased: number; retrying: number
