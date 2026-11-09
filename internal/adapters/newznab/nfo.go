@@ -320,6 +320,9 @@ func ParseNFOLanguages(body []byte) NFOLanguages {
 // link: the request itself is built against the configured endpoint, so the
 // API key never follows a provider-supplied URL.
 func AdvertisedNFOFunction(o releases.Observation, configuredBaseURL string) (function string, raw bool, ok bool) {
+	if !supportsAdvertisedNFO(configuredBaseURL) {
+		return "", false, false
+	}
 	native, err := RetrievalID(o.NativeGUID, configuredBaseURL)
 	if err != nil {
 		return "", false, false
@@ -355,6 +358,9 @@ var ErrNFOUnavailable = errors.New("provider has no NFO for this release")
 // recorded as no results, never as a provider failure that could back the
 // indexer off.
 func (c *Client) InspectAdvertisedNFO(ctx context.Context, o releases.Observation) ([]byte, error) {
+	if !supportsAdvertisedNFO(c.config.BaseURL) {
+		return nil, ErrNFOUnavailable
+	}
 	native, err := RetrievalID(o.NativeGUID, c.config.BaseURL)
 	if err != nil {
 		return nil, ErrNFOUnavailable
@@ -384,8 +390,26 @@ func (c *Client) InspectAdvertisedNFO(ctx context.Context, o releases.Observatio
 
 // AdvertisesNFO reports whether the provider offered an NFO for this release.
 func (c *Client) AdvertisesNFO(o releases.Observation) bool {
+	if !supportsAdvertisedNFO(c.config.BaseURL) {
+		return false
+	}
 	_, _, ok := AdvertisedNFOFunction(o, c.config.BaseURL)
 	return ok || advertisesNFOFlag(o)
+}
+
+// The measured treasure-maps /api contract advertises getnfo but answered
+// "No such item" in every control (2026-11-05). Skip this optional request,
+// including nfo=1 fallback, before spending pacing or query budget. Match the
+// configured endpoint, never the integration name or a release-supplied URL.
+// Other origins, ports and future endpoint versions keep their normal checks.
+func supportsAdvertisedNFO(configuredBaseURL string) bool {
+	base, err := url.ParseRequestURI(strings.TrimSpace(configuredBaseURL))
+	if err != nil || base.User != nil {
+		return true
+	}
+	known := strings.EqualFold(base.Scheme, "https") && strings.EqualFold(base.Hostname(), "treasure-maps.com") &&
+		(base.Port() == "" || base.Port() == "443") && strings.TrimSuffix(base.EscapedPath(), "/") == "/api" && base.RawQuery == "" && base.Fragment == ""
+	return !known
 }
 
 func advertisesNFOFlag(o releases.Observation) bool {

@@ -1,12 +1,13 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { CheckCircle2, Circle } from "lucide-react"
 import { useState } from "react"
 import { Link } from "react-router"
 
-import { loadSetupStatus } from "@/api/client"
+import { checkIntegration, loadSetupStatus, loadSystemHealth, type APIConnectionCheck } from "@/api/client"
 import { RecommendedSetupCard } from "@/components/recommended-setup"
-import { Badge, Card, CardHeader, ErrorBox, PageHeader, Progress } from "@/components/ui"
-import { setupStepDetail, setupStepText } from "@/lib/setup"
+import { Badge, Button, Card, CardHeader, ErrorBox, PageHeader, Progress } from "@/components/ui"
+import { errorMessage } from "@/i18n"
+import { checkText, connectionStepKinds, setupStepDetail, setupStepText } from "@/lib/setup"
 import { ListSkeleton } from "@/pages/overview"
 
 export function SetupPage() {
@@ -19,31 +20,51 @@ export function SetupPage() {
   // still visible after it has made the steps green.
   const [showRecommended, setShowRecommended] = useState(false)
   if (librariesMissing && !showRecommended) setShowRecommended(true)
+  const health = useQuery({ queryKey: ["health"], queryFn: ({ signal }) => loadSystemHealth(signal) })
+  // A step can be tested when its default connection is enabled. Results live
+  // only on this page: they say what answered just now, nothing more.
+  const checkTargets = Object.entries(connectionStepKinds).flatMap(([step, kind]) => {
+    const connection = health.data?.components.find((component) => component.kind === kind && component.enabled && component.is_default)
+    return connection && stepDone(step) ? [{ step, id: connection.id }] : []
+  })
+  const checks = useMutation({
+    mutationFn: () => Promise.all(checkTargets.map(async ({ step, id }): Promise<[string, APIConnectionCheck]> => {
+      try {
+        return [step, await checkIntegration(id)]
+      } catch (error) {
+        return [step, { ok: false, detail: errorMessage(error) }]
+      }
+    })).then((results) => new Map(results)),
+  })
   return (
     <>
-      <PageHeader title="Kom i gang" description="Det her skal være på plads, før Media Manager kan hente film og serier. Et punkt bliver grønt, når det er sat op." />
+      <PageHeader title="Kom i gang" description="Grønt viser gemt opsætning. Tryk Test forbindelser for at se, om de svarer lige nu, og kontrollér en første titel i Plex for at afprøve hele forløbet." />
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
       {query.isPending ? <Card><ListSkeleton rows={7} /></Card> : null}
       {query.data && showRecommended ? <RecommendedSetupCard ready={stepDone("plex") && stepDone("altmount")} /> : null}
       {query.data ? (
         <Card>
           <CardHeader
-            title={query.data.complete ? "Alt det nødvendige er klar" : `${done} af ${required.length} trin klaret`}
-            description={query.data.complete ? "Media Manager kan hente film og serier. Valgfrie trin kan sættes op, når du vil." : "Tag trinnene i rækkefølge; hvert trin linker til siden, hvor det sættes op."}
+            title={query.data.complete ? "Den nødvendige opsætning er gemt" : `${done} af ${required.length} trin sat op`}
+            description={query.data.complete ? "Gemte forbindelser er ikke en bekræftelse af, at de virker. Test dem her. Valgfrie trin kan sættes op, når du vil." : "Tag trinnene i rækkefølge; hvert trin linker til siden, hvor det sættes op."}
+            action={checkTargets.length > 0 ? <Button busy={checks.isPending} onClick={() => checks.mutate()}>Test forbindelser</Button> : undefined}
           />
-          <div className="px-5 pb-2"><Progress value={done} max={Math.max(required.length, 1)} tone={query.data.complete ? "good" : "info"} label="Trin klaret" /></div>
+          <div className="px-5 pb-2"><Progress value={done} max={Math.max(required.length, 1)} tone={query.data.complete ? "good" : "info"} label="Trin sat op" /></div>
           <ol className="divide-y divide-line">
             {query.data.steps.map((step) => {
               const text = setupStepText[step.id]
+              const check = checks.data?.get(step.id)
               return (
                 <li key={step.id} className="flex items-start gap-3 px-5 py-3">
-                  {step.done ? <CheckCircle2 aria-label="Klaret" className="mt-0.5 size-5 shrink-0 text-good" /> : <Circle aria-label="Mangler" className="mt-0.5 size-5 shrink-0 text-text-3" />}
+                  {step.done ? <CheckCircle2 aria-label="Sat op" className="mt-0.5 size-5 shrink-0 text-good" /> : <Circle aria-label="Mangler" className="mt-0.5 size-5 shrink-0 text-text-3" />}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{text?.title ?? step.id}</span>
                       {step.optional ? <Badge>Valgfri</Badge> : null}
                     </div>
                     <div className="mt-0.5 break-words text-sm text-text-2">{setupStepDetail(step)}</div>
+                    {check ? <div className={`mt-0.5 break-words text-sm ${check.ok ? "text-good" : "text-bad"}`}>{check.ok ? "Testet lige nu: virker." : "Testet lige nu: virker ikke."} {checkText(check.detail)}</div> : null}
+                    {!check && checkTargets.some((target) => target.step === step.id) ? <div className="mt-0.5 text-sm text-text-3">Ikke testet endnu</div> : null}
                   </div>
                   {text?.to && !step.done ? <Link to={text.to} aria-label={`Sæt op: ${text.title}`} className="shrink-0 text-sm font-medium text-accent-strong hover:underline">Sæt op</Link> : null}
                   {text?.to && step.done ? <Link to={text.to} aria-label={`Se: ${text.title}`} className="shrink-0 text-sm text-text-2 hover:underline">Se</Link> : null}

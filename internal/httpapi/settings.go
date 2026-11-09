@@ -86,7 +86,16 @@ func (server *Server) requestAltMountReplacement(writer http.ResponseWriter, req
 		writeError(writer, http.StatusUnprocessableEntity, "invalid_path", "altmount_file_path must be a relative path inside the AltMount mount")
 		return
 	}
-	outcome, err := server.store.RequestAltMountReplacement(request.Context(), path, time.Now().UTC())
+	var fileID *uuid.UUID
+	if input.FileID != "" {
+		parsed, err := uuid.Parse(input.FileID)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid_id", "file ID is invalid")
+			return
+		}
+		fileID = &parsed
+	}
+	outcome, err := server.store.RequestAltMountReplacementForFile(request.Context(), path, fileID, time.Now().UTC())
 	switch {
 	case err != nil:
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not open the replacement")

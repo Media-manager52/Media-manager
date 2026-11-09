@@ -221,7 +221,7 @@ test("Brug anbefalet opsætning shows the proposal before creating it", async ({
   expect(writes).toEqual([{ method: "POST", path: "/api/v1/setup/recommended", body: { apply: false } }])
   await page.getByRole("button", { name: "Opret det" }).click()
   await expect(page.getByText("Oprettet \"Dansk tekst eller tale\" som standard", { exact: false })).toBeVisible()
-  await expect(page.getByRole("heading", { name: "7 af 7 trin klaret" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "7 af 7 trin sat op" })).toBeVisible()
   await expect(page.getByText("Færdig.", { exact: false })).toBeVisible()
   expect(writes.map((write) => write.body)).toEqual([{ apply: false }, { apply: true }])
 })
@@ -243,7 +243,7 @@ test("picking a known indexer fills its name and API address", async ({ page }) 
 test("the setup checklist links to what is missing", async ({ page }) => {
   await mockApi(page)
   await page.goto("/kom-i-gang")
-  await expect(page.getByRole("heading", { name: "4 af 7 trin klaret" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "4 af 7 trin sat op" })).toBeVisible()
   await page.getByRole("link", { name: "Sæt op: Forbind AltMount" }).click()
   await expect(page).toHaveURL(/\/indstillinger\/forbindelser$/)
 })
@@ -252,7 +252,7 @@ const movieOnDisk = {
   media: { id: ids.movie, kind: "movie", title: "Testfilmen", year: 2024, identities: [{ namespace: "tmdb", value: "1" }], metadata: {} },
   workflows: [{ id: ids.attention, media_id: ids.movie, media_kind: "movie", title: "Testfilmen", variant: "default", edition: "standard", root_id: ids.root, state: "plex_confirmed", revision: 3, terminal_at: "2026-11-03T12:00:00Z", adopted_replacement_confirmation_required: false, created_at: "2026-11-03T12:00:00Z", updated_at: "2026-11-03T12:00:00Z", available_actions: [] }],
   seasons: [],
-  files: [{ id: "f1", media_id: ids.movie, media_kind: "movie", title: "Testfilmen", root_name: "Film", destination_relative: "Testfilmen (2024)/Testfilmen (2024).mkv", source_relative: "x", plex_visible_target: "/mnt/altmount/x", state: "current", generation: 1, plex_confirmed: true, variant: "default", origin: "altmount", quality_profile: "Movie Danish Subs", quality_evidence_state: "media_info", quality_evidence: {} }],
+  files: [{ id: "f1", media_id: ids.movie, media_kind: "movie", title: "Testfilmen", root_name: "Film", root_id: ids.root, edition: "standard", destination_relative: "Testfilmen (2024)/Testfilmen (2024).mkv", source_relative: "x", plex_visible_target: "/mnt/altmount/x", state: "current", generation: 1, plex_confirmed: true, variant: "default", origin: "altmount", quality_profile: "Movie Danish Subs", quality_evidence_state: "media_info", quality_evidence: {} }],
 }
 
 async function titleOnDisk(page: import("@playwright/test").Page) {

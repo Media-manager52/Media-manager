@@ -44,6 +44,10 @@ func (probe failingSubtitleProbe) InspectWithin(context.Context, string, string)
 	return mediainfo.Evidence{}, errors.New("bounded probe failed")
 }
 
+func (probe failingSubtitleProbe) CountSubtitleCues(context.Context, string, string, int, []float64, float64) ([]int, error) {
+	return nil, errors.New("bounded probe failed")
+}
+
 func TestInspectSubtitleRequirementsPreservesDefinitiveNoVideoEvidence(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "Movie.mkv"), []byte("fixture"), 0o600); err != nil {

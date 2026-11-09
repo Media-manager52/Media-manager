@@ -21,8 +21,11 @@ import (
 )
 
 const (
-	SchemaVersion    = 1
-	defaultTimeout   = 30 * time.Second
+	SchemaVersion  = 1
+	defaultTimeout = 30 * time.Second
+	// cueSampleTimeout allows a cold AltMount read of a few short windows,
+	// measured at up to about a minute on production files.
+	cueSampleTimeout = 90 * time.Second
 	defaultMaxOutput = 1 << 20
 	maxTracks        = 512
 )
@@ -195,10 +198,6 @@ func (probe *Probe) openWithin(ctx context.Context, rootPath, relative string) (
 }
 
 func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.File) (Evidence, error) {
-	executable := strings.TrimSpace(probe.Executable)
-	if executable == "" {
-		executable = "ffprobe"
-	}
 	timeout := probe.Timeout
 	if timeout <= 0 || timeout > 2*time.Minute {
 		timeout = defaultTimeout
@@ -207,13 +206,25 @@ func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.F
 	if maxOutput < 4096 || maxOutput > 4<<20 {
 		maxOutput = defaultMaxOutput
 	}
-	probeContext, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	command := exec.CommandContext(probeContext, executable,
+	output, err := probe.run(ctx, timeout, maxOutput, extraFiles,
 		"-v", "error",
 		"-show_entries", "format=format_name,duration:stream=index,codec_type,codec_name,codec_tag_string,width,height,channels,channel_layout,color_transfer,color_primaries,color_space:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
 		"-of", "json", path,
 	)
+	if err != nil {
+		return Evidence{}, err
+	}
+	return Parse(output)
+}
+
+func (probe *Probe) run(ctx context.Context, timeout time.Duration, maxOutput int, extraFiles []*os.File, arguments ...string) ([]byte, error) {
+	executable := strings.TrimSpace(probe.Executable)
+	if executable == "" {
+		executable = "ffprobe"
+	}
+	probeContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	command := exec.CommandContext(probeContext, executable, arguments...)
 	command.ExtraFiles = extraFiles
 	// Do not wait on ffprobe's output pipes forever once it was killed.
 	command.WaitDelay = 5 * time.Second
@@ -223,20 +234,75 @@ func (probe *Probe) inspect(ctx context.Context, path string, extraFiles []*os.F
 	command.Stdout, command.Stderr = stdout, stderr
 	if err := command.Run(); err != nil {
 		if errors.Is(stdout.err, ErrOutputLimit) || errors.Is(stderr.err, ErrOutputLimit) {
-			return Evidence{}, ErrOutputLimit
+			return nil, ErrOutputLimit
 		}
 		if errors.Is(probeContext.Err(), context.DeadlineExceeded) {
 			// A slow ffprobe is not evidence that the release is defective.
 			// Treat it like an unresponsive source so the reconciler retries
 			// the same job later instead of parking the workflow as attention.
-			return Evidence{}, fmt.Errorf("%w: ffprobe timed out", ErrSourceUnresponsive)
+			return nil, fmt.Errorf("%w: ffprobe timed out", ErrSourceUnresponsive)
 		}
 		if invalidContainer(stderr.Bytes()) {
-			return Evidence{}, ErrInvalidContainer
+			return nil, ErrInvalidContainer
 		}
-		return Evidence{}, errors.New("media-info probe failed")
+		return nil, errors.New("media-info probe failed")
 	}
-	return Parse(stdout.Bytes())
+	return stdout.Bytes(), nil
+}
+
+// CountSubtitleCues counts one subtitle stream's cues in short windows of the
+// file. A window starts at starts[i] seconds and lasts windowSeconds. Only
+// those parts of the file are read, so a cold AltMount read stays bounded.
+func (probe *Probe) CountSubtitleCues(ctx context.Context, rootPath, relative string, streamIndex int, starts []float64, windowSeconds float64) ([]int, error) {
+	if !filepath.IsAbs(rootPath) || filepath.Clean(rootPath) != rootPath {
+		return nil, errors.New("media-info root must be an absolute clean path")
+	}
+	clean, err := library.ValidateRelative(filepath.Clean(relative))
+	if err != nil || clean != relative {
+		return nil, errors.New("media-info relative path is unsafe")
+	}
+	if streamIndex < 0 || len(starts) == 0 || windowSeconds <= 0 {
+		return nil, errors.New("subtitle cue windows are invalid")
+	}
+	opened, err := probe.openWithin(ctx, rootPath, clean)
+	if err != nil {
+		return nil, err
+	}
+	defer opened.close()
+	intervals := make([]string, 0, len(starts))
+	for _, start := range starts {
+		intervals = append(intervals, strconv.FormatFloat(start, 'f', 0, 64)+"%+"+strconv.FormatFloat(windowSeconds, 'f', 0, 64))
+	}
+	output, err := probe.run(ctx, cueSampleTimeout, defaultMaxOutput, []*os.File{opened.file},
+		"-v", "error",
+		"-select_streams", strconv.Itoa(streamIndex),
+		"-read_intervals", strings.Join(intervals, ","),
+		"-show_entries", "packet=pts_time",
+		"-of", "csv=p=0", "/proc/self/fd/3",
+	)
+	if err != nil {
+		return nil, err
+	}
+	return countCuesInWindows(output, starts, windowSeconds), nil
+}
+
+// countCuesInWindows ignores packets outside the windows: ffprobe seeks to the
+// nearest index entry, so it can return packets from just before a window.
+func countCuesInWindows(output []byte, starts []float64, windowSeconds float64) []int {
+	counts := make([]int, len(starts))
+	for line := range strings.Lines(string(output)) {
+		at, err := strconv.ParseFloat(strings.TrimRight(strings.TrimSpace(line), ","), 64)
+		if err != nil {
+			continue
+		}
+		for index, start := range starts {
+			if at >= start && at < start+windowSeconds {
+				counts[index]++
+				break
+			}
+		}
+	}
+	return counts
 }
 
 type rawDocument struct {

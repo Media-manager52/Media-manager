@@ -58,7 +58,7 @@ export type APIDashboard = {
   recent_activity: APIActivity[]
   generated_at: string
 }
-export type APIManagedFile = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; root_name: string; destination_relative: string; source_relative: string; plex_visible_target: string; state: string; generation: number; plex_confirmed: boolean; verified_at?: string; displaced_at?: string; removed_at?: string; variant: string; origin: "altmount" | "adoption"; quality_profile: string; quality_evidence_state: "media_info" | "release_evidence" | "unassessed"; quality_evidence: Record<string, unknown>; source_size_bytes?: number; source_modified_at?: string; original_source_root?: string; adoption_batch_id?: string; plex_provider_guid?: string }
+export type APIManagedFile = { id: string; media_id: string; media_kind: "movie" | "series"; title: string; year?: number; root_name: string; root_id?: string; edition?: "standard" | "4k"; destination_relative: string; source_relative: string; plex_visible_target: string; state: string; generation: number; plex_confirmed: boolean; verified_at?: string; displaced_at?: string; removed_at?: string; variant: string; origin: "altmount" | "adoption"; quality_profile: string; quality_evidence_state: "media_info" | "release_evidence" | "unassessed"; quality_evidence: Record<string, unknown>; source_size_bytes?: number; source_modified_at?: string; original_source_root?: string; adoption_batch_id?: string; plex_provider_guid?: string }
 export type APIDecisionReason = { rule: string; fact?: string; decision: string; values?: string[]; score?: number; reason: string; rule_kind?: "required" | "preferred"; category?: string; evidence_state?: string }
 export type APIReleaseEvidence = { fact: string; category: string; state: string; values: string[]; observed_at?: string; evidence_at?: number[] }
 export type APIDecisionExplanation = { version: number; verdict: string; score: number; reasons: APIDecisionReason[]; evidence_scope: string; evidence: APIReleaseEvidence[] }
@@ -356,6 +356,10 @@ export const loadIndexers = async (signal?: AbortSignal) => await requestJSON<AP
 export const loadQueue = (signal?: AbortSignal) => requestJSON<APIQueueSnapshot>("/api/v1/system/queue", { signal })
 export const loadWorkflowCandidates = async (id: string, signal?: AbortSignal) => await requestJSON<APIWorkflowCandidate[] | null>(`/api/v1/workflows/${encodeURIComponent(id)}/candidates?limit=100`, { signal }) ?? []
 export const loadRepairs = async (signal?: AbortSignal) => await requestJSON<APIRepair[] | null>("/api/v1/repairs", { signal }) ?? []
+export type APIReplacementResult = { outcome: "opened" | "attached" | "already_open" | "needs_attention" }
+export const requestFileReplacement = (file: Pick<APIManagedFile, "id" | "source_relative">) => requestJSON<APIReplacementResult>("/api/v1/repairs", {
+  method: "POST", body: JSON.stringify({ file_id: file.id, altmount_file_path: file.source_relative }),
+})
 export const updateIndexer = (id: string, patch: { name?: string; enabled?: boolean; query_limit?: number; grab_limit?: number; minimum_interval_ms?: number }) =>
   requestJSON<unknown>(`/api/v1/settings/integrations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })
 export const updateLibraryRoot = (id: string, patch: { is_default?: boolean; enabled?: boolean }) =>

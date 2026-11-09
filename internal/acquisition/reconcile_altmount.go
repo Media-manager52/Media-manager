@@ -27,9 +27,7 @@ type AltMountReconcileService struct {
 	Store          *postgres.Store
 	ResolveSecret  SecretResolver
 	Transport      http.RoundTripper
-	MediaInfoProbe interface {
-		InspectWithin(context.Context, string, string) (mediainfo.Evidence, error)
-	}
+	MediaInfoProbe subtitles.Probe
 	// CheckMount reports whether the read-only AltMount root is usable;
 	// nil uses altmount.CheckMount.
 	CheckMount func(root string) error

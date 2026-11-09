@@ -90,6 +90,9 @@ export const setupStepText: Record<APISetupStep["id"], { title: string; todo: st
   seerr: { title: "Anmodninger fra Seerr", todo: "Forbind Seerr, hvis du vil tage imod anmodninger derfra.", to: "/indstillinger/forbindelser" },
 }
 
+/** Setup steps backed by a connection that "Test forbindelser" can reach. */
+export const connectionStepKinds: Record<string, string> = { plex: "plex", altmount: "altmount", metadata: "tmdb", seerr: "seerr" }
+
 /** What a step shows under its title: the server's name for a done step, a Danish hint otherwise. */
 export function setupStepDetail(step: APISetupStep): string {
   if (step.id === "plex" && !step.done && step.detail === "Save the Plex token") return "Plex er tilføjet. Gem dens token."

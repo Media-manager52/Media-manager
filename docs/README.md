@@ -7,6 +7,7 @@ behavioral truth is always the code and the SQL migrations.
 
 | Audience | Path |
 | --- | --- |
+| Dansk begyndervejledning | [onboarding/kom-i-gang.da.md](onboarding/kom-i-gang.da.md) — installation, forbindelser, første titel og sikker gendannelse |
 | New owner installing with Cosmos Cloud | [getting-started.md](getting-started.md) — Cosmos routes, setup script, first integrations, folder contract, updates, backups and troubleshooting |
 | New engineer or AI agent | [onboarding/README.md](onboarding/README.md) — overview, read order, hard rules |
 | AI agent operating or reviewing the running server | [operations/ai-agents.md](operations/ai-agents.md) — API discovery (`GET /api/v1`, OpenAPI), effects, safe calling, the loopback read-only inspector, and common tasks |

@@ -234,6 +234,9 @@ const errorCodes: Record<string, string> = {
   database_error: "Media Manager kunne ikke læse eller gemme i databasen. Prøv igen om lidt.",
   internal_error: "Der skete en uventet fejl i Media Manager. Prøv igen.",
   not_found: "Det findes ikke (længere). Genindlæs siden.",
+  not_published: "Filen er ikke længere en aktuel AltMount-fil i biblioteket. Genindlæs titlen, før du prøver igen.",
+  publication_in_flight: "Filen er stadig ved at blive udgivet. Vent, til arbejdet er færdigt, og prøv igen.",
+  invalid_path: "Filens AltMount-sti er ugyldig. Genindlæs titlen; vælg ikke en anden filsti selv.",
   invalid_id: "Adressen er ugyldig.",
   unauthorized: "Du er ikke logget ind. Log ind igen via Cosmos, og genindlæs siden.",
   concurrent_modification: "Det blev ændret imens. Genindlæs siden, og prøv igen.",
@@ -257,6 +260,17 @@ const errorCodes: Record<string, string> = {
   seerr_unavailable: "Seerr svarer ikke lige nu. Prøv igen om lidt.",
 }
 
+/** A replacement request is an acquisition attempt, never proof of a new file. */
+export function replacementOutcomeText(outcome: string): string {
+  const messages: Record<string, string> = {
+    opened: "Søgningen efter en erstatning er sat i gang. Den nuværende fil beholdes, indtil erstatningen er bekræftet i Plex.",
+    attached: "Der søges allerede efter en erstatning til titlen. Filen er knyttet til det arbejde.",
+    already_open: "Der er allerede en erstatningssag for denne fil.",
+    needs_attention: "Filen kan ikke erstattes automatisk. Se årsagen under System → Reparationer.",
+  }
+  return messages[outcome] ?? "Svaret kunne ikke genkendes. Se status under System → Reparationer, før du prøver igen."
+}
+
 export function errorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null) {
     const code = (error as { code?: unknown }).code
@@ -265,4 +279,19 @@ export function errorMessage(error: unknown): string {
     if (error instanceof TypeError && /fetch|network/i.test(error.message)) return "Media Manager kunne ikke nås. Tjek forbindelsen, og prøv igen."
   }
   return error instanceof Error ? error.message : String(error)
+}
+
+export function externalCopyLabel(state: string): string {
+  const labels: Record<string, string> = {
+    confirmed: "Ekstern kopi bekræftet",
+    failed: "Ekstern kopiering fejlede",
+    pending: "Afventer ekstern kopi",
+    unknown: "Ekstern kopi mangler fuld bekræftelse",
+    not_configured: "Ingen ekstern kopi dokumenteret",
+  }
+  return labels[state] ?? "Ekstern kopistatus er ukendt"
+}
+
+export function backupStateLabel(state: string): string {
+  return ({ verified: "Database kontrolleret", failed: "Backup fejlet", queued: "I kø", running: "Kører" } as Record<string, string>)[state] ?? "Ukendt backupstatus"
 }

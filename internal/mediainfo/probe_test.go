@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -215,5 +216,43 @@ func TestInspectWithinRejectsAnInvalidContainer(t *testing.T) {
 	unreadable := fake("/x/Episode.mp4: Input/output error")
 	if _, err := unreadable.InspectWithin(t.Context(), root, "Episode.mp4"); err == nil || errors.Is(err, ErrInvalidContainer) {
 		t.Fatalf("read error=%v, want a plain probe failure", err)
+	}
+}
+
+func TestCountSubtitleCuesReadsOnlyTheRequestedWindows(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Movie.mkv"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	argumentsFile := filepath.Join(t.TempDir(), "arguments")
+	executable := filepath.Join(t.TempDir(), "ffprobe-fixture")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argumentsFile + "\nprintf '99.000\\n100.000,\\n130.500\\n159.999\\n160.000\\n200.000\\nN/A\\n'\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	probe := NewProbe()
+	probe.Executable = executable
+	cues, err := probe.CountSubtitleCues(t.Context(), root, "Movie.mkv", 35, []float64{100, 200, 300}, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cues, []int{3, 1, 0}) {
+		t.Fatalf("cues=%v", cues)
+	}
+	arguments, err := os.ReadFile(argumentsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"-select_streams\n35\n", "-read_intervals\n100%+60,200%+60,300%+60\n", "/proc/self/fd/3"} {
+		if !strings.Contains(string(arguments), want) {
+			t.Fatalf("arguments=%q do not contain %q", arguments, want)
+		}
+	}
+}
+
+func TestCountSubtitleCuesRejectsAPathOutsideTheRoot(t *testing.T) {
+	probe := NewProbe()
+	if _, err := probe.CountSubtitleCues(t.Context(), t.TempDir(), "../outside.mkv", 2, []float64{100}, 60); err == nil {
+		t.Fatal("expected the path to be refused")
 	}
 }

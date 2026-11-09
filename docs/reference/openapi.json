@@ -1304,6 +1304,100 @@
         },
         "type": "object"
       },
+      "Postgres_ManagedFile": {
+        "properties": {
+          "adoption_batch_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "destination_relative": {
+            "type": "string"
+          },
+          "displaced_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "edition": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "original_source_root": {
+            "type": "string"
+          },
+          "plex_confirmed": {
+            "type": "boolean"
+          },
+          "plex_provider_guid": {
+            "type": "string"
+          },
+          "plex_visible_target": {
+            "type": "string"
+          },
+          "quality_evidence": {
+            "description": "Arbitrary JSON."
+          },
+          "quality_evidence_state": {
+            "type": "string"
+          },
+          "quality_profile": {
+            "type": "string"
+          },
+          "removed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "root_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "root_name": {
+            "type": "string"
+          },
+          "source_modified_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source_relative": {
+            "type": "string"
+          },
+          "source_size_bytes": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "variant": {
+            "type": "string"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_ManualEpisode": {
         "properties": {
           "air_date": {
@@ -2131,6 +2225,9 @@
       "RequestReplacementInput": {
         "properties": {
           "altmount_file_path": {
+            "type": "string"
+          },
+          "file_id": {
             "type": "string"
           }
         },
@@ -3609,7 +3706,22 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_ManagedFile"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -3653,7 +3765,19 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Postgres_ManagedFile"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -5167,7 +5291,7 @@
         "x-mm-effect": "read"
       },
       "post": {
-        "description": "For a file AltMount does not report but that plays badly (for example slow seeking because its articles come from a backup provider). altmount_file_path is the file's path as AltMount reports it, e.g. media-manager/\u003crelease\u003e/\u003cfile\u003e.mkv. Opens a repair (reason owner_requested) that acquires a replacement under the publication's profile, excluding the current release title; the old file keeps playing until Plex confirms the replacement. outcome is opened, attached (an open workflow already acquires that title), already_open or needs_attention (detail in GET /api/v1/repairs). 404 when the path backs no current publication, 409 while the publishing workflow is still in flight.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "description": "For a file AltMount does not report but that plays badly (for example slow seeking because its articles come from a backup provider). altmount_file_path is the file's path as AltMount reports it, e.g. media-manager/\u003crelease\u003e/\u003cfile\u003e.mkv. The website also supplies file_id to bind the request to that exact current publication; a mismatched or stale ID is 404. Opens a repair (reason owner_requested) that acquires a replacement under the publication's profile, excluding the current release title; the old file keeps playing until Plex confirms the replacement. outcome is opened, attached (an open workflow already acquires that title), already_open or needs_attention (detail in GET /api/v1/repairs). 404 when the path backs no current publication, 409 while the publishing workflow is still in flight.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
         "operationId": "requestAltMountReplacement",
         "requestBody": {
           "content": {
