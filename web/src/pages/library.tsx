@@ -6,7 +6,7 @@ import { Link, useSearchParams } from "react-router"
 import { loadCatalogMediaBounded, loadMediaStatus, type APIMedia, type APIMediaStatus } from "@/api/client"
 import { Poster, sizedArtwork } from "@/components/poster"
 import { Badge, Button, Card, Empty, ErrorBox, PageHeader, SearchField, Segmented, Skeleton } from "@/components/ui"
-import { formatNumber } from "@/format"
+import { formatDateTime, formatNumber } from "@/format"
 import { titleHref } from "@/lib/links"
 
 type Kind = "alle" | "film" | "serier"
@@ -95,6 +95,12 @@ export function LibraryPage() {
       {catalog.error ? <ErrorBox error={catalog.error} retry={() => catalog.refetch()} /> : null}
       {state.isPending ? <p role="status" className="mb-4 text-sm text-text-2">Henter status…</p> : null}
       {state.error ? <div className="mb-4 space-y-2"><p className="text-sm text-warn">Titlernes status er ukendt. Prøv igen for at se, hvad der mangler.</p><ErrorBox error={state.error} retry={() => state.refetch()} /></div> : null}
+      {!statusUnavailable && state.dataUpdatedAt ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-text-3">
+          <span role="status">Status kontrolleret {formatDateTime(new Date(state.dataUpdatedAt).toISOString())}.</span>
+          <Button variant="ghost" className="h-7 text-xs" busy={state.isFetching} onClick={() => state.refetch()}>Kontrollér igen</Button>
+        </div>
+      ) : null}
       {!statusUnavailable && unknownCount > 0 ? <p role="status" className="mb-4 text-sm text-warn">Status mangler for {formatNumber(unknownCount)} titler. Filteret viser kun titler med kendt status.</p> : null}
       {catalog.data?.truncated ? <p className="mb-4 text-sm text-warn">Biblioteket er større end det, siden kan vise på én gang. Brug søgningen.</p> : null}
       {catalog.isPending ? <PosterGridSkeleton /> : null}

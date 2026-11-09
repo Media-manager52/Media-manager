@@ -10,7 +10,7 @@ import { attentionLabel, humanize, stateLabel, stateTone, translateDetail, workf
 import { candidateReasonText } from "@/lib/candidate-reasons"
 import { describeVariant, titleHref } from "@/lib/links"
 import type { Tone } from "@/lib/tone"
-import { explainWorkflow, languageCheckLines } from "@/lib/workflow-explanation"
+import { explainWorkflow, indexerLanguageNote, languageCheckLines } from "@/lib/workflow-explanation"
 import { workflowStep } from "@/lib/workflow-presentation"
 import { ListSkeleton } from "@/pages/overview"
 
@@ -59,6 +59,7 @@ function WorkflowExplanation({ workflow }: { workflow: APIWorkflow }) {
   const verification = useQuery({ queryKey: ["workflow", workflow.id, "verification"], queryFn: ({ signal }) => loadWorkflowVerifications(workflow.id, signal) })
   const explanation = explainWorkflow(workflow, candidates.isError ? undefined : candidates.data)
   const latest = verification.data?.[0]
+  const claim = verification.data && !latest && !workflow.terminal_at && !candidates.isError ? indexerLanguageNote(candidates.data) : undefined
   const rows: Array<[string, string]> = [["Hvorfor har jeg den ikke endnu?", explanation.why], ["Hvad gør Media Manager nu?", explanation.now], ["Skal jeg gøre noget?", explanation.you]]
   return (
     <Card>
@@ -74,6 +75,7 @@ function WorkflowExplanation({ workflow }: { workflow: APIWorkflow }) {
             </dd>
           </div>
         ) : null}
+        {claim ? <div><dt className="text-text-3">Sprog</dt><dd className="mt-0.5 break-words">{claim}</dd></div> : null}
         {verification.error ? <div><dt className="text-text-3">Sprogkontrol af seneste fil</dt><dd className="mt-0.5 text-warn">Kunne ikke hentes lige nu.</dd></div> : null}
       </dl>
     </Card>

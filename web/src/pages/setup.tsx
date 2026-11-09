@@ -6,6 +6,7 @@ import { Link } from "react-router"
 import { checkIntegration, loadSetupStatus, loadSystemHealth, type APIConnectionCheck } from "@/api/client"
 import { RecommendedSetupCard } from "@/components/recommended-setup"
 import { Badge, Button, Card, CardHeader, ErrorBox, PageHeader, Progress } from "@/components/ui"
+import { formatDateTime } from "@/format"
 import { errorMessage } from "@/i18n"
 import { checkText, connectionStepKinds, setupStepDetail, setupStepText } from "@/lib/setup"
 import { ListSkeleton } from "@/pages/overview"
@@ -21,11 +22,11 @@ export function SetupPage() {
   const [showRecommended, setShowRecommended] = useState(false)
   if (librariesMissing && !showRecommended) setShowRecommended(true)
   const health = useQuery({ queryKey: ["health"], queryFn: ({ signal }) => loadSystemHealth(signal) })
-  // A step can be tested when its default connection is enabled. Results live
-  // only on this page: they say what answered just now, nothing more.
+  // A step can be tested when its default connection is enabled. The answer
+  // below says what answered just now; the stored time says when it last did.
   const checkTargets = Object.entries(connectionStepKinds).flatMap(([step, kind]) => {
     const connection = health.data?.components.find((component) => component.kind === kind && component.enabled && component.is_default)
-    return connection && stepDone(step) ? [{ step, id: connection.id }] : []
+    return connection && stepDone(step) ? [{ step, id: connection.id, connection }] : []
   })
   const checks = useMutation({
     mutationFn: () => Promise.all(checkTargets.map(async ({ step, id }): Promise<[string, APIConnectionCheck]> => {
@@ -54,6 +55,7 @@ export function SetupPage() {
             {query.data.steps.map((step) => {
               const text = setupStepText[step.id]
               const check = checks.data?.get(step.id)
+              const target = checkTargets.find((entry) => entry.step === step.id)
               return (
                 <li key={step.id} className="flex items-start gap-3 px-5 py-3">
                   {step.done ? <CheckCircle2 aria-label="Sat op" className="mt-0.5 size-5 shrink-0 text-good" /> : <Circle aria-label="Mangler" className="mt-0.5 size-5 shrink-0 text-text-3" />}
@@ -64,7 +66,7 @@ export function SetupPage() {
                     </div>
                     <div className="mt-0.5 break-words text-sm text-text-2">{setupStepDetail(step)}</div>
                     {check ? <div className={`mt-0.5 break-words text-sm ${check.ok ? "text-good" : "text-bad"}`}>{check.ok ? "Testet lige nu: virker." : "Testet lige nu: virker ikke."} {checkText(check.detail)}</div> : null}
-                    {!check && checkTargets.some((target) => target.step === step.id) ? <div className="mt-0.5 text-sm text-text-3">Ikke testet endnu</div> : null}
+                    {!check && target ? <div className="mt-0.5 text-sm text-text-3">{target.connection.last_check_at ? `Testet senest ${formatDateTime(target.connection.last_check_at)}: ${target.connection.last_check_ok ? "virkede" : "virkede ikke"}.` : "Ikke testet endnu"}</div> : null}
                   </div>
                   {text?.to && !step.done ? <Link to={text.to} aria-label={`Sæt op: ${text.title}`} className="shrink-0 text-sm font-medium text-accent-strong hover:underline">Sæt op</Link> : null}
                   {text?.to && step.done ? <Link to={text.to} aria-label={`Se: ${text.title}`} className="shrink-0 text-sm text-text-2 hover:underline">Se</Link> : null}

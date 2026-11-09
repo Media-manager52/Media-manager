@@ -6,6 +6,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Added
 
+- **When something was last checked.** **Kom i gang** remembers the last connection test, the library shows when status was checked with a **Kontrollér igen** button, **System → Backup** shows the latest database restore test, and the work page says when a language is only claimed by the indexer.
+
 - **Overtag bibliotek.** A step-by-step guide over the existing adoption API under **Indstillinger**: a read-only scan, a per-file review with the title, name, season and companion files, a preview of every change, and execution only after typing the exact confirmation. Title matches are suggestions and nothing is approved automatically.
 - **Flyt survives interruptions.** A whole-title move is now planned in the database before any link changes. If the process restarts or a step fails, Media Manager finishes the remaining videos, subtitles and Plex refresh from the plan by itself, and a move that stays unfinished appears under problems.
 - **Backups no longer hold up other work.** A backup can take most of an hour. It now runs in its own lane, one at a time, while searches, publishing and repairs continue.

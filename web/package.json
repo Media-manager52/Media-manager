@@ -46,6 +46,7 @@
     "vitest": "4.1.12"
   },
   "overrides": {
-    "playwright-core": "1.62.1"
+    "playwright-core": "1.62.1",
+    "@typescript-eslint/typescript-estree": { "minimatch": "11.0.1" }
   }
 }
