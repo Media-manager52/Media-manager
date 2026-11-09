@@ -280,6 +280,8 @@ func TestConstrainMovieMatchNormalizesIMDbPrefixOnly(t *testing.T) {
 	}{
 		{name: "numeric observation matches canonical IMDb", fact: releases.Fact{Name: "imdb_id", Values: []string{"4729430"}, State: releases.FactObserved}, wantVerdict: releases.VerdictEligible},
 		{name: "canonical observation matches", fact: releases.Fact{Name: "imdb_id", Values: []string{"tt4729430"}, State: releases.FactObserved}, wantVerdict: releases.VerdictEligible},
+		{name: "padded IMDb matches", fact: releases.Fact{Name: "imdb_id", Values: []string{"04729430"}, State: releases.FactObserved}, wantVerdict: releases.VerdictEligible},
+		{name: "different padded IMDb rejected", fact: releases.Fact{Name: "imdb_id", Values: []string{"04729431"}, State: releases.FactObserved}, wantVerdict: releases.VerdictRejected},
 		{name: "different IMDb rejected", fact: releases.Fact{Name: "imdb_id", Values: []string{"4729431"}, State: releases.FactObserved}, wantVerdict: releases.VerdictRejected},
 		{name: "malformed IMDb rejected", fact: releases.Fact{Name: "imdb_id", Values: []string{"Klaus"}, State: releases.FactObserved}, wantVerdict: releases.VerdictRejected},
 	}

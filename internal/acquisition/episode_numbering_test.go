@@ -75,7 +75,10 @@ func TestAnnualReleaseMappingRequiresIdentityAndFrozenScope(t *testing.T) {
 		{"Operation.X.S2026E02.DANiSH.1080p.WEB.mkv", "0451553", true},
 		{"Operation.X.2026.06.10.Flaaet.Af.Skat.DANiSH.1080p.WEB.mkv", "0451553", true},
 		{"Operation.X.S2025E02.DANiSH.mkv", "0451553", false},
-		{"Operation.X.S2026E02.DANiSH.mkv", "", false},
+		{"Operation.X.S2026E02.DANiSH.mkv", "", true},
+		{"Operation.X.2026.06.10.Flaaet.Af.Skat.DANiSH.1080p.WEB.mkv", "", true},
+		{"Operation.X.S2026E02.1080p.WEB.mkv", "", false},
+		{"Operation.X.Special.S2026E02.DANiSH.mkv", "", false},
 		{"Operation.X.S2026E02.DANiSH.mkv", "9999999", false},
 		{"Other.Show.S2026E02.DANiSH.mkv", "0451553", false},
 	} {

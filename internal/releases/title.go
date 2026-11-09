@@ -1,6 +1,7 @@
 package releases
 
 import (
+	"html"
 	"regexp"
 	"strconv"
 	"strings"
@@ -114,7 +115,7 @@ func TitleMatches(releaseTitle, requestedTitle string) bool {
 }
 
 // DanishTaggedSeriesRelease reports whether a release name is the whole
-// requested title, directly followed by its season or episode token, and
+// requested title, directly followed by its season, episode or date token, and
 // states a Danish language in the name. It is series-identity evidence for
 // indexers that send no series ID; language is still measured on the file.
 func DanishTaggedSeriesRelease(releaseTitle, requestedTitle string) bool {
@@ -131,9 +132,25 @@ func DanishTaggedSeriesRelease(releaseTitle, requestedTitle string) bool {
 	return false
 }
 
-var seasonTokenFirst = regexp.MustCompile(`^s\d{1,3}(?:e\d{1,3})?(?: |$)`)
+var seasonTokenFirst = regexp.MustCompile(`^(?:s\d{1,4}(?:e\d{1,4})?|\d{4} \d{2} \d{2})(?: |$)`)
+
+// partialEpisodeRange reports a name that covers only some episodes of a
+// season: two joined episodes (S03E20E21) or a range that does not start at
+// the first episode (S07E09-E11). Those are not season packs.
+func partialEpisodeRange(title string) bool {
+	match := episodeRangeParts.FindStringSubmatch(title)
+	if match == nil {
+		return false
+	}
+	first, err := strconv.Atoi(match[1])
+	return err == nil && (first > 1 || strings.EqualFold(match[2], "e"))
+}
+
+var episodeRangeParts = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E(\d{1,3})(-E?|E)\d{1,3}(?:$|[ ._\-])`)
 
 func normalizedTitleWords(title string) string {
+	// Some indexers escape names once or twice ("Law &amp;amp; Order").
+	title = html.UnescapeString(html.UnescapeString(title))
 	title = titleApostrophes.Replace(strings.ToLower(title))
 	return strings.Join(strings.Fields(titleSeparator.ReplaceAllString(title, " ")), " ")
 }
@@ -252,7 +269,11 @@ func InferTitleFacts(observation Observation, observedAt time.Time) Observation 
 		inferred = append(inferred, Fact{Name: "dynamic_range", Values: []string{"hdr"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	}
 	if episodeRange.MatchString(observation.Title) {
-		inferred = append(inferred, Fact{Name: "release_scope", Values: []string{"season_pack"}, State: FactInferred, ObservedAt: observedAt.UTC()})
+		scope := "season_pack"
+		if partialEpisodeRange(observation.Title) {
+			scope = "multi_episode"
+		}
+		inferred = append(inferred, Fact{Name: "release_scope", Values: []string{scope}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	} else if episodeToken.MatchString(observation.Title) {
 		inferred = append(inferred, Fact{Name: "release_scope", Values: []string{"episode"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 		// A single-episode release exposes an explicit episode number so an

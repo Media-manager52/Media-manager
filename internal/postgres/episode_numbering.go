@@ -9,9 +9,9 @@ import (
 // WorkflowEpisodeNumbering maps a date/year-named release only from the
 // selected season's frozen snapshot. It no longer requires every catalog
 // season to have a workflow: shows such as long-running daily programmes often
-// have only a handful of frozen seasons. Every available frozen season must
-// still have a distinct calendar year, so two overlapping snapshots cannot
-// make a date ambiguous. A child must still match its parent's frozen episode
+// have only a handful of frozen seasons. The selected season's calendar year
+// must not be shared with another frozen season, so two overlapping snapshots
+// cannot make a date ambiguous. A child must still match its parent's frozen episode
 // facts, and a partial or drifting selected snapshot keeps the canonical-only
 // path. No live metadata lookup is performed.
 func (store *Store) WorkflowEpisodeNumbering(ctx context.Context, workflowID uuid.UUID) (packs.EpisodeNumbering, error) {
@@ -75,13 +75,8 @@ func (store *Store) WorkflowEpisodeNumbering(ctx context.Context, workflowID uui
 	if !ok {
 		return packs.EpisodeNumbering{}, nil
 	}
-	years := map[uint16]bool{}
-	for _, snapshot := range snapshots {
-		year := packs.SeasonAirYear(snapshot)
-		if year == 0 || years[year] {
-			return packs.EpisodeNumbering{}, nil
-		}
-		years[year] = true
+	if !annualSeasonYearUnique(snapshots, season) {
+		return packs.EpisodeNumbering{}, nil
 	}
 	result := packs.AnnualEpisodeNumbering(season, selectedSnapshot)
 	if result.Year == 0 {
@@ -100,4 +95,20 @@ func (store *Store) WorkflowEpisodeNumbering(ctx context.Context, workflowID uui
 		}
 	}
 	return result, nil
+}
+
+// annualSeasonYearUnique reports whether the selected season has one calendar
+// year that no other frozen season shares. Another pair of seasons sharing a
+// year does not make this season's dates ambiguous.
+func annualSeasonYearUnique(snapshots map[uint16][]packs.ExpectedEpisode, season uint16) bool {
+	year := packs.SeasonAirYear(snapshots[season])
+	if year == 0 {
+		return false
+	}
+	for other, snapshot := range snapshots {
+		if other != season && packs.SeasonAirYear(snapshot) == year {
+			return false
+		}
+	}
+	return true
 }
