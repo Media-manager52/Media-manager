@@ -106,7 +106,7 @@ describe("the texts a full walk of the site found in English", () => {
     expect(activityActorLabel("robot_two")).toBe("Robot two")
     expect(queueEventLabel("release.retrieve_requested")).toBe("Hentning af NZB")
     expect(queueEventLabel("future.event")).toBe("Future event")
-    expect(componentOutcomeLabel("no_results")).toBe("OK, intet fundet")
+    expect(componentOutcomeLabel("no_results")).toBe("OK")
     expect(componentOutcomeLabel("success")).toBe("OK")
     expect(repairReasonLabel("missing_required_audio")).toBe("Mangler dansk tale")
     expect(repairReasonLabel("something_new")).toBe("Something new")

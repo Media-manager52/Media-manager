@@ -7,6 +7,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 ### Changed
 
 - **The title page** is tidier, mostly on a phone: the poster sits beside the title, a long plot folds behind "Læs mere", and the buttons line up in a grid. **Filer i biblioteket** shows a short name per file (`S01E03 · The Guest`, or the film and year) with its measured quality; a tap opens the library, the full path and "Erstat dårlig fil". Only the display changed: file and folder names on disk are untouched. More subtitle languages are named in Danish.
+- **Aktivitet** under System names the title, and the season or episode, each entry is about, with a link to the title. `GET /api/v1/activity` returns `media_id`, `title` and `variant` for entries that belong to a title or one of its workflows.
+- **Small tidy-ups across the website:** **Reparationer** shows which episode a repair is for. **Forbindelser** on the status page shows whole names with a plain word for what each connection does. **Baggrundskø** fits a phone screen without scrolling sideways. Library folders and connections in **Indstillinger** stack their buttons under the name on a phone. **Anmodninger** keeps posters in shape and drops "0 af 1 dele" for a single film. **Kilder** no longer repeats the same explanation on every indexer.
 
 ## [0.1.0-beta.6] - 2026-11-10
 

@@ -213,6 +213,16 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err != nil || len(activity) == 0 {
 		t.Fatalf("activity read model: items=%d err=%v", len(activity), err)
 	}
+	namedActivity := false
+	for _, event := range activity {
+		if event.AggregateType == "workflow" && (event.Title == "" || event.MediaID == "") {
+			t.Fatalf("workflow activity does not name its title: %+v", event)
+		}
+		namedActivity = namedActivity || event.Title != ""
+	}
+	if !namedActivity {
+		t.Fatal("activity read model named no title")
+	}
 	files, err := store.ListManagedFiles(ctx, 100)
 	if err != nil || len(files) != 0 {
 		t.Fatalf("managed-file read model before publication: items=%d err=%v", len(files), err)

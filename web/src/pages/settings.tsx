@@ -166,8 +166,8 @@ function Roots() {
       {sorted.length === 0 ? <Empty title="Ingen biblioteksmapper endnu">Tilføj en mappe for hvert Plex-bibliotek, Media Manager skal lægge film eller serier i.</Empty> : null}
       <ul className="divide-y divide-line">
         {sorted.map((root) => (
-          <li key={root.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-            <div className="min-w-0 flex-1">
+          <li key={root.id} className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div className="min-w-0 sm:flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{root.name}</span>
                 <Badge>{kindLabel(root.media_kind)}</Badge>

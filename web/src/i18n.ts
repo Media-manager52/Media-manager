@@ -139,11 +139,25 @@ export function repairReasonLabel(reason: string): string {
 
 const componentOutcomes: Record<string, string> = {
   success: "OK",
-  no_results: "OK, intet fundet",
+  no_results: "OK",
   rate_limited: "Søgegrænse nået",
   auth_failed: "Login afvist",
   system_failure: "Fejl",
   cancelled: "Afbrudt",
+}
+
+const componentKinds: Record<string, string> = {
+  newznab: "Indexer",
+  oldboys: "Indexer",
+  altmount: "Download",
+  plex: "Afspiller",
+  seerr: "Anmodninger",
+  tmdb: "Titeloplysninger",
+}
+
+/** What a connection is used for, shown beside its name on the status page. */
+export function componentKindLabel(kind: string): string {
+  return componentKinds[kind] ?? humanize(kind)
 }
 
 /** The last answer from a connection or indexer on the status page. */

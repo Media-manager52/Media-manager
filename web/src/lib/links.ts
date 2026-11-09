@@ -15,10 +15,16 @@ export function describeVariant(workflow: Pick<APIWorkflow, "variant" | "media_k
   return workflow.edition === "4k" ? `${label} · 4K` : label
 }
 
-function describeScope(workflow: Pick<APIWorkflow, "variant" | "media_kind">): string {
-  if (workflow.media_kind === "movie") return "Film"
-  const parsed = parseSeriesVariant(workflow.variant)
+/** "Sæson 2" or "S02E05" for a series variant; empty for films and whole titles. */
+export function scopeLabel(variant: string | undefined): string {
+  if (!variant) return ""
+  const parsed = parseSeriesVariant(variant)
   if (parsed.kind === "season") return `Sæson ${parsed.season}`
   if (parsed.kind === "episode") return `S${String(parsed.season).padStart(2, "0")}E${String(parsed.episode).padStart(2, "0")}`
-  return workflow.variant === "default" ? "Hele serien" : workflow.variant
+  return ""
+}
+
+function describeScope(workflow: Pick<APIWorkflow, "variant" | "media_kind">): string {
+  if (workflow.media_kind === "movie") return "Film"
+  return scopeLabel(workflow.variant) || (workflow.variant === "default" ? "Hele serien" : workflow.variant)
 }

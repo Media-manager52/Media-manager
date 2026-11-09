@@ -67,9 +67,8 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
         </div>
         {downloads ? (
           <div>
-            <div className="mb-1 flex justify-between gap-3"><span className="text-text-2">Godkendte downloads, 30 dage</span><span className="tabular">{downloads.finished ? `${formatNumber(downloads.verified)} af ${formatNumber(downloads.finished)} (${formatNumber(Math.round((downloads.verified / downloads.finished) * 100))} %)` : "Ingen downloads"}</span></div>
+            <div className="mb-1 flex justify-between gap-3"><span className="text-text-2" title="Godkendt betyder, at filen blev hentet og bestod kontrollen af sprog og kvalitet.">Godkendte, 30 dage</span><span className="tabular whitespace-nowrap">{downloads.finished ? `${formatNumber(downloads.verified)} af ${formatNumber(downloads.finished)} (${formatNumber(Math.round((downloads.verified / downloads.finished) * 100))} %)` : "Ingen downloads"}</span></div>
             {downloads.finished ? <Progress value={downloads.verified} max={downloads.finished} tone="good" label="Godkendte downloads de seneste 30 dage" /> : null}
-            <p className="mt-1 text-xs text-text-3">Godkendt betyder, at filen blev hentet og bestod kontrollen af sprog og kvalitet.</p>
           </div>
         ) : null}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-3">

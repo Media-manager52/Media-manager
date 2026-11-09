@@ -6,9 +6,9 @@ import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRe
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader, ShowMore } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
-import { activityActorLabel, activityLabel, backupStateLabel, componentOutcomeLabel, errorMessage, externalCopyLabel, humanize, queueEventLabel, repairReasonLabel, translateDetail } from "@/i18n"
+import { activityActorLabel, activityLabel, backupStateLabel, componentKindLabel, componentOutcomeLabel, errorMessage, externalCopyLabel, humanize, queueEventLabel, repairReasonLabel, translateDetail } from "@/i18n"
 import { confirmedExternalCopy, externalCopyState, latestExternalCopy, latestRestoreTest } from "@/lib/backup-evidence"
-import { workflowHref } from "@/lib/links"
+import { scopeLabel, titleHref, workflowHref } from "@/lib/links"
 import { useShowMore } from "@/lib/show-more"
 import type { Tone } from "@/lib/tone"
 import { ListSkeleton } from "@/pages/overview"
@@ -60,9 +60,11 @@ function Status() {
             return (
               <li key={component.id} className="flex items-center gap-3 px-5 py-3 text-sm">
                 <Dot tone={tone} />
-                <span className="min-w-0 flex-1 truncate font-medium">{component.name.replace(/\s*\{DK\}\s*/i, "")}</span>
-                <span className="text-text-3">{component.kind}</span>
-                <span className="w-36 text-right text-text-2">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{component.name.replace(/\s*\{DK\}\s*/i, "")}</span>
+                  <span className="block text-xs text-text-3">{componentKindLabel(component.kind)}</span>
+                </span>
+                <span className="shrink-0 text-right text-text-2">
                   {!component.enabled ? "Slået fra" : component.consecutive_failure > 0 ? `${component.consecutive_failure} fejl i træk` : component.last_outcome ? componentOutcomeLabel(component.last_outcome) : "OK"}
                 </span>
               </li>
@@ -136,26 +138,26 @@ function Queue() {
     <Card>
       <CardHeader title="Baggrundskø" description={`${pluralize(q.completed_last_hour, "opgave", "opgaver")} løst den seneste time · ${formatNumber(q.due)} klar · ${formatNumber(q.scheduled)} planlagt · ${formatNumber(q.retrying)} prøver igen`} />
       <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Køen pr. opgavetype">
-        <table className="w-full min-w-[36rem] text-sm">
+        <table className="w-full text-sm sm:min-w-[36rem]">
           <thead className="text-left text-text-3">
             <tr className="border-b border-line">
-              <th className="px-5 py-2 font-medium">Opgave</th>
-              <th className="px-3 py-2 text-right font-medium">Klar</th>
-              <th className="px-3 py-2 text-right font-medium">I gang</th>
-              <th className="px-3 py-2 text-right font-medium">Prøver igen</th>
-              <th className="px-3 py-2 text-right font-medium">Planlagt</th>
-              <th className="px-5 py-2 font-medium">Ældste klar</th>
+              <th className="py-2 pl-5 pr-2 font-medium sm:px-5">Opgave</th>
+              <th className="px-2 py-2 text-right align-bottom font-medium sm:px-3">Klar</th>
+              <th className="px-2 py-2 text-right align-bottom font-medium sm:px-3">I gang</th>
+              <th className="px-2 py-2 text-right align-bottom font-medium sm:px-3">Prøver igen</th>
+              <th className="px-2 py-2 text-right align-bottom font-medium sm:px-3">Planlagt</th>
+              <th className="hidden px-5 py-2 font-medium sm:table-cell">Ældste klar</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {q.by_type.map((row) => (
               <tr key={row.event_type}>
-                <td className="px-5 py-2" title={row.event_type}>{queueEventLabel(row.event_type)}</td>
-                <td className="tabular px-3 py-2 text-right">{formatNumber(row.due)}</td>
-                <td className="tabular px-3 py-2 text-right">{formatNumber(row.leased)}</td>
-                <td className={cx("tabular px-3 py-2 text-right", row.retrying > 0 && "text-warn")}>{formatNumber(row.retrying)}</td>
-                <td className="tabular px-3 py-2 text-right">{formatNumber(row.scheduled)}</td>
-                <td className="px-5 py-2 text-text-2">{row.oldest_due_at ? formatRelative(row.oldest_due_at) : "—"}</td>
+                <td className="py-2 pl-5 pr-2 sm:px-5" title={row.event_type}>{queueEventLabel(row.event_type)}</td>
+                <td className="tabular px-2 py-2 text-right sm:px-3">{formatNumber(row.due)}</td>
+                <td className="tabular px-2 py-2 text-right sm:px-3">{formatNumber(row.leased)}</td>
+                <td className={cx("tabular px-2 py-2 text-right sm:px-3", row.retrying > 0 && "text-warn")}>{formatNumber(row.retrying)}</td>
+                <td className="tabular px-2 py-2 text-right sm:px-3">{formatNumber(row.scheduled)}</td>
+                <td className="hidden px-5 py-2 text-text-2 sm:table-cell">{row.oldest_due_at ? formatRelative(row.oldest_due_at) : "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -235,7 +237,7 @@ function Repairs() {
         {shown.map((repair) => (
           <li key={repair.id} className="px-5 py-3 text-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{repair.title || repair.altmount_file_path.split("/").pop()}</span>
+              <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{repair.title || repair.altmount_file_path.split("/").pop()}{repair.title && scopeLabel(repair.variant) ? <span className="font-normal text-text-3"> · {scopeLabel(repair.variant)}</span> : null}</span>
               <Badge tone={repairTone(repair.state)}>{repairState[repair.state] ?? humanize(repair.state)}</Badge>
               <Badge>{repairReasonLabel(repair.reason)}</Badge>
               {repair.repair_workflow_id ? <Link to={workflowHref({ id: repair.repair_workflow_id })} className="ml-auto font-medium text-accent-strong hover:underline">Arbejde</Link> : null}
@@ -308,11 +310,21 @@ function ActivityLog() {
       {query.data.length === 0 ? <Empty title="Ingen aktivitet endnu" /> : null}
       <ul className="divide-y divide-line">
         {shown.map((entry) => (
-          <li key={entry.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-5 py-2.5 text-sm">
-            <span className="w-28 shrink-0 text-text-3">{formatRelative(entry.occurred_at)}</span>
-            <span title={entry.action}>{activityLabel(entry.action)}</span>
-            <span className="text-text-3">{activityActorLabel(entry.actor)}</span>
-            {entry.aggregate_type === "workflow" && entry.aggregate_id ? <Link to={workflowHref({ id: entry.aggregate_id })} className="ml-auto text-accent-strong hover:underline">Arbejde</Link> : null}
+          <li key={entry.id} className="flex items-start gap-3 px-5 py-2.5 text-sm">
+            <div className="min-w-0 flex-1">
+              <div className="[overflow-wrap:anywhere]">
+                <span title={entry.action}>{activityLabel(entry.action)}</span>
+                {entry.title ? (
+                  <>
+                    <span className="text-text-3"> · </span>
+                    {entry.media_id ? <Link to={titleHref(entry.media_id)} className="font-medium hover:underline">{entry.title}</Link> : <span className="font-medium">{entry.title}</span>}
+                    {scopeLabel(entry.variant) ? <span className="text-text-3"> · {scopeLabel(entry.variant)}</span> : null}
+                  </>
+                ) : null}
+              </div>
+              <div className="mt-0.5 text-xs text-text-3">{formatRelative(entry.occurred_at)} · {activityActorLabel(entry.actor)}</div>
+            </div>
+            {entry.aggregate_type === "workflow" && entry.aggregate_id ? <Link to={workflowHref({ id: entry.aggregate_id })} className="shrink-0 text-accent-strong hover:underline">Arbejde</Link> : null}
           </li>
         ))}
       </ul>

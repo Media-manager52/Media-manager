@@ -76,20 +76,32 @@ type ActivityEvent struct {
 	AggregateID   string          `json:"aggregate_id,omitempty"`
 	Detail        json.RawMessage `json:"detail"`
 	OccurredAt    time.Time       `json:"occurred_at"`
+	// MediaID, Title and Variant name the title an event is about when the
+	// event belongs to a title or to one of its workflows; otherwise empty.
+	MediaID string `json:"media_id,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Variant string `json:"variant,omitempty"`
 }
 
 func (store *Store) ListActivity(ctx context.Context, limit int) ([]ActivityEvent, error) {
 	if limit < 1 || limit > 500 {
 		limit = 100
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT id,kind,actor,action,aggregate_type,aggregate_id,detail,occurred_at FROM (
-		SELECT id::text AS id,'audit'::text AS kind,actor,action,aggregate_type,COALESCE(aggregate_id::text,'') AS aggregate_id,detail,occurred_at
-		FROM audit_events
-		UNION ALL
-		SELECT workflow_id::text || ':' || to_revision::text,'workflow_transition',actor,'workflow.' || to_state,'workflow',workflow_id::text,
-			jsonb_build_object('from_state',from_state,'to_state',to_state,'reason',reason,'revision',to_revision),occurred_at
-		FROM workflow_transitions
-	) event ORDER BY occurred_at DESC,id LIMIT $1`, limit)
+	rows, err := store.Pool.Query(ctx, `SELECT event.id,event.kind,event.actor,event.action,event.aggregate_type,COALESCE(event.aggregate_uuid::text,''),event.detail,event.occurred_at,
+			COALESCE(media.id::text,''),COALESCE(media.title,''),COALESCE(workflow.variant,'')
+		FROM (
+			SELECT id,kind,actor,action,aggregate_type,aggregate_uuid,detail,occurred_at FROM (
+				SELECT id::text AS id,'audit'::text AS kind,actor,action,aggregate_type,aggregate_id AS aggregate_uuid,detail,occurred_at
+				FROM audit_events
+				UNION ALL
+				SELECT workflow_id::text || ':' || to_revision::text,'workflow_transition',actor,'workflow.' || to_state,'workflow',workflow_id,
+					jsonb_build_object('from_state',from_state,'to_state',to_state,'reason',reason,'revision',to_revision),occurred_at
+				FROM workflow_transitions
+			) combined ORDER BY occurred_at DESC,id LIMIT $1
+		) event
+		LEFT JOIN workflows workflow ON event.aggregate_type='workflow' AND workflow.id=event.aggregate_uuid
+		LEFT JOIN media_items media ON media.id=CASE WHEN event.aggregate_type='media' THEN event.aggregate_uuid ELSE workflow.media_id END
+		ORDER BY event.occurred_at DESC,event.id`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +110,7 @@ func (store *Store) ListActivity(ctx context.Context, limit int) ([]ActivityEven
 	for rows.Next() {
 		var item ActivityEvent
 		var detail []byte
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Actor, &item.Action, &item.AggregateType, &item.AggregateID, &detail, &item.OccurredAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Actor, &item.Action, &item.AggregateType, &item.AggregateID, &detail, &item.OccurredAt, &item.MediaID, &item.Title, &item.Variant); err != nil {
 			return nil, err
 		}
 		item.Detail = append(json.RawMessage(nil), detail...)
