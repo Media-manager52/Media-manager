@@ -21,13 +21,15 @@ const numberedIDOnlyMaxAge = 180 * 24 * time.Hour
 // year-named releases can be found even when an indexer's scoped search hides
 // them. It returns the newest results, so it is only useful while the target
 // date is recent. On an old season it doubles the query count while observing
-// only modern episodes and storing hundreds of irrelevant candidates.
+// only modern episodes and storing hundreds of irrelevant candidates. An old
+// episode uses the same alternate scan to ask for its air date by text, which
+// is how those releases are named. The request count stays the same.
 func numberedSearchRequest(search postgres.SearchContext, request newznab.SearchRequest, now time.Time) newznab.SearchRequest {
 	if search.EpisodeNumbering.Year == 0 || search.CompleteSearches%2 == 0 || request.Mode != "tvsearch" {
 		return request
 	}
 	if !recentNumberedTarget(search, now) {
-		return request
+		return airDateSearchRequest(search, request)
 	}
 	var ids []newznab.Param
 	for _, p := range request.Params {
@@ -43,13 +45,35 @@ func numberedSearchRequest(search postgres.SearchContext, request newznab.Search
 	return request
 }
 
-func recentNumberedTarget(search postgres.SearchContext, now time.Time) bool {
-	numbering := search.EpisodeNumbering
-	if len(numbering.Dates) == 0 {
-		return false
+// airDateSearchRequest replaces the scoped parameters with the series name and
+// air date, written with spaces so dotted and dashed release names both match.
+// Identity parameters are dropped because indexers may then ignore the text.
+// Only a single selected episode has one date to ask for.
+func airDateSearchRequest(search postgres.SearchContext, request newznab.SearchRequest) newznab.SearchRequest {
+	if selectedNumberedEpisode(search.Variant) == 0 {
+		return request
 	}
+	date := latestNumberedAirDate(search)
+	if date.IsZero() {
+		return request
+	}
+	for _, p := range request.Params {
+		if p.Name == "q" {
+			request.Params = []newznab.Param{{Name: "q", Value: releases.SearchQueryTitle(search.Media.Title) + " " + date.Format("2006 01 02")}}
+			return request
+		}
+	}
+	return request
+}
+
+func recentNumberedTarget(search postgres.SearchContext, now time.Time) bool {
+	latest := latestNumberedAirDate(search)
+	return !latest.IsZero() && !latest.Before(now.UTC().Add(-numberedIDOnlyMaxAge))
+}
+
+func selectedNumberedEpisode(variant string) uint16 {
 	selected := uint16(0)
-	parts := strings.Split(search.Variant, ":")
+	parts := strings.Split(variant, ":")
 	for index := 0; index+1 < len(parts); index++ {
 		if parts[index] != "episode" {
 			continue
@@ -59,8 +83,13 @@ func recentNumberedTarget(search postgres.SearchContext, now time.Time) bool {
 			selected = uint16(value)
 		}
 	}
+	return selected
+}
+
+func latestNumberedAirDate(search postgres.SearchContext) time.Time {
+	selected := selectedNumberedEpisode(search.Variant)
 	var latest time.Time
-	for date, episode := range numbering.Dates {
+	for date, episode := range search.EpisodeNumbering.Dates {
 		if selected > 0 && episode != selected {
 			continue
 		}
@@ -69,7 +98,7 @@ func recentNumberedTarget(search postgres.SearchContext, now time.Time) bool {
 			latest = parsed
 		}
 	}
-	return !latest.IsZero() && !latest.Before(now.UTC().Add(-numberedIDOnlyMaxAge))
+	return latest
 }
 
 func applyEpisodeNumbering(observation releases.Observation, search postgres.SearchContext, _ time.Time) releases.Observation {

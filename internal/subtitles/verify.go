@@ -137,7 +137,8 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 		audio := map[string]bool{}
 		untaggedAudio := false
 		for _, track := range evidence.AudioTracks {
-			if track.CanonicalLanguage != "" {
+			// "und" is the standard tag for an undetermined language.
+			if track.CanonicalLanguage != "" && track.CanonicalLanguage != "und" {
 				audio[track.CanonicalLanguage] = true
 			} else {
 				untaggedAudio = true

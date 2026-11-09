@@ -13,7 +13,9 @@ func Canonical(value string) (string, bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	value = strings.ReplaceAll(value, "_", "-")
 	switch value {
-	case "da", "dan", "danish", "dansk", "da-dk":
+	// "dk" is the country code, but uploads do tag Danish tracks with it and no
+	// language uses it.
+	case "da", "dan", "danish", "dansk", "da-dk", "dk":
 		return "da", true
 	}
 	if !canonicalTag.MatchString(value) {

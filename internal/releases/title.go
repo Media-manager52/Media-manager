@@ -113,6 +113,26 @@ func TitleMatches(releaseTitle, requestedTitle string) bool {
 	return false
 }
 
+// DanishTaggedSeriesRelease reports whether a release name is the whole
+// requested title, directly followed by its season or episode token, and
+// states a Danish language in the name. It is series-identity evidence for
+// indexers that send no series ID; language is still measured on the file.
+func DanishTaggedSeriesRelease(releaseTitle, requestedTitle string) bool {
+	if !danishLanguageToken.MatchString(releaseTitle) && !danishSubs.MatchString(releaseTitle) && !danishAudio.MatchString(releaseTitle) {
+		return false
+	}
+	release := normalizedTitleWords(releaseTitle)
+	for _, spelling := range TitleSpellings(requestedTitle) {
+		requested := normalizedTitleWords(spelling)
+		if rest, found := strings.CutPrefix(release, requested+" "); requested != "" && found && seasonTokenFirst.MatchString(rest) {
+			return true
+		}
+	}
+	return false
+}
+
+var seasonTokenFirst = regexp.MustCompile(`^s\d{1,3}(?:e\d{1,3})?(?: |$)`)
+
 func normalizedTitleWords(title string) string {
 	title = titleApostrophes.Replace(strings.ToLower(title))
 	return strings.Join(strings.Fields(titleSeparator.ReplaceAllString(title, " ")), " ")

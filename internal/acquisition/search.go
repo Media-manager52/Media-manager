@@ -691,6 +691,10 @@ func constrainMediaMatch(observation releases.Observation, evaluation releases.E
 		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "requested movie year", Fact: "release_title", Decision: releases.DecisionUnknown, Values: []string{observation.Title}, Category: releases.CategoryIdentity, Reason: "requested year is not explicit in the release title and no provider identity matched"})
 	}
 	if media.Kind == catalog.KindSeries && !positiveIdentity && (media.Year == nil || !releases.TitleContainsYear(observation.Title, *media.Year)) {
+		if danishTaggedSeriesRelease(observation.Title, media) {
+			evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "series identity evidence", Fact: "release_title", Decision: releases.DecisionPass, Values: []string{observation.Title}, Category: releases.CategoryIdentity, Reason: "the release name is the exact series name with a season token and a Danish language tag"})
+			return evaluation
+		}
 		if evaluation.Verdict != releases.VerdictRejected {
 			evaluation.Verdict = releases.VerdictHeld
 		}

@@ -240,6 +240,13 @@ func TestConstrainSeriesMatchRequiresPositiveIdentityOrYear(t *testing.T) {
 	}{
 		{name: "title only held", title: "The.Office.S01.1080p", wantVerdict: releases.VerdictHeld},
 		{name: "canonical year accepted", title: "The.Office.2005.S01.1080p", wantVerdict: releases.VerdictEligible},
+		{name: "exact name with danish tag accepted", title: "The.Office.S01E02.DANiSH.720p.WEB.h264", wantVerdict: releases.VerdictEligible},
+		{name: "danish subtitle tag accepted", title: "The.Office.S01.DANiSH.SUBS.1080p", wantVerdict: releases.VerdictEligible},
+		{name: "extra words before season stay held", title: "The.Office.Special.S01E02.DANiSH.720p", wantVerdict: releases.VerdictHeld},
+		{name: "other year before season stays held", title: "The.Office.2001.S01E02.DANiSH.720p", wantVerdict: releases.VerdictHeld},
+		{name: "danish tag without season stays held", title: "The.Office.DANiSH.720p", wantVerdict: releases.VerdictHeld},
+		{name: "nordic tag stays held", title: "The.Office.S01E02.NORDiC.720p", wantVerdict: releases.VerdictHeld},
+		{name: "danish tag does not override wrong identity", title: "The.Office.S01E02.DANiSH.720p", facts: []releases.Fact{{Name: "tvdb_id", Values: []string{"99999"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictRejected},
 		{name: "matching identity accepted", title: "The.Office.S01.1080p", facts: []releases.Fact{{Name: "tvdb_id", Values: []string{"73244"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictEligible},
 		{name: "wrong identity rejected", title: "The.Office.S01.1080p", facts: []releases.Fact{{Name: "tvdb_id", Values: []string{"99999"}, State: releases.FactObserved}}, wantVerdict: releases.VerdictRejected},
 	}

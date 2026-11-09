@@ -4,7 +4,7 @@ import "testing"
 
 func TestCanonicalDanishVariants(t *testing.T) {
 	t.Parallel()
-	for _, value := range []string{"da", "dan", "Danish", "dansk", "da-DK", "DA_dk"} {
+	for _, value := range []string{"da", "dan", "Danish", "dansk", "da-DK", "DA_dk", "dk", "DK"} {
 		if canonical, ok := Canonical(value); !ok || canonical != "da" {
 			t.Fatalf("Canonical(%q)=(%q,%v), want da,true", value, canonical, ok)
 		}
