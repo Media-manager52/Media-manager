@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -216,7 +217,11 @@ func (server *Server) checkIntegration(writer http.ResponseWriter, request *http
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load the integration")
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: server.checkConnection(request.Context(), integration)})
+	result := server.checkConnection(request.Context(), integration)
+	if err := server.store.RecordIntegrationCheck(request.Context(), id, result.OK, time.Now().UTC()); err != nil {
+		slog.WarnContext(request.Context(), "could not record connection test", "integration_id", id.String(), "error", err)
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: result})
 }
 
 func (server *Server) listPlexLibraries(writer http.ResponseWriter, request *http.Request) {

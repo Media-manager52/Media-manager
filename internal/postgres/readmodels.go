@@ -693,14 +693,24 @@ type SourceStatus struct {
 	ConsecutiveFailure int        `json:"consecutive_failure"`
 	LastOutcome        string     `json:"last_outcome,omitempty"`
 	BudgetUpdatedAt    *time.Time `json:"budget_updated_at,omitempty"`
+	LastCheckOK        *bool      `json:"last_check_ok,omitempty"`
+	LastCheckAt        *time.Time `json:"last_check_at,omitempty"`
+}
+
+// RecordIntegrationCheck keeps the newest result of an owner-started test.
+func (store *Store) RecordIntegrationCheck(ctx context.Context, id uuid.UUID, ok bool, now time.Time) error {
+	_, err := store.Pool.Exec(ctx, `INSERT INTO integration_connection_checks(integration_id,ok,checked_at) VALUES($1,$2,$3)
+		ON CONFLICT (integration_id) DO UPDATE SET ok=EXCLUDED.ok,checked_at=EXCLUDED.checked_at`, id.String(), ok, now.UTC())
+	return err
 }
 
 func (store *Store) ListSourceStatuses(ctx context.Context) ([]SourceStatus, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT integration.id::text,integration.kind,integration.name,integration.enabled,integration.is_default,integration.config,
 		COALESCE(integration.secret_ref,''),integration.created_at,integration.updated_at,budget.minimum_interval_ms,budget.next_allowed_at,
-		budget.cooldown_until,COALESCE(budget.consecutive_failure,0),COALESCE(budget.last_outcome,''),budget.updated_at
+		budget.cooldown_until,COALESCE(budget.consecutive_failure,0),COALESCE(budget.last_outcome,''),budget.updated_at,connection_check.ok,connection_check.checked_at
 		FROM integration_instances integration
 		LEFT JOIN indexer_budget_state budget ON budget.indexer_instance_id=integration.id
+		LEFT JOIN integration_connection_checks connection_check ON connection_check.integration_id=integration.id
 		ORDER BY integration.kind,integration.name`)
 	if err != nil {
 		return nil, err
@@ -711,7 +721,7 @@ func (store *Store) ListSourceStatuses(ctx context.Context) ([]SourceStatus, err
 		var item SourceStatus
 		var idText string
 		var config []byte
-		if err := rows.Scan(&idText, &item.Kind, &item.Name, &item.Enabled, &item.Default, &config, &item.SecretRef, &item.CreatedAt, &item.UpdatedAt, &item.MinimumIntervalMS, &item.NextAllowedAt, &item.CooldownUntil, &item.ConsecutiveFailure, &item.LastOutcome, &item.BudgetUpdatedAt); err != nil {
+		if err := rows.Scan(&idText, &item.Kind, &item.Name, &item.Enabled, &item.Default, &config, &item.SecretRef, &item.CreatedAt, &item.UpdatedAt, &item.MinimumIntervalMS, &item.NextAllowedAt, &item.CooldownUntil, &item.ConsecutiveFailure, &item.LastOutcome, &item.BudgetUpdatedAt, &item.LastCheckOK, &item.LastCheckAt); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

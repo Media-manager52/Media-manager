@@ -69,6 +69,19 @@ export function explainWorkflow(workflow: APIWorkflow, candidates: APIWorkflowCa
   return { why: candidateSummary(candidates), now: nextStep(workflow, now), you }
 }
 
+/**
+ * What the indexer claims about languages before any file exists to check. A
+ * claim is never proof, so the wording says so.
+ */
+export function indexerLanguageNote(candidates: APIWorkflowCandidate[] | undefined): string | undefined {
+  const chosen = candidates?.find((candidate) => candidate.selected) ?? candidates?.find((candidate) => candidate.decision?.verdict === "eligible" && !candidate.exclusion)
+  const claims = (chosen?.decision?.decision_explanation?.evidence ?? []).filter((fact) => (fact.fact === "subtitle_languages" || fact.fact === "audio_languages") && (fact.state === "observed" || fact.state === "inferred"))
+  const names = [...new Set(claims.flatMap((fact) => fact.values ?? []).map((code) => code.toLowerCase()).filter((code) => code && code !== "und" && code !== "unknown"))].map((code) => languageName(code).toLowerCase())
+  if (names.length === 0) return undefined
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} og ${names.at(-1)}` : names[0]
+  return `${list.charAt(0).toUpperCase()}${list.slice(1)} nævnt af indexeren, men endnu ikke kontrolleret.`
+}
+
 type Evidence = { videos?: Array<{ audio_languages?: string[]; languages?: Array<{ kind: string; canonical?: string; forced?: boolean; track_index?: number; full_dialogue?: boolean }> }> }
 
 /** What the last file check really found, one line per required language. */

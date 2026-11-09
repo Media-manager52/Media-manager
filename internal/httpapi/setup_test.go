@@ -97,6 +97,17 @@ func TestOwnerConnectsPlexFromTheWebsite(t *testing.T) {
 	if status, _ := call("POST", "/api/v1/settings/integrations/"+created.ID.String()+"/check", nil, &check); status != 200 || !check.OK {
 		t.Fatalf("check with the token: status=%d check=%+v", status, check)
 	}
+	statuses, err := store.ListSourceStatuses(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := false
+	for _, status := range statuses {
+		recorded = recorded || status.ID == created.ID && status.LastCheckOK != nil && *status.LastCheckOK && status.LastCheckAt != nil
+	}
+	if !recorded {
+		t.Fatalf("the latest connection test was not kept: %+v", statuses)
+	}
 	var sections []struct {
 		Key       string   `json:"key"`
 		Title     string   `json:"title"`

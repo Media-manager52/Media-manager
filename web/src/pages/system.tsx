@@ -175,6 +175,7 @@ function Backups() {
   if (!query.data) return <Card><ListSkeleton /></Card>
   const b = query.data
   const copiedAt = latestExternalCopy(b.records)
+  const restoredAt = b.records.filter((record) => record.state === "verified").map((record) => record.completed_at ?? record.created_at).sort().at(-1)
   return (
     <Card>
       <CardHeader
@@ -186,7 +187,8 @@ function Backups() {
       <div className="space-y-2 px-5 pb-4 text-sm text-text-2">
         <p>{b.offsite.configured ? "Ekstern kopiering er sat op." : "Ekstern kopiering er ikke sat op."}</p>
         <p>{copiedAt ? `Senest bekræftede eksterne kopi: ${formatDateTime(copiedAt)}.` : "Ingen gennemført ekstern kopi er dokumenteret i den viste backupliste."}</p>
-        <p>Prøvegendannelsen kontrollerer databasen. En samlet gendannelse af installation, nøgler, mapper og medier er ikke dokumenteret her.</p>
+        <p>{restoredAt ? `Seneste prøvegendannelse af databasen: ${formatDateTime(restoredAt)}.` : "Ingen prøvegendannelse af databasen er gennemført endnu."}</p>
+        <p>Prøvegendannelsen kontrollerer kun databasen. En samlet gendannelse af installation, nøgler, mapper og medier er ikke dokumenteret her.</p>
         <p>Gem backup-nøglen og nøglen til gemte forbindelser sikkert uden for serveren. Backup-nøglen åbner backupfilen; forbindelsernes nøgle åbner de gemte adgangsoplysninger.</p>
       </div>
       {b.configured && b.key_file ? <p className="px-5 pb-3 text-sm text-text-2">Backup-nøglen blev lavet automatisk og ligger i <code className="break-all">{b.key_file}</code> i API-containeren. Gem en kopi et sikkert sted: uden den kan en backup ikke gendannes på en anden server.</p> : null}
