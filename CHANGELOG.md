@@ -4,6 +4,20 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.4] - 2026-11-09
+
+The fourth public beta: `main` at `f928173`, database schema 57. Finds more of the releases that already exist. Language and quality requirements are unchanged.
+
+### Fixed
+
+- IMDb numbers are compared without leading zeros, because indexers pad them to different widths (#171).
+- A series release with no provider ID can be tried when its name is the exact series name, directly followed by a season, episode or date, and states Danish (#170, #171).
+- The `dk` language tag means Danish, and `und` audio counts as untagged (#170).
+- Names escaped as `&amp;` match their title (#171).
+- Joined episodes and ranges that do not start at episode 1 are no longer treated as season packs (#171).
+- Old date-numbered episodes search for their air date on the existing alternate scan (#170).
+- A year shared by two other seasons no longer turns off annual numbering for a whole series (#171).
+
 ## [0.1.0-beta.3] - 2026-11-09
 
 The third public beta: `main` at `c11b899`, database schema 57. Plex login, a recommended setup, title actions on the website, plain-language status and safer long-running work.
