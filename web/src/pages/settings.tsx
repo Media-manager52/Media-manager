@@ -8,6 +8,7 @@ import {
   setNotificationDestinationEnabled, updateLibraryRoot,
   type APIIntegration, type APILibraryRoot, type APIQualityProfile,
 } from "@/api/client"
+import { AdoptionGuide } from "@/components/adoption-guide"
 import { OptionPicker } from "@/components/option-picker"
 import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection, EditProfileDialog } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
@@ -24,6 +25,7 @@ const sections = [
   { id: "seerr", label: "Seerr-regler" },
   { id: "notifikationer", label: "Notifikationer" },
   { id: "forbindelser", label: "Forbindelser" },
+  { id: "overtag", label: "Overtag bibliotek" },
 ]
 
 export function SettingsPage() {
@@ -43,6 +45,7 @@ export function SettingsPage() {
       {section === "seerr" ? <SeerrRoutes /> : null}
       {section === "notifikationer" ? <Notifications /> : null}
       {section === "forbindelser" ? <ConnectionsSection /> : null}
+      {section === "overtag" ? <AdoptionGuide /> : null}
     </>
   )
 }

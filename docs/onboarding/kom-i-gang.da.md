@@ -50,6 +50,18 @@ undertekster. Fejl skal kunne ses og undersøges. Slet ikke den gamle fil for at
 tvinge en erstatning igennem. En erstatning skal være kontrolleret og bekræftet
 i Plex, før den gamle udgave kan afløses.
 
+## Overtag et bibliotek, du allerede har
+
+Har du allerede film og serier i Plex, så åbn **Indstillinger → Overtag
+bibliotek**. Start med en lille undermappe.
+
+1. **Find filer** læser kun mappen og ændrer ingenting.
+2. Vælg titel, navn og sæson for hver fil, og tryk **Godkend** eller **Spring
+   over**. Højst 25 filer ad gangen.
+3. Læs listen over, hvad der vil ske, og tryk **Lås planen**.
+4. Først når du har skrevet bekræftelsen og trykket **Overtag nu**, bliver filerne
+   flyttet. Plex skal bekræfte hver fil, før den tæller som overtaget.
+
 ## Backup og gendannelse
 
 **System → Backup** viser krypterede databasebackups. **Database kontrolleret**
