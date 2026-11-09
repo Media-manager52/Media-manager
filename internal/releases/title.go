@@ -153,7 +153,39 @@ func partialEpisodeRange(title string) bool {
 	return err == nil && (first > 1 || strings.EqualFold(match[2], "e"))
 }
 
-var episodeRangeParts = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E(\d{1,3})(-E?|E)\d{1,3}(?:$|[ ._\-])`)
+var episodeRangeParts = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E(\d{1,3})(-E?|E)(\d{1,3})(?:$|[ ._\-])`)
+
+// RangeEndsBeforeEpisode reports whether a name's episode range stops before
+// lastEpisode, the season's last known episode. S01E01-E02 is a whole season
+// only when the season has two episodes, which the name alone cannot say. It
+// is false when the last episode is unknown, so an unknown season keeps today's
+// reading.
+func RangeEndsBeforeEpisode(title string, lastEpisode int) bool {
+	match := episodeRangeParts.FindStringSubmatch(title)
+	if match == nil {
+		return false
+	}
+	end, err := strconv.Atoi(match[3])
+	return err == nil && end < lastEpisode
+}
+
+// NarrowPartialSeasonRange corrects a season_pack scope that was only inferred
+// from the name when the range stops before lastEpisode. A scope the provider
+// stated is left alone.
+func NarrowPartialSeasonRange(observation Observation, lastEpisode int) Observation {
+	if !RangeEndsBeforeEpisode(observation.Title, lastEpisode) {
+		return observation
+	}
+	facts := append([]Fact(nil), observation.Facts...)
+	for index, fact := range facts {
+		if fact.Name == "release_scope" && fact.State == FactInferred && len(fact.Values) == 1 && fact.Values[0] == "season_pack" {
+			fact.Values = []string{"multi_episode"}
+			facts[index] = fact
+		}
+	}
+	observation.Facts = facts
+	return observation
+}
 
 func normalizedTitleWords(title string) string {
 	// Some indexers escape names once or twice ("Law &amp;amp; Order").

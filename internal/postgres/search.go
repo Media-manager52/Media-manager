@@ -40,6 +40,9 @@ type SearchContext struct {
 	// same title instead of skipping an alias before every provider saw it.
 	CompleteSearches uint64
 	EpisodeNumbering packs.EpisodeNumbering
+	// SeasonLastEpisode is the last episode of the workflow's frozen season
+	// expectation, or 0 when none is known.
+	SeasonLastEpisode int
 	// ProfilePolicyVersion is the quality profile's current version. It can
 	// differ from PolicyVersion, which follows the open round's snapshot.
 	ProfilePolicyVersion uint64
@@ -179,6 +182,10 @@ func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID)
 	}
 	if result.Media.Kind == catalog.KindSeries {
 		result.EpisodeNumbering, err = store.WorkflowEpisodeNumbering(ctx, workflowID)
+		if err != nil {
+			return SearchContext{}, err
+		}
+		result.SeasonLastEpisode, err = seasonLastEpisode(ctx, store.Pool, workflowID)
 		if err != nil {
 			return SearchContext{}, err
 		}

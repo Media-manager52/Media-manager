@@ -283,6 +283,45 @@ func TestCanonicalResolutionFromFrameSize(t *testing.T) {
 	}
 }
 
+func TestNarrowPartialSeasonRange(t *testing.T) {
+	scope := func(observation Observation) string {
+		for _, fact := range observation.Facts {
+			if fact.Name == "release_scope" {
+				return fact.Values[0]
+			}
+		}
+		return ""
+	}
+	for _, test := range []struct {
+		title string
+		last  int
+		want  string
+	}{
+		{"Show.S01E01-E02.Pilot.1080p.WEB", 10, "multi_episode"},
+		{"Show.S01.E01-E03.1080p.WEB-DL", 10, "multi_episode"},
+		{"Show.S01E01-E09.1080p.WEB", 10, "multi_episode"},
+		{"Show.S01E01-E10.1080p.WEB", 10, "season_pack"},
+		{"Show.S01E01-E03.Miniseries.1080p.WEB", 3, "season_pack"},
+		{"Show.S01E01-E12.1080p.WEB", 10, "season_pack"},
+		{"Show.S01E01-E02.Pilot.1080p.WEB", 0, "season_pack"},
+		{"Show.S01.1080p.WEB", 10, "season_pack"},
+		{"Show.S01E05.1080p.WEB", 10, "episode"},
+	} {
+		observation := NarrowPartialSeasonRange(InferTitleFacts(Observation{Title: test.title}, time.Unix(1, 0)), test.last)
+		if got := scope(observation); got != test.want {
+			t.Errorf("%s of %d episodes = %q, want %q", test.title, test.last, got, test.want)
+		}
+	}
+
+	stated := Observation{Title: "Show.S01E01-E02.1080p", Facts: []Fact{{Name: "release_scope", Values: []string{"season_pack"}, State: FactObserved}}}
+	if got := scope(NarrowPartialSeasonRange(stated, 10)); got != "season_pack" {
+		t.Errorf("a scope the provider stated changed to %q", got)
+	}
+	if stated.Facts[0].Values[0] != "season_pack" {
+		t.Error("the input observation was modified")
+	}
+}
+
 func TestPartialEpisodeRangeIsNotASeasonPack(t *testing.T) {
 	for title, want := range map[string]string{
 		"Show.S03E20E21.Two.Parts.1080p.WEB": "multi_episode",
