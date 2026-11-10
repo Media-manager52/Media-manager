@@ -59,7 +59,7 @@ func TestAgentReadEndpointsReportUsageQueueSearchesAndCandidates(t *testing.T) {
 			continue
 		}
 		found = true
-		if usage.Budget.QueryLimit != 40 || usage.Budget.GrabLimit != 7 || usage.Budget.BackgroundQueryLimit != 8 || usage.Budget.Source != "owner_stated" || usage.Usage.QueriesUsed != 3 || usage.Usage.QueriesRemaining != 37 || usage.Usage.BackgroundQueriesRemaining != 5 || usage.Usage.GrabsRemaining != 7 || usage.Enabled || usage.SearchOutcomes24h == nil {
+		if usage.Budget.QueryLimit != 40 || usage.Budget.GrabLimit != 7 || usage.Budget.BackgroundQueryLimit != 24 || usage.Budget.Source != "owner_stated" || usage.Usage.QueriesUsed != 3 || usage.Usage.QueriesRemaining != 37 || usage.Usage.BackgroundQueriesRemaining != 21 || usage.Usage.GrabsRemaining != 7 || usage.Enabled || usage.SearchOutcomes24h == nil {
 			t.Fatalf("indexer usage wrong: %+v", usage)
 		}
 	}
