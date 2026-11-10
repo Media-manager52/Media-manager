@@ -43,10 +43,10 @@ export function OverviewHero({ counts }: { counts?: APIDashboard["counts"] }) {
         </>
       )}
       <div className="grid grid-cols-2 gap-3.5 lg:col-start-3 lg:row-span-2 lg:row-start-1">
-        <CountCard to="/handling" label="Kræver handling" icon={<AlertTriangle className="size-3.5" />} chip="bg-bad" value={counts?.needs_attention} emphasise={Boolean(counts?.needs_attention)} hint={counts ? (counts.needs_attention ? "Venter på en beslutning fra dig" : "Intet venter på dig") : undefined} />
-        <CountCard to="/arbejde" label="Arbejde i gang" icon={<Activity className="size-3.5" />} chip="bg-[#0d9488]" value={counts?.active_workflows} hint="Søger, henter og tjekker" />
-        <CountCard to="/bibliotek?type=film" label="Film" icon={<Film className="size-3.5" />} chip="bg-[#7c3aed]" value={counts?.movies} hint="I biblioteket" />
-        <CountCard to="/bibliotek?type=serier" label="Serier" icon={<Tv className="size-3.5" />} chip="bg-[#2563eb]" value={counts?.series} hint="I biblioteket" />
+        <CountCard to="/handling" label="Kræver handling" icon={<AlertTriangle className="size-4" />} chip="bg-bad" value={counts?.needs_attention} emphasise={Boolean(counts?.needs_attention)} hint={counts ? (counts.needs_attention ? "Venter på en beslutning fra dig" : "Intet venter på dig") : undefined} />
+        <CountCard to="/arbejde" label="Arbejde i gang" icon={<Activity className="size-4" />} chip="bg-[#0d9488]" value={counts?.active_workflows} hint="Søger, henter og tjekker" />
+        <CountCard to="/bibliotek?type=film" label="Film" icon={<Film className="size-4" />} chip="bg-[#7c3aed]" value={counts?.movies} hint="I biblioteket" />
+        <CountCard to="/bibliotek?type=serier" label="Serier" icon={<Tv className="size-4" />} chip="bg-[#2563eb]" value={counts?.series} hint="I biblioteket" />
       </div>
     </section>
   )
@@ -102,14 +102,16 @@ function QuietTile() {
 
 function CountCard({ to, label, icon, chip, value, hint, emphasise = false }: { to: string; label: string; icon: ReactNode; chip: string; value?: number; hint?: string; emphasise?: boolean }) {
   return (
-    <Link to={to} className="group flex min-w-0 flex-col gap-1.5 rounded-2xl border border-line bg-surface p-3.5 shadow-card transition-shadow hover:shadow-lift">
-      <span className="flex items-center gap-2 text-[13px] font-medium">
-        <span aria-hidden className={cx("flex size-[22px] shrink-0 items-center justify-center rounded-md text-white", chip)}>{icon}</span>
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        <ChevronRight aria-hidden className="size-3.5 shrink-0 text-text-3 transition-transform group-hover:translate-x-0.5" />
+    <Link to={to} className="group flex min-w-0 flex-col gap-3 rounded-2xl border border-line bg-surface p-3.5 shadow-card transition-shadow hover:shadow-lift">
+      <span className="flex items-center justify-between">
+        <span aria-hidden className={cx("flex size-7 shrink-0 items-center justify-center rounded-lg text-white", chip)}>{icon}</span>
+        <ChevronRight aria-hidden className="size-4 shrink-0 text-text-3 transition-transform group-hover:translate-x-0.5" />
       </span>
-      <span className={cx("tabular text-3xl font-bold leading-none tracking-tight", emphasise && "text-bad")}>{value === undefined ? <span aria-hidden className="inline-block h-8 w-16 animate-pulse rounded-lg bg-surface-3" /> : formatNumber(value)}</span>
-      {hint ? <span className="line-clamp-2 text-xs text-text-3">{hint}</span> : null}
+      <span className="mt-auto flex min-w-0 flex-col gap-1">
+        <span className="text-[13px] font-medium leading-tight">{label}</span>
+        <span className={cx("tabular text-3xl font-bold leading-none tracking-tight", emphasise && "text-bad")}>{value === undefined ? <span aria-hidden className="inline-block h-8 w-16 animate-pulse rounded-lg bg-surface-3" /> : formatNumber(value)}</span>
+        {hint ? <span className="line-clamp-2 text-xs text-text-3">{hint}</span> : null}
+      </span>
     </Link>
   )
 }

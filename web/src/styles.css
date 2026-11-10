@@ -30,6 +30,7 @@
   --focus: #0068d1;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 12px rgb(0 0 0 / 6%);
   --shadow-lift: 0 2px 4px rgb(0 0 0 / 8%), 0 12px 28px rgb(0 0 0 / 14%);
+  --poster-shadow: 0 1px 2px rgb(20 24 40 / 6%), 0 18px 32px -18px rgb(20 24 40 / 38%);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -57,6 +58,7 @@
     --focus: #409cff;
     --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 12px rgb(0 0 0 / 28%);
     --shadow-lift: 0 2px 4px rgb(0 0 0 / 34%), 0 12px 28px rgb(0 0 0 / 44%);
+    --poster-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 18px 32px -18px rgb(0 0 0 / 85%);
     color-scheme: dark;
   }
 }
@@ -84,6 +86,7 @@
   --focus: #409cff;
   --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 12px rgb(0 0 0 / 28%);
   --shadow-lift: 0 2px 4px rgb(0 0 0 / 34%), 0 12px 28px rgb(0 0 0 / 44%);
+  --poster-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 18px 32px -18px rgb(0 0 0 / 85%);
   color-scheme: dark;
 }
 
@@ -111,6 +114,7 @@
   --color-info-soft: var(--info-soft);
   --shadow-card: var(--shadow);
   --shadow-lift: var(--shadow-lift);
+  --shadow-poster: var(--poster-shadow);
 }
 
 html { background: var(--bg); }
