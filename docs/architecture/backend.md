@@ -230,7 +230,8 @@ If you add a service handler, keep it idempotent: events are at-least-once.
 - `WorkloadFeed` is the newest-uploads reader. Like browse it waits out the
   remaining minimum interval (bounded) and never a failure cooldown; unlike
   background work it is limited by the whole query limit, and the reader keeps
-  itself to a twentieth of it through its read interval.
+  itself to a tenth of it, counting every page a read may take, through its
+  read interval.
 - `SearchPageLimit(ownerStated, advertised)` (`page_limit.go`) is the page
   size one request asks for: the owner's `page_limit`, else the provider's
   advertised maximum, else 100, never above 500.
@@ -271,7 +272,8 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   actor `worker`. **The reader never selects, submits or opens a round**; the
   search it brings forward does what every search does. The read interval
   moves between 5 and 20 minutes with the share of new uploads per read and
-  never below `window / (query_limit / 20)`; a failing list backs off from one
+  never below `window × 3 pages × 10 / query_limit` (a tenth of the query limit
+  with every page counted); a failing list backs off from one
   hour to one day. `FEED_WATCH=off` disables it.
 - `SearchPlan`/`PlanSearch` (`search_plan.go`): pure translation of a validated
   `newznab.CapabilityProfile` + verified identities into one primary request and

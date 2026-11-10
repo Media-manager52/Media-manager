@@ -40,8 +40,8 @@ const (
 	// first page holds nothing seen before, so uploads may have been missed.
 	feedMaxPages = 3
 	// feedBudgetShare is the part of an indexer's query allowance the reads
-	// may use: one twentieth.
-	feedBudgetShare = 20
+	// may use, counting every page of every read: one tenth.
+	feedBudgetShare = 10
 	// A failed read is retried after feedFailureBackoff, doubling up to
 	// feedFailureCap, so a provider that cannot list its newest uploads costs
 	// next to nothing and never keeps the indexer in cooldown for searches.
@@ -290,20 +290,21 @@ func (watcher *FeedWatcher) seenFor(indexerID uuid.UUID) *feedSeen {
 }
 
 // feedInterval is the saved read interval within its bounds. The lower bound
-// also keeps the reads inside their share of the indexer's query allowance.
+// also keeps the reads, with every page they may take, inside their share of
+// the indexer's query allowance.
 func feedInterval(saved time.Duration, budget indexers.Budget) time.Duration {
 	interval := saved
 	if interval <= 0 {
 		interval = feedStartInterval
 	}
 	floor := feedMinInterval
-	if share := budget.QueryLimit / feedBudgetShare; share > 0 {
-		if byBudget := budget.LimitWindow / time.Duration(share); byBudget > floor {
+	if budget.QueryLimit > 0 && budget.LimitWindow > 0 {
+		// A read may take feedMaxPages requests, so every read is counted as
+		// that many against the share.
+		byBudget := budget.LimitWindow * feedMaxPages * feedBudgetShare / time.Duration(budget.QueryLimit)
+		if byBudget > floor {
 			floor = byBudget
 		}
-	} else if budget.QueryLimit > 0 {
-		// Fewer than twenty queries per window: one read per window.
-		floor = budget.LimitWindow
 	}
 	if interval > feedMaxInterval {
 		interval = feedMaxInterval
