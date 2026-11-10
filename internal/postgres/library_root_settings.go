@@ -4,17 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// LibraryRootPatch changes which root is the default for its media kind and
-// whether a root is enabled. Nil fields are left unchanged.
+// LibraryRootPatch changes a root's display name, which root is the default
+// for its media kind and whether a root is enabled. Nil fields are left
+// unchanged. The name is only a label: folders and Plex paths do not change.
 type LibraryRootPatch struct {
-	Default *bool `json:"is_default"`
-	Enabled *bool `json:"enabled"`
+	Name    *string `json:"name"`
+	Default *bool   `json:"is_default"`
+	Enabled *bool   `json:"enabled"`
 }
 
 // UpdateLibraryRoot applies an owner patch to one library root. Making a root
@@ -24,8 +28,15 @@ type LibraryRootPatch struct {
 // links, and no enabled Seerr route sends requests to it. Relocate workflows
 // (POST /api/v1/workflows/{id}/relocate-links) before disabling a root.
 func (store *Store) UpdateLibraryRoot(ctx context.Context, id uuid.UUID, patch LibraryRootPatch, now time.Time) (LibraryRoot, error) {
-	if patch.Default == nil && patch.Enabled == nil {
-		return LibraryRoot{}, refuse("empty_patch", "nothing to change", "Send is_default and/or enabled.")
+	if patch.Name == nil && patch.Default == nil && patch.Enabled == nil {
+		return LibraryRoot{}, refuse("empty_patch", "nothing to change", "Send name, is_default and/or enabled.")
+	}
+	if patch.Name != nil {
+		trimmed := strings.TrimSpace(*patch.Name)
+		if trimmed == "" || len(trimmed) > 120 {
+			return LibraryRoot{}, refuse("invalid_name", "the name must be 1 to 120 characters", "Send a short display name.")
+		}
+		patch.Name = &trimmed
 	}
 	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -72,10 +83,14 @@ func (store *Store) UpdateLibraryRoot(ctx context.Context, id uuid.UUID, patch L
 			return LibraryRoot{}, err
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE library_roots SET is_default=$2,enabled=$3 WHERE id=$1`, id.String(), wantDefault, wantEnabled); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE library_roots SET is_default=$2,enabled=$3,name=COALESCE($4,name) WHERE id=$1`, id.String(), wantDefault, wantEnabled, patch.Name); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "library_roots_media_kind_name_key" {
+			return LibraryRoot{}, refuse("invalid_name", "another library root of this media kind already has that name", "Choose a different name.")
+		}
 		return LibraryRoot{}, err
 	}
-	detail, _ := json.Marshal(map[string]any{"media_kind": kind, "is_default": map[string]bool{"from": isDefault, "to": wantDefault}, "enabled": map[string]bool{"from": enabled, "to": wantEnabled}})
+	detail, _ := json.Marshal(map[string]any{"media_kind": kind, "is_default": map[string]bool{"from": isDefault, "to": wantDefault}, "enabled": map[string]bool{"from": enabled, "to": wantEnabled}, "renamed_to": patch.Name})
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','library.root_updated','library_root',$2,$3,$4)`, uuid.NewV7().String(), id.String(), string(detail), now.UTC()); err != nil {
 		return LibraryRoot{}, err
 	}

@@ -1314,6 +1314,9 @@
           },
           "is_default": {
             "type": "boolean"
+          },
+          "name": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -5783,6 +5786,48 @@
       }
     },
     "/api/v1/settings/integrations/{id}": {
+      "delete": {
+        "description": "Removes the integration with its stored secret and connection checks. Refused with 409 integration_enabled until it is disabled, and 409 integration_in_use while any search, release, download, request, library root, Seerr route, budget or commissioning record refers to it; leave such an integration disabled. Audited as integration.deleted.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "deleteIntegration",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Delete a disabled connection or indexer that has no history",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      },
       "patch": {
         "description": "Indexers only (newznab, oldboys). Limits become budget_source owner_stated; minimum_interval_ms is at least 3000 (OldBoys 5000). enabled=true needs a commissioned Newznab indexer; OldBoys is re-enabled only by its validation. Audited as integration.settings_changed.\n\nChanges Media Manager state or queues local work. Audited.",
         "operationId": "updateIndexerSettings",
@@ -7045,8 +7090,50 @@
       }
     },
     "/api/v1/settings/library-roots/{id}": {
+      "delete": {
+        "description": "Removes the setting only; the folder on disk is not touched. Refused with 409 library_root_is_default for the default, and 409 library_root_in_use while any workflow (finished ones included), published link, adopted file, recycle entry, relocation, import list or Seerr route refers to it; disable such a root instead. Audited as library.root_deleted.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "deleteLibraryRoot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Delete a library root that nothing uses",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      },
       "patch": {
-        "description": "Making a root the default clears the default of the other roots of the same kind; requests and manual adds without an explicit root land there. Disabling is refused while the root is the default, has open workflows, holds current published links, or an enabled Seerr route points to it (relocate-links first). Audited as library.root_updated.\n\nChanges Media Manager state or queues local work. Audited.",
+        "description": "name is only a label; folders and Plex paths do not change. Making a root the default clears the default of the other roots of the same kind; requests and manual adds without an explicit root land there. Disabling is refused while the root is the default, has open workflows, holds current published links, or an enabled Seerr route points to it (relocate-links first). Audited as library.root_updated.\n\nChanges Media Manager state or queues local work. Audited.",
         "operationId": "updateLibraryRoot",
         "parameters": [
           {
@@ -7102,7 +7189,7 @@
             "description": "Error with a stable code."
           }
         },
-        "summary": "Make a library root the default for its media kind, or enable/disable it",
+        "summary": "Rename a library root, make it the default for its media kind, or enable/disable it",
         "tags": [
           "settings"
         ],
@@ -7552,6 +7639,58 @@
       }
     },
     "/api/v1/settings/quality-profiles/{id}": {
+      "delete": {
+        "description": "Never the default (409 quality_profile_is_default). Without replace_with only a profile with no workflows (finished ones included), adopted files, adoption batches, import lists or Seerr routes is deleted; otherwise 409 quality_profile_in_use. With ?replace_with=\u003cid\u003e of another enabled profile of the same media kind (422 quality_profile_replacement_invalid otherwise) every reference moves to that profile in the same transaction and the response reports the counts. The replacement's policy_version is raised, so moved titles whose round rules differ wait for apply-policy exactly as after a profile edit; they are never evaluated under the new rules silently. Audited as quality_profile.deleted.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "deleteQualityProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Enabled profile of the same media kind that takes over every reference.",
+            "in": "query",
+            "name": "replace_with",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Delete a quality profile, optionally moving its titles to another profile",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      },
       "patch": {
         "description": "Optimistic: policy_version is the version the editor read and is required. A stale version returns 409 quality_profile_changed and writes nothing, so an edit cannot overwrite a newer policy or its required rules; reload the profile and repeat the edit. A successful edit bumps policy_version by one. Existing acquisition rounds keep their snapshotted policy until the owner calls apply-policy.\n\nChanges Media Manager state or queues local work. Audited.",
         "operationId": "updateQualityProfile",

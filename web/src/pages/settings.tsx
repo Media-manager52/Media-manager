@@ -4,13 +4,13 @@ import { useState } from "react"
 import { NavLink, useParams } from "react-router"
 
 import {
-  applyQualityProfilePolicy, deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
+  applyQualityProfilePolicy, ApiError, deleteLibraryRoot, deleteQualityProfile, deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
   setNotificationDestinationEnabled, updateLibraryRoot,
   type APIIntegration, type APILibraryRoot, type APIQualityProfile,
 } from "@/api/client"
 import { AdoptionGuide } from "@/components/adoption-guide"
 import { OptionPicker } from "@/components/option-picker"
-import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection, EditProfileDialog } from "@/components/setup-forms"
+import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection, DeleteSettingDialog, EditProfileDialog, fieldClass } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dialog, Empty, ErrorBox, PageHeader } from "@/components/ui"
 import { formatNumber, formatRelative, pluralize } from "@/format"
@@ -69,6 +69,19 @@ function Profiles() {
   const [editing, setEditing] = useState<APIQualityProfile>()
   const [copying, setCopying] = useState<APIQualityProfile>()
   const [applying, setApplying] = useState<APIQualityProfile>()
+  const [deleting, setDeleting] = useState<APIQualityProfile>()
+  const queryClient = useQueryClient()
+  const toast = useToast()
+  const [replacement, setReplacement] = useState("")
+  const remove = useMutation({
+    mutationFn: ({ profile, replaceWith }: { profile: APIQualityProfile; replaceWith?: string }) => deleteQualityProfile(profile.id, replaceWith),
+    onSuccess: async (result, { profile }) => {
+      const moved = result?.moved
+      toast("good", moved?.replaced_by ? `Profilen ${profile.name} er slettet. ${pluralize(moved.moved_titles, "titel", "titler")} bruger nu ${moved.replaced_by}.` : `Profilen ${profile.name} er slettet.`)
+      setDeleting(undefined)
+      await queryClient.invalidateQueries({ queryKey: ["settings", "profiles"] })
+    },
+  })
   if (query.error) return <ErrorBox error={query.error} retry={() => query.refetch()} />
   if (query.isPending) return <Card><ListSkeleton /></Card>
   const groups: Array<[string, APIQualityProfile[]]> = [["Film", query.data.filter((p) => p.media_kind === "movie")], ["Serier", query.data.filter((p) => p.media_kind === "series")]]
@@ -82,6 +95,42 @@ function Profiles() {
       {editing ? <EditProfileDialog key={editing.id} profile={editing} onClose={() => setEditing(undefined)} /> : null}
       {copying ? <AddProfileDialog key={copying.id} copyFrom={copying} onClose={() => setCopying(undefined)} /> : null}
       {applying ? <ApplyProfileDialog key={applying.id} profile={applying} onClose={() => setApplying(undefined)} /> : null}
+      {deleting ? (() => {
+        // The server says the profile is in use; the owner may then name the profile that takes over.
+        const inUse = remove.error instanceof ApiError && (remove.error.code === "quality_profile_in_use" || remove.error.code === "quality_profile_replacement_invalid")
+        const candidates = query.data.filter((p) => p.media_kind === deleting.media_kind && p.enabled && p.id !== deleting.id).sort((a, b) => a.name.localeCompare(b.name, "da"))
+        const chosen = candidates.find((p) => p.id === replacement)
+        return (
+          <Dialog
+            open
+            onClose={() => { if (!remove.isPending) setDeleting(undefined) }}
+            title={`Slet profilen ${deleting.name}?`}
+            footer={<><Button variant="ghost" disabled={remove.isPending} onClick={() => setDeleting(undefined)}>Fortryd</Button>{inUse
+              ? <Button variant="danger" busy={remove.isPending} disabled={!chosen} onClick={() => remove.mutate({ profile: deleting, replaceWith: replacement })}>Flyt titler og slet</Button>
+              : <Button variant="danger" busy={remove.isPending} onClick={() => remove.mutate({ profile: deleting })}>Slet profil</Button>}</>}
+          >
+            <div className="space-y-3">
+              {!inUse ? <p>Profilen fjernes helt. Bruger titler eller en Seerr-regel den, bliver du først spurgt, hvilken profil de skal flyttes til.</p> : null}
+              {remove.error && !inUse ? <p role="alert" className="text-sm text-bad">{errorMessage(remove.error)}</p> : null}
+              {inUse ? (
+                <>
+                  <p role="alert">Profilen bruges af titler, filer eller en Seerr-regel. Vælg den profil, de skal flyttes til, før profilen slettes.</p>
+                  {candidates.length === 0 ? <p className="text-sm text-bad">Der er ingen anden profil for {deleting.media_kind === "movie" ? "film" : "serier"}, der er slået til. Opret eller slå en til først.</p> : (
+                    <label className="block text-sm font-medium">Flyt til
+                      <select aria-label="Flyt til profil" value={replacement} onChange={(event) => setReplacement(event.target.value)} className={fieldClass}>
+                        <option value="">Vælg profil</option>
+                        {candidates.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  {chosen ? <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm"><strong>Kravene ændrer sig.</strong> Titlerne skal fremover opfylde kravene i {chosen.name} (sprog, opløsning og lyd) i stedet for {deleting.name}. Filer, der allerede ligger i biblioteket, bliver liggende. Titler, der stadig venter, søger først igen, når du trykker &quot;Brug på ventende&quot; på {chosen.name}.</p> : null}
+                  {remove.error instanceof ApiError && remove.error.code === "quality_profile_replacement_invalid" ? <p className="text-sm text-bad">{errorMessage(remove.error)}</p> : null}
+                </>
+              ) : null}
+            </div>
+          </Dialog>
+        )
+      })() : null}
       {groups.map(([title, profiles]) => (
         <Card key={title}>
           <CardHeader title={title} />
@@ -103,6 +152,7 @@ function Profiles() {
                       <Button aria-label={`Rediger ${profile.name}`} className="h-8 text-xs" onClick={() => setEditing(profile)}>Rediger</Button>
                       <Button aria-label={`Kopier ${profile.name}`} variant="ghost" className="h-8 text-xs" onClick={() => setCopying(profile)}>Kopier</Button>
                       <Button aria-label={`Brug ${profile.name} på ventende opgaver`} variant="ghost" className="h-8 text-xs" onClick={() => setApplying(profile)}>Brug på ventende</Button>
+                      {!profile.is_default ? <Button aria-label={`Slet ${profile.name}`} variant="ghost" className="h-8 text-xs" onClick={() => { remove.reset(); setReplacement(""); setDeleting(profile) }}>Slet</Button> : null}
                     </div>
                   </div>
                   <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
@@ -148,6 +198,9 @@ function Roots() {
   const toast = useToast()
   const query = useQuery({ queryKey: ["settings", "roots"], queryFn: ({ signal }) => loadLibraryRoots(signal) })
   const [adding, setAdding] = useState(false)
+  const [deleting, setDeleting] = useState<APILibraryRoot>()
+  const [renaming, setRenaming] = useState<APILibraryRoot>()
+  const [newName, setNewName] = useState("")
   const mutation = useMutation({
     mutationFn: ({ root, patch }: { root: APILibraryRoot; patch: { is_default?: boolean; enabled?: boolean } }) => updateLibraryRoot(root.id, patch),
     onSuccess: async (_, { root }) => {
@@ -156,6 +209,14 @@ function Roots() {
     },
     onError: (error) => toast("bad", errorMessage(error)),
   })
+  const rename = useMutation({
+    mutationFn: (root: APILibraryRoot) => updateLibraryRoot(root.id, { name: newName.trim() }),
+    onSuccess: async () => {
+      toast("good", `Mappen hedder nu ${newName.trim()}.`)
+      setRenaming(undefined)
+      await queryClient.invalidateQueries({ queryKey: ["settings"] })
+    },
+  })
   if (query.error) return <ErrorBox error={query.error} retry={() => query.refetch()} />
   if (query.isPending) return <Card><ListSkeleton /></Card>
   const sorted = [...query.data].sort((a, b) => a.media_kind.localeCompare(b.media_kind) || a.name.localeCompare(b.name, "da"))
@@ -163,6 +224,22 @@ function Roots() {
     <Card>
       <CardHeader title="Biblioteksmapper" description="Hver mappe svarer til et bibliotek i Plex. Standardmappen bruges, når hverken du eller en Seerr-regel vælger en anden. En 4K-mappe holder en ekstra 4K-udgave og bruges kun, når 4K bestilles." action={<Button onClick={() => setAdding(true)}>Tilføj mappe</Button>} />
       {adding ? <AddRootDialog onClose={() => setAdding(false)} /> : null}
+      {deleting ? (
+        <DeleteSettingDialog title={`Slet mappen ${deleting.name}?`} confirm="Slet mappe" done={`${deleting.name} er slettet.`} action={() => deleteLibraryRoot(deleting.id)} onClose={() => setDeleting(undefined)}>
+          <p>Mappen fjernes kun fra Media Manager. Selve mappen på disken og Plex-biblioteket bliver ikke rørt. Det kan kun lade sig gøre, når mappen aldrig har haft titler, og ingen Seerr-regel peger på den.</p>
+        </DeleteSettingDialog>
+      ) : null}
+      {renaming ? (
+        <Dialog open onClose={() => { if (!rename.isPending) setRenaming(undefined) }} title={`Omdøb ${renaming.name}`} footer={<><Button variant="ghost" disabled={rename.isPending} onClick={() => setRenaming(undefined)}>Fortryd</Button><Button variant="primary" busy={rename.isPending} disabled={!newName.trim() || newName.trim() === renaming.name} onClick={() => rename.mutate(renaming)}>Gem navn</Button></>}>
+          <div className="space-y-3">
+            <label className="block text-sm font-medium">Navn
+              <input aria-label="Mappens navn" value={newName} maxLength={120} onChange={(event) => setNewName(event.target.value)} className={fieldClass} />
+            </label>
+            <p className="text-sm text-text-2">Kun navnet her på siden ændres. Mapper, filnavne og Plex-biblioteket er de samme som før.</p>
+            {rename.error ? <p role="alert" className="text-sm text-bad">{errorMessage(rename.error)}</p> : null}
+          </div>
+        </Dialog>
+      ) : null}
       {sorted.length === 0 ? <Empty title="Ingen biblioteksmapper endnu">Tilføj en mappe for hvert Plex-bibliotek, Media Manager skal lægge film eller serier i.</Empty> : null}
       <ul className="divide-y divide-line">
         {sorted.map((root) => (
@@ -177,9 +254,11 @@ function Roots() {
               </div>
               <div className="mt-0.5 break-all text-xs text-text-3">{root.plex_visible_root || root.destination_root}</div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {!root.is_default && root.enabled && root.edition !== "4k" ? <Button className="h-8 text-xs" busy={mutation.isPending} onClick={() => mutation.mutate({ root, patch: { is_default: true } })}>Gør til standard</Button> : null}
               {!root.is_default ? <Button variant="ghost" className="h-8 text-xs" busy={mutation.isPending} onClick={() => mutation.mutate({ root, patch: { enabled: !root.enabled } })}>{root.enabled ? "Slå fra" : "Slå til"}</Button> : null}
+              <Button variant="ghost" className="h-8 text-xs" aria-label={`Omdøb ${root.name}`} onClick={() => { rename.reset(); setNewName(root.name); setRenaming(root) }}>Omdøb</Button>
+              {!root.is_default ? <Button variant="ghost" className="h-8 text-xs" aria-label={`Slet ${root.name}`} onClick={() => setDeleting(root)}>Slet</Button> : null}
             </div>
           </li>
         ))}

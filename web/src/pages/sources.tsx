@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { loadIndexers, loadOldBoysCredentialStatus, saveOldBoysCredentials, updateIndexer, type APIIndexerUsage } from "@/api/client"
-import { AddIndexerDialog, IndexerSetupActions } from "@/components/setup-forms"
+import { deleteIntegration, loadIndexers, loadOldBoysCredentialStatus, saveOldBoysCredentials, updateIndexer, type APIIndexerUsage } from "@/api/client"
+import { AddIndexerDialog, DeleteSettingDialog, IndexerSetupActions } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox, PageHeader, Progress } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative } from "@/format"
@@ -30,6 +30,8 @@ export function SourcesPage() {
 
 function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
   const [editing, setEditing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const shownName = indexer.name.replace(/\s*\{DK\}\s*/i, "")
   const { budget, usage, pacing } = indexer
   const usedShare = budget.query_limit ? usage.queries_used / budget.query_limit : 0
   const failing = pacing.consecutive_failures > 0
@@ -54,7 +56,13 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
         <div className="flex flex-wrap gap-2">
           <IndexerSetupActions integration={indexer} commissioned={indexer.commissioned} />
           <Button variant="ghost" className="h-8 text-xs" onClick={() => setEditing(true)}>Rediger</Button>
+          {!indexer.enabled ? <Button variant="ghost" className="h-8 text-xs" aria-label={`Slet ${shownName}`} onClick={() => setDeleting(true)}>Slet</Button> : null}
         </div>
+        {deleting ? (
+          <DeleteSettingDialog title={`Slet indexeren ${shownName}?`} confirm="Slet indexer" done={`${shownName} er slettet.`} action={() => deleteIntegration(indexer.id)} onClose={() => setDeleting(false)}>
+            <p>Indexeren og dens gemte nøgle fjernes helt. Det kan kun lade sig gøre, når den aldrig har søgt eller leveret noget. En indexer, der har været i brug, kan slås fra, men ikke slettes.</p>
+          </DeleteSettingDialog>
+        ) : null}
       </div>
       <div className="space-y-3 px-5 py-4 text-sm">
         <div>

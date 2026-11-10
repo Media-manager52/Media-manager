@@ -117,3 +117,54 @@ test("Brug på ventende only runs when confirmed and reports what happened", asy
   await expect(dialog.getByRole("status")).toContainText("3 opgaver bruger nu de nye regler. 2 blev sprunget over")
   expect(sent).toEqual([{ path: "/apply-policy", body: null }])
 })
+
+test("Slet removes an unused profile after a confirmation", async ({ page }) => {
+  const sent = await openProfiles(page)
+  const methods: string[] = []
+  page.on("request", (request) => { if (request.url().endsWith("/quality-profiles/p1")) methods.push(request.method()) })
+  await page.getByRole("button", { name: "Slet Dansk" }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toContainText("Slet profilen Dansk?")
+  expect(sent).toHaveLength(0)
+  await dialog.getByRole("button", { name: "Slet profil" }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText("Profilen Dansk er slettet.")).toBeVisible()
+  expect(sent).toEqual([{ path: "patch", body: null }])
+  expect(methods).toEqual(["DELETE"])
+})
+
+test("Slet on a profile in use asks which profile takes over, and the default has no Slet", async ({ page }) => {
+  const other = { ...profile, id: "p2", name: "Engelsk" }
+  const disabled = { ...profile, id: "p3", name: "Gammel", enabled: false }
+  const series = { ...profile, id: "p4", name: "Serieprofil", media_kind: "series" }
+  const urls: string[] = []
+  await openProfiles(page, {}, () => ({ status: 409, json: { error: { code: "quality_profile_in_use", message: "in use" } } }))
+  await page.route("**/api/v1/settings/quality-profiles", (route) => route.fulfill({ json: { data: [profile, other, disabled, series] } }))
+  await page.route("**/api/v1/settings/quality-profiles/p1**", (route) => {
+    const url = new URL(route.request().url())
+    urls.push(route.request().method() + " " + url.pathname.split("/").pop() + url.search)
+    return url.searchParams.get("replace_with")
+      ? route.fulfill({ json: { data: { status: "removed", moved: { name: "Dansk", replaced_by: "Engelsk", moved_titles: 12, moved_files: 3, moved_settings: 1 } } } })
+      : route.fulfill({ status: 409, json: { error: { code: "quality_profile_in_use", message: "in use" } } })
+  })
+  await page.reload()
+  await page.getByRole("button", { name: "Slet Dansk" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByRole("button", { name: "Slet profil" }).click()
+  await expect(dialog.getByRole("alert")).toContainText("Vælg den profil, de skal flyttes til")
+  const move = dialog.getByRole("button", { name: "Flyt titler og slet" })
+  await expect(move).toBeDisabled()
+  // Only enabled profiles of the same kind can take over.
+  await expect(dialog.getByLabel("Flyt til profil").locator("option")).toHaveText(["Vælg profil", "Engelsk"])
+  await dialog.getByLabel("Flyt til profil").selectOption("p2")
+  await expect(dialog).toContainText("Kravene ændrer sig.")
+  await expect(dialog).toContainText("kravene i Engelsk")
+  expect(urls).toEqual(["DELETE p1"])
+  await move.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText("Profilen Dansk er slettet. 12 titler bruger nu Engelsk.")).toBeVisible()
+  expect(urls).toEqual(["DELETE p1", "DELETE p1?replace_with=p2"])
+  await openProfiles(page, { is_default: true })
+  await expect(page.getByRole("button", { name: "Rediger Dansk" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Slet Dansk" })).toHaveCount(0)
+})

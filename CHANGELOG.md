@@ -4,11 +4,20 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Kvalitetsprofiler** have a **Slet** button. A profile that nothing uses is removed after a confirmation. For a profile that titles, files, an import list or a Seerr rule use, the dialog asks which other profile (same kind, switched on) they move to, and says in plain words that those titles must then meet the other profile's requirements; files already in the library stay, and titles still waiting search again only after **Brug på ventende** on that profile. The default profile is never deleted. `DELETE /api/v1/settings/quality-profiles/{id}` takes `replace_with` for this.
+- **Slet for library folders, connections and indexers,** each only when nothing uses it. A library folder that has never held a title and has no Seerr rule can be deleted (the folder on disk and the Plex library are not touched). A connection or indexer must be switched off first and is deleted only when it has no history; one that has searched, downloaded or received requests stays switched off, because that history belongs to the titles. Library folders also have **Omdøb**, which changes only the name shown on the website.
+
 ### Changed
 
 - **The title page** is tidier, mostly on a phone: the poster sits beside the title, a long plot folds behind "Læs mere", and the buttons line up in a grid. **Filer i biblioteket** shows a short name per file (`S01E03 · The Guest`, or the film and year) with its measured quality; a tap opens the library, the full path and "Erstat dårlig fil". Only the display changed: file and folder names on disk are untouched. More subtitle languages are named in Danish.
 - **Aktivitet** under System names the title, and the season or episode, each entry is about, with a link to the title. `GET /api/v1/activity` returns `media_id`, `title` and `variant` for entries that belong to a title or one of its workflows.
 - **Small tidy-ups across the website:** **Reparationer** shows which episode a repair is for. **Forbindelser** on the status page shows whole names with a plain word for what each connection does. **Baggrundskø** fits a phone screen without scrolling sideways. Library folders and connections in **Indstillinger** stack their buttons under the name on a phone. **Anmodninger** keeps posters in shape and drops "0 af 1 dele" for a single film. **Kilder** no longer repeats the same explanation on every indexer.
+
+### Fixed
+
+- **Kræver handling, Arbejde and other lists open in a fraction of the time.** PostgreSQL spent two to three seconds compiling each list query (JIT) before running it for a few milliseconds. Media Manager now turns JIT off for its own database connections; a `DATABASE_URL` that sets `jit` itself keeps its choice.
 
 ## [0.1.0-beta.6] - 2026-11-10
 
