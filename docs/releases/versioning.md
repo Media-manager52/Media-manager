@@ -1,10 +1,10 @@
 # Versioning and image identity
 
 This document defines the contract every Media Manager release follows. The
-current release, `v0.1.0-beta.7`, was published on 2026-11-10; see
-[`v0.1.0-beta.7.md`](v0.1.0-beta.7.md) and its
-[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.7).
-Earlier releases: [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
+current release, `v0.1.0-beta.8`, was published on 2026-11-10; see
+[`v0.1.0-beta.8.md`](v0.1.0-beta.8.md) and its
+[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.8).
+Earlier releases: [`v0.1.0-beta.7`](v0.1.0-beta.7.md), [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
 [`v0.1.0-beta.1`](v0.1.0-beta.1.md).
 
 ## Versions
@@ -43,13 +43,13 @@ under `/usr/share/doc/media-manager/`, and carries the
 source is <https://github.com/Media-manager52/Media-manager>. Release checks must
 verify the label and both files in the published image.
 
-Released images (`v0.1.0-beta.7`, commit `8e4b84435dc11fb5fa1c30a70e21175804d12f82`):
+Released images (`v0.1.0-beta.8`, commit `94010c112bf288a6532341cb36c36a23aa5fc4e4`):
 
 ```text
-api index         sha256:f3dd65755971df5649693fd15e1a19f11bb1f2b046d8b05c93998b1bb699bce4
-api linux/amd64   sha256:fa7a7a43802bb3a938a707a7162f0422941f1e8b9c77710600dab1d80775f2db
-ui  index         sha256:c2382995cb3b6a762c31161d5ae5e4f8f343708084b659781c56d150ec59f8cb
-ui  linux/amd64   sha256:6048071ecf402f011e51ec29297a87a39a707e97c70f357a5b9f448e7dff07cd
+api index         sha256:8f635c43bc77adfa2f72a7f83026317111060dbbbc8d586830c64c5aeb10f466
+api linux/amd64   sha256:1b616b1781c9319d3014af64ccf9ac1d0a12634d7e7eca96eed768c2b1e097b2
+ui  index         sha256:b70000dd80b28f9dcac464eec3dfc4d1acad902e0c091249f93951e34b750410
+ui  linux/amd64   sha256:97a19edb8a844ece0dc29d56909f9ec8c8eb790b343f8979783a776f329d5e26
 ```
 
 Released images (`v0.1.0-beta.5`, commit `db81e67986b15a4886db4ea8f6e027422bd1f439`):
