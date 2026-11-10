@@ -1897,6 +1897,9 @@
           "attention_detail": {
             "type": "string"
           },
+          "backdrop_url": {
+            "type": "string"
+          },
           "complete_no_new_scans": {
             "type": "integer"
           },
@@ -1953,6 +1956,9 @@
           },
           "owner_action_required": {
             "type": "boolean"
+          },
+          "poster_url": {
+            "type": "string"
           },
           "quality_profile": {
             "type": "string"

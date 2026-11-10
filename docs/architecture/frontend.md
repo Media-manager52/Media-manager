@@ -136,7 +136,9 @@ These have no React and are covered by Vitest. The preset fixture
   drawer on mobile, and no horizontal page scroll (also tested). The palette,
   the overview's picture tiles, the library's poster grid and the title page's
   wide picture with facts and cast row (`components/title-hero.tsx`,
-  `lib/title-facts.ts`) are adapted from HolyArrs (AGPL-3.0-only, see
+  `lib/title-facts.ts`) and the picture cards on Kræver handling and
+  Anmodninger (`components/media-card.tsx`) are adapted from HolyArrs
+  (AGPL-3.0-only, see
   `THIRD_PARTY_NOTICES.md`).
 
 ## 7. Tests

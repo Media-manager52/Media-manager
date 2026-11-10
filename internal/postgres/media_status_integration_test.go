@@ -133,6 +133,29 @@ func TestLibraryFoldersRecentAdditionsAndIndexerDownloads(t *testing.T) {
 	if first := items[0]; first.Title != "Recent Newer" || first.MediaKind != "movie" || first.Variant != "default" || first.Edition != "standard" || first.PosterURL != "https://image.invalid/newer.jpg" || first.BackdropURL != "https://image.invalid/newer-wide.jpg" || first.AddedAt.IsZero() {
 		t.Fatalf("recent addition = %+v", first)
 	}
+	// Lists of work carry the title's stored artwork, and none without metadata.
+	summaries, err := store.ListWorkflowSummariesPage(ctx, 500, 0, false, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, summary := range summaries {
+		switch summary.MediaID {
+		case newer.ID:
+			seen++
+			if summary.PosterURL != "https://image.invalid/newer.jpg" || summary.BackdropURL != "https://image.invalid/newer-wide.jpg" {
+				t.Fatalf("work for the title with artwork = poster %q backdrop %q", summary.PosterURL, summary.BackdropURL)
+			}
+		case older.ID:
+			seen++
+			if summary.PosterURL != "" || summary.BackdropURL != "" {
+				t.Fatalf("work for the title without metadata = poster %q backdrop %q, want none", summary.PosterURL, summary.BackdropURL)
+			}
+		}
+	}
+	if seen < 2 {
+		t.Fatalf("found %d workflows for the two titles, want both", seen)
+	}
 	// A displaced file is no longer in the library.
 	exec(`UPDATE library_link_versions SET state='displaced',displaced_at=now() WHERE id=$1`, newerVersion.String())
 	if items := recent(); len(items) != 1 || items[0].MediaID != older.ID {

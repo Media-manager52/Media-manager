@@ -5,13 +5,13 @@ import { Link } from "react-router"
 
 import { loadAttentionWorkflows, loadProblems, type APIWorkflow } from "@/api/client"
 import { BulkActions } from "@/components/bulk-actions"
-import { Badge, Card, CardHeader, Empty, ErrorBox, PageHeader, SearchField, ShowMore } from "@/components/ui"
+import { CardGridSkeleton, cornerClass, MediaCard } from "@/components/media-card"
+import { Badge, Button, Card, CardHeader, Empty, ErrorBox, PageHeader, SearchField } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatRelative, pluralize } from "@/format"
 import { attentionLabel, repairReasonLabel, stateLabel, translateDetail } from "@/i18n"
 import { describeVariant, titleHref, workflowHref } from "@/lib/links"
 import { useShowMore } from "@/lib/show-more"
-import { ListSkeleton } from "@/pages/overview"
 
 export function AttentionPage() {
   const workflows = useQuery({ queryKey: ["workflows", "attention"], queryFn: ({ signal }) => loadAttentionWorkflows(signal), refetchInterval: 60_000 })
@@ -46,14 +46,14 @@ export function AttentionPage() {
           </ul>
         </Card>
       ) : null}
-      {workflows.isPending ? <Card><ListSkeleton rows={6} /></Card> : null}
+      {workflows.isPending ? <CardGridSkeleton /> : null}
       {!workflows.isPending && total === 0 && !workflows.error ? (
         systemProblems.length > 0
           ? <Card><Empty title="Ingen titler kræver dig">Alt arbejde kører eller venter helt normalt. Se systemets problemer ovenfor.</Empty></Card>
           : <Card><Empty title="Intet kræver dig" icon={<CheckCircle2 className="size-8 text-good" />}>Alt arbejde kører eller venter helt normalt på nye udgivelser.</Empty></Card>
       ) : null}
       {total > 0 && groups.length === 0 ? <Card><Empty title="Ingen sager passer til søgningen" /></Card> : null}
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-10">
         {groups.map(([reason, items]) => <AttentionGroup key={reason} reason={reason} items={items} />)}
       </div>
     </>
@@ -61,37 +61,39 @@ export function AttentionPage() {
 }
 
 function AttentionGroup({ reason, items }: { reason: string; items: APIWorkflow[] }) {
-  const { shown, remaining, showMore } = useShowMore(items, 20)
+  const { shown, remaining, showMore } = useShowMore(items, 18)
   return (
-    <Card>
-      <CardHeader title={reason} description={pluralize(items.length, "sag", "sager")} action={<BulkActions workflows={items} />} />
-      <ul className="divide-y divide-line">
+    <section aria-label={reason}>
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold tracking-tight">{reason}</h2>
+          <p className="text-sm text-text-3">{pluralize(items.length, "sag", "sager")}</p>
+        </div>
+        <BulkActions workflows={items} />
+      </div>
+      <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {shown.map((workflow) => <AttentionItem key={workflow.id} workflow={workflow} />)}
       </ul>
-      <ShowMore remaining={remaining} onClick={showMore} />
-    </Card>
+      {remaining > 0 ? <div className="mt-4 flex justify-center"><Button onClick={showMore}>Vis flere ({remaining.toLocaleString("da-DK")} tilbage)</Button></div> : null}
+    </section>
   )
 }
 
 function AttentionItem({ workflow }: { workflow: APIWorkflow }) {
+  const detail = workflow.attention_detail ? translateDetail(workflow.attention_detail) : ""
   return (
-    <li className="px-5 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Link to={titleHref(workflow.media_id)} className="font-medium hover:underline">
-            {workflow.title}{workflow.year ? <span className="font-normal text-text-3"> ({workflow.year})</span> : null}
-          </Link>
-          <div className="text-sm text-text-2">
-            {describeVariant(workflow)} · {stateLabel(workflow.state)} · ændret {formatRelative(workflow.updated_at)}
-          </div>
-        </div>
-        <Link to={workflowHref(workflow)} className="text-sm font-medium text-accent-strong hover:underline">Detaljer</Link>
-      </div>
-      {workflow.attention_detail ? <p className="mt-2 break-words text-sm text-text-2">{translateDetail(workflow.attention_detail)}</p> : null}
-      <div className="mt-3">
+    <MediaCard
+      backdrop={workflow.backdrop_url}
+      poster={workflow.poster_url}
+      title={<Link to={titleHref(workflow.media_id)} className="hover:underline">{workflow.title}{workflow.year ? <span className="font-normal text-white/75"> ({workflow.year})</span> : null}</Link>}
+      subtitle={`${describeVariant(workflow)} · ${stateLabel(workflow.state)} · ændret ${formatRelative(workflow.updated_at)}`}
+      corner={<Link to={workflowHref(workflow)} className={cornerClass}>Detaljer</Link>}
+    >
+      {detail ? <p title={detail} className="line-clamp-4 break-words text-sm text-text-2">{detail}</p> : null}
+      <div className="mt-auto">
         <WorkflowActions workflow={workflow} compact />
       </div>
-    </li>
+    </MediaCard>
   )
 }
 

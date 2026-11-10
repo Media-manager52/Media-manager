@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Check, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { Link } from "react-router"
 
 import { decideRequest, loadRequestsPage, type APIRequest } from "@/api/client"
-import { Poster, sizedArtwork } from "@/components/poster"
+import { CardGridSkeleton, cornerClass, MediaCard } from "@/components/media-card"
 import { useToast } from "@/components/toast"
-import { Badge, Button, Card, Dialog, Empty, ErrorBox, PageHeader, SearchField, Segmented } from "@/components/ui"
+import { Button, Card, Dialog, Dot, Empty, ErrorBox, PageHeader, SearchField, Segmented } from "@/components/ui"
 import { formatRelative } from "@/format"
 import { errorMessage, kindLabel, stateLabel, translateDetail } from "@/i18n"
 import { titleHref } from "@/lib/links"
 import { requestLifecycleTone, requestMatchesFilter, type RequestFilter } from "@/lib/media-manager-requests"
-import { ListSkeleton } from "@/pages/overview"
+import { useShowMore } from "@/lib/show-more"
 
 async function loadAllRequests(signal: AbortSignal): Promise<APIRequest[]> {
   const all: APIRequest[] = []
@@ -58,13 +59,21 @@ export function RequestsPage() {
         <SearchField value={search} onChange={setSearch} placeholder="Søg titel eller person" label="Søg i anmodninger" />
       </div>
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
-      <Card>
-        {query.isPending ? <ListSkeleton rows={6} /> : null}
-        {!query.isPending && items.length === 0 && !query.error ? <Empty title="Ingen anmodninger her" /> : null}
-        <ul className="divide-y divide-line">
-          {items.map((item) => <RequestRow key={item.id} item={item} />)}
-        </ul>
-      </Card>
+      {query.isPending ? <CardGridSkeleton /> : null}
+      {!query.isPending && items.length === 0 && !query.error ? <Card><Empty title="Ingen anmodninger her" /></Card> : null}
+      <RequestCards key={`${filter}:${search}`} items={items} />
+    </>
+  )
+}
+
+function RequestCards({ items }: { items: APIRequest[] }) {
+  const { shown, remaining, showMore } = useShowMore(items, 36)
+  return (
+    <>
+      <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {shown.map((item) => <RequestRow key={item.id} item={item} />)}
+      </ul>
+      {remaining > 0 ? <div className="mt-6 flex justify-center"><Button onClick={showMore}>Vis flere ({remaining.toLocaleString("da-DK")} tilbage)</Button></div> : null}
     </>
   )
 }
@@ -73,27 +82,32 @@ function RequestRow({ item }: { item: APIRequest }) {
   const title = (
     <>
       {item.title}
-      {item.year ? <span className="font-normal text-text-3"> ({item.year})</span> : null}
+      {item.year ? <span className="font-normal text-white/75"> ({item.year})</span> : null}
     </>
   )
-  const seasons = item.media_kind === "series" && item.season_count > 0 ? ` · ${item.available_seasons} af ${item.season_count} sæsoner klar` : ""
-  const progress = item.workflow_count > 1 ? ` · ${item.confirmed_count} af ${item.workflow_count} dele i Plex` : ""
+  const seasons = item.media_kind === "series" && item.season_count > 0 ? `${item.available_seasons} af ${item.season_count} sæsoner klar` : ""
+  const progress = item.workflow_count > 1 ? `${item.confirmed_count} af ${item.workflow_count} dele i Plex` : ""
+  const facts = [seasons, progress].filter(Boolean).join(" · ")
+  const tone = requestLifecycleTone(item.lifecycle)
   return (
-    <li className="flex gap-4 px-5 py-4">
-      <Poster src={sizedArtwork(item.poster_url, "w185")} title={item.title} kind={item.media_kind} className="w-12 shrink-0 self-start rounded-lg" />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-start gap-2">
-          <div className="min-w-0 flex-1 font-medium">{item.media_id ? <Link to={titleHref(item.media_id)} className="hover:underline">{title}</Link> : title}</div>
-          <Badge tone={requestLifecycleTone(item.lifecycle)}>{stateLabel(item.lifecycle)}</Badge>
+    <MediaCard
+      backdrop={item.backdrop_url}
+      poster={item.poster_url}
+      title={item.media_id ? <Link to={titleHref(item.media_id)} className="hover:underline">{title}</Link> : title}
+      subtitle={kindLabel(item.media_kind || undefined)}
+      corner={<span className={cornerClass}><Dot tone={tone} />{stateLabel(item.lifecycle)}</span>}
+    >
+      <div className="flex items-center gap-2.5">
+        <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-3 text-xs font-semibold text-text-2">{(item.requester || "?").slice(0, 1).toLocaleUpperCase("da")}</span>
+        <div className="min-w-0 text-sm">
+          <div className="truncate font-medium">{item.requester ? `Ønsket af ${item.requester}` : "Ønsket i Seerr"}</div>
+          <div className="text-xs text-text-3">{formatRelative(item.requested_at ?? item.updated_at)}{facts ? ` · ${facts}` : ""}</div>
         </div>
-        <div className="mt-0.5 text-sm text-text-2">
-          {kindLabel(item.media_kind || undefined)}{item.requester ? ` · ønsket af ${item.requester}` : ""} · {formatRelative(item.requested_at ?? item.updated_at)}{seasons}{progress}
-        </div>
-        {item.attention_detail || item.intake_error ? <p className={`mt-1 break-words text-sm ${item.attention_count > 0 || item.intake_error ? "text-warn" : "text-text-3"}`}>{translateDetail(item.attention_detail || item.intake_error)}</p> : null}
-        {!item.attention_detail && item.waiting_reason ? <p className="mt-1 text-sm text-text-3">{translateDetail(item.waiting_reason)}{item.next_search_at ? ` · næste søgning ${formatRelative(item.next_search_at)}` : ""}</p> : null}
-        {item.lifecycle === "not_approved" ? <Decide item={item} /> : null}
       </div>
-    </li>
+      {item.attention_detail || item.intake_error ? <p className={`line-clamp-3 break-words text-sm ${item.attention_count > 0 || item.intake_error ? "text-warn" : "text-text-3"}`}>{translateDetail(item.attention_detail || item.intake_error)}</p> : null}
+      {!item.attention_detail && item.waiting_reason ? <p className="line-clamp-3 text-sm text-text-3">{translateDetail(item.waiting_reason)}{item.next_search_at ? ` · næste søgning ${formatRelative(item.next_search_at)}` : ""}</p> : null}
+      {item.lifecycle === "not_approved" ? <Decide item={item} /> : null}
+    </MediaCard>
   )
 }
 
@@ -111,9 +125,9 @@ function Decide({ item }: { item: APIRequest }) {
     onError: (error) => toast("bad", errorMessage(error)),
   })
   return (
-    <div className="mt-3 flex gap-2">
-      <Button variant="primary" className="h-8 text-xs" onClick={() => setConfirm("approve")}>Godkend</Button>
-      <Button variant="ghost" className="h-8 text-xs" onClick={() => setConfirm("decline")}>Afvis</Button>
+    <div className="mt-auto grid grid-cols-2 gap-2">
+      <Button variant="secondary" className="h-10 text-xs sm:h-9" onClick={() => setConfirm("decline")}><X aria-hidden className="size-3.5" />Afvis</Button>
+      <Button variant="inverse" className="h-10 text-xs sm:h-9" onClick={() => setConfirm("approve")}><Check aria-hidden className="size-3.5" />Godkend</Button>
       <Dialog
         open={confirm !== null}
         onClose={() => setConfirm(null)}

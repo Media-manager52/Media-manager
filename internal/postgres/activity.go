@@ -65,6 +65,10 @@ type WorkflowSummary struct {
 	// QualityProfile is the name of the profile this workflow acquires under,
 	// so an owner sees it before any file exists.
 	QualityProfile string `json:"quality_profile,omitempty"`
+	// PosterURL and BackdropURL are the title's stored artwork, so lists of
+	// work can show the title's picture; empty when no metadata is stored.
+	PosterURL   string `json:"poster_url,omitempty"`
+	BackdropURL string `json:"backdrop_url,omitempty"`
 	// OwnerActionRequired is the single owner-facing "needs attention"
 	// predicate. It is true only when the workflow cannot advance without the
 	// owner: an unresolved failure state, or a waiting workflow whose paced
@@ -178,8 +182,10 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		progress.progress_percent,COALESCE(progress.progress_stage,''),progress.progress_observed_at,
 		COALESCE(profile.name,''),access_retry.id,COALESCE(access_retry.title,''),COALESCE(access_retry.indexer_name,''),
 		EXISTS(SELECT 1 FROM altmount_jobs job WHERE job.workflow_id=workflow.id AND job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested')),
-		(workflow.state='waiting' AND `+seasonCoveredByEpisodesSQL+`)
+		(workflow.state='waiting' AND `+seasonCoveredByEpisodesSQL+`),
+		COALESCE(metadata.data->>'poster_url',''),COALESCE(metadata.data->>'backdrop_url','')
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
+		LEFT JOIN media_metadata metadata ON metadata.media_id=workflow.media_id
 		LEFT JOIN altmount_jobs progress ON progress.id=workflow.grab_attempt_id AND workflow.state IN ('submitting','queued','downloading','streaming_ready')
 		LEFT JOIN quality_profiles profile ON profile.id=workflow.quality_profile_id
 		LEFT JOIN LATERAL (SELECT c.id::text,c.title,i.name AS indexer_name `+store.accessRejectedRetryQuery()+` AND w.id=workflow.id) access_retry ON true
@@ -204,7 +210,7 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		var revision int64
 		var publicationStarted, currentJobNeedsAttention bool
 		var downloadPercent *int16
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Edition, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob, &item.CoveredByEpisodes); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Edition, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob, &item.CoveredByEpisodes, &item.PosterURL, &item.BackdropURL); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

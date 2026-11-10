@@ -30,12 +30,13 @@ export function Dot({ tone }: { tone: Tone }) {
   return <span aria-hidden className={cx("inline-block size-2 shrink-0 rounded-full", color)} />
 }
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger"
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "inverse"
 const buttonClasses: Record<ButtonVariant, string> = {
   primary: "bg-accent text-[#1b1b1b] hover:bg-accent-strong shadow-sm",
   secondary: "bg-surface border border-line text-text hover:bg-surface-2",
   ghost: "text-text-2 hover:bg-surface-2 hover:text-text",
   danger: "bg-bad-soft text-bad hover:brightness-95",
+  inverse: "bg-text text-bg hover:opacity-90 shadow-sm",
 }
 
 export function Button({ variant = "secondary", busy, children, className, disabled, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; busy?: boolean }) {
