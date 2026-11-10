@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { mockApi } from "./mock-api"
+import { ids, mockApi } from "./mock-api"
 
 const longPath = `/media/Serier/${"EnMegetLangMappeUdenMellemrum".repeat(12)}/fil.mkv`
 const repair = (id: number, state: string, reason = "missing_required_audio", detail = "replacement confirmed in Plex; the old file was retired") => ({
@@ -91,3 +91,30 @@ test("the menu is grouped, counts films and series, and Ctrl+K jumps to search",
   await page.locator("body").press("Control+k")
   await expect(page.getByRole("searchbox", { name: "Søg i dine titler" })).toBeFocused()
 })
+
+test("the library names the kind, notes what is not followed and shows status under the poster", async ({ page }) => {
+  await page.goto("/bibliotek?type=serier")
+  await expect(page.getByRole("heading", { level: 1, name: "Serier" })).toBeVisible()
+  await expect(page.getByText("1 serie har nye sæsoner, som du ikke følger endnu")).toBeVisible()
+  await page.goto("/bibliotek?type=film")
+  await expect(page.getByRole("heading", { level: 1, name: "Film" })).toBeVisible()
+  const tile = page.getByRole("link", { name: /Testfilmen/ })
+  await expect(tile.getByText("Kræver handling")).toBeVisible()
+  await page.getByRole("link", { name: "Se hvad der mangler" }).click()
+  await expect(page).toHaveURL(/\/bibliotek\/mangler\?vis=film$/)
+})
+
+test("the title page shows the picture, the facts, who made it and the cast", async ({ page }) => {
+  await page.goto(`/bibliotek/${ids.movie}`)
+  await expect(page.getByRole("heading", { level: 1, name: "Testfilmen" })).toBeVisible()
+  const facts = page.getByRole("list", { name: "Fakta" })
+  await expect(facts.getByText("1 t 41 min")).toBeVisible()
+  await expect(page.getByText("En film, der kun findes i tests.")).toBeVisible()
+  await expect(page.getByText("Ida Instruktør")).toBeVisible()
+  const cast = page.getByRole("region", { name: "Medvirkende" })
+  await expect(cast.getByText("Anna Skuespiller")).toBeVisible()
+  await expect(cast.getByText("Naboen")).toBeVisible()
+  await page.getByRole("navigation", { name: "Brødkrumme" }).getByRole("link", { name: "Film" }).click()
+  await expect(page).toHaveURL(/\/bibliotek\?type=film$/)
+})
+

@@ -133,9 +133,11 @@ These have no React and are covered by Vitest. The preset fixture
   fails on any serious or critical violation.
 - Layout works from 360 px wide: a grouped sidebar and a top search bar
   (Ctrl+K or `/` focuses it) on desktop, a top bar plus a bottom tab bar and
-  drawer on mobile, and no horizontal page scroll (also tested). The palette
-  and the overview's picture tiles are adapted from HolyArrs (AGPL-3.0-only,
-  see `THIRD_PARTY_NOTICES.md`).
+  drawer on mobile, and no horizontal page scroll (also tested). The palette,
+  the overview's picture tiles, the library's poster grid and the title page's
+  wide picture with facts and cast row (`components/title-hero.tsx`,
+  `lib/title-facts.ts`) are adapted from HolyArrs (AGPL-3.0-only, see
+  `THIRD_PARTY_NOTICES.md`).
 
 ## 7. Tests
 

@@ -1,17 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronDown, ExternalLink, RefreshCw } from "lucide-react"
+import { ChevronDown, RefreshCw } from "lucide-react"
 import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router"
 
 import { isNotFound, loadMediaDetail, refreshMediaMetadata, type APIManagedFile, type APIMediaDetail, type APIMediaSeason, type APIWorkflow } from "@/api/client"
-import { Poster, sizedArtwork } from "@/components/poster"
 import { ReplaceFile } from "@/components/replace-file"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, Skeleton } from "@/components/ui"
 import { TitleActions } from "@/components/title-actions"
+import { CastRow, TitleAbout, TitleHero } from "@/components/title-hero"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDate, formatRelative } from "@/format"
-import { attentionLabel, errorMessage, kindLabel, languageName, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
+import { attentionLabel, errorMessage, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
 import { fileLabel, shortLanguages } from "@/lib/file-label"
 import { fileQuality } from "@/lib/file-quality"
 import { describeVariant, workflowHref } from "@/lib/links"
@@ -30,48 +30,15 @@ export function TitlePage() {
 function TitleView({ detail }: { detail: APIMediaDetail }) {
   const { media, workflows, seasons, files } = detail
   const meta = media.metadata
-  const backdrop = sizedArtwork(meta?.backdrop_url, "w1280")
-  const rating = meta?.ratings?.find((entry) => entry.source === "tmdb") ?? meta?.ratings?.[0]
-  const facts = [
-    media.year,
-    kindLabel(media.kind),
-    meta?.runtime_minutes ? `${meta.runtime_minutes} min` : null,
-    meta?.original_language ? `Original: ${languageName(meta.original_language)}` : null,
-    rating ? `★ ${rating.value.toLocaleString("da-DK", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : null,
-  ].filter(Boolean)
-  const sources = uniqueSources(meta?.sources)
   return (
     <>
-      <div className="relative -mx-4 -mt-6 mb-8 overflow-hidden sm:-mx-6 lg:-mx-10 lg:-mt-10">
-        {backdrop ? <img src={backdrop} alt="" className="absolute inset-0 size-full object-cover opacity-30" /> : null}
-        <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/80 to-bg/40" />
-        <div className="relative grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-5 px-4 pb-6 pt-6 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-x-6 sm:gap-y-4 sm:px-6 lg:px-10 lg:pt-12">
-          <Poster src={sizedArtwork(meta?.poster_url, "w342")} title={media.title} kind={media.kind} className="w-full self-start shadow-card sm:row-span-2" />
-          <div className="min-w-0 self-end">
-            <Link to={`/bibliotek?type=${media.kind === "series" ? "serier" : "film"}`} className="text-sm text-text-3 hover:underline">← Bibliotek</Link>
-            <h1 className="mt-1 break-words text-2xl font-semibold tracking-tight sm:text-4xl">{media.title}</h1>
-            {meta?.original_title && meta.original_title !== media.title ? <div className="text-text-2">{meta.original_title}</div> : null}
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-text-2">{facts.map((fact) => <span key={String(fact)}>{fact}</span>)}</div>
-            {meta?.genres?.length ? <div className="mt-3 flex flex-wrap gap-1.5">{meta.genres.map((genre) => <Badge key={genre}>{genre}</Badge>)}</div> : null}
-          </div>
-          <div className="col-span-2 min-w-0 sm:col-span-1 sm:col-start-2">
-            {meta?.overview ? <Overview text={meta.overview} /> : null}
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-              <RefreshMetadata mediaId={media.id} />
-              <TitleActions detail={detail} />
-            </div>
-            {sources.length ? (
-              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-text-3">
-                {sources.map((source) => (
-                  <a key={`${source.provider}-${source.provider_id}`} href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-text">
-                    {providerName(source.provider)} <ExternalLink aria-hidden className="size-3.5" />
-                  </a>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
+      <TitleHero media={media} />
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <TitleActions detail={detail} />
+        <RefreshMetadata mediaId={media.id} />
       </div>
+      <TitleAbout media={media} overview={meta?.overview ? <Overview text={meta.overview} /> : undefined} />
+      <CastRow credits={meta?.credits} />
       {media.kind === "movie" ? <MovieStatus workflows={workflows} files={files} /> : <SeriesSeasons seasons={seasons} workflows={workflows} files={files} />}
       <FilesCard files={files} />
     </>
@@ -83,7 +50,7 @@ function Overview({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   const long = text.length > 220
   return (
-    <div className="max-w-3xl text-text-2">
+    <div className="max-w-3xl text-[15px] leading-relaxed text-text-2">
       <p className={cx(long && !open && "line-clamp-4 sm:line-clamp-none")}>{text}</p>
       {long ? <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="mt-1 text-sm font-medium text-accent-strong hover:underline sm:hidden">{open ? "Vis mindre" : "Læs mere"}</button> : null}
     </div>
@@ -270,28 +237,13 @@ function hasActions(workflow: APIWorkflow): boolean {
   return !workflow.terminal_at && (workflow.available_actions ?? []).some((action) => action.available)
 }
 
-function providerName(provider: string): string {
-  return { tmdb: "TMDB", tvdb: "TheTVDB", imdb: "IMDb", simkl: "Simkl" }[provider] ?? provider.toUpperCase()
-}
-
 function TitleSkeleton() {
   return (
-    <div className="flex flex-col gap-6 sm:flex-row">
-      <Skeleton className="aspect-[2/3] w-44" />
-      <div className="flex-1 space-y-3 pt-10">
-        <Skeleton className="h-9 w-2/3" />
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-20 w-full" />
-      </div>
+    <div className="space-y-4">
+      <Skeleton className="h-4 w-40" />
+      <Skeleton className="h-60 rounded-2xl sm:h-[21rem] lg:h-[25rem]" />
+      <Skeleton className="h-8 w-72" />
+      <Skeleton className="h-20 w-full max-w-3xl" />
     </div>
   )
-}
-
-function uniqueSources<T extends { provider: string; url?: string }>(sources: T[] | undefined): T[] {
-  const seen = new Set<string>()
-  return (sources ?? []).filter((source) => {
-    if (!source.url || seen.has(source.provider)) return false
-    seen.add(source.provider)
-    return true
-  })
 }

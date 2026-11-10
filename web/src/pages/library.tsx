@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
-import { Plus, SearchCheck } from "lucide-react"
+import { ChevronRight, Plus, SearchCheck } from "lucide-react"
 import { useDeferredValue, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router"
 
-import { loadCatalogMediaBounded, loadLibraryRoots, loadMediaStatus, type APIMedia, type APIMediaStatus } from "@/api/client"
+import { loadCatalogMediaBounded, loadLibraryGaps, loadLibraryRoots, loadMediaStatus, type APIMedia, type APIMediaStatus } from "@/api/client"
 import { Poster, sizedArtwork } from "@/components/poster"
-import { Badge, Button, Card, Empty, ErrorBox, PageHeader, SearchField, Segmented, Skeleton } from "@/components/ui"
+import { Button, Card, cx, Dot, Empty, ErrorBox, PageHeader, SearchField, Segmented, Skeleton } from "@/components/ui"
 import { formatDateTime, formatNumber } from "@/format"
 import { filterMedia, librarySorts, sortMedia, type LibraryKind as Kind, type LibrarySort as Sort } from "@/lib/library-filter"
 import { titleHref } from "@/lib/links"
@@ -64,56 +64,64 @@ function LibraryView() {
     setVisible(pageSize)
   }
 
+  const heading = kind === "film" ? "Film" : kind === "serier" ? "Serier" : "Bibliotek"
+  const total = kind === "film" ? counts.film : kind === "serier" ? counts.serier : all.length
   return (
     <>
       <PageHeader
-        title="Bibliotek"
-        description="Alle film og serier, som Media Manager kender."
-        actions={<><Link to="/bibliotek/mangler"><Button><SearchCheck aria-hidden className="size-4" />Find manglende</Button></Link><Link to="/tilfoej"><Button variant="primary"><Plus aria-hidden className="size-4" />Tilføj titel</Button></Link></>}
+        title={heading}
+        eyebrow={kind === "alle" ? undefined : <Link to="/bibliotek" className="hover:text-text hover:underline">Bibliotek</Link>}
+        description={catalog.data ? `${formatNumber(total)} ${kind === "film" ? "film" : kind === "serier" ? (total === 1 ? "serie" : "serier") : "film og serier"}, som Media Manager kender.` : "Alle film og serier, som Media Manager kender."}
+        actions={<><Link to="/bibliotek/mangler"><Button><SearchCheck aria-hidden className="size-4" />Find manglende</Button></Link><Link to="/tilfoej" className="inline-flex h-9 items-center gap-2 rounded-lg bg-text px-3.5 text-sm font-semibold text-bg hover:opacity-90"><Plus aria-hidden className="size-4" />Tilføj titel</Link></>}
       />
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Segmented
-          label="Type"
-          value={kind}
-          onChange={(value) => update("type", value, "alle")}
-          options={[
-            { value: "alle", label: "Alle", count: all.length || undefined },
-            { value: "film", label: "Film", count: counts.film || undefined },
-            { value: "serier", label: "Serier", count: counts.serier || undefined },
-          ]}
-        />
+      <div className="mb-4 flex flex-wrap items-center gap-2.5">
+        <div className="lg:hidden">
           <Segmented
-            label="Status"
-            value={status}
-            onChange={(value) => update("status", value, "alle")}
+            label="Type"
+            value={kind}
+            onChange={(value) => update("type", value, "alle")}
             options={[
-              { value: "alle", label: "Alle" },
-              { value: "mangler", label: "Mangler noget", count: statusCounts.mangler || undefined },
-              { value: "handling", label: "Kræver handling", count: statusCounts.handling || undefined },
-              { value: "ikke-hentet", label: "Ikke hentet", count: statusCounts["ikke-hentet"] || undefined },
+              { value: "alle", label: "Alle", count: all.length || undefined },
+              { value: "film", label: "Film", count: counts.film || undefined },
+              { value: "serier", label: "Serier", count: counts.serier || undefined },
             ]}
           />
-        <SearchField value={search} onChange={(value) => { setSearch(value); setVisible(pageSize) }} placeholder="Søg i titler og originaltitler" label="Søg i biblioteket" />
-        {folders.length > 0 || folder ? (
+        </div>
+        <Segmented
+          label="Status"
+          value={status}
+          onChange={(value) => update("status", value, "alle")}
+          options={[
+            { value: "alle", label: "Alle" },
+            { value: "mangler", label: "Mangler noget", count: statusCounts.mangler || undefined },
+            { value: "handling", label: "Kræver handling", count: statusCounts.handling || undefined },
+            { value: "ikke-hentet", label: "Ikke hentet", count: statusCounts["ikke-hentet"] || undefined },
+          ]}
+        />
+        <div className="flex w-full flex-wrap items-center gap-2.5 xl:ml-auto xl:w-auto">
+          <SearchField value={search} onChange={(value) => { setSearch(value); setVisible(pageSize) }} placeholder="Søg i titler og originaltitler" label="Søg i biblioteket" />
+          {folders.length > 0 || folder ? (
+            <label className="flex items-center gap-2 text-sm text-text-2">
+              Mappe
+              <select value={folder} onChange={(event) => update("mappe", event.target.value, "")} className="h-9 max-w-48 rounded-lg border border-line bg-surface px-2 text-text">
+                <option value="">Alle mapper</option>
+                {folder && !folders.some((entry) => entry.id === folder) ? <option value={folder}>Valgt mappe</option> : null}
+                {folders.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} ({formatNumber(entry.count)})</option>)}
+              </select>
+            </label>
+          ) : null}
           <label className="flex items-center gap-2 text-sm text-text-2">
-            Mappe
-            <select value={folder} onChange={(event) => update("mappe", event.target.value, "")} className="h-9 max-w-48 rounded-lg border border-line bg-surface px-2 text-text">
-              <option value="">Alle mapper</option>
-              {folder && !folders.some((entry) => entry.id === folder) ? <option value={folder}>Valgt mappe</option> : null}
-              {folders.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} ({formatNumber(entry.count)})</option>)}
+            Sortér
+            <select value={sort} onChange={(event) => update("sort", event.target.value, "titel")} className="h-9 rounded-lg border border-line bg-surface px-2 text-text">
+              <option value="titel">Titel</option>
+              <option value="senest-tilfoejet">Senest tilføjet</option>
+              <option value="aar-nyeste">År, nyeste først</option>
+              <option value="aar-aeldste">År, ældste først</option>
             </select>
           </label>
-        ) : null}
-        <label className="ml-auto flex items-center gap-2 text-sm text-text-2">
-          Sortér
-          <select value={sort} onChange={(event) => update("sort", event.target.value, "titel")} className="h-9 rounded-lg border border-line bg-surface px-2 text-text">
-            <option value="titel">Titel</option>
-            <option value="senest-tilfoejet">Senest tilføjet</option>
-            <option value="aar-nyeste">År, nyeste først</option>
-            <option value="aar-aeldste">År, ældste først</option>
-          </select>
-        </label>
+        </div>
       </div>
+      <GapsNote kind={kind} />
       {catalog.error ? <ErrorBox error={catalog.error} retry={() => catalog.refetch()} /> : null}
       {state.isPending ? <p role="status" className="mb-4 text-sm text-text-2">Henter status…</p> : null}
       {state.error ? <div className="mb-4 space-y-2"><p className="text-sm text-warn">Titlernes status er ukendt. Prøv igen for at se, hvad der mangler.</p><ErrorBox error={state.error} retry={() => state.refetch()} /></div> : null}
@@ -134,7 +142,7 @@ function LibraryView() {
       {!catalog.isPending && items.length === 0 && !catalog.error && !folder && (status === "alle" || (!statusUnavailable && unknownCount === 0)) ? (
         <Card><Empty title={status !== "alle" && !search ? statusEmpty[status] : search ? "Ingen titler passer til søgningen" : all.length > 0 ? (kind === "film" ? "Ingen film endnu" : "Ingen serier endnu") : "Biblioteket er tomt"}>{search ? "Prøv et andet ord, eller tilføj titlen." : all.length > 0 ? "Tilføj en titel, eller vælg en anden type." : "Tilføj din første film eller serie."}</Empty></Card>
       ) : null}
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-4 gap-y-7 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:gap-x-5">
         {items.slice(0, visible).map((item) => <PosterTile key={item.id} item={item} status={byId.get(item.id)} />)}
       </ul>
       {items.length > visible ? (
@@ -183,7 +191,8 @@ export function libraryFolders(roots: Array<{ id: string; name: string; media_ki
     .map((root) => ({ id: root.id, name: root.name, count: counts.get(root.id)! }))
 }
 
-function statusBadge(item: APIMedia, entry?: APIMediaStatus): { tone: "warn" | "bad" | "info" | "neutral"; text: string } | null {
+/** The status shown under a poster; a title that is complete in Plex shows none. */
+export function tileStatus(item: APIMedia, entry?: APIMediaStatus): { tone: "warn" | "info" | "neutral"; text: string } | null {
   if (!entry) return null
   if (entry.attention) return { tone: "warn", text: "Kræver handling" }
   if (entry.missing > 0) return { tone: "info", text: item.kind === "series" && entry.in_plex ? "Mangler afsnit" : "Mangler" }
@@ -192,18 +201,41 @@ function statusBadge(item: APIMedia, entry?: APIMediaStatus): { tone: "warn" | "
 }
 
 function PosterTile({ item, status }: { item: APIMedia; status?: APIMediaStatus }) {
-  const badge = statusBadge(item, status)
+  const state = tileStatus(item, status)
   return (
     <li className="[content-visibility:auto] [contain-intrinsic-size:auto_300px]">
       <Link to={titleHref(item.id)} className="group block">
-        <div className="relative">
-          <Poster src={sizedArtwork(item.metadata?.poster_url, "w342")} title={item.title} kind={item.kind} className="transition-transform group-hover:-translate-y-0.5 group-hover:shadow-card" />
-          {badge ? <div className="pointer-events-none absolute left-1.5 top-1.5"><Badge tone={badge.tone}>{badge.text}</Badge></div> : null}
+        <div className="rounded-xl shadow-poster transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lift">
+          <Poster src={sizedArtwork(item.metadata?.poster_url, "w342")} title={item.title} kind={item.kind} />
         </div>
-        <div className="mt-2 line-clamp-2 text-sm font-medium leading-snug group-hover:underline">{item.title}</div>
-        <div className="text-xs text-text-3">{[item.year, item.kind === "series" ? "Serie" : "Film"].filter(Boolean).join(" · ")}</div>
+        <div className="mt-2.5 line-clamp-2 text-sm font-semibold leading-snug tracking-tight">{item.title}</div>
+        <div className="mt-0.5 text-xs text-text-3">{[item.year, item.kind === "series" ? "Serie" : "Film"].filter(Boolean).join(" · ")}</div>
+        {state ? <div className={cx("mt-1 flex items-center gap-1.5 text-xs font-medium", state.tone === "warn" ? "text-warn" : "text-text-2")}><Dot tone={state.tone} />{state.text}</div> : null}
       </Link>
     </li>
+  )
+}
+
+/**
+ * A quiet note above the posters when the library has seasons or films that
+ * are not followed yet; adding them stays a click on Find manglende.
+ */
+function GapsNote({ kind }: { kind: Kind }) {
+  const gaps = useQuery({ queryKey: ["media", "gaps"], queryFn: ({ signal }) => loadLibraryGaps(signal), staleTime: 5 * 60_000, retry: false })
+  if (!gaps.data) return null
+  const series = kind === "film" ? 0 : gaps.data.series.filter((entry) => entry.new_seasons.length > 0).length
+  const movies = kind === "serier" ? 0 : gaps.data.movies.length
+  if (series === 0 && movies === 0) return null
+  const parts = [
+    series ? `${formatNumber(series)} ${series === 1 ? "serie har nye sæsoner" : "serier har nye sæsoner"}, som du ikke følger endnu` : "",
+    movies ? `${formatNumber(movies)} film har ingen fil og intet arbejde i gang` : "",
+  ].filter(Boolean)
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-sm">
+      <SearchCheck aria-hidden className="size-4 shrink-0 text-accent-strong" />
+      <p className="min-w-0 flex-1 text-text-2">{parts.join(", og ")}. Du vælger selv, hvad der skal hentes.</p>
+      <Link to={`/bibliotek/mangler${series === 0 && movies > 0 ? "?vis=film" : ""}`} className="inline-flex w-full items-center gap-1 pl-8 font-medium text-accent-strong hover:underline sm:w-auto sm:pl-0">Se hvad der mangler<ChevronRight aria-hidden className="size-4" /></Link>
+    </div>
   )
 }
 
@@ -213,7 +245,8 @@ function PosterGridSkeleton() {
       {Array.from({ length: 18 }, (_, index) => (
         <div key={index}>
           <Skeleton className="aspect-[2/3] rounded-xl" />
-          <Skeleton className="mt-2 h-4 w-3/4" />
+          <Skeleton className="mt-2.5 h-4 w-3/4" />
+          <Skeleton className="mt-1.5 h-3 w-1/2" />
         </div>
       ))}
     </div>

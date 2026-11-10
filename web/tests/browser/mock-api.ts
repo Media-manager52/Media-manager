@@ -31,7 +31,7 @@ const seasonWorkflow = {
 }
 
 const media = [
-  { id: ids.movie, kind: "movie", title: "Testfilmen", year: 2024, identities: [{ namespace: "tmdb", value: "1" }], metadata: { overview: "En film til tests.", original_language: "da", genres: ["Drama"], sources: [{ provider: "tmdb", provider_id: "1", url: "https://www.themoviedb.org/movie/1", role: "primary" }] } },
+  { id: ids.movie, kind: "movie", title: "Testfilmen", year: 2024, identities: [{ namespace: "tmdb", value: "1" }], metadata: { overview: "En film til tests.", tagline: "En film, der kun findes i tests.", runtime_minutes: 101, credits: [{ name: "Ida Instruktør", role: "Director", source: "tmdb" }, { name: "Anna Skuespiller", role: "Cast", character: "Hovedpersonen", source: "tmdb" }, { name: "Bo Birolle", role: "Cast", character: "Naboen", source: "tmdb" }], original_language: "da", genres: ["Drama"], sources: [{ provider: "tmdb", provider_id: "1", url: "https://www.themoviedb.org/movie/1", role: "primary" }] } },
   { id: ids.series, kind: "series", title: "Testserien", year: 2020, identities: [{ namespace: "tvdb", value: "2" }], metadata: { overview: "En serie til tests.", season_count: 1 } },
 ]
 
