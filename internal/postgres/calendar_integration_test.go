@@ -47,7 +47,7 @@ func TestListCalendarListsEachEpisodeOnce(t *testing.T) {
 	confirmed := episodeWorkflow(1, "plex_confirmed", first)
 	episodeWorkflow(2, "cancelled", second)
 
-	if _, err := store.Pool.Exec(ctx, `INSERT INTO media_metadata(media_id,data,revision,created_at,updated_at) VALUES($1,'{"poster_url":"https://image.invalid/calendar.jpg"}',1,now(),now())
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO media_metadata(media_id,data,revision,created_at,updated_at) VALUES($1,'{"poster_url":"https://image.invalid/calendar.jpg","backdrop_url":"https://image.invalid/calendar-wide.jpg"}',1,now(),now())
 		ON CONFLICT(media_id) DO UPDATE SET data=media_metadata.data || EXCLUDED.data`, item.ID.String()); err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +67,9 @@ func TestListCalendarListsEachEpisodeOnce(t *testing.T) {
 	}
 	if rows[0].PosterURL != "https://image.invalid/calendar.jpg" || rows[1].PosterURL != rows[0].PosterURL {
 		t.Fatalf("calendar posters=%q,%q, want the title's poster on every row", rows[0].PosterURL, rows[1].PosterURL)
+	}
+	if rows[0].BackdropURL != "https://image.invalid/calendar-wide.jpg" || rows[1].BackdropURL != rows[0].BackdropURL {
+		t.Fatalf("calendar backdrops=%q,%q, want the title's backdrop on every row", rows[0].BackdropURL, rows[1].BackdropURL)
 	}
 	if rows[0].Episode != 1 || rows[0].WorkflowID != confirmed || rows[0].WorkflowState != "plex_confirmed" {
 		t.Fatalf("episode 1 row=%+v, want the Plex-confirmed episode workflow", rows[0])

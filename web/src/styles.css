@@ -2,85 +2,95 @@
 @import "@fontsource-variable/inter";
 
 /* Design tokens. Light is the default; dark follows the system unless the
-   owner picked a theme (data-theme on <html>). */
+   owner picked a theme (data-theme on <html>).
+   Surface, text, status and shadow values are adapted from HolyArrs
+   (https://github.com/HolyArrs/HolyArrs, AGPL-3.0-only, see
+   THIRD_PARTY_NOTICES.md); Media Manager keeps its own amber accent. */
 :root {
-  --bg: #f6f5f2;
+  --bg: #ffffff;
+  --sidebar: #f6f6f7;
   --surface: #ffffff;
-  --surface-2: #f0eee9;
-  --surface-3: #e7e4dd;
-  --line: #e2dfd8;
-  --text: #1c1b19;
-  --text-2: #5d5a53;
-  --text-3: #6b675f;
+  --surface-2: #f2f2f4;
+  --surface-3: #e9e9ec;
+  --line: #e4e4e8;
+  --text: #1d1d1f;
+  --text-2: #515154;
+  --text-3: #6e6e73;
   --accent: #b7791f;
   --accent-strong: #8a5a10;
   --accent-soft: #f7ead2;
-  --good: #17663f;
-  --good-soft: #dcf1e5;
-  --warn: #7a4d00;
-  --warn-soft: #fbeccb;
-  --bad: #a11d13;
-  --bad-soft: #fbe1de;
-  --info: #1f4f96;
-  --info-soft: #dfe9f9;
-  --focus: #1f4f96;
-  --shadow: 0 1px 2px rgb(28 27 25 / 6%), 0 4px 16px rgb(28 27 25 / 5%);
+  --good: #1a6e2e;
+  --good-soft: #e3f4e7;
+  --warn: #8f4000;
+  --warn-soft: #fdf0e0;
+  --bad: #b3000f;
+  --bad-soft: #fde6e8;
+  --info: #0068d1;
+  --info-soft: #e5f0fd;
+  --focus: #0068d1;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 12px rgb(0 0 0 / 6%);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 8%), 0 12px 28px rgb(0 0 0 / 14%);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0f1115;
-    --surface: #171a20;
-    --surface-2: #1d2128;
-    --surface-3: #262b34;
-    --line: #2a2f38;
-    --text: #eceae6;
-    --text-2: #a9a59d;
-    --text-3: #928e86;
+    --bg: #0b0b0c;
+    --sidebar: #161618;
+    --surface: #161618;
+    --surface-2: #1e1e21;
+    --surface-3: #2a2a2e;
+    --line: #2c2c30;
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --text-3: #8e8e93;
     --accent: #e5a50a;
     --accent-strong: #f2c04d;
     --accent-soft: #3a2e12;
-    --good: #4ccb8a;
-    --good-soft: #15301f;
-    --warn: #f0b443;
-    --warn-soft: #362a12;
-    --bad: #ff7b6e;
-    --bad-soft: #3a1a17;
-    --info: #7fb0ff;
-    --info-soft: #18243a;
-    --focus: #7fb0ff;
-    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 25%);
+    --good: #30d158;
+    --good-soft: #11301c;
+    --warn: #ffb340;
+    --warn-soft: #3a2a10;
+    --bad: #ff6961;
+    --bad-soft: #3a1716;
+    --info: #409cff;
+    --info-soft: #142a45;
+    --focus: #409cff;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 12px rgb(0 0 0 / 28%);
+    --shadow-lift: 0 2px 4px rgb(0 0 0 / 34%), 0 12px 28px rgb(0 0 0 / 44%);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0f1115;
-  --surface: #171a20;
-  --surface-2: #1d2128;
-  --surface-3: #262b34;
-  --line: #2a2f38;
-  --text: #eceae6;
-  --text-2: #a9a59d;
-  --text-3: #928e86;
+  --bg: #0b0b0c;
+  --sidebar: #161618;
+  --surface: #161618;
+  --surface-2: #1e1e21;
+  --surface-3: #2a2a2e;
+  --line: #2c2c30;
+  --text: #f5f5f7;
+  --text-2: #a1a1a6;
+  --text-3: #8e8e93;
   --accent: #e5a50a;
   --accent-strong: #f2c04d;
   --accent-soft: #3a2e12;
-  --good: #4ccb8a;
-  --good-soft: #15301f;
-  --warn: #f0b443;
-  --warn-soft: #362a12;
-  --bad: #ff7b6e;
-  --bad-soft: #3a1a17;
-  --info: #7fb0ff;
-  --info-soft: #18243a;
-  --focus: #7fb0ff;
-  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 25%);
+  --good: #30d158;
+  --good-soft: #11301c;
+  --warn: #ffb340;
+  --warn-soft: #3a2a10;
+  --bad: #ff6961;
+  --bad-soft: #3a1716;
+  --info: #409cff;
+  --info-soft: #142a45;
+  --focus: #409cff;
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 12px rgb(0 0 0 / 28%);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 34%), 0 12px 28px rgb(0 0 0 / 44%);
   color-scheme: dark;
 }
 
 @theme inline {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
@@ -100,6 +110,7 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --shadow-card: var(--shadow);
+  --shadow-lift: var(--shadow-lift);
 }
 
 html { background: var(--bg); }
@@ -108,6 +119,7 @@ body {
   color: var(--text);
   font-family: var(--font-sans);
   font-feature-settings: "cv11", "ss01";
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

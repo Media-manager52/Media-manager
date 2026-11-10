@@ -185,6 +185,8 @@ type RecentAddition struct {
 	Title     string            `json:"title"`
 	Year      int               `json:"year,omitempty"`
 	PosterURL string            `json:"poster_url,omitempty"`
+	// BackdropURL is the wide artwork the overview shows behind a title.
+	BackdropURL string `json:"backdrop_url,omitempty"`
 	// Variant is the scope of the newest file: "default" for a film, or a
 	// season or episode scope for a series.
 	Variant string    `json:"variant"`
@@ -199,7 +201,7 @@ func (store *Store) RecentAdditions(ctx context.Context, limit int) ([]RecentAdd
 	if limit < 1 || limit > 50 {
 		limit = 12
 	}
-	rows, err := store.Pool.Query(ctx, `SELECT media.id::text,media.kind,media.title,COALESCE(media.year,0),COALESCE(metadata.data->>'poster_url',''),latest.variant,latest.edition,latest.verified_at
+	rows, err := store.Pool.Query(ctx, `SELECT media.id::text,media.kind,media.title,COALESCE(media.year,0),COALESCE(metadata.data->>'poster_url',''),COALESCE(metadata.data->>'backdrop_url',''),latest.variant,latest.edition,latest.verified_at
 		FROM (SELECT DISTINCT ON (workflow.media_id) workflow.media_id,workflow.variant,COALESCE(NULLIF(workflow.edition,''),'standard') AS edition,version.verified_at
 			FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id
 			WHERE version.state='current' AND version.verified_at IS NOT NULL
@@ -215,7 +217,7 @@ func (store *Store) RecentAdditions(ctx context.Context, limit int) ([]RecentAdd
 	for rows.Next() {
 		var item RecentAddition
 		var mediaText string
-		if err := rows.Scan(&mediaText, &item.MediaKind, &item.Title, &item.Year, &item.PosterURL, &item.Variant, &item.Edition, &item.AddedAt); err != nil {
+		if err := rows.Scan(&mediaText, &item.MediaKind, &item.Title, &item.Year, &item.PosterURL, &item.BackdropURL, &item.Variant, &item.Edition, &item.AddedAt); err != nil {
 			return nil, err
 		}
 		item.MediaID, _ = uuid.Parse(mediaText)

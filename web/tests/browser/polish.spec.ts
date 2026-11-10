@@ -78,3 +78,16 @@ test("phone controls are big enough to hit", async ({ page, isMobile }) => {
   const filter = await page.getByRole("radio").first().boundingBox()
   expect(filter?.height).toBeGreaterThanOrEqual(40)
 })
+
+test("the menu is grouped, counts films and series, and Ctrl+K jumps to search", async ({ page }) => {
+  test.skip(test.info().project.name !== "desktop", "the grouped menu and top search are the desktop layout")
+  await page.goto("/")
+  const menu = page.getByRole("navigation", { name: "Hovedmenu" })
+  for (const group of ["Bibliotek", "Opgaver", "Opsætning"]) await expect(menu.getByText(group, { exact: true })).toBeVisible()
+  await menu.getByRole("link", { name: /^Serier/ }).click()
+  await expect(page).toHaveURL(/\/bibliotek\?type=serier$/)
+  await expect(menu.getByRole("link", { name: /^Serier/ })).toHaveClass(/font-semibold/)
+  await expect(menu.getByRole("link", { name: /^Film/ })).not.toHaveClass(/font-semibold/)
+  await page.locator("body").press("Control+k")
+  await expect(page.getByRole("searchbox", { name: "Søg i dine titler" })).toBeFocused()
+})

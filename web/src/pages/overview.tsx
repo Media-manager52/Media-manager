@@ -1,28 +1,35 @@
 import { useQuery } from "@tanstack/react-query"
-import { CheckCircle2, ChevronRight } from "lucide-react"
+import { CheckCircle2, ChevronRight, Plus, SearchCheck } from "lucide-react"
 import { Link } from "react-router"
 
 import { loadAttentionWorkflows, loadCalendar, loadDashboard, loadRecentAdditions, loadSetupStatus, loadSystemHealth, type APIWorkflow } from "@/api/client"
 import { Poster, sizedArtwork } from "@/components/poster"
-import { Badge, Card, CardHeader, Dot, Empty, ErrorBox, PageHeader, Skeleton, Stat } from "@/components/ui"
+import { OverviewHero } from "@/components/overview-hero"
+import { Badge, Card, CardHeader, Dot, Empty, ErrorBox, PageHeader, Skeleton } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative, formatWeekday } from "@/format"
 import { attentionLabel, stateLabel, stateTone, workflowDisplayState } from "@/i18n"
 import { describeVariant, titleHref, workflowHref } from "@/lib/links"
+import { greeting } from "@/lib/overview-tiles"
 
 export function OverviewPage() {
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: ({ signal }) => loadDashboard(signal), refetchInterval: 60_000 })
   const counts = dashboard.data?.counts
   return (
     <>
-      <PageHeader title="Oversigt" description="Hvad der sker i dit bibliotek lige nu, og hvad der kræver dig." />
+      <PageHeader
+        title="Oversigt"
+        eyebrow={greeting(new Date())}
+        description={counts ? summary(counts.needs_attention, counts.active_workflows) : "Hvad der sker i dit bibliotek lige nu, og hvad der kræver dig."}
+        actions={(
+          <>
+            <Link to="/bibliotek/mangler" className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-surface px-3.5 text-sm font-medium hover:bg-surface-2"><SearchCheck aria-hidden className="size-4" />Find manglende</Link>
+            <Link to="/tilfoej" className="inline-flex h-9 items-center gap-2 rounded-lg bg-text px-3.5 text-sm font-semibold text-bg hover:opacity-90"><Plus aria-hidden className="size-4" />Tilføj titel</Link>
+          </>
+        )}
+      />
       {dashboard.error ? <ErrorBox error={dashboard.error} retry={() => dashboard.refetch()} /> : null}
       <SetupBanner />
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Kræver handling" value={counts ? formatNumber(counts.needs_attention) : <Skeleton className="h-9 w-16" />} tone={counts?.needs_attention ? "warn" : "good"} to="/handling" />
-        <Stat label="Arbejde i gang" value={counts ? formatNumber(counts.active_workflows) : <Skeleton className="h-9 w-16" />} tone="info" to="/arbejde" />
-        <Stat label="Film" value={counts ? formatNumber(counts.movies) : <Skeleton className="h-9 w-16" />} to="/bibliotek?type=film" />
-        <Stat label="Serier" value={counts ? formatNumber(counts.series) : <Skeleton className="h-9 w-16" />} to="/bibliotek?type=serier" />
-      </div>
+      <OverviewHero counts={counts} />
       <RecentlyAdded />
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <div className="flex min-w-0 flex-col gap-6">
@@ -36,6 +43,11 @@ export function OverviewPage() {
       </div>
     </>
   )
+}
+
+function summary(attention: number, active: number): string {
+  const waiting = attention === 0 ? "Intet venter på dig." : attention === 1 ? "1 sag venter på dig." : `${formatNumber(attention)} sager venter på dig.`
+  return `${waiting} ${formatNumber(active)} er i gang med at blive fundet, hentet eller tjekket.`
 }
 
 /** Shown only while a required setup step is missing. */
@@ -65,17 +77,21 @@ function RecentlyAdded() {
       {query.isPending ? <div className="flex gap-3 overflow-hidden px-5 py-4">{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="aspect-[2/3] w-28 shrink-0 rounded-xl" />)}</div> : null}
       {!query.isPending && !query.error && items.length === 0 ? <Empty title="Intet er hentet endnu">Når en film eller et afsnit er lagt i biblioteket, vises det her.</Empty> : null}
       {items.length > 0 ? (
-        <ul aria-label="Senest tilføjet" className="flex gap-3 overflow-x-auto px-5 py-4">
-          {items.map((item) => (
-            <li key={item.media_id} className="w-28 shrink-0">
-              <Link to={titleHref(item.media_id)} className="group block">
-                <Poster src={sizedArtwork(item.poster_url, "w185")} title={item.title} kind={item.media_kind} />
-                <div className="mt-2 truncate text-sm font-medium group-hover:underline">{item.title}</div>
-                <div className="truncate text-xs text-text-2">{describeVariant(item)}</div>
-                <div className="truncate text-xs text-text-3">{formatRelative(item.added_at)}</div>
-              </Link>
-            </li>
-          ))}
+        <ul aria-label="Senest tilføjet" className="flex gap-3.5 overflow-x-auto px-5 py-4">
+          {items.map((item) => {
+            const wide = sizedArtwork(item.backdrop_url, "w780")
+            return (
+              <li key={item.media_id} className={wide ? "w-60 shrink-0" : "w-28 shrink-0"}>
+                <Link to={titleHref(item.media_id)} className="group block">
+                  {wide
+                    ? <img src={wide} alt="" loading="lazy" className="aspect-video w-full rounded-xl bg-surface-3 object-cover shadow-card" />
+                    : <Poster src={sizedArtwork(item.poster_url, "w185")} title={item.title} kind={item.media_kind} />}
+                  <div className="mt-2 truncate text-sm font-semibold group-hover:underline">{item.title}</div>
+                  <div className="truncate text-xs text-text-2">{describeVariant(item)} · {formatRelative(item.added_at)}</div>
+                </Link>
+              </li>
+            )
+          })}
         </ul>
       ) : null}
     </Card>
