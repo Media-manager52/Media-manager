@@ -6,7 +6,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Added
 
-- **Kvalitetsprofiler** have a **Slet** button. It removes a profile that nothing uses. A profile that any title (finished ones included), adopted file, import list or Seerr rule uses is refused with an explanation, and so is the default, so deleting can never change what an existing title requires. `DELETE /api/v1/settings/quality-profiles/{id}` does the same.
+- **Kvalitetsprofiler** have a **Slet** button. A profile that nothing uses is removed after a confirmation. For a profile that titles, files, an import list or a Seerr rule use, the dialog asks which other profile (same kind, switched on) they move to, and says in plain words that those titles must then meet the other profile's requirements; files already in the library stay, and titles still waiting search again only after **Brug på ventende** on that profile. The default profile is never deleted. `DELETE /api/v1/settings/quality-profiles/{id}` takes `replace_with` for this.
+- **Slet for library folders, connections and indexers,** each only when nothing uses it. A library folder that has never held a title and has no Seerr rule can be deleted (the folder on disk and the Plex library are not touched). A connection or indexer must be switched off first and is deleted only when it has no history; one that has searched, downloaded or received requests stays switched off, because that history belongs to the titles. Library folders also have **Omdøb**, which changes only the name shown on the website.
 
 ### Changed
 

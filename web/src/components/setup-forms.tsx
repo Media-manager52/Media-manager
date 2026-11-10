@@ -3,7 +3,7 @@ import { CheckCircle2, XCircle } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import {
-  applyQualityProfilePreset, checkIntegration, commissionIntegration, configureSeerrWebhook, createIntegration, createLibraryRoot, createNotificationDestination, createQualityProfile,
+  applyQualityProfilePreset, checkIntegration, commissionIntegration, configureSeerrWebhook, createIntegration, deleteIntegration, createLibraryRoot, createNotificationDestination, createQualityProfile,
   loadIntegrations, loadLibraryRoots, loadPlexLibraries, loadQualityProfilePresets, loadQualityProfiles, loadSeerrWebhook, loadSetupStatus,
   saveIntegrationSecret, updateIntegrationConnection, updateQualityProfile,
   type APIConnectionCheck, type APIConnectionPatch, type APIIntegration, type APIQualityProfile,
@@ -99,6 +99,28 @@ function useRefreshSetup() {
   }
 }
 
+/** Confirms and runs a delete of one setting; a refusal is shown in the dialog in plain Danish. */
+export function DeleteSettingDialog({ title, confirm, done, action, onClose, children }: { title: string; confirm: string; done: string; action: () => Promise<unknown>; onClose: () => void; children: ReactNode }) {
+  const toast = useToast()
+  const refresh = useRefreshSetup()
+  const mutation = useMutation({
+    mutationFn: action,
+    onSuccess: async () => {
+      toast("good", done)
+      onClose()
+      await refresh()
+    },
+  })
+  return (
+    <Dialog open onClose={() => { if (!mutation.isPending) onClose() }} title={title} footer={<><Button variant="ghost" disabled={mutation.isPending} onClick={onClose}>Fortryd</Button><Button variant="danger" busy={mutation.isPending} onClick={() => mutation.mutate()}>{confirm}</Button></>}>
+      <div className="space-y-3">
+        {children}
+        {mutation.error ? <p role="alert" className="text-sm text-bad">{errorMessage(mutation.error)}</p> : null}
+      </div>
+    </Dialog>
+  )
+}
+
 /** Connections to Plex, AltMount, TMDB and Seerr: add, edit, save a key and test. */
 export function ConnectionsSection() {
   const integrations = useQuery({ queryKey: ["settings", "integrations"], queryFn: ({ signal }) => loadIntegrations(signal) })
@@ -144,6 +166,7 @@ function ConnectionRow({ integration, secretStorage, seerrRunning }: { integrati
   const [editing, setEditing] = useState(false)
   const [keying, setKeying] = useState(false)
   const [webhook, setWebhook] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const check = useMutation({ mutationFn: () => checkIntegration(integration.id) })
   const config = integration.config as { base_url?: string; authentication?: string }
   const wantsSecret = needsSecret(integration.kind, config.authentication)
@@ -165,8 +188,14 @@ function ConnectionRow({ integration, secretStorage, seerrRunning }: { integrati
           {wantsSecret ? <Button variant="ghost" className="h-8 text-xs" disabled={!secretStorage} onClick={() => setKeying(true)}>{integration.secret_ref ? "Udskift nøgle" : "Gem nøgle"}</Button> : null}
           {integration.kind === "seerr" ? <Button variant="ghost" className="h-8 text-xs" onClick={() => setWebhook(true)}>Webhook</Button> : null}
           <Button variant="ghost" className="h-8 text-xs" onClick={() => setEditing(true)}>Rediger</Button>
+          {!integration.enabled ? <Button variant="ghost" className="h-8 text-xs" aria-label={`Slet ${integration.name}`} onClick={() => setDeleting(true)}>Slet</Button> : null}
         </div>
       </div>
+      {deleting ? (
+        <DeleteSettingDialog title={`Slet forbindelsen ${integration.name}?`} confirm="Slet forbindelse" done={`${integration.name} er slettet.`} action={() => deleteIntegration(integration.id)} onClose={() => setDeleting(false)}>
+          <p>Forbindelsen og dens gemte nøgle fjernes helt. Det kan kun lade sig gøre, når den aldrig har været brugt til titler, mapper eller Seerr-regler.</p>
+        </DeleteSettingDialog>
+      ) : null}
       {check.data ? <CheckResult result={check.data} /> : null}
       {check.error ? <CheckResult result={{ ok: false, detail: errorText(check.error) }} /> : null}
       {editing ? <EditConnectionDialog integration={integration} onClose={() => setEditing(false)} /> : null}

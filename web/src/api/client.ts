@@ -316,7 +316,12 @@ export const saveSeerrRoute = (instanceID: string, input: { media_kind: "movie" 
 export const deleteSeerrRoute = (instanceID: string, routeID: string) => requestJSON<void>(`/api/v1/settings/integrations/${encodeURIComponent(instanceID)}/seerr-routes/${encodeURIComponent(routeID)}`, { method: "DELETE" })
 export const createLibraryRoot = (input: Omit<APILibraryRoot, "id">) => requestJSON<APILibraryRoot>("/api/v1/settings/library-roots", { method: "POST", body: JSON.stringify(input) })
 export const createQualityProfile = (input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>("/api/v1/settings/quality-profiles", { method: "POST", body: JSON.stringify(input) })
-export const deleteQualityProfile = (id: string) => requestJSON<void>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, { method: "DELETE" })
+export type APIProfileDeletion = { status: string; moved: { name: string; replaced_by?: string; moved_titles: number; moved_files: number; moved_settings: number } }
+/** Deletes a profile; replaceWith names the profile every title, file and rule moves to first. */
+export const deleteQualityProfile = (id: string, replaceWith?: string) =>
+  requestJSON<APIProfileDeletion>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}${replaceWith ? `?replace_with=${encodeURIComponent(replaceWith)}` : ""}`, { method: "DELETE" })
+export const deleteLibraryRoot = (id: string) => requestJSON<unknown>(`/api/v1/settings/library-roots/${encodeURIComponent(id)}`, { method: "DELETE" })
+export const deleteIntegration = (id: string) => requestJSON<unknown>(`/api/v1/settings/integrations/${encodeURIComponent(id)}`, { method: "DELETE" })
 export const updateQualityProfile = (id: string, input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })
 export type APIPolicyApplication = { profile_id: string; policy_version: number; applied: number; skipped: number }
 export const applyQualityProfilePolicy = (id: string) => requestJSON<APIPolicyApplication>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}/apply-policy`, { method: "POST" })
@@ -383,7 +388,7 @@ export const requestFileReplacement = (file: Pick<APIManagedFile, "id" | "source
 })
 export const updateIndexer = (id: string, patch: { name?: string; enabled?: boolean; query_limit?: number; grab_limit?: number; minimum_interval_ms?: number }) =>
   requestJSON<unknown>(`/api/v1/settings/integrations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })
-export const updateLibraryRoot = (id: string, patch: { is_default?: boolean; enabled?: boolean }) =>
+export const updateLibraryRoot = (id: string, patch: { name?: string; is_default?: boolean; enabled?: boolean }) =>
   requestJSON<APILibraryRoot>(`/api/v1/settings/library-roots/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })
 
 /**

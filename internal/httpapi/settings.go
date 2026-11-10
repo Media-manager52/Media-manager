@@ -144,7 +144,7 @@ func (server *Server) updateLibraryRoot(writer http.ResponseWriter, request *htt
 	}
 	var input postgres.LibraryRootPatch
 	if err := decodeJSON(request, &input, 8<<10); err != nil {
-		writeError(writer, http.StatusBadRequest, "invalid_request", "send a JSON object with is_default and/or enabled")
+		writeError(writer, http.StatusBadRequest, "invalid_request", "send a JSON object with name, is_default and/or enabled")
 		return
 	}
 	root, err := server.store.UpdateLibraryRoot(request.Context(), id, input, time.Now().UTC())
@@ -233,16 +233,59 @@ func (server *Server) deleteQualityProfile(writer http.ResponseWriter, request *
 		writeError(writer, http.StatusBadRequest, "invalid_id", "quality profile ID is invalid")
 		return
 	}
-	err = server.store.DeleteQualityProfile(request.Context(), id, "owner", time.Now().UTC())
+	var replaceWith *uuid.UUID
+	if raw := request.URL.Query().Get("replace_with"); raw != "" {
+		parsed, err := uuid.Parse(raw)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid_id", "replace_with is not a quality profile ID")
+			return
+		}
+		replaceWith = &parsed
+	}
+	result, err := server.store.DeleteQualityProfile(request.Context(), id, replaceWith, "owner", time.Now().UTC())
 	switch {
 	case errors.Is(err, postgres.ErrNotFound):
 		writeError(writer, http.StatusNotFound, "not_found", "quality profile was not found")
 	case errors.Is(err, postgres.ErrQualityProfileIsDefault):
 		writeError(writer, http.StatusConflict, "quality_profile_is_default", "the default quality profile cannot be deleted; make another profile the default first")
 	case errors.Is(err, postgres.ErrQualityProfileInUse):
-		writeError(writer, http.StatusConflict, "quality_profile_in_use", "the quality profile is used by titles, files or a Seerr route and cannot be deleted; disable it instead")
+		writeErrorHint(writer, http.StatusConflict, "quality_profile_in_use", "the quality profile is used by titles, files or a Seerr route", "Send replace_with=<id of an enabled profile of the same media kind> to move them to that profile, or disable the profile instead.")
+	case errors.Is(err, postgres.ErrQualityProfileReplacementInvalid):
+		writeError(writer, http.StatusUnprocessableEntity, "quality_profile_replacement_invalid", "the replacement must be another enabled quality profile of the same media kind")
 	case err != nil:
 		writeError(writer, http.StatusInternalServerError, "internal_error", "could not delete the quality profile")
+	default:
+		writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]any{"status": "removed", "moved": result}})
+	}
+}
+
+func (server *Server) deleteLibraryRoot(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "library root ID is invalid")
+		return
+	}
+	server.writeSettingsDelete(writer, server.store.DeleteLibraryRoot(request.Context(), id, "owner", time.Now().UTC()), "library root")
+}
+
+func (server *Server) deleteIntegration(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "integration ID is invalid")
+		return
+	}
+	server.writeSettingsDelete(writer, server.store.DeleteIntegration(request.Context(), id, "owner", time.Now().UTC()), "integration")
+}
+
+func (server *Server) writeSettingsDelete(writer http.ResponseWriter, err error, what string) {
+	var refusal postgres.ActionRefusal
+	switch {
+	case errors.Is(err, postgres.ErrNotFound):
+		writeError(writer, http.StatusNotFound, "not_found", what+" was not found")
+	case errors.As(err, &refusal):
+		writeErrorHint(writer, http.StatusConflict, refusal.Code, refusal.Message, refusal.Hint)
+	case err != nil:
+		writeError(writer, http.StatusInternalServerError, "internal_error", "could not delete the "+what)
 	default:
 		writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]string{"status": "removed"}})
 	}
