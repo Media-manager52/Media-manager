@@ -97,7 +97,7 @@ Notes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/v1/workflows` | Bounded, paged list (`limit` 1–500, `offset`, `active`, `state`, `attention`). `attention=true` uses the same owner-decision predicate as the Dashboard count; `state=needs_attention` narrows to one durable state. Limit values above 500 are rejected instead of silently returning 100. In-flight attempts carry `download_percent`/`download_stage`/`download_observed_at` exactly as AltMount reported them. |
+| GET | `/api/v1/workflows` | Bounded, paged list (`limit` 1–500, `offset`, `active`, `state`, `attention`). `attention=true` uses the same owner-decision predicate as the Dashboard count; `state=needs_attention` narrows to one durable state. Limit values above 500 are rejected instead of silently returning 100. In-flight attempts carry `download_percent`/`download_stage`/`download_observed_at` exactly as AltMount reported them. Rows carry the title's stored `poster_url`/`backdrop_url` when metadata exists. |
 | GET | `/api/v1/workflows/{id}` | One workflow + transitions. |
 | GET | `/api/v1/workflows/{id}/candidates/dry-run` | Read-only policy replay of the workflow's stored candidates (newest 200) through the worker's evaluator: ranked ids, best eligible candidate, per-candidate explanation, `policy_source` (`open_round`, `discovery_round` or `profile`), `truncated` and explicit `limitations`. No search, download, AltMount, publication or exclusion change; novelty and final-selection gates are not re-applied. `404` for an unknown workflow. A stored candidate whose `normalized_facts` is not a fact array, JSON `null` or the legacy empty object `{}` makes the whole replay fail closed with `500 dry_run_failed` (the error never names the candidate); `GET /workflows/{id}/candidates` still lists it, with no invented evidence. |
 | POST | `/api/v1/workflows/{id}/search` | Queue a targeted search; may require `adopted_replacement_confirmation`. An open current-policy round retires stale discovery from an older exhausted round. |
@@ -125,7 +125,7 @@ Notes:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/v1/wanted` | Missing/upgrade gaps derived from workflows, links, adopted files. `limit`/`offset` page the deterministic order; `meta.count` is the page size. |
-| GET | `/api/v1/requests` | Persisted Seerr requests + lifecycle. `limit`/`offset` page the newest-first order. |
+| GET | `/api/v1/requests` | Persisted Seerr requests + lifecycle. `limit`/`offset` page the newest-first order. Rows carry `poster_url` and, once the request has a title with metadata, `backdrop_url`. |
 | GET | `/api/v1/requests/{id}` | Request detail + workflows/seasons/files. |
 | POST | `/api/v1/requests/{id}/approve` | Owner approves a request that is still pending in Seerr (`409 not_pending` otherwise). Seerr must echo the same request with status approved (`502` if not); the decision is audited (`seerr.request_approved_by_owner`) and a `seerr.reconcile` delivery is queued so normal intake re-reads Seerr. Nothing is admitted locally. |
 | POST | `/api/v1/requests/{id}/decline` | Same as approve for a decline (`seerr.request_declined_by_owner`); Seerr may notify the requester. |

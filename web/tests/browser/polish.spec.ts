@@ -118,3 +118,17 @@ test("the title page shows the picture, the facts, who made it and the cast", as
   await expect(page).toHaveURL(/\/bibliotek\?type=film$/)
 })
 
+
+test("cases and requests are picture cards with their actions on the card", async ({ page }) => {
+  await page.goto("/handling")
+  const card = page.locator("#main li").filter({ hasText: "Testfilmen" }).first()
+  await expect(card.getByRole("link", { name: "Detaljer" })).toBeVisible()
+  await expect(card.getByRole("link", { name: /Testfilmen/ })).toBeVisible()
+  await page.goto("/anmodninger")
+  await page.getByRole("radio", { name: /Skal godkendes/ }).click()
+  const request = page.locator("#main li").filter({ hasText: "Ønskefilmen" })
+  await expect(request.getByText("Ønsket af Mor")).toBeVisible()
+  await expect(request.getByRole("button", { name: "Godkend" })).toBeVisible()
+  await request.getByRole("button", { name: "Afvis" }).click()
+  await expect(page.getByRole("dialog", { name: "Afvis Ønskefilmen?" })).toBeVisible()
+})

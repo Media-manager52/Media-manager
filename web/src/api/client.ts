@@ -32,6 +32,8 @@ export type APIWorkflow = {
   /** Exactly what AltMount last reported for the in-flight attempt; absent when it reported nothing. */
   quality_profile?: string; download_percent?: number; download_stage?: string; download_observed_at?: string
   owner_action_required?: boolean
+  /** The title's stored artwork, when metadata exists. */
+  poster_url?: string; backdrop_url?: string
   terminal_at?: string; created_at: string; updated_at: string
 }
 export type APIIntegration = { id: string; kind: string; name: string; enabled: boolean; is_default: boolean; config: Record<string, unknown>; secret_ref?: string; created_at: string; updated_at: string }
@@ -80,7 +82,7 @@ export type APIWantedItem = { workflow_id: string; media_id: string; media_kind:
 export type APIRequestSeason = { number: number; availability: number; requested: boolean; monitored?: boolean; workflow_id?: string; workflow_state?: string }
 export type APIRequest = {
   id: string; request_id: string; seerr_instance_id: string; seerr_instance_name?: string
-  media_kind: "movie" | "series" | ""; title: string; year?: number; poster_url?: string; requester?: string
+  media_kind: "movie" | "series" | ""; title: string; year?: number; poster_url?: string; backdrop_url?: string; requester?: string
   requested_at?: string; updated_at: string
   seerr_state: string; intake_outcome?: string; intake_error?: string
   media_id?: string

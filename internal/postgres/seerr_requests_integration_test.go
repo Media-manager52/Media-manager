@@ -150,7 +150,7 @@ func TestSeerrRequestsReadModel(t *testing.T) {
 		InstanceID: seerr.ID.String(), RequestID: "1001", UpdatedAt: now, RequestedAt: now.Add(-2 * time.Hour), RequestState: "2",
 		Kind: catalog.KindMovie, Title: "Read Model Movie", Year: &year, Requester: "owner", PosterURL: "https://image.tmdb.org/t/p/w500/movie.jpg",
 		Identities:  []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "5001", State: catalog.IdentityVerified, Source: "seerr"}},
-		Metadata:    &catalog.MediaMetadata{PosterURL: "https://image.tmdb.org/t/p/w500/movie.jpg"},
+		Metadata:    &catalog.MediaMetadata{PosterURL: "https://image.tmdb.org/t/p/w500/movie.jpg", BackdropURL: "https://image.tmdb.org/t/p/w1280/movie-wide.jpg"},
 		PayloadHash: []byte{1}, DeliveryID: movieDelivery,
 	}
 	insertDelivery(t, movieDelivery, movieIntake.RequestID, movieIntake.PayloadHash, now)
@@ -221,8 +221,8 @@ func TestSeerrRequestsReadModel(t *testing.T) {
 	if movie.Lifecycle != "plex_confirmed" || movie.MediaKind != "movie" || movie.Title != "Read Model Movie" || movie.Requester != "owner" {
 		t.Fatalf("movie summary=%+v", movie)
 	}
-	if movie.PosterURL != "https://image.tmdb.org/t/p/w500/movie.jpg" {
-		t.Fatalf("movie poster=%q", movie.PosterURL)
+	if movie.PosterURL != "https://image.tmdb.org/t/p/w500/movie.jpg" || movie.BackdropURL != "https://image.tmdb.org/t/p/w1280/movie-wide.jpg" {
+		t.Fatalf("movie poster=%q backdrop=%q", movie.PosterURL, movie.BackdropURL)
 	}
 	if movie.MediaID == nil || movie.QualityProfile != "Movie" {
 		t.Fatalf("movie media/profile=%v/%q", movie.MediaID, movie.QualityProfile)

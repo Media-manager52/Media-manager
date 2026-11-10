@@ -24,35 +24,37 @@ type SeerrRequestSeason struct {
 // joins the durable request snapshot with the linked media/workflows and the
 // last intake outcome; it never invents a success state.
 type SeerrRequestSummary struct {
-	ID                string     `json:"id"`
-	RequestID         string     `json:"request_id"`
-	SeerrInstanceID   string     `json:"seerr_instance_id"`
-	SeerrInstanceName string     `json:"seerr_instance_name,omitempty"`
-	MediaKind         string     `json:"media_kind"`
-	Title             string     `json:"title"`
-	Year              *uint16    `json:"year,omitempty"`
-	PosterURL         string     `json:"poster_url,omitempty"`
-	Requester         string     `json:"requester,omitempty"`
-	RequestedAt       *time.Time `json:"requested_at,omitempty"`
-	UpdatedAt         time.Time  `json:"updated_at"`
-	SeerrState        string     `json:"seerr_state"`
-	IntakeOutcome     string     `json:"intake_outcome,omitempty"`
-	IntakeError       string     `json:"intake_error,omitempty"`
-	MediaID           *uuid.UUID `json:"media_id,omitempty"`
-	WorkflowCount     int        `json:"workflow_count"`
-	ConfirmedCount    int        `json:"confirmed_count"`
-	AttentionCount    int        `json:"attention_count"`
-	CurrentState      string     `json:"current_state,omitempty"`
-	QualityProfile    string     `json:"quality_profile,omitempty"`
-	Variant           string     `json:"variant,omitempty"`
-	AttentionCode     string     `json:"attention_code,omitempty"`
-	AttentionDetail   string     `json:"attention_detail,omitempty"`
-	WaitingReason     string     `json:"waiting_reason,omitempty"`
-	LastSearchAt      *time.Time `json:"last_search_at,omitempty"`
-	NextSearchAt      *time.Time `json:"next_search_at,omitempty"`
-	Lifecycle         string     `json:"lifecycle"`
-	SeasonCount       int        `json:"season_count"`
-	AvailableSeasons  int        `json:"available_seasons"`
+	ID                string  `json:"id"`
+	RequestID         string  `json:"request_id"`
+	SeerrInstanceID   string  `json:"seerr_instance_id"`
+	SeerrInstanceName string  `json:"seerr_instance_name,omitempty"`
+	MediaKind         string  `json:"media_kind"`
+	Title             string  `json:"title"`
+	Year              *uint16 `json:"year,omitempty"`
+	PosterURL         string  `json:"poster_url,omitempty"`
+	// BackdropURL is the title's stored wide artwork, once the request has a title.
+	BackdropURL      string     `json:"backdrop_url,omitempty"`
+	Requester        string     `json:"requester,omitempty"`
+	RequestedAt      *time.Time `json:"requested_at,omitempty"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	SeerrState       string     `json:"seerr_state"`
+	IntakeOutcome    string     `json:"intake_outcome,omitempty"`
+	IntakeError      string     `json:"intake_error,omitempty"`
+	MediaID          *uuid.UUID `json:"media_id,omitempty"`
+	WorkflowCount    int        `json:"workflow_count"`
+	ConfirmedCount   int        `json:"confirmed_count"`
+	AttentionCount   int        `json:"attention_count"`
+	CurrentState     string     `json:"current_state,omitempty"`
+	QualityProfile   string     `json:"quality_profile,omitempty"`
+	Variant          string     `json:"variant,omitempty"`
+	AttentionCode    string     `json:"attention_code,omitempty"`
+	AttentionDetail  string     `json:"attention_detail,omitempty"`
+	WaitingReason    string     `json:"waiting_reason,omitempty"`
+	LastSearchAt     *time.Time `json:"last_search_at,omitempty"`
+	NextSearchAt     *time.Time `json:"next_search_at,omitempty"`
+	Lifecycle        string     `json:"lifecycle"`
+	SeasonCount      int        `json:"season_count"`
+	AvailableSeasons int        `json:"available_seasons"`
 }
 
 type SeerrRequestDetail struct {
@@ -102,6 +104,7 @@ const seerrRequestSummaryColumns = `s.seerr_instance_id::text,COALESCE(instance.
 	COALESCE(s.year,media.year),
 	COALESCE(NULLIF(s.media_kind,''),media.kind,''),
 	COALESCE(NULLIF(s.poster_url,''),metadata.data->>'poster_url',''),
+	COALESCE(metadata.data->>'backdrop_url',''),
 	s.requested_at,
 	COALESCE(s.requester,''),
 	s.state,
@@ -186,7 +189,7 @@ func scanSeerrRequestSummary(row seerrRequestScanner) (SeerrRequestSummary, erro
 	var requestedAt *time.Time
 	var mediaText *string
 	if err := row.Scan(
-		&item.SeerrInstanceID, &item.SeerrInstanceName, &item.RequestID, &item.Title, &year, &item.MediaKind, &item.PosterURL,
+		&item.SeerrInstanceID, &item.SeerrInstanceName, &item.RequestID, &item.Title, &year, &item.MediaKind, &item.PosterURL, &item.BackdropURL,
 		&requestedAt, &item.Requester, &item.SeerrState, &item.IntakeOutcome, &item.IntakeError,
 		&mediaText, &item.WorkflowCount, &item.AttentionCount, &item.ConfirmedCount,
 		&item.CurrentState, &item.QualityProfile, &item.Variant, &item.AttentionCode, &item.AttentionDetail, &item.UpdatedAt,
