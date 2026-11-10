@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { NavLink, Link, useParams } from "react-router"
 
 import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRepairs, loadSupportBundle, loadSystemHealth, loadSystemInfo, restoreRecycle, type APIRecycleEntry } from "@/api/client"
@@ -167,7 +167,17 @@ function Queue() {
   )
 }
 
+function BackupFact({ tone, label, children }: { tone: Tone; label: string; children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-line px-4 py-3">
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-text-3"><Dot tone={tone} />{label}</div>
+      <div className="mt-1 text-sm text-text">{children}</div>
+    </div>
+  )
+}
+
 function Backups() {
+  const [showDeleted, setShowDeleted] = useState(false)
   const queryClient = useQueryClient()
   const toast = useToast()
   const query = useQuery({ queryKey: ["backups"], queryFn: ({ signal }) => loadBackups(signal), refetchInterval: 30_000 })
@@ -181,6 +191,12 @@ function Backups() {
   const b = query.data
   const copiedAt = latestExternalCopy(b.records)
   const restoredAt = latestRestoreTest(b.records)
+  const records = b.records.slice(0, 30)
+  const kept = records.filter((record) => !record.local_file_deleted || confirmedExternalCopy(record))
+  const latestKept = kept[0]
+  // Deleted backups say little; they fold away while kept ones exist.
+  const visibleRecords = showDeleted || kept.length === 0 ? records : kept
+  const hiddenDeleted = records.length - visibleRecords.length
   return (
     <Card>
       <CardHeader
@@ -189,26 +205,40 @@ function Backups() {
         action={<Button variant="primary" busy={create.isPending} disabled={!b.configured} onClick={() => create.mutate()}>Tag backup nu</Button>}
       />
       {!b.configured ? <p className="px-5 pb-3 text-sm text-warn">Backups er slået fra, fordi serveren ikke har en backup-nøgle (BACKUP_ENCRYPTION_KEY).</p> : null}
-      <div className="space-y-2 px-5 pb-4 text-sm text-text-2">
-        <p>{b.offsite.configured ? "Ekstern kopiering er sat op." : "Ekstern kopiering er ikke sat op."}</p>
-        <p>{copiedAt ? `Senest bekræftede eksterne kopi: ${formatDateTime(copiedAt)}.` : "Ingen gennemført ekstern kopi er dokumenteret i den viste backupliste."}</p>
-        <p>{restoredAt ? `Seneste prøvegendannelse af databasen: ${formatDateTime(restoredAt)}.` : "Ingen prøvegendannelse af databasen er gennemført endnu."}</p>
+      <div className="grid gap-3 px-5 py-4 sm:grid-cols-3">
+        <BackupFact tone={latestKept ? (latestKept.state === "verified" ? "good" : latestKept.state === "failed" ? "bad" : "info") : "warn"} label="Seneste backup">
+          {latestKept ? `${formatDateTime(latestKept.completed_at ?? latestKept.created_at)} · ${formatBytes(latestKept.size_bytes)}` : "Ingen backup gemt på serveren"}
+        </BackupFact>
+        <BackupFact tone={restoredAt ? "good" : "warn"} label="Prøvegendannelse">
+          {restoredAt ? `Seneste prøvegendannelse af databasen: ${formatDateTime(restoredAt)}.` : "Ingen prøvegendannelse af databasen er gennemført endnu."}
+        </BackupFact>
+        <BackupFact tone={copiedAt ? "good" : b.offsite.configured ? "info" : "neutral"} label="Ekstern kopi">
+          <span className="block">{b.offsite.configured ? "Ekstern kopiering er sat op." : "Ekstern kopiering er ikke sat op."}</span>
+          <span className="block">{copiedAt ? `Senest bekræftede eksterne kopi: ${formatDateTime(copiedAt)}.` : "Ingen gennemført ekstern kopi er dokumenteret i den viste backupliste."}</span>
+        </BackupFact>
+      </div>
+      <div className="mx-5 mb-4 space-y-1 rounded-xl bg-surface-2 px-4 py-3 text-xs text-text-2">
         <p>Prøvegendannelsen kontrollerer kun databasen. En samlet gendannelse af installation, nøgler, mapper og medier er ikke dokumenteret her.</p>
         <p>Gem backup-nøglen og nøglen til gemte forbindelser sikkert uden for serveren. Backup-nøglen åbner backupfilen; forbindelsernes nøgle åbner de gemte adgangsoplysninger.</p>
       </div>
       {b.configured && b.key_file ? <p className="px-5 pb-3 text-sm text-text-2">Backup-nøglen blev lavet automatisk og ligger i <code className="break-all">{b.key_file}</code> i API-containeren. Gem en kopi et sikkert sted: uden den kan en backup ikke gendannes på en anden server.</p> : null}
       {b.records.length === 0 ? <Empty title="Ingen backups endnu" /> : null}
-      <ul className="divide-y divide-line">
-        {b.records.slice(0, 30).map((record) => (
+      <ul className="divide-y divide-line border-t border-line">
+        {visibleRecords.map((record) => (
           <li key={record.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
             <Badge tone={record.local_file_deleted ? "neutral" : record.state === "verified" ? "good" : record.state === "failed" ? "bad" : "info"}>{backupStateLabel(record.state, record.local_file_deleted)}</Badge>
             <span className="flex-1">{formatDateTime(record.completed_at ?? record.created_at)}</span>
             <span className="tabular text-text-3">{formatBytes(record.size_bytes)}</span>
-            {!record.local_file_deleted || confirmedExternalCopy(record) ? <span className="w-full text-text-2">{externalCopyLabel(externalCopyState(record, b.offsite.configured))}</span> : null}
+            {(!record.local_file_deleted || confirmedExternalCopy(record)) && externalCopyState(record, b.offsite.configured) !== "not_configured" ? <span className="w-full text-text-2">{externalCopyLabel(externalCopyState(record, b.offsite.configured))}</span> : null}
             {record.last_error ? <span className="w-full break-words text-bad">{record.last_error}</span> : null}
           </li>
         ))}
       </ul>
+      {hiddenDeleted > 0 ? (
+        <div className="border-t border-line px-5 py-3">
+          <button type="button" className="text-sm font-medium text-accent-strong hover:underline" onClick={() => setShowDeleted(true)}>Vis {formatNumber(hiddenDeleted)} ældre backups, hvor filen er slettet</button>
+        </div>
+      ) : null}
     </Card>
   )
 }

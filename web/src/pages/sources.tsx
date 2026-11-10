@@ -81,13 +81,13 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
             {downloads.finished ? <Progress value={downloads.verified} max={downloads.finished} tone="good" label="Godkendte downloads de seneste 30 dage" /> : null}
           </div>
         ) : null}
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-3">
+        <div className="grid gap-x-4 gap-y-1 border-t border-line pt-3 text-xs text-text-3 sm:grid-cols-2">
           <span>Automatiske søgninger tilbage: {formatNumber(usage.background_queries_remaining)}</span>
-          {outcomes.length ? <span>Sidste døgn: {formatNumber(succeeded)} svar · {formatNumber(deferred)} udsat (grænse/pause){failed ? ` · ${formatNumber(failed)} fejl` : ""}</span> : null}
+          {outcomes.length ? <span className="sm:col-span-2">Sidste døgn: {formatNumber(succeeded)} svar · {formatNumber(deferred)} udsat (grænse/pause){failed ? ` · ${formatNumber(failed)} fejl` : ""}</span> : null}
           {pacing.last_outcome_at ? <span>Seneste svar {formatRelative(pacing.last_outcome_at)}</span> : null}
           {cooling ? <span>Pause til {formatDateTime(pacing.cooldown_until)}</span> : null}
           {newUploads ? (
-            <span title="Media Manager læser listen over indexerens nyeste uploads. Passer en upload til en titel, der venter, søges titlen med det samme.">
+            <span className="sm:col-span-2" title="Media Manager læser listen over indexerens nyeste uploads. Passer en upload til en titel, der venter, søges titlen med det samme.">
               {newUploadsFailed ? `Nye uploads kunne ikke læses${newUploads.next_read_at ? ` (prøver igen ${formatRelative(newUploads.next_read_at)})` : ""}` : `Nye uploads læst ${newUploads.last_read_at ? formatRelative(newUploads.last_read_at) : "snart"}`}
               {newUploads.matches_24h ? ` · ${formatNumber(newUploads.matches_24h)} passede til ventende titler sidste døgn` : ""}
             </span>

@@ -4532,6 +4532,40 @@
         "x-mm-effect": "provider"
       }
     },
+    "/api/v1/media/gaps": {
+      "get": {
+        "description": "Read-only. A season is known when it has open work or any current file; new_seasons come after the highest known season, older_seasons before it. Season counts come from the stored provider metadata (metadata_at).\n\nNo state change and no provider contact. Always safe.",
+        "operationId": "listLibraryGaps",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Seasons of the owner's series that are neither followed nor in the library, and films without a file or open work",
+        "tags": [
+          "media"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      }
+    },
     "/api/v1/media/recent": {
       "get": {
         "description": "One row per title with the scope of its newest file. Only files Media Manager downloaded and verified are listed; adopted files are not. limit is 1 to 50 and defaults to 12.\n\nNo state change and no provider contact. Always safe.",

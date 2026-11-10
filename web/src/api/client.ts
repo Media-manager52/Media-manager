@@ -191,6 +191,14 @@ export async function loadCatalogMediaBounded(signal?: AbortSignal): Promise<{ i
 export type APIMediaStatus = { media_id: string; in_plex: boolean; missing: number; attention: boolean; root_ids?: string[]; added_at?: string }
 export type APIRecentAddition = { media_id: string; media_kind: "movie" | "series"; title: string; year?: number; poster_url?: string; variant: string; edition?: "standard" | "4k"; added_at: string }
 export const loadRecentAdditions = async (signal?: AbortSignal) => await requestJSON<APIRecentAddition[] | null>("/api/v1/media/recent?limit=12", { signal }) ?? []
+export type APIGapTitle = { media_id: string; title: string; year?: number; tmdb_id?: string; poster_url?: string; root_id?: string; quality_profile_id?: string; metadata_at?: string }
+export type APISeriesGap = APIGapTitle & { season_count: number; status?: string; known_seasons: number[]; new_seasons: number[]; older_seasons: number[]; stopped_seasons: number[] }
+export type APIMovieGap = APIGapTitle & { last_state?: string; last_at?: string }
+export type APILibraryGaps = { series: APISeriesGap[]; movies: APIMovieGap[] }
+export const loadLibraryGaps = async (signal?: AbortSignal): Promise<APILibraryGaps> => {
+  const data = await requestJSON<APILibraryGaps | null>("/api/v1/media/gaps", { signal })
+  return { series: data?.series ?? [], movies: data?.movies ?? [] }
+}
 export const loadMediaStatus = async (signal?: AbortSignal) => await requestJSON<APIMediaStatus[] | null>("/api/v1/media/status", { signal }) ?? []
 export const loadMediaItem = (id: string, signal?: AbortSignal) => requestJSON<APIMedia>(`/api/v1/media/${encodeURIComponent(id)}`, { signal })
 export const loadWorkflows = async (active = true, signal?: AbortSignal) => await requestJSON<APIWorkflow[] | null>(`/api/v1/workflows?limit=300&active=${active}`, { signal }) ?? []
@@ -279,6 +287,18 @@ export type CreateMediaWorkflowInput = {
   season?: { number: number; monitored: boolean; search_immediately: boolean; prefer_season_pack: boolean; episodes: Array<{ number: number; provider_episode_id?: string; title?: string; air_date?: string }> }
 }
 export const createMediaWorkflow = (mediaId: string, input: CreateMediaWorkflowInput) => requestJSON<APIWorkflow>(`/api/v1/media/${encodeURIComponent(mediaId)}/workflows`, { method: "POST", body: JSON.stringify(input) })
+/**
+ * The input that adds one season to a series: the season is frozen from TMDB's
+ * exact episode list, never a guessed count.
+ */
+export async function seasonWorkflowInput(tmdbID: number, number: number, base: Omit<CreateMediaWorkflowInput, "season">): Promise<CreateMediaWorkflowInput> {
+  const snapshot = await loadDiscoveryMetadata("tv", tmdbID, number)
+  if (!snapshot.season || snapshot.season.episodes.length === 0) throw new Error(`TMDB har ingen afsnitsliste for sæson ${number}.`)
+  return {
+    ...base,
+    season: { number, monitored: true, search_immediately: base.search_immediately, prefer_season_pack: true, episodes: snapshot.season.episodes.map((episode) => ({ number: episode.number, provider_episode_id: episode.provider_id, title: episode.title, air_date: episode.air_date })) },
+  }
+}
 export const refreshMediaMetadata = (id: string) => requestJSON<{ media: APIMedia; enrichment_state: APIDiscoveryDetail["enrichment_state"]; provider_states: Record<string, string> }>(`/api/v1/media/${encodeURIComponent(id)}/metadata/refresh`, { method: "POST" })
 /** Moves the title's links to the recycle bin; cancelOpenWork first stops waiting, searching and monitoring work. */
 export const recycleMedia = (id: string, cancelOpenWork = false) => requestJSON<APIRecycleEntry[]>(`/api/v1/media/${encodeURIComponent(id)}${cancelOpenWork ? "?cancel_open_work=true" : ""}`, { method: "DELETE" })

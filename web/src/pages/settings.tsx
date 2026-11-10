@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Trash2 } from "lucide-react"
 import { useState } from "react"
-import { NavLink, useParams } from "react-router"
+import { Link, NavLink, useParams } from "react-router"
 
 import {
-  applyQualityProfilePolicy, ApiError, deleteLibraryRoot, deleteQualityProfile, deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
+  applyQualityProfilePolicy, ApiError, deleteLibraryRoot, deleteQualityProfile, deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadMediaStatus, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
   setNotificationDestinationEnabled, updateLibraryRoot,
   type APIIntegration, type APILibraryRoot, type APIQualityProfile,
 } from "@/api/client"
@@ -152,7 +152,7 @@ function Profiles() {
                       <Button aria-label={`Rediger ${profile.name}`} className="h-8 text-xs" onClick={() => setEditing(profile)}>Rediger</Button>
                       <Button aria-label={`Kopier ${profile.name}`} variant="ghost" className="h-8 text-xs" onClick={() => setCopying(profile)}>Kopier</Button>
                       <Button aria-label={`Brug ${profile.name} på ventende opgaver`} variant="ghost" className="h-8 text-xs" onClick={() => setApplying(profile)}>Brug på ventende</Button>
-                      {!profile.is_default ? <Button aria-label={`Slet ${profile.name}`} variant="ghost" className="h-8 text-xs" onClick={() => { remove.reset(); setReplacement(""); setDeleting(profile) }}>Slet</Button> : null}
+                      {!profile.is_default ? <Button aria-label={`Slet ${profile.name}`} variant="ghost" className="h-8 text-xs" onClick={() => { remove.reset(); setReplacement(""); setDeleting(profile) }}>Slet</Button> :<span aria-hidden className="invisible inline-flex h-8 items-center px-3.5 text-xs font-medium">Slet</span>}
                     </div>
                   </div>
                   <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
@@ -197,6 +197,7 @@ function Roots() {
   const queryClient = useQueryClient()
   const toast = useToast()
   const query = useQuery({ queryKey: ["settings", "roots"], queryFn: ({ signal }) => loadLibraryRoots(signal) })
+  const status = useQuery({ queryKey: ["media", "status"], queryFn: ({ signal }) => loadMediaStatus(signal), staleTime: 60_000 })
   const [adding, setAdding] = useState(false)
   const [deleting, setDeleting] = useState<APILibraryRoot>()
   const [renaming, setRenaming] = useState<APILibraryRoot>()
@@ -220,6 +221,9 @@ function Roots() {
   if (query.error) return <ErrorBox error={query.error} retry={() => query.refetch()} />
   if (query.isPending) return <Card><ListSkeleton /></Card>
   const sorted = [...query.data].sort((a, b) => a.media_kind.localeCompare(b.media_kind) || a.name.localeCompare(b.name, "da"))
+  const titleCounts = new Map<string, number>()
+  for (const entry of status.data ?? []) for (const id of entry.root_ids ?? []) titleCounts.set(id, (titleCounts.get(id) ?? 0) + 1)
+  const groups = (["movie", "series"] as const).map((kind) => ({ kind, roots: sorted.filter((root) => root.media_kind === kind) })).filter((group) => group.roots.length > 0)
   return (
     <Card>
       <CardHeader title="Biblioteksmapper" description="Hver mappe svarer til et bibliotek i Plex. Standardmappen bruges, når hverken du eller en Seerr-regel vælger en anden. En 4K-mappe holder en ekstra 4K-udgave og bruges kun, når 4K bestilles." action={<Button onClick={() => setAdding(true)}>Tilføj mappe</Button>} />
@@ -241,28 +245,35 @@ function Roots() {
         </Dialog>
       ) : null}
       {sorted.length === 0 ? <Empty title="Ingen biblioteksmapper endnu">Tilføj en mappe for hvert Plex-bibliotek, Media Manager skal lægge film eller serier i.</Empty> : null}
+      {groups.map((group) => (
+        <div key={group.kind}>
+          <h3 className="border-b border-line bg-surface-2 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-text-3">{group.kind === "movie" ? "Film" : "Serier"} <span className="font-normal">· {formatNumber(group.roots.length)} mapper</span></h3>
       <ul className="divide-y divide-line">
-        {sorted.map((root) => (
+        {group.roots.map((root) => (
           <li key={root.id} className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
             <div className="min-w-0 sm:flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{root.name}</span>
-                <Badge>{kindLabel(root.media_kind)}</Badge>
                 {root.edition === "4k" ? <Badge tone="info">4K</Badge> : null}
                 {root.is_default ? <Badge tone="info">Standard</Badge> : null}
                 {!root.enabled ? <Badge>Slået fra</Badge> : null}
               </div>
-              <div className="mt-0.5 break-all text-xs text-text-3">{root.plex_visible_root || root.destination_root}</div>
+              <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-text-3">
+                <span className="break-all">{root.plex_visible_root || root.destination_root}</span>
+                {status.data ? <Link to={`/bibliotek?mappe=${encodeURIComponent(root.id)}`} className="text-text-2 hover:text-text hover:underline">{pluralize(titleCounts.get(root.id) ?? 0, "titel", "titler")}</Link> : null}
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {!root.is_default && root.enabled && root.edition !== "4k" ? <Button className="h-8 text-xs" busy={mutation.isPending} onClick={() => mutation.mutate({ root, patch: { is_default: true } })}>Gør til standard</Button> : null}
-              {!root.is_default ? <Button variant="ghost" className="h-8 text-xs" busy={mutation.isPending} onClick={() => mutation.mutate({ root, patch: { enabled: !root.enabled } })}>{root.enabled ? "Slå fra" : "Slå til"}</Button> : null}
+              {!root.is_default ? <Button variant="ghost" className="h-8 text-xs" busy={mutation.isPending} onClick={() => mutation.mutate({ root, patch: { enabled: !root.enabled } })}>{root.enabled ? "Slå fra" : "Slå til"}</Button> :<span aria-hidden className="invisible inline-flex h-8 items-center px-3.5 text-xs font-medium">Slå fra</span>}
               <Button variant="ghost" className="h-8 text-xs" aria-label={`Omdøb ${root.name}`} onClick={() => { rename.reset(); setNewName(root.name); setRenaming(root) }}>Omdøb</Button>
-              {!root.is_default ? <Button variant="ghost" className="h-8 text-xs" aria-label={`Slet ${root.name}`} onClick={() => setDeleting(root)}>Slet</Button> : null}
+              {!root.is_default ? <Button variant="ghost" className="h-8 text-xs" aria-label={`Slet ${root.name}`} onClick={() => setDeleting(root)}>Slet</Button> :<span aria-hidden className="invisible inline-flex h-8 items-center px-3.5 text-xs font-medium">Slet</span>}
             </div>
           </li>
         ))}
       </ul>
+        </div>
+      ))}
     </Card>
   )
 }

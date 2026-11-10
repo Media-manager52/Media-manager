@@ -7,6 +7,7 @@ import { AttentionPage } from "@/pages/attention"
 import { ErrorLogPage } from "@/pages/error-log"
 import { CalendarPage } from "@/pages/calendar"
 import { LibraryPage } from "@/pages/library"
+import { MissingPage } from "@/pages/missing"
 import { NotFoundPage } from "@/pages/not-found"
 import { OverviewPage } from "@/pages/overview"
 import { RequestsPage } from "@/pages/requests"
@@ -54,6 +55,7 @@ export const router = createBrowserRouter([
       { path: "handling", element: <AttentionPage /> },
       { path: "fejl", element: <ErrorLogPage /> },
       { path: "bibliotek", element: <LibraryPage /> },
+      { path: "bibliotek/mangler", element: <MissingPage /> },
       { path: "bibliotek/:id", element: <TitlePage /> },
       { path: "media/movies/:id", element: <TitlePage /> },
       { path: "media/series/:id", element: <TitlePage /> },
