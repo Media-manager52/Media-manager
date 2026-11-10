@@ -105,7 +105,7 @@ func TestLibraryFoldersRecentAdditionsAndIndexerDownloads(t *testing.T) {
 	exec(`UPDATE library_links SET destination_relative='Recent Older (2026)/old.mkv' WHERE id=(SELECT library_link_id FROM library_link_versions WHERE id=$1)`, olderVersion.String())
 	exec(`UPDATE library_link_versions SET verified_at=now()-interval '2 days' WHERE id=$1`, olderVersion.String())
 	newerVersion := seedCurrentSubtitleVersion(t, ctx, store, newer.ID, fixture.root.ID, fixture.profile.ID, fixture.altMount.ID, fixture.indexer.ID)
-	exec(`INSERT INTO media_metadata(media_id,data,revision,created_at,updated_at) VALUES($1,'{"poster_url":"https://image.invalid/newer.jpg"}',1,now(),now())
+	exec(`INSERT INTO media_metadata(media_id,data,revision,created_at,updated_at) VALUES($1,'{"poster_url":"https://image.invalid/newer.jpg","backdrop_url":"https://image.invalid/newer-wide.jpg"}',1,now(),now())
 		ON CONFLICT(media_id) DO UPDATE SET data=media_metadata.data || EXCLUDED.data`, newer.ID.String())
 
 	got := status(older.ID)
@@ -130,7 +130,7 @@ func TestLibraryFoldersRecentAdditionsAndIndexerDownloads(t *testing.T) {
 	if len(items) != 2 || items[0].MediaID != newer.ID || items[1].MediaID != older.ID {
 		t.Fatalf("recent additions = %+v, want the newer title first and each title once", items)
 	}
-	if first := items[0]; first.Title != "Recent Newer" || first.MediaKind != "movie" || first.Variant != "default" || first.Edition != "standard" || first.PosterURL != "https://image.invalid/newer.jpg" || first.AddedAt.IsZero() {
+	if first := items[0]; first.Title != "Recent Newer" || first.MediaKind != "movie" || first.Variant != "default" || first.Edition != "standard" || first.PosterURL != "https://image.invalid/newer.jpg" || first.BackdropURL != "https://image.invalid/newer-wide.jpg" || first.AddedAt.IsZero() {
 		t.Fatalf("recent addition = %+v", first)
 	}
 	// A displaced file is no longer in the library.

@@ -26,6 +26,15 @@ text shipped with each dependency.
   These are separate programs aggregated in the image, not relicensed as part
   of Media Manager.
 
+## Adapted design
+
+- **HolyArrs** (<https://github.com/HolyArrs/HolyArrs>, web UI licensed
+  **AGPL-3.0-only**, the same license as Media Manager). The web UI's colour,
+  surface, text and shadow values in `web/src/styles.css`, the grouped menu and
+  the overview's picture tiles and count cards are adapted from HolyArrs'
+  design. No HolyArrs source file is copied; Media Manager's own components
+  are written in React. HolyArrs' name and logo are not used.
+
 ## Dependency inventory
 
 The exact npm dependency graph and versions are pinned in

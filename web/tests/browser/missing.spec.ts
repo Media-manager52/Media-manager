@@ -14,7 +14,7 @@ test("Find manglende lists new seasons and adds them like the title page", async
     await route.fulfill({ status: 201, json: { data: { id: "w-new", state: "waiting" } } })
   })
   await page.goto("/bibliotek")
-  await page.getByRole("link", { name: "Find manglende" }).click()
+  await page.locator("#main").getByRole("link", { name: "Find manglende" }).click()
   await expect(page.getByRole("heading", { level: 1, name: "Find manglende" })).toBeVisible()
   await expect(page.getByText("Sæson 4 og 5")).toBeVisible()
   await page.getByRole("button", { name: "Tilføj 2 sæsoner" }).click()

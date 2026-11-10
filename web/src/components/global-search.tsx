@@ -1,20 +1,35 @@
 import { useQuery } from "@tanstack/react-query"
 import { Search } from "lucide-react"
-import { useId, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react"
 import { Link, useNavigate } from "react-router"
 
 import { loadCatalogMediaBounded } from "@/api/client"
 import { Poster, sizedArtwork } from "@/components/poster"
+import { cx } from "@/components/ui"
 import { searchTitles } from "@/lib/library-filter"
 import { titleHref } from "@/lib/links"
 
 /**
- * Search field in the menu: finds a title in the library from any page. The
+ * Search field at the top of every page: finds a title in the library. The
  * library list is loaded the first time the field is used and then shared
- * with the library page.
+ * with the library page. With `shortcut`, Ctrl+K (⌘K) or "/" jumps to it.
  */
-export function GlobalSearch({ onNavigate, autoFocus = false }: { onNavigate?: () => void; autoFocus?: boolean }) {
+export function GlobalSearch({ onNavigate, autoFocus = false, shortcut = false }: { onNavigate?: () => void; autoFocus?: boolean; shortcut?: boolean }) {
   const id = useId()
+  const input = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!shortcut) return
+    const jump = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const typing = target !== null && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+      if (((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") || (event.key === "/" && !typing)) {
+        event.preventDefault()
+        input.current?.focus()
+      }
+    }
+    window.addEventListener("keydown", jump)
+    return () => window.removeEventListener("keydown", jump)
+  }, [shortcut])
   const navigate = useNavigate()
   const [value, setValue] = useState("")
   const [open, setOpen] = useState(false)
@@ -36,7 +51,7 @@ export function GlobalSearch({ onNavigate, autoFocus = false }: { onNavigate?: (
   const showResults = open && needle.length >= 2
   return (
     <div
-      className="px-1"
+      className={cx("px-1", shortcut && "relative")}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }}
       onKeyDown={(event) => { if (event.key === "Escape") setOpen(false) }}
     >
@@ -44,6 +59,7 @@ export function GlobalSearch({ onNavigate, autoFocus = false }: { onNavigate?: (
         <label htmlFor={id} className="sr-only">Søg i dine titler</label>
         <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3" />
         <input
+          ref={input}
           id={id}
           type="search"
           autoFocus={autoFocus}
@@ -52,11 +68,13 @@ export function GlobalSearch({ onNavigate, autoFocus = false }: { onNavigate?: (
           onChange={(event) => { setValue(event.target.value); setOpen(true) }}
           placeholder="Søg i dine titler"
           autoComplete="off"
-          className="h-10 w-full rounded-lg border border-line bg-surface pl-9 pr-3 text-sm placeholder:text-text-3 lg:h-9"
+          aria-keyshortcuts={shortcut ? "Control+K /" : undefined}
+          className={cx("h-10 w-full rounded-lg border border-line bg-surface pl-9 text-sm shadow-sm placeholder:text-text-3 lg:h-9", shortcut ? "pr-16" : "pr-3")}
         />
+        {shortcut ? <kbd aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-line px-1.5 font-sans text-[11px] text-text-3">Ctrl K</kbd> : null}
       </form>
       {showResults ? (
-        <div className="mt-2 rounded-lg border border-line bg-surface text-sm shadow-card">
+        <div className={cx("mt-2 rounded-lg border border-line bg-surface text-sm shadow-card", shortcut && "absolute inset-x-0 z-40 shadow-lift")}>
           {catalog.isPending ? <p role="status" className="px-3 py-2 text-text-2">Søger…</p> : null}
           {catalog.error ? <p role="alert" className="px-3 py-2 text-bad">Biblioteket kunne ikke hentes. Prøv igen.</p> : null}
           {catalog.data && matches.length === 0 ? <p className="px-3 py-2 text-text-2">Ingen af dine titler passer.</p> : null}

@@ -131,8 +131,11 @@ These have no React and are covered by Vitest. The preset fixture
   applies it before first paint).
 - Colours are chosen for WCAG AA contrast in both themes. The axe browser test
   fails on any serious or critical violation.
-- Layout works from 360 px wide: a sidebar on desktop, a top bar plus a bottom
-  tab bar and drawer on mobile, and no horizontal page scroll (also tested).
+- Layout works from 360 px wide: a grouped sidebar and a top search bar
+  (Ctrl+K or `/` focuses it) on desktop, a top bar plus a bottom tab bar and
+  drawer on mobile, and no horizontal page scroll (also tested). The palette
+  and the overview's picture tiles are adapted from HolyArrs (AGPL-3.0-only,
+  see `THIRD_PARTY_NOTICES.md`).
 
 ## 7. Tests
 
