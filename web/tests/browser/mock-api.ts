@@ -51,6 +51,12 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   [/^\/api\/v1\/system\/queue$/, () => ({ checked_at: now, due: 0, scheduled: 1, leased: 0, retrying: 0, completed_last_10m: 4, completed_last_hour: 20, by_type: [{ event_type: "workflow.search_requested", due: 0, scheduled: 1, leased: 0, retrying: 0 }] })],
   [/^\/api\/v1\/calendar$/, () => [{ media_id: ids.series, media_kind: "series", media_title: "Testserien", workflow_id: ids.season, variant: "season:2:episode:1", season: 2, episode: 1, episode_title: "Pilot", air_date: "2026-11-05", monitored: true, workflow_state: "waiting" }]],
   [/^\/api\/v1\/media$/, (url) => (url.searchParams.get("offset") === "0" || !url.searchParams.get("offset") ? media : [])],
+  [/^\/api\/v1\/media\/gaps$/, () => ({
+    series: [
+      { media_id: ids.series, title: "Testserien", year: 2020, tmdb_id: "500", root_id: ids.root, season_count: 5, status: "Returning Series", known_seasons: [2, 3], new_seasons: [4, 5], older_seasons: [1], stopped_seasons: [1], metadata_at: now },
+    ],
+    movies: [{ media_id: ids.movie, title: "Testfilmen", year: 2024, root_id: ids.root, last_state: "cancelled", last_at: now }],
+  })],
   [/^\/api\/v1\/media\/status$/, () => [{ media_id: ids.movie, in_plex: false, missing: 1, attention: true, root_ids: [] }, { media_id: ids.series, in_plex: true, missing: 0, attention: false, root_ids: [ids.root], added_at: now }]],
   [/^\/api\/v1\/media\/recent$/, () => [{ media_id: ids.series, media_kind: "series", title: "Testserien", year: 2020, variant: "season:1:episode:2", edition: "", added_at: now }]],
   [/^\/api\/v1\/media\/[0-9a-f-]+\/detail$/, (url) => {

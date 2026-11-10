@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Search } from "lucide-react"
+import { FolderInput, Inbox, Search, SearchCheck } from "lucide-react"
 import { useState, type FormEvent } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
 
@@ -22,6 +22,12 @@ export function AddPage() {
   const initial = (params.get("q") ?? "").trim().slice(0, 200)
   return <AddView key={initial} initial={initial} />
 }
+
+const addShortcuts = [
+  { to: "/bibliotek/mangler", title: "Find manglende", text: "Nye sæsoner af dine serier og film uden fil, klar til at blive tilføjet.", Icon: SearchCheck },
+  { to: "/anmodninger", title: "Anmodninger fra Seerr", text: "Det, du og andre har bedt om i Seerr, og hvor langt det er nået.", Icon: Inbox },
+  { to: "/indstillinger/overtag", title: "Overtag dit bibliotek", text: "Lad Media Manager holde øje med film og serier, der allerede ligger i Plex.", Icon: FolderInput },
+]
 
 function AddView({ initial }: { initial: string }) {
   const [query, setQuery] = useState(initial)
@@ -58,6 +64,17 @@ function AddView({ initial }: { initial: string }) {
         </Card>
       ) : results.error ? <ErrorBox error={results.error} /> : null}
       {picked ? <AddForm result={picked} onBack={() => setPicked(null)} /> : null}
+      {!picked && submitted.length < 2 ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {addShortcuts.map(({ to, title, text, Icon }) => (
+            <Link key={to} to={to} className="group rounded-2xl border border-line bg-surface p-4 shadow-card transition-colors hover:border-text-3">
+              <Icon aria-hidden className="size-5 text-accent-strong" />
+              <div className="mt-2 font-medium group-hover:underline">{title}</div>
+              <p className="mt-1 text-sm text-text-2">{text}</p>
+            </Link>
+          ))}
+        </div>
+      ) : null}
       {!picked && results.data ? (
         results.data.results.length === 0 ? <Card><Empty title="Ingen titler fundet">Prøv den danske eller den originale titel.</Empty></Card> : (
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-4">

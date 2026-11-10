@@ -242,6 +242,15 @@ func (server *Server) listMediaStatus(writer http.ResponseWriter, request *http.
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: items})
 }
 
+func (server *Server) listLibraryGaps(writer http.ResponseWriter, request *http.Request) {
+	gaps, err := server.store.LibraryGaps(request.Context())
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "database_error", "could not load what the library is missing")
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: gaps})
+}
+
 func (server *Server) listRecentAdditions(writer http.ResponseWriter, request *http.Request) {
 	limit := 0
 	if value := request.URL.Query().Get("limit"); value != "" {

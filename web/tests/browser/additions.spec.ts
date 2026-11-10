@@ -75,7 +75,7 @@ test("the library sorts by newest file and filters by folder", async ({ page }) 
     { media_id: ids.series, in_plex: true, missing: 0, attention: false, root_ids: [], added_at: "2026-11-02T10:00:00Z" },
   ] } }))
   await page.goto("/bibliotek")
-  const titles = page.locator(`a[href^="/bibliotek/"]`)
+  const titles = page.locator(`a[href^="/bibliotek/"]:not([href="/bibliotek/mangler"])`)
   await expect(titles).toHaveCount(2)
   await expect(titles.first()).toContainText("Testfilmen")
   await page.getByLabel("Sortér").selectOption("senest-tilfoejet")
@@ -93,7 +93,7 @@ test("a folder filter never shows titles when the status is unknown", async ({ p
   await page.route("**/api/v1/media/status", (route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "down" } } }))
   await page.goto(`/bibliotek?mappe=${ids.root}`)
   await expect(page.getByText("kræver titlernes status")).toBeVisible()
-  await expect(page.locator(`a[href^="/bibliotek/"]`)).toHaveCount(0)
+  await expect(page.locator(`a[href^="/bibliotek/"]:not([href="/bibliotek/mangler"])`)).toHaveCount(0)
 })
 
 const second = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"

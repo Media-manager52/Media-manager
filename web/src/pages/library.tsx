@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
+import { Plus, SearchCheck } from "lucide-react"
 import { useDeferredValue, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router"
 
@@ -69,7 +69,7 @@ function LibraryView() {
       <PageHeader
         title="Bibliotek"
         description="Alle film og serier, som Media Manager kender."
-        actions={<Link to="/tilfoej"><Button variant="primary"><Plus aria-hidden className="size-4" />Tilføj titel</Button></Link>}
+        actions={<><Link to="/bibliotek/mangler"><Button><SearchCheck aria-hidden className="size-4" />Find manglende</Button></Link><Link to="/tilfoej"><Button variant="primary"><Plus aria-hidden className="size-4" />Tilføj titel</Button></Link></>}
       />
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <Segmented

@@ -3,7 +3,7 @@ import { Download, FolderInput, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router"
 
-import { ApiError, createMediaWorkflow, loadDiscoveryMetadata, loadLibraryRoots, loadQualityProfiles, recycleMedia, relocateMedia, type APILibraryRoot, type APIMediaDetail, type APIQualityProfile } from "@/api/client"
+import { ApiError, createMediaWorkflow, loadDiscoveryMetadata, loadLibraryRoots, seasonWorkflowInput, loadQualityProfiles, recycleMedia, relocateMedia, type APILibraryRoot, type APIMediaDetail, type APIQualityProfile } from "@/api/client"
 import { useToast } from "@/components/toast"
 import { Badge, Button, cx, Dialog } from "@/components/ui"
 import { errorMessage } from "@/i18n"
@@ -149,7 +149,7 @@ function DeleteDialog({ detail, onClose }: { detail: APIMediaDetail; onClose: ()
 }
 
 /** Danish text for the refusals when new work is started on a title. */
-function getError(error: unknown, series: boolean): string {
+export function startWorkError(error: unknown, series: boolean): string {
   if (error instanceof ApiError) {
     if (error.code === "workflow_already_open") return series ? "Der er allerede arbejde i gang for sæsonen. Brug Søg på sæsonen i stedet." : "Filmen hentes eller ventes allerede. Brug Søg under Status i stedet."
     if (error.code === "upgrades_disabled") return "Den ligger allerede i Plex, og kvalitetsprofilen leder ikke efter bedre udgaver. Vælg en anden profil."
@@ -209,13 +209,7 @@ function GetDialog({ detail, onClose }: { detail: APIMediaDetail; onClose: () =>
       if (picked.length === 0) throw new Error("Vælg mindst én sæson.")
       const created = []
       for (const number of [...picked].sort((a, b) => a - b)) {
-        // Each season is frozen from TMDB's exact episode list, never a guessed count.
-        const snapshot = await loadDiscoveryMetadata("tv", tmdb, number)
-        if (!snapshot.season || snapshot.season.episodes.length === 0) throw new Error(`TMDB har ingen afsnitsliste for sæson ${number}.`)
-        created.push(await createMediaWorkflow(media.id, {
-          ...base,
-          season: { number, monitored: true, search_immediately: searchNow, prefer_season_pack: true, episodes: snapshot.season.episodes.map((episode) => ({ number: episode.number, provider_episode_id: episode.provider_id, title: episode.title, air_date: episode.air_date })) },
-        }))
+        created.push(await createMediaWorkflow(media.id, await seasonWorkflowInput(tmdb, number, base)))
       }
       return created
     },
@@ -282,7 +276,7 @@ function GetDialog({ detail, onClose }: { detail: APIMediaDetail; onClose: () =>
           <input type="checkbox" checked={searchNow} onChange={(event) => setSearchNow(event.target.checked)} className="size-4" />
           Søg med det samme
         </label>
-        {mutation.error ? <p role="alert" className="text-sm text-bad">{getError(mutation.error, series)}</p> : null}
+        {mutation.error ? <p role="alert" className="text-sm text-bad">{startWorkError(mutation.error, series)}</p> : null}
       </div>
     </Dialog>
   )

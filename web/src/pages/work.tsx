@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
-import { ChevronRight } from "lucide-react"
-import { useState } from "react"
+import { CheckCircle2, ChevronRight, Clock, Download, Search, XCircle } from "lucide-react"
+import { useState, type ReactNode } from "react"
 import { Link, useSearchParams } from "react-router"
 
 import { loadAttentionWorkflows, loadWorkflowsByState, type APIWorkflow } from "@/api/client"
@@ -20,6 +20,14 @@ const tabs: Array<{ value: Tab; label: string }> = [
   { value: "annulleret", label: "Annulleret" },
 ]
 const pageSize = 100
+const emptyStates: Record<Tab, { title: string; text: string; icon: ReactNode }> = {
+  henter: { title: "Intet hentes lige nu", text: "Når en søgning finder en egnet udgivelse, kan du følge hentningen her. Titler, der venter på en udgivelse, ligger under Venter.", icon: <Download className="size-8" /> },
+  handling: { title: "Intet kræver dig", text: "Alt arbejde kører eller venter helt normalt.", icon: <CheckCircle2 className="size-8 text-good" /> },
+  venter: { title: "Intet venter", text: "Ingen titler venter på en udgivelse lige nu.", icon: <Clock className="size-8" /> },
+  afventer: { title: "Intet afventer", text: "Ingen titler holdes tilbage og venter på en bedre udgivelse.", icon: <Clock className="size-8" /> },
+  faerdig: { title: "Intet er færdigt endnu", text: "Titler, der er hentet, kontrolleret og bekræftet i Plex, kommer her.", icon: <CheckCircle2 className="size-8" /> },
+  annulleret: { title: "Intet er annulleret", text: "Arbejde, du eller Seerr har stoppet, kommer her.", icon: <XCircle className="size-8" /> },
+}
 /** The persisted workflow states (internal/workflows) in which work is moving. */
 const acquiringStates = ["searching", "candidate_selected", "submitting", "queued", "streaming_ready", "import_complete", "verifying", "publishing", "plex_scanning"]
 
@@ -66,7 +74,11 @@ export function WorkPage() {
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
       <Card>
         {query.isPending ? <ListSkeleton rows={8} /> : null}
-        {!query.isPending && items.length === 0 && !query.error ? <Empty title={tab === "henter" ? "Intet hentes lige nu" : "Ingen sager her"} /> : null}
+        {!query.isPending && items.length === 0 && !query.error ? (
+          needle
+            ? <Empty title="Ingen titler passer til filteret" icon={<Search className="size-8" />}>Prøv et andet navn{paged ? ", eller se næste side" : ""}.</Empty>
+            : <Empty title={emptyStates[tab].title} icon={emptyStates[tab].icon}>{emptyStates[tab].text}</Empty>
+        ) : null}
         <ul className="divide-y divide-line">
           {items.map((workflow) => (
             <li key={workflow.id}>

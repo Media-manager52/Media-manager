@@ -74,6 +74,7 @@ Routes live in `web/src/routes.tsx`; each screen is one file in
 | `/` | Oversigt: counts, attention preview, health, the next 7 days | `dashboard`, `workflows?attention`, `system/health`, `calendar` |
 | `/handling` | Kræver handling: grouped by reason, with actions | `workflows?attention`, `problems` |
 | `/bibliotek` | Bibliotek: posters, Film/Serier, search, sort | `media` (paged) |
+| `/bibliotek/mangler` | Find manglende: seasons of the owner's series that are neither followed nor in Plex (new and older) and films without a file or open work; **Tilføj sæson** / **Hent** per title, at most 25 per bulk click | `media/gaps`, then `media/{id}/workflows` as the title page |
 | `/bibliotek/:id` | A title: metadata, seasons and episodes, workflows, files | `media/{id}/detail` |
 | `/tilfoej` | Tilføj: TMDB search via Seerr, then verified add | `discovery/*`, `POST media` |
 | `/anmodninger` | Seerr requests, approve or decline | `requests`, `requests/{id}/approve|decline` |

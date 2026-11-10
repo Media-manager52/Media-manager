@@ -4,7 +4,13 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Find manglende** in **Bibliotek**: one page lists the seasons of your series that Media Manager neither follows nor has in Plex (new seasons after the newest one it knows, and older seasons you never asked for) and the films that have no file and no open work, for example because the work was cancelled. **Tilføj sæson** and **Hent** work exactly as on the title page (same folder and quality profile as the title's own work, the season frozen from TMDB's episode list); new seasons and films can also be added in one click, at most 25 at a time. Older seasons are added one series at a time, since skipping them may have been deliberate. Nothing is fetched before you press. `GET /api/v1/media/gaps` is the read behind it.
+
 ### Changed
+
+- **Settings and system pages look more finished.** **Biblioteker** groups folders into Film and Serier and shows how many titles each folder holds (with a link to them in **Bibliotek**); row buttons stay aligned when a row has fewer actions; **Backup** opens with three short facts (latest backup, latest restore test, external copy) and folds away old backups whose file is deleted; **Arbejde** explains each empty tab; the indexer cards on **Kilder** line up their small figures; and **Tilføj** shows shortcuts to Find manglende, Seerr requests and taking over an existing library before you search.
 
 - **A new upload can start the next round of attempts by itself.** Until now a title that had used up its round of attempts waited for the owner to press **Start ny runde**, even when a new release had been found for it. When a new upload on an indexer fits such a title and Media Manager's look for releases holds a new, eligible release that has not been tried, the next round now opens without a click. It is the same step as the owner's button and is refused in the same cases: the profile's rules changed since the round, the release was already tried or is excluded, or the limit for kept failed downloads is reached. A title gets at most one such round per 24 hours, each round has the usual number of attempts (`ACQUISITION_ATTEMPTS_PER_ROUND`), and the activity list shows it as done by **Baggrundsarbejde**. Language and quality requirements are applied unchanged, and files are measured after download as always. `FEED_OPEN_ROUNDS=off` in `.env` keeps every new round with the owner. Database schema 59 (one more outcome for recorded matches).
 
