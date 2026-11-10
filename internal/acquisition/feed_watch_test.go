@@ -143,19 +143,34 @@ func TestFeedIntervalFollowsUploadRateWithinBoundsAndBudget(t *testing.T) {
 		t.Fatalf("interval fell below the bound: %s", got)
 	}
 
-	// The reads never use more than a twentieth of the query allowance: 1,000
-	// queries a day allow 50 reads, one every 28 m 48 s, even above the usual
+	// The reads never use more than a tenth of the query allowance, counting
+	// every page a read may take: 1,000 queries a day allow 100 requests, so
+	// 33 reads of up to three pages, one every 43 m 12 s, even above the usual
 	// upper bound.
 	tight := indexers.NewznabBudget(3000, 1000, 0, 86400)
-	if got := feedInterval(time.Minute, tight); got != 86400*time.Second/50 {
+	tightFloor := 86400 * time.Second * feedMaxPages * feedBudgetShare / 1000
+	if got := feedInterval(time.Minute, tight); got != tightFloor || got != 43*time.Minute+12*time.Second {
 		t.Fatalf("budget floor=%s", got)
 	}
-	if got := nextFeedInterval(86400*time.Second/50, 100, 100, false, tight); got != 86400*time.Second/50 {
+	if got := nextFeedInterval(tightFloor, 100, 100, false, tight); got != tightFloor {
 		t.Fatalf("a busy indexer broke its budget floor: %s", got)
 	}
-	tiny := indexers.NewznabBudget(3000, 10, 0, 86400)
-	if got := feedInterval(time.Minute, tiny); got != 24*time.Hour {
-		t.Fatalf("tiny allowance interval=%s", got)
+	// Whatever the allowance, a day of reads at the lower bound stays inside
+	// the share even when every read takes all its pages.
+	for _, limit := range []int{1, 7, 10, 250, 1000, 8640, 10000, 30000} {
+		budget := indexers.NewznabBudget(3000, limit, 0, 86400)
+		interval := feedInterval(time.Second, budget)
+		reads := int(budget.LimitWindow / interval)
+		if requests := reads * feedMaxPages; requests*feedBudgetShare > limit {
+			t.Fatalf("limit %d: %d requests a window exceed a tenth", limit, requests)
+		}
+		if interval < feedMinInterval {
+			t.Fatalf("limit %d: interval %s below the lower bound", limit, interval)
+		}
+	}
+	// The owner's indexers (10,000 or more a day) keep the five-minute bound.
+	if got := feedInterval(time.Second, indexers.NewznabBudget(3000, 10000, 0, 86400)); got != feedMinInterval {
+		t.Fatalf("roomy lower bound=%s", got)
 	}
 }
 
