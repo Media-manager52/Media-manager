@@ -197,9 +197,19 @@ func finalizeProviderError(provider ProviderError) ProviderError {
 var ErrMalformedXML = errors.New("malformed Newznab XML")
 
 func ParseSearch(body []byte, indexerID, operation string, observedAt time.Time) ([]releases.Observation, error) {
+	observations, _, err := ParseSearchPage(body, indexerID, operation, observedAt)
+	return observations, err
+}
+
+// ParseSearchPage parses one search answer and also returns the provider's
+// stated result count for the whole search (the total attribute of
+// newznab:response). The total is 0 when the provider states none or states
+// something that is not a non-negative number.
+func ParseSearchPage(body []byte, indexerID, operation string, observedAt time.Time) ([]releases.Observation, int, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(body))
 	decoder.Strict = true
 	var observations []releases.Observation
+	total := 0
 	var current *itemBuilder
 	tokens := 0
 	hash := sha256.Sum256(body)
@@ -212,11 +222,11 @@ func ParseSearch(body []byte, indexerID, operation string, observedAt time.Time)
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("%w: %v", ErrMalformedXML, err)
+			return nil, 0, fmt.Errorf("%w: %v", ErrMalformedXML, err)
 		}
 		tokens++
 		if tokens > 250000 {
-			return nil, ErrResponseTooLarge
+			return nil, 0, ErrResponseTooLarge
 		}
 		switch typed := token.(type) {
 		case xml.StartElement:
@@ -224,7 +234,7 @@ func ParseSearch(body []byte, indexerID, operation string, observedAt time.Time)
 				rootObserved = true
 				root := strings.ToLower(typed.Name.Local)
 				if root != "rss" && root != "error" {
-					return nil, ErrMalformedXML
+					return nil, 0, ErrMalformedXML
 				}
 			}
 			if strings.EqualFold(typed.Name.Local, "rss") {
@@ -241,7 +251,17 @@ func ParseSearch(body []byte, indexerID, operation string, observedAt time.Time)
 						provider.Description = attribute.Value
 					}
 				}
-				return nil, finalizeProviderError(provider)
+				return nil, 0, finalizeProviderError(provider)
+			case "response":
+				if current == nil {
+					for _, attribute := range typed.Attr {
+						if attribute.Name.Local == "total" {
+							if stated, convErr := strconv.Atoi(strings.TrimSpace(attribute.Value)); convErr == nil && stated > 0 {
+								total = stated
+							}
+						}
+					}
+				}
 			case "item":
 				current = &itemBuilder{}
 			case "attr":
@@ -264,7 +284,7 @@ func ParseSearch(body []byte, indexerID, operation string, observedAt time.Time)
 			}
 		case xml.CharData:
 			if !rootObserved && strings.TrimSpace(string(typed)) != "" {
-				return nil, ErrMalformedXML
+				return nil, 0, ErrMalformedXML
 			}
 			if current != nil && current.element != "" {
 				current.text(current.element, string(typed))
@@ -279,9 +299,9 @@ func ParseSearch(body []byte, indexerID, operation string, observedAt time.Time)
 		}
 	}
 	if !sawEnvelope {
-		return nil, ErrMalformedXML
+		return nil, 0, ErrMalformedXML
 	}
-	return observations, nil
+	return observations, total, nil
 }
 
 type itemBuilder struct {

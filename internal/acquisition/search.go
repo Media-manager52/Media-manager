@@ -45,6 +45,7 @@ type indexerConfig struct {
 	SearchDialects                  newznab.SearchDialects `json:"search_dialects"`
 	DefaultLimit                    int                    `json:"default_limit"`
 	MaximumLimit                    int                    `json:"maximum_limit"`
+	PageLimit                       int                    `json:"page_limit"`
 	QueryLimit                      int                    `json:"query_limit"`
 	GrabLimit                       int                    `json:"grab_limit"`
 	BudgetWindow                    int64                  `json:"budget_window_seconds"`
@@ -292,16 +293,16 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				outcomes = append(outcomes, outcome)
 				continue
 			}
-			searchPage := func(request newznab.SearchRequest) ([]releases.Observation, error) {
+			searchPage := func(request newznab.SearchRequest) (newznab.SearchPage, error) {
 				if recovery {
-					return client.BackgroundSearchGuarded(ctx, request, recoveryGuard)
+					return client.BackgroundSearchPageGuarded(ctx, request, recoveryGuard)
 				}
-				return client.Search(ctx, request)
+				return client.SearchPage(ctx, request)
 			}
 			executeSearch = func(request newznab.SearchRequest) ([]releases.Observation, error) {
 				first, err := searchPage(request)
 				if err != nil {
-					return first, err
+					return first.Observations, err
 				}
 				return searchFollowUpPages(ctx, request, first, &pagingWait, searchPage), nil
 			}
@@ -787,11 +788,7 @@ func buildRequest(search postgres.SearchContext, config indexerConfig) newznab.S
 			params = appendSupported(params, dialect, "year", strconv.Itoa(int(*search.Media.Year)))
 		}
 	}
-	limit := 100
-	if config.MaximumLimit > 0 && config.MaximumLimit < limit {
-		limit = config.MaximumLimit
-	}
-	return newznab.SearchRequest{Mode: mode, Params: params, Categories: config.Categories, Limit: limit, Extended: config.Extended}
+	return newznab.SearchRequest{Mode: mode, Params: params, Categories: config.Categories, Limit: searchPageLimit(config), Extended: config.Extended}
 }
 
 func legacyDialect(config indexerConfig) newznab.SearchDialect {

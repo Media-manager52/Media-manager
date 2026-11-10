@@ -15,12 +15,14 @@ import (
 // history and candidate decisions. All are read-only.
 
 type IndexerBudgetView struct {
-	QueryLimit           int    `json:"query_limit"`
-	GrabLimit            int    `json:"grab_limit"`
-	BackgroundQueryLimit int    `json:"background_query_limit"`
-	WindowSeconds        int64  `json:"window_seconds"`
-	MinimumIntervalMS    int64  `json:"minimum_interval_ms"`
-	Source               string `json:"source,omitempty"`
+	QueryLimit           int   `json:"query_limit"`
+	GrabLimit            int   `json:"grab_limit"`
+	BackgroundQueryLimit int   `json:"background_query_limit"`
+	WindowSeconds        int64 `json:"window_seconds"`
+	MinimumIntervalMS    int64 `json:"minimum_interval_ms"`
+	// PageLimit is the number of results one search request asks for.
+	PageLimit int    `json:"page_limit"`
+	Source    string `json:"source,omitempty"`
 }
 
 type IndexerUsageWindow struct {
@@ -57,6 +59,9 @@ type IndexerUsage struct {
 	Pacing            IndexerPacingView     `json:"pacing"`
 	SearchOutcomes24h []IndexerOutcomeCount `json:"search_outcomes_24h"`
 	Downloads30d      IndexerDownloads      `json:"downloads_30d"`
+	// NewUploads is the newest-uploads reader's state; absent until the
+	// indexer's list has been read once.
+	NewUploads *IndexerFeedSummary `json:"new_uploads,omitempty"`
 }
 
 // IndexerDownloads counts the downloads of an indexer's releases that were
@@ -95,11 +100,16 @@ func (store *Store) IndexerUsages(ctx context.Context, now time.Time) ([]Indexer
 			GrabLimit         int    `json:"grab_limit"`
 			WindowSeconds     int64  `json:"budget_window_seconds"`
 			Source            string `json:"budget_source"`
+			PageLimit         int    `json:"page_limit"`
+			MaximumLimit      int    `json:"maximum_limit"`
 		}
 		_ = json.Unmarshal(config, &configured)
 		// The same constructor search and retrieval use, so defaults match.
 		budget := indexers.NewznabBudget(configured.MinimumIntervalMS, configured.QueryLimit, configured.GrabLimit, configured.WindowSeconds)
 		item.Budget = IndexerBudgetView{QueryLimit: budget.QueryLimit, GrabLimit: budget.GrabLimit, BackgroundQueryLimit: indexers.BackgroundQueryLimit(budget.QueryLimit), WindowSeconds: int64(budget.LimitWindow / time.Second), MinimumIntervalMS: budget.MinimumInterval.Milliseconds(), Source: configured.Source}
+		if item.Kind == "newznab" {
+			item.Budget.PageLimit = indexers.SearchPageLimit(configured.PageLimit, configured.MaximumLimit)
+		}
 		result = append(result, item)
 	}
 	rows.Close()
@@ -179,7 +189,20 @@ func (store *Store) IndexerUsages(ctx context.Context, now time.Time) ([]Indexer
 			item.Downloads30d = count
 		}
 	}
-	return result, downloads.Err()
+	if err := downloads.Err(); err != nil {
+		return nil, err
+	}
+	downloads.Close()
+	feeds, err := store.IndexerFeedSummaries(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	for id, feed := range feeds {
+		if item := byID[id.String()]; item != nil {
+			item.NewUploads = &feed
+		}
+	}
+	return result, nil
 }
 
 type QueueEventCounts struct {

@@ -227,6 +227,13 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   remaining per-indexer minimum interval while retaining the lane, so active
   background recovery cannot repeatedly take the next pacing slot. Failure
   cooldowns and intervals longer than the bounded browse wait still defer.
+- `WorkloadFeed` is the newest-uploads reader. Like browse it waits out the
+  remaining minimum interval (bounded) and never a failure cooldown; unlike
+  background work it is limited by the whole query limit, and the reader keeps
+  itself to a twentieth of it through its read interval.
+- `SearchPageLimit(ownerStated, advertised)` (`page_limit.go`) is the page
+  size one request asks for: the owner's `page_limit`, else the provider's
+  advertised maximum, else 100, never above 500.
 
 ---
 
@@ -245,6 +252,27 @@ If you add a service handler, keep it idempotent: events are at-least-once.
     media-match constraints + upgrade baseline, persist.
   - Recovery mode is **evidence only**: never selects/submits, retries with
     `RetryAt` when no recovery indexer is available.
+- Paging (`search_pages.go`): a search reads at most three pages and 1 000
+  releases per indexer. It continues after a (nearly) full page, or after a
+  short page while the provider's stated total (`newznab:response total`) is
+  clearly larger than what was read. A failed, deferred or unaffordable
+  follow-up page keeps the pages already read.
+- `FeedWatcher` (`feed_watch.go`): every minute it reads the newest uploads
+  (`t=search` without a query, movie and TV categories) of each enabled,
+  commissioned Newznab indexer whose read is due, through the paced client as
+  `WorkloadFeed`. Uploads not seen before are matched against all waiting and
+  held workflows with the search's own checks (`TitleIndex` lookup, then
+  `workflowScopeRules` and `constrainMediaMatch`; only `eligible` counts).
+  Matches are stored and `Store.AdvanceFeedMatches` brings the workflow's own
+  scheduled search forward: never within 30 minutes of its last search, at most
+  ten workflows a minute, never a search that is leased or continues an
+  unfinished one. A waiting workflow without a scheduled search (round
+  exhausted) gets the paced discovery of `RequestWorkflowDiscovery`, audited as
+  actor `worker`. **The reader never selects, submits or opens a round**; the
+  search it brings forward does what every search does. The read interval
+  moves between 5 and 20 minutes with the share of new uploads per read and
+  never below `window / (query_limit / 20)`; a failing list backs off from one
+  hour to one day. `FEED_WATCH=off` disables it.
 - `SearchPlan`/`PlanSearch` (`search_plan.go`): pure translation of a validated
   `newznab.CapabilityProfile` + verified identities into one primary request and
   strictly bound fallbacks (`FallbackFor(trigger)`).

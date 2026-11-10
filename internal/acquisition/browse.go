@@ -497,6 +497,11 @@ func (s *BrowseService) searchNewznab(ctx context.Context, client *newznab.Clien
 		return nil, pe
 	}
 	request.Extended = true
+	// A viewer list reads one page while someone waits for it; larger pages
+	// are for acquisition searches only.
+	if request.Limit > defaultSearchPageLimit {
+		request.Limit = defaultSearchPageLimit
+	}
 	return client.BrowseSearch(ctx, request)
 }
 

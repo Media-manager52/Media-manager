@@ -152,6 +152,26 @@ test("sources show how many downloads from each indexer were approved", async ({
   await expect(page.getByRole("progressbar", { name: "Godkendte downloads de seneste 30 dage" })).toBeVisible()
 })
 
+test("sources show the newest-uploads reader and let the owner set the page size", async ({ page }) => {
+  await mockApi(page)
+  const patches: unknown[] = []
+  await page.route("**/api/v1/settings/integrations/*", (route) => {
+    if (route.request().method() !== "PATCH") return route.fallback()
+    patches.push(route.request().postDataJSON())
+    return route.fulfill({ json: {} })
+  })
+  await page.goto("/kilder")
+  await expect(page.getByText(/Nye uploads læst .+ · 3 passede til ventende titler sidste døgn/)).toBeVisible()
+  await page.getByRole("button", { name: "Rediger" }).first().click()
+  const pageSize = page.getByLabel("Resultater pr. svar (højst 500)")
+  await expect(pageSize).toHaveValue("100")
+  await pageSize.fill("501")
+  await expect(page.getByRole("alert")).toContainText("højst 500")
+  await pageSize.fill("300")
+  await page.getByRole("dialog").getByRole("button", { name: "Gem" }).click()
+  await expect.poll(() => patches).toEqual([{ page_limit: 300 }])
+})
+
 test("the calendar shows a poster and marks episodes that have not been sent", async ({ page }) => {
   await mockApi(page)
   const day = (offset: number) => {

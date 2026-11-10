@@ -80,7 +80,7 @@ func (server *Server) updateIndexerSettings(writer http.ResponseWriter, request 
 	}
 	var input postgres.IndexerSettingsPatch
 	if err := decodeJSON(request, &input, 8<<10); err != nil {
-		writeError(writer, http.StatusBadRequest, "invalid_request", "send a JSON object with name, enabled, query_limit, grab_limit or minimum_interval_ms")
+		writeError(writer, http.StatusBadRequest, "invalid_request", "send a JSON object with name, enabled, query_limit, grab_limit, minimum_interval_ms or page_limit")
 		return
 	}
 	integration, err := server.store.UpdateIndexerSettings(request.Context(), id, input, time.Now().UTC())

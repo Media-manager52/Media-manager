@@ -1060,6 +1060,9 @@
           "minimum_interval_ms": {
             "type": "integer"
           },
+          "page_limit": {
+            "type": "integer"
+          },
           "query_limit": {
             "type": "integer"
           },
@@ -1079,6 +1082,25 @@
           },
           "verified": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IndexerFeedSummary": {
+        "properties": {
+          "last_outcome": {
+            "type": "string"
+          },
+          "last_read_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "matches_24h": {
+            "type": "integer"
+          },
+          "next_read_at": {
+            "format": "date-time",
+            "type": "string"
           }
         },
         "type": "object"
@@ -1134,6 +1156,9 @@
           "name": {
             "type": "string"
           },
+          "page_limit": {
+            "type": "integer"
+          },
           "query_limit": {
             "type": "integer"
           }
@@ -1163,6 +1188,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "new_uploads": {
+            "$ref": "#/components/schemas/Postgres_IndexerFeedSummary"
           },
           "pacing": {
             "$ref": "#/components/schemas/Postgres_IndexerPacingView"
@@ -4238,7 +4266,7 @@
     },
     "/api/v1/indexers": {
       "get": {
-        "description": "No state change and no provider contact. Always safe.",
+        "description": "new_uploads is the state of the newest-uploads reader: when the indexer's list was last read, when it is read next, the last outcome (ok, deferred or a failure code) and how many uploads matched a waiting title in the last 24 hours. It is absent until the list has been read once.\n\nNo state change and no provider contact. Always safe.",
         "operationId": "listIndexerUsage",
         "responses": {
           "2XX": {
@@ -5829,7 +5857,7 @@
         "x-mm-effect": "write"
       },
       "patch": {
-        "description": "Indexers only (newznab, oldboys). Limits become budget_source owner_stated; minimum_interval_ms is at least 3000 (OldBoys 5000). enabled=true needs a commissioned Newznab indexer; OldBoys is re-enabled only by its validation. Audited as integration.settings_changed.\n\nChanges Media Manager state or queues local work. Audited.",
+        "description": "Indexers only (newznab, oldboys). Limits become budget_source owner_stated; minimum_interval_ms is at least 3000 (OldBoys 5000). page_limit (1-500, Newznab only) is the number of results one search request asks for. enabled=true needs a commissioned Newznab indexer; OldBoys is re-enabled only by its validation. Audited as integration.settings_changed.\n\nChanges Media Manager state or queues local work. Audited.",
         "operationId": "updateIndexerSettings",
         "parameters": [
           {
@@ -5885,7 +5913,7 @@
             "description": "Error with a stable code."
           }
         },
-        "summary": "Change an indexer's name, daily limits, minimum interval, or disable it",
+        "summary": "Change an indexer's name, daily limits, minimum interval, page size, or disable it",
         "tags": [
           "settings"
         ],

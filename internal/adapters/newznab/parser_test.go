@@ -558,3 +558,29 @@ func TestParseSearchSplitsProviderAudioCodecAndChannels(t *testing.T) {
 		t.Fatalf("plain codec: %#v", codec)
 	}
 }
+
+func TestParseSearchPageReadsTheStatedTotal(t *testing.T) {
+	envelope := func(response string) []byte {
+		return []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel>` + response + `<item><title>Show.S01E01.2160p</title><guid>native-1</guid></item></channel></rss>`)
+	}
+	for name, test := range map[string]struct {
+		response string
+		want     int
+	}{
+		"stated":       {`<newznab:response offset="0" total="216"/>`, 216},
+		"not stated":   {``, 0},
+		"no total":     {`<newznab:response offset="0"/>`, 0},
+		"not a number": {`<newznab:response offset="0" total="many"/>`, 0},
+		"negative":     {`<newznab:response offset="0" total="-1"/>`, 0},
+	} {
+		items, total, err := ParseSearchPage(envelope(test.response), "", "search", time.Unix(1, 0))
+		if err != nil || len(items) != 1 || total != test.want {
+			t.Fatalf("%s: items=%d total=%d err=%v, want total %d", name, len(items), total, err, test.want)
+		}
+	}
+	// A total inside an item is release data, not the page's result count.
+	body := []byte(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>Show.S01E01.2160p</title><guid>native-1</guid><newznab:response total="9"/></item></channel></rss>`)
+	if _, total, err := ParseSearchPage(body, "", "search", time.Unix(1, 0)); err != nil || total != 0 {
+		t.Fatalf("item-level response counted as the page total: total=%d err=%v", total, err)
+	}
+}

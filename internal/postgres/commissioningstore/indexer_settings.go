@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"strings"
 	"time"
@@ -20,6 +21,9 @@ type IndexerSettingsPatch struct {
 	QueryLimit        *int    `json:"query_limit"`
 	GrabLimit         *int    `json:"grab_limit"`
 	MinimumIntervalMS *int64  `json:"minimum_interval_ms"`
+	// PageLimit is how many results one search request asks a Newznab
+	// indexer for. It overrides what the provider's capabilities advertise.
+	PageLimit *int `json:"page_limit"`
 }
 
 const (
@@ -34,8 +38,8 @@ const (
 // recorded as owner-stated, pacing never drops below the provider floor, and
 // every change is audited with the previous and new values.
 func (store *Commissioning) UpdateIndexerSettings(ctx context.Context, id uuid.UUID, patch IndexerSettingsPatch, now time.Time) (dbcore.Integration, error) {
-	if patch.Name == nil && patch.Enabled == nil && patch.QueryLimit == nil && patch.GrabLimit == nil && patch.MinimumIntervalMS == nil {
-		return dbcore.Integration{}, dbcore.Refuse("empty_patch", "no setting was given", "Send at least one of name, enabled, query_limit, grab_limit, minimum_interval_ms.")
+	if patch.Name == nil && patch.Enabled == nil && patch.QueryLimit == nil && patch.GrabLimit == nil && patch.MinimumIntervalMS == nil && patch.PageLimit == nil {
+		return dbcore.Integration{}, dbcore.Refuse("empty_patch", "no setting was given", "Send at least one of name, enabled, query_limit, grab_limit, minimum_interval_ms, page_limit.")
 	}
 	tx, err := store.Pool.Begin(ctx)
 	if err != nil {
@@ -59,7 +63,7 @@ func (store *Commissioning) UpdateIndexerSettings(ctx context.Context, id uuid.U
 	if json.Unmarshal(body, &config) != nil {
 		return dbcore.Integration{}, dbcore.ErrConcurrentModification
 	}
-	before := map[string]any{"name": name, "enabled": enabled, "query_limit": config["query_limit"], "grab_limit": config["grab_limit"], "minimum_interval_ms": config["minimum_interval_ms"]}
+	before := map[string]any{"name": name, "enabled": enabled, "query_limit": config["query_limit"], "grab_limit": config["grab_limit"], "minimum_interval_ms": config["minimum_interval_ms"], "page_limit": config["page_limit"]}
 	after := map[string]any{}
 	if patch.Name != nil {
 		trimmed := strings.TrimSpace(*patch.Name)
@@ -93,6 +97,15 @@ func (store *Commissioning) UpdateIndexerSettings(ctx context.Context, id uuid.U
 			return dbcore.Integration{}, dbcore.Refuse("invalid_minimum_interval", "minimum_interval_ms is outside the allowed range", "Use at least the provider floor (3000 ms; OldBoys 5000 ms) and at most 600000 ms.")
 		}
 		config["minimum_interval_ms"], after["minimum_interval_ms"] = *patch.MinimumIntervalMS, *patch.MinimumIntervalMS
+	}
+	if patch.PageLimit != nil {
+		if kind != "newznab" {
+			return dbcore.Integration{}, dbcore.Refuse("invalid_page_limit", "page_limit applies to Newznab indexers only", "")
+		}
+		if *patch.PageLimit < 1 || *patch.PageLimit > indexers.MaxSearchPageLimit {
+			return dbcore.Integration{}, dbcore.Refuse("invalid_page_limit", "page_limit must be 1-500", "State the page size the provider really answers with; a too large value is harmless because paging follows the provider's stated total.")
+		}
+		config["page_limit"], after["page_limit"] = *patch.PageLimit, *patch.PageLimit
 	}
 	if patch.Enabled != nil && *patch.Enabled != enabled {
 		if *patch.Enabled {

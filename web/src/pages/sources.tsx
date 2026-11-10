@@ -42,6 +42,8 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
   const deferred = countOf("deferred")
   const failed = countOf("failed")
   const downloads = indexer.downloads_30d
+  const newUploads = indexer.enabled ? indexer.new_uploads : undefined
+  const newUploadsFailed = newUploads?.last_outcome != null && newUploads.last_outcome !== "ok" && newUploads.last_outcome !== "deferred"
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
@@ -84,6 +86,12 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
           {outcomes.length ? <span>Sidste døgn: {formatNumber(succeeded)} svar · {formatNumber(deferred)} udsat (grænse/pause){failed ? ` · ${formatNumber(failed)} fejl` : ""}</span> : null}
           {pacing.last_outcome_at ? <span>Seneste svar {formatRelative(pacing.last_outcome_at)}</span> : null}
           {cooling ? <span>Pause til {formatDateTime(pacing.cooldown_until)}</span> : null}
+          {newUploads ? (
+            <span title="Media Manager læser listen over indexerens nyeste uploads. Passer en upload til en titel, der venter, søges titlen med det samme.">
+              {newUploadsFailed ? `Nye uploads kunne ikke læses${newUploads.next_read_at ? ` (prøver igen ${formatRelative(newUploads.next_read_at)})` : ""}` : `Nye uploads læst ${newUploads.last_read_at ? formatRelative(newUploads.last_read_at) : "snart"}`}
+              {newUploads.matches_24h ? ` · ${formatNumber(newUploads.matches_24h)} passede til ventende titler sidste døgn` : ""}
+            </span>
+          ) : null}
         </div>
       </div>
       {editing ? <EditIndexer indexer={indexer} onClose={() => setEditing(false)} /> : null}
@@ -98,12 +106,16 @@ function EditIndexer({ indexer, onClose }: { indexer: APIIndexerUsage; onClose: 
   const [queryLimit, setQueryLimit] = useState(String(indexer.budget.query_limit))
   const [grabLimit, setGrabLimit] = useState(String(indexer.budget.grab_limit))
   const [interval, setIntervalMs] = useState(String(indexer.budget.minimum_interval_ms))
+  // Only Newznab indexers have a page size; OldBoys answers in its own way.
+  const hasPageLimit = indexer.budget.page_limit != null && indexer.budget.page_limit > 0
+  const [pageLimit, setPageLimit] = useState(String(indexer.budget.page_limit ?? ""))
   const mutation = useMutation({
     mutationFn: () => updateIndexer(indexer.id, {
       ...(enabled !== indexer.enabled ? { enabled } : {}),
       ...(Number(queryLimit) !== indexer.budget.query_limit ? { query_limit: Number(queryLimit) } : {}),
       ...(Number(grabLimit) !== indexer.budget.grab_limit ? { grab_limit: Number(grabLimit) } : {}),
       ...(Number(interval) !== indexer.budget.minimum_interval_ms ? { minimum_interval_ms: Number(interval) } : {}),
+      ...(hasPageLimit && Number(pageLimit) !== indexer.budget.page_limit ? { page_limit: Number(pageLimit) } : {}),
     }),
     onSuccess: async () => {
       toast("good", `${indexer.name.replace(/\s*\{DK\}\s*/i, "")} er opdateret.`)
@@ -115,7 +127,7 @@ function EditIndexer({ indexer, onClose }: { indexer: APIIndexerUsage; onClose: 
   const field = "mt-1 h-9 w-full rounded-lg border border-line bg-surface px-3 text-text"
   // Whole numbers above 0, as when the indexer was added; an empty or
   // mistyped field must never be sent.
-  const valid = [queryLimit, grabLimit, interval].every((value) => /^\d+$/.test(value.trim()) && Number(value) > 0)
+  const valid = [queryLimit, grabLimit, interval, ...(hasPageLimit ? [pageLimit] : [])].every((value) => /^\d+$/.test(value.trim()) && Number(value) > 0) && (!hasPageLimit || Number(pageLimit) <= 500)
   return (
     <Dialog open onClose={onClose} title={`Rediger ${indexer.name.replace(/\s*\{DK\}\s*/i, "")}`} footer={<><Button variant="ghost" onClick={onClose}>Fortryd</Button><Button variant="primary" busy={mutation.isPending} disabled={!valid} onClick={() => mutation.mutate()}>Gem</Button></>}>
       <div className="space-y-4">
@@ -123,7 +135,8 @@ function EditIndexer({ indexer, onClose }: { indexer: APIIndexerUsage; onClose: 
         <label className="block">Søgninger pr. døgn<input inputMode="numeric" value={queryLimit} onChange={(event) => setQueryLimit(event.target.value)} className={field} /></label>
         <label className="block">Hentninger pr. døgn<input inputMode="numeric" value={grabLimit} onChange={(event) => setGrabLimit(event.target.value)} className={field} /></label>
         <label className="block">Mindste pause mellem kald (ms)<input inputMode="numeric" value={interval} onChange={(event) => setIntervalMs(event.target.value)} className={field} /></label>
-        {!valid ? <p role="alert" className="text-xs text-bad">Skriv et helt tal over 0 i hvert felt.</p> : null}
+        {hasPageLimit ? <label className="block">Resultater pr. svar (højst 500)<input inputMode="numeric" value={pageLimit} onChange={(event) => setPageLimit(event.target.value)} className={field} /><span className="mt-1 block text-xs text-text-3">Hvor mange udgivelser Media Manager beder om i ét svar. Større svar bruger færre søgninger. Giver indexeren mindre, læser Media Manager bare videre.</span></label> : null}
+        {!valid ? <p role="alert" className="text-xs text-bad">Skriv et helt tal over 0 i hvert felt{hasPageLimit ? " (resultater pr. svar højst 500)" : ""}.</p> : null}
         <p className="text-xs text-text-3">Sæt kun grænser, din konto hos indexeren faktisk tillader. Baggrundssøgning må højst bruge 60 % af søgningerne.</p>
       </div>
     </Dialog>

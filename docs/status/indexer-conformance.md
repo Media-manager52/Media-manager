@@ -118,6 +118,39 @@ not an integration name, release-supplied hostname, subdomain or future API path
 Local transport and acquisition regressions cover the change. No new live
 provider requests or production rollout are claimed by this source note.
 
+## Newest uploads, stated totals and page sizes (2026-11-10)
+
+A bounded study asked seven configured providers (abNZB, DrunkenSlug, msgnews,
+NZBFinder, NZBgeek, Nzb.life and treasure-maps; NinjaCentral was left out on
+the owner's decision) through their Newznab API only, paced at least 3,000 ms
+apart per provider, query-class calls only. Raw answers are owner-private and
+excluded from the repository.
+
+- **Newest uploads.** Every studied provider answers `t=search` with
+  `cat=2000,5000`, `extended=1` and no `q` with its newest movie and TV
+  uploads, newest first, in the same item format as a search. Media Manager's
+  newest-uploads reader (`internal/acquisition/feed_watch.go`) uses exactly
+  this request. A provider whose list cannot be read is asked again after an
+  hour, doubling to one day; its searches are unaffected.
+- **Stated totals.** Every studied provider states a total in
+  `<newznab:response offset total>`. For a search the total is the number of
+  matching releases; for the newest-uploads list it is a large catalogue
+  figure (10,000 to several million) and says nothing about how much is new,
+  so the reader does not use it and instead stops at the first page that
+  contains an upload it has already seen.
+- **Page sizes.** With a larger `limit`, NZBgeek and treasure-maps answered
+  with up to 500 releases and NZBFinder with up to 300; the others answered
+  with 100. Media Manager asks for the owner's `page_limit` when set, else
+  the provider's advertised maximum, never above 500. A provider that answers
+  with fewer than asked is read on from where its page ended while its stated
+  total says more remain.
+
+The reader matches an upload against waiting titles with the same title,
+identity and season/episode checks as a search and only brings that title's
+own search forward. It never selects or downloads from the list
+(invariant S20), so a provider's list needs no language or MediaInfo
+attributes to be useful.
+
 ## Bounded annual-season discovery (2026-10-05)
 
 For series with complete, unambiguous annual frozen season metadata, runtime
