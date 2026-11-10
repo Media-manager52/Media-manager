@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.7] - 2026-11-10
+
+The seventh public beta: `main` at `8e4b844`, database schema 57. Delete and rename in the settings, a tidier title page and faster lists (#183, #184, #185). The rules for checking language and quality are unchanged.
+
 ### Added
 
 - **Kvalitetsprofiler** have a **Slet** button. A profile that nothing uses is removed after a confirmation. For a profile that titles, files, an import list or a Seerr rule use, the dialog asks which other profile (same kind, switched on) they move to, and says in plain words that those titles must then meet the other profile's requirements; files already in the library stay, and titles still waiting search again only after **Brug på ventende** on that profile. The default profile is never deleted. `DELETE /api/v1/settings/quality-profiles/{id}` takes `replace_with` for this.
@@ -422,6 +426,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.7]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.3]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.2
