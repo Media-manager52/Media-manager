@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.8] - 2026-11-10
+
+The eighth public beta: `main` at `94010c1`, database schema 58. Reading each indexer's newest uploads, larger result pages and better use of every indexer (#187, #188, #189). The rules for checking language and quality are unchanged.
+
 ### Added
 
 - **Media Manager reads each indexer's list of newest uploads** every 5 to 20 minutes (more often on an indexer where much is uploaded) and compares it with every title that is waiting. When an upload fits a waiting title, that title's own search runs at once instead of at its next scheduled time, so a release is found minutes after it is uploaded. The list itself never selects or downloads anything: the search that follows asks the indexers as always and applies the profile's language and quality requirements unchanged. A title that was searched within the last half hour waits out that half hour first, and a title whose round of attempts is used up gets its paced look for releases brought forward; a new round still needs the owner. Reading uses the indexer's own pacing and at most a tenth of its daily search limit, counting every page of every read; an indexer that cannot list its newest uploads is asked again after an hour, then less often. **Kilder** shows when each indexer's list was last read and how many uploads fitted waiting titles in the last 24 hours (`new_uploads` in `GET /api/v1/indexers`). `FEED_WATCH=off` in `.env` switches the reading off.
@@ -443,6 +447,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.8]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.3]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.3
