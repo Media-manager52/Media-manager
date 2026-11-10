@@ -718,18 +718,27 @@ func failureOutcome(outcome Outcome) bool {
 	}
 }
 
+// BackgroundQueryLimit is the part of an indexer's query allowance that
+// background discovery may use: the first 60%. The remaining 40% stays
+// reserved for searches the owner or a new request starts. Measured use was
+// about 3,000 queries a day against allowances of 10,000-20,000, so the
+// earlier 20% share deferred most background searches with quota unused.
+func BackgroundQueryLimit(queryLimit int) int {
+	limit := int(int64(queryLimit) * 3 / 5)
+	if limit < 1 {
+		limit = 1
+	}
+	return limit
+}
+
 func requestLimit(workload Workload, budget Budget) (int, string) {
 	if workload == WorkloadRetrieval {
 		return budget.GrabLimit, "grab"
 	}
 	if workload == WorkloadBackground {
-		limit := budget.QueryLimit / 5
-		if limit < 1 {
-			limit = 1
-		}
 		// Use the same persisted family as interactive queries so background
-		// work can use at most the first 20% of the provider's total allowance.
-		return limit, "query"
+		// work can use at most the first part of the provider's total allowance.
+		return BackgroundQueryLimit(budget.QueryLimit), "query"
 	}
 	return budget.QueryLimit, "query"
 }

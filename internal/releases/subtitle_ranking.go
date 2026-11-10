@@ -15,7 +15,12 @@ var danishSubtitleHint = regexp.MustCompile(DanishSubtitleHintPattern)
 // verdict, explicit observed/inferred da evidence outranks broad title clues,
 // which outrank unknown evidence. The caller must require Danish subtitles.
 func RankForDanishSubtitles(observations []Observation, evaluations []Evaluation) []Evaluation {
-	ranked := Rank(observations, evaluations)
+	return RankForDanishSubtitlesWith(observations, evaluations, RankOptions{})
+}
+
+// RankForDanishSubtitlesWith is RankForDanishSubtitles over RankWith's order.
+func RankForDanishSubtitlesWith(observations []Observation, evaluations []Evaluation, options RankOptions) []Evaluation {
+	ranked := RankWith(observations, evaluations, options)
 	evidence := make(map[string]int, len(observations))
 	for _, observation := range observations {
 		rank := 0

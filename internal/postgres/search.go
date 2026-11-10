@@ -570,13 +570,17 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 			nextCompleted[outcome.IndexerInstanceID] = append([]SearchCandidateEvidence(nil), freshEvidence[outcome.IndexerInstanceID]...)
 		}
 	}
-	ranked := releases.Rank(observations, evaluations)
+	rankOptions, err := loadIndexerReliability(ctx, transaction)
+	if err != nil {
+		return workflows.Workflow{}, err
+	}
+	ranked := releases.RankWith(observations, evaluations, rankOptions)
 	subtitlePolicy, err := subtitles.ParsePolicy(search.Policy)
 	if err != nil {
 		return workflows.Workflow{}, err
 	}
 	if slices.Contains(subtitlePolicy.Required, "da") || slices.Contains(subtitlePolicy.RequiredAudio, "da") {
-		ranked = releases.RankForDanishSubtitles(observations, evaluations)
+		ranked = releases.RankForDanishSubtitlesWith(observations, evaluations, rankOptions)
 	}
 	if options.RecoveryRescan {
 		partialNext, err := store.persistRecoveryDiscovery(ctx, transaction, search, ranked, candidateByObservation, candidateSequenceByObservation, options, now)

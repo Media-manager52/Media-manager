@@ -119,7 +119,7 @@ If you add a service handler, keep it idempotent: events are at-least-once.
 - `InferTitleFacts` extracts resolution, codecs, source, languages, group, etc.
 - `Evaluate(observation, rules)` → `Evaluation` with `Verdict`
   (`eligible`/`held`/`rejected`), score, `Explanation`s, problems.
-- `Rank` sorts eligible evaluations (`score`, age, size tie-breakers).
+- `Rank` sorts eligible evaluations: releases the provider did not mark as a bad archive first, then `score`, then the indexer's 30-day share of verified downloads (`RankWith`), then a stable indexer and release key.
 - `Rule` kinds: `required`, `preferred`, `upgrade`, ... with `UnknownPolicy`
   (`reject`/`ignore`) for unknown facts. `CanonicalResolution`, `TitleMatches`,
   `TitleContainsYear` are the pure matchers.
