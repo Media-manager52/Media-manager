@@ -357,12 +357,14 @@ export const approveProwlarrImport = (id: string, candidates: Array<{ id: string
 
 export type APIIndexerUsage = {
   id: string; name: string; kind: string; enabled: boolean; commissioned: boolean
-  budget: { query_limit: number; grab_limit: number; background_query_limit: number; minimum_interval_ms: number; window_seconds: number; source: string }
+  budget: { query_limit: number; grab_limit: number; background_query_limit: number; minimum_interval_ms: number; page_limit?: number; window_seconds: number; source: string }
   usage: { queries_used: number; queries_remaining: number; background_queries_remaining: number; grabs_used: number; grabs_remaining: number; oldest_reservation_at?: string }
   pacing: { last_outcome?: string; last_outcome_at?: string; consecutive_failures: number; next_allowed_at?: string; cooldown_until?: string }
   search_outcomes_24h?: Array<{ state: string; detail?: string; count: number }>
   /** Downloads with a final outcome in the last 30 days; verified ones passed every check. */
   downloads_30d?: { finished: number; verified: number }
+  /** The newest-uploads reader; absent until the indexer's list has been read once. last_outcome is "ok", "deferred" or a failure code. */
+  new_uploads?: { last_read_at?: string; next_read_at?: string; last_outcome?: string; matches_24h: number }
 }
 export type APIQueueSnapshot = {
   checked_at: string; due: number; scheduled: number; leased: number; retrying: number
@@ -386,7 +388,7 @@ export type APIReplacementResult = { outcome: "opened" | "attached" | "already_o
 export const requestFileReplacement = (file: Pick<APIManagedFile, "id" | "source_relative">) => requestJSON<APIReplacementResult>("/api/v1/repairs", {
   method: "POST", body: JSON.stringify({ file_id: file.id, altmount_file_path: file.source_relative }),
 })
-export const updateIndexer = (id: string, patch: { name?: string; enabled?: boolean; query_limit?: number; grab_limit?: number; minimum_interval_ms?: number }) =>
+export const updateIndexer = (id: string, patch: { name?: string; enabled?: boolean; query_limit?: number; grab_limit?: number; minimum_interval_ms?: number; page_limit?: number }) =>
   requestJSON<unknown>(`/api/v1/settings/integrations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })
 export const updateLibraryRoot = (id: string, patch: { name?: string; is_default?: boolean; enabled?: boolean }) =>
   requestJSON<APILibraryRoot>(`/api/v1/settings/library-roots/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })

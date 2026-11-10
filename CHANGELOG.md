@@ -4,7 +4,15 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Media Manager reads each indexer's list of newest uploads** every 5 to 20 minutes (more often on an indexer where much is uploaded) and compares it with every title that is waiting. When an upload fits a waiting title, that title's own search runs at once instead of at its next scheduled time, so a release is found minutes after it is uploaded. The list itself never selects or downloads anything: the search that follows asks the indexers as always and applies the profile's language and quality requirements unchanged. A title that was searched within the last half hour waits out that half hour first, and a title whose round of attempts is used up gets its paced look for releases brought forward; a new round still needs the owner. Reading uses the indexer's own pacing and at most a twentieth of its daily search limit; an indexer that cannot list its newest uploads is asked again after an hour, then less often. **Kilder** shows when each indexer's list was last read and how many uploads fitted waiting titles in the last 24 hours (`new_uploads` in `GET /api/v1/indexers`). `FEED_WATCH=off` in `.env` switches the reading off.
+- **Resultater pr. svar** on an indexer (**Kilder** → **Rediger**): how many releases one search request asks for, 1 to 500 (`page_limit` in `PATCH /api/v1/settings/integrations/{id}`). Without the setting Media Manager asks for the largest page the indexer advertises, as before.
+
 ### Changed
+
+- **Searches follow the indexer's stated number of results.** An indexer that answers with smaller pages than asked for is read on from where its page ended, while its stated total says more remain (still at most three pages and 1,000 releases per indexer and search). Before, a short page always ended the search.
+- **Stream lists for players** ask for at most 100 results per indexer, whatever the page size for searches is.
 
 - **The same release on several indexers** is tried on the most reliable indexer first. Reliability is each indexer's share of downloads in the last 30 days that ended as verified files. It only decides between releases with the same score; before, the order between indexers was arbitrary.
 - **Background searches may use 60 % of an indexer's daily search limit** instead of 20 %. The rest stays reserved for new requests and searches you start yourself.

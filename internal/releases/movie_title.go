@@ -16,23 +16,28 @@ func MovieTitleMatches(releaseTitle, requestedTitle string, year uint16) bool {
 	if year == 0 {
 		return false
 	}
-	wanted := strconv.Itoa(int(year))
 	for _, spelling := range TitleSpellings(requestedTitle) {
-		words := strings.Fields(normalizedTitleWords(spelling))
-		index, occurrences := -1, 0
-		for i, word := range words {
-			if word == wanted {
-				index, occurrences = i, occurrences+1
-			}
-		}
-		if occurrences != 1 || index <= 0 || index >= len(words)-1 {
-			continue
-		}
-		moved := append(append([]string{}, words[:index]...), words[index+1:]...)
-		moved = append(moved, wanted)
-		if TitleMatches(releaseTitle, strings.Join(moved, " ")) {
+		if moved, ok := movedYearTitle(spelling, year); ok && TitleMatches(releaseTitle, moved) {
 			return true
 		}
 	}
 	return false
+}
+
+// movedYearTitle is a normalized title with its single, inner event year
+// moved to the end ("summerslam 2026 sunday" -> "summerslam sunday 2026").
+func movedYearTitle(title string, year uint16) (string, bool) {
+	wanted := strconv.Itoa(int(year))
+	words := strings.Fields(normalizedTitleWords(title))
+	index, occurrences := -1, 0
+	for i, word := range words {
+		if word == wanted {
+			index, occurrences = i, occurrences+1
+		}
+	}
+	if occurrences != 1 || index <= 0 || index >= len(words)-1 {
+		return "", false
+	}
+	moved := append(append([]string{}, words[:index]...), words[index+1:]...)
+	return strings.Join(append(moved, wanted), " "), true
 }

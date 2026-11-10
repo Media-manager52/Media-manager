@@ -148,6 +148,8 @@ func TestIndexerSettingsPatchIsBoundedAuditedAndIndexerOnly(t *testing.T) {
 		{`{"query_limit":0}`, 400, "invalid_query_limit"},
 		{`{"grab_limit":5001}`, 400, "invalid_grab_limit"},
 		{`{"minimum_interval_ms":1000}`, 400, "invalid_minimum_interval"},
+		{`{"page_limit":0}`, 400, "invalid_page_limit"},
+		{`{"page_limit":501}`, 400, "invalid_page_limit"},
 		{`{"name":"   "}`, 400, "invalid_name"},
 		{`{"enabled":true}`, 409, "commission_required"},
 		{`{"unknown":1}`, 400, "invalid_request"},
@@ -159,15 +161,16 @@ func TestIndexerSettingsPatchIsBoundedAuditedAndIndexerOnly(t *testing.T) {
 	if status, failure, _ := patch(plex.ID, `{"enabled":false}`); status != 409 || failure.Error.Code != "not_an_indexer" || failure.Error.Hint == "" {
 		t.Fatal("non-indexer integration was editable", status, failure)
 	}
-	status, _, updated := patch(uncommissioned.ID, `{"name":" Renamed Indexer ","query_limit":2500,"grab_limit":40,"minimum_interval_ms":4000}`)
+	status, _, updated := patch(uncommissioned.ID, `{"name":" Renamed Indexer ","query_limit":2500,"grab_limit":40,"minimum_interval_ms":4000,"page_limit":300}`)
 	var config struct {
+		PageLimit  int    `json:"page_limit"`
 		QueryLimit int    `json:"query_limit"`
 		GrabLimit  int    `json:"grab_limit"`
 		Interval   int64  `json:"minimum_interval_ms"`
 		Source     string `json:"budget_source"`
 		BaseURL    string `json:"base_url"`
 	}
-	if status != 200 || json.Unmarshal(updated.Config, &config) != nil || updated.Name != "Renamed Indexer" || config.QueryLimit != 2500 || config.GrabLimit != 40 || config.Interval != 4000 || config.Source != "owner_stated" || config.BaseURL == "" || updated.Enabled {
+	if status != 200 || json.Unmarshal(updated.Config, &config) != nil || updated.Name != "Renamed Indexer" || config.QueryLimit != 2500 || config.GrabLimit != 40 || config.Interval != 4000 || config.PageLimit != 300 || config.Source != "owner_stated" || config.BaseURL == "" || updated.Enabled {
 		t.Fatalf("patch not applied exactly: %d %+v %+v", status, updated, config)
 	}
 	var audits int

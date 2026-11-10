@@ -180,7 +180,37 @@ func (client *Client) CommissionSearch(ctx context.Context, request SearchReques
 	return client.search(ctx, indexers.WorkloadCommissioning, request, nil)
 }
 
+// SearchPage is one page of a search answer. Total is the provider's stated
+// result count for the whole search, or 0 when the provider states none.
+type SearchPage struct {
+	Observations []releases.Observation
+	Total        int
+}
+
+// SearchPage is Search that also returns the provider's stated total.
+func (client *Client) SearchPage(ctx context.Context, request SearchRequest) (SearchPage, error) {
+	return client.searchPage(ctx, indexers.WorkloadInteractive, request, nil)
+}
+
+// BackgroundSearchPageGuarded is BackgroundSearchGuarded that also returns the
+// provider's stated total.
+func (client *Client) BackgroundSearchPageGuarded(ctx context.Context, request SearchRequest, guard func(context.Context) error) (SearchPage, error) {
+	return client.searchPage(ctx, indexers.WorkloadBackground, request, guard)
+}
+
+// FeedPage reads one page of an indexer's newest uploads. It is an ordinary
+// paced search request without a search term, charged to the query allowance,
+// and it waits for the indexer's next pacing slot instead of deferring.
+func (client *Client) FeedPage(ctx context.Context, request SearchRequest) (SearchPage, error) {
+	return client.searchPage(ctx, indexers.WorkloadFeed, request, nil)
+}
+
 func (client *Client) search(ctx context.Context, workload indexers.Workload, request SearchRequest, guard func(context.Context) error) ([]releases.Observation, error) {
+	page, err := client.searchPage(ctx, workload, request, guard)
+	return page.Observations, err
+}
+
+func (client *Client) searchPage(ctx context.Context, workload indexers.Workload, request SearchRequest, guard func(context.Context) error) (SearchPage, error) {
 	mode := strings.TrimSpace(request.Mode)
 	if mode == "" {
 		mode = "search"
@@ -203,19 +233,19 @@ func (client *Client) search(ctx context.Context, workload indexers.Workload, re
 	if request.Extended {
 		params = append(params, Param{Name: "extended", Value: "1"})
 	}
-	var observations []releases.Observation
+	var page SearchPage
 	_, err := client.requestGuarded(ctx, workload, params, client.bodyLimit, guard, false, func(body []byte) (indexers.Outcome, error) {
-		parsed, parseErr := ParseSearch(body, client.config.IndexerID, mode, time.Now().UTC())
+		parsed, total, parseErr := ParseSearchPage(body, client.config.IndexerID, mode, time.Now().UTC())
 		if parseErr != nil {
 			return validationFailureOutcome(parseErr), parseErr
 		}
-		observations = sanitizeObservationsWithCredential(parsed, client.config.APIKey)
+		page = SearchPage{Observations: sanitizeObservationsWithCredential(parsed, client.config.APIKey), Total: total}
 		if len(parsed) == 0 {
 			return indexers.OutcomeNoResults, nil
 		}
 		return indexers.OutcomeSuccess, nil
 	})
-	return observations, err
+	return page, err
 }
 
 func (client *Client) Caps(ctx context.Context) (CapsSnapshot, error) {

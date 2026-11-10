@@ -378,6 +378,12 @@ func run() error {
 			}
 		}()
 	}
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("FEED_WATCH")), "off") {
+		// Reads each indexer's newest uploads and brings the search of
+		// matching waiting titles forward. FEED_WATCH=off leaves only the
+		// scheduled searches.
+		go (&acquisition.FeedWatcher{Search: searchService}).Run(workerContext)
+	}
 	go func() {
 		_, _ = store.PlanDueRecyclePurges(workerContext, time.Now().UTC(), 100)
 		_ = store.DeleteExpiredSearchPartialRetries(workerContext, time.Now().UTC())

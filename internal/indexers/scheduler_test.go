@@ -370,6 +370,51 @@ func TestBrowseWaitsForPacingSlotButNotFailureCooldown(t *testing.T) {
 	}
 }
 
+func TestFeedWaitsForPacingSlotButNotFailureCooldown(t *testing.T) {
+	now := time.Unix(600, 0).UTC()
+	minimum := 5 * time.Second
+	scheduler := NewScheduler(1, nil)
+	scheduler.now = func() time.Time { return now }
+	if err := scheduler.Configure("feed", Budget{MinimumInterval: minimum, FailureBackoff: time.Second, MaximumBackoff: time.Minute, QueryLimit: 100, LimitWindow: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	permit, err := scheduler.Acquire(context.Background(), "feed", WorkloadBackground)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = permit.Record(context.Background(), OutcomeSuccess, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitCalls := 0
+	scheduler.wait = func(_ context.Context, delay time.Duration) error {
+		waitCalls++
+		now = now.Add(delay)
+		return nil
+	}
+	// The feed read queues behind the search that just ran: it never shortens
+	// the minimum interval between two requests to the provider.
+	permit, err = scheduler.Acquire(context.Background(), "feed", WorkloadFeed)
+	if err != nil {
+		t.Fatalf("feed did not wait for its pacing slot: %v", err)
+	}
+	if waitCalls != 1 || now != time.Unix(600, 0).UTC().Add(minimum) {
+		t.Fatalf("feed wait calls=%d now=%s", waitCalls, now)
+	}
+	permit.Close()
+
+	lane := scheduler.getLane("feed")
+	lane.mu.Lock()
+	lane.snapshot.CooldownUntil = now.Add(30 * time.Second)
+	lane.mu.Unlock()
+	var deferred CooldownError
+	if _, err = scheduler.Acquire(context.Background(), "feed", WorkloadFeed); !errors.As(err, &deferred) || deferred.RetryAt() != now.Add(30*time.Second) {
+		t.Fatalf("failure cooldown error=%v", err)
+	}
+	if waitCalls != 1 {
+		t.Fatal("feed waited through a failure cooldown")
+	}
+}
+
 func TestMinimumIntervalDefersNextRequest(t *testing.T) {
 	now := time.Unix(400, 0).UTC()
 	minimum := 5 * time.Second

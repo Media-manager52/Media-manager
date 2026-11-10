@@ -169,6 +169,8 @@ non-obvious.
 | `indexer_commissioning_runs`, `indexer_commissioning_steps` | v1/v2 commissioning lifecycle + steps. |
 | `indexer_budget_state` | Rolling query/grab windows per indexer. |
 | `indexer_request_reservations` | Durable per-call reservations (schema 30). |
+| `indexer_feed_state` | Newest-uploads reader per indexer: last and next read, current interval, last outcome, consecutive failures (schema 58). |
+| `indexer_feed_matches` | Uploads from the newest-uploads lists that matched a waiting workflow, with what was done about each (`pending`, `search_advanced`, `search_due`, `discovery_advanced`, `not_applicable`, `expired`). A note for the reader, not release evidence; rows older than 30 days are removed (schema 58). |
 | `indexer_operation_status` | Latest persisted operation outcome/cooldown/failures. |
 
 ### Seerr, notifications, import lists, backups, Prowlarr

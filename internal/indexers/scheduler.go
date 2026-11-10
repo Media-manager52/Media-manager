@@ -14,6 +14,8 @@ import (
 type Workload string
 
 const (
+	// WorkloadFeed reads an indexer's newest uploads. Like browse it waits for
+	// the next pacing slot; it is charged to the query allowance.
 	WorkloadFeed          Workload = "feed"
 	WorkloadInteractive   Workload = "interactive"
 	WorkloadCommissioning Workload = "commissioning"
@@ -260,6 +262,15 @@ func (scheduler *Scheduler) slots(workload Workload) chan struct{} {
 	return scheduler.global
 }
 
+// waitsForPacing reports whether a workload waits for the indexer's next
+// pacing slot while holding its lane instead of deferring. Browse does so for
+// the viewer; the newest-uploads feed does so because it is one small request
+// every few minutes that would otherwise keep losing the slot to the steady
+// stream of searches. Pacing and failure cooldowns are honoured unchanged.
+func waitsForPacing(workload Workload) bool {
+	return workload == WorkloadBrowse || workload == WorkloadFeed
+}
+
 // Maximum time a viewer-facing browse request may hold an indexer lane while
 // waiting for its next permitted pacing slot. Longer waits are caused by a
 // failure cooldown, which is reported rather than held.
@@ -386,7 +397,7 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		// the global slot during the wait keeps other indexers moving. A
 		// failure cooldown, or a pacing interval longer than the browse
 		// budget, is still reported immediately.
-		if workload != WorkloadBrowse || cooldownActive || notBefore.Sub(now) > maxBrowsePacingWait {
+		if !waitsForPacing(workload) || cooldownActive || notBefore.Sub(now) > maxBrowsePacingWait {
 			<-global
 			<-lane.gate
 			return nil, CooldownError{Until: notBefore}

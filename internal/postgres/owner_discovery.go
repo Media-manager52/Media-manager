@@ -20,6 +20,16 @@ func (store *Store) RequestWorkflowDiscovery(ctx context.Context, workflowID uui
 		return err
 	}
 	defer transaction.Rollback(ctx)
+	if err := advanceWorkflowDiscovery(ctx, transaction, workflowID, now, "owner", ""); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
+}
+
+// advanceWorkflowDiscovery is RequestWorkflowDiscovery inside the caller's
+// serializable transaction. actor is who asked (the owner, or the worker when
+// a new upload matched the title); reason is recorded with a worker request.
+func advanceWorkflowDiscovery(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID, now time.Time, actor, reason string) error {
 	var state workflows.State
 	if err := transaction.QueryRow(ctx, `SELECT state FROM workflows WHERE id=$1 FOR UPDATE`, workflowID.String()).Scan(&state); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -30,7 +40,7 @@ func (store *Store) RequestWorkflowDiscovery(ctx context.Context, workflowID uui
 		return refuse("discovery_not_applicable", "discovery requires a waiting workflow with an exhausted acquisition round", "Discovery is only for waiting workflows whose round is exhausted; use search otherwise.")
 	}
 	var generation int64
-	err = transaction.QueryRow(ctx, `SELECT discovery.rescan_generation FROM workflow_retry_discovery discovery
+	err := transaction.QueryRow(ctx, `SELECT discovery.rescan_generation FROM workflow_retry_discovery discovery
 		JOIN acquisition_rounds round ON round.id=discovery.exhausted_round_id AND round.workflow_id=discovery.workflow_id
 		WHERE discovery.workflow_id=$1 AND discovery.state='waiting' AND round.state='exhausted'
 		AND round.round_ordinal=(SELECT max(latest.round_ordinal) FROM acquisition_rounds latest WHERE latest.workflow_id=$1)
@@ -54,7 +64,7 @@ func (store *Store) RequestWorkflowDiscovery(ctx context.Context, workflowID uui
 		return refuse("no_commissioned_indexer", "discovery requires at least one commissioned indexer for this media", "Commission and enable an indexer that serves this media (GET /api/v1/settings/integrations).")
 	}
 	if alreadyQueued {
-		return transaction.Commit(ctx)
+		return nil
 	}
 	nextGeneration := generation + 1
 	if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET rescan_generation=$2,next_rescan_at=$3,updated_at=$3
@@ -66,10 +76,12 @@ func (store *Store) RequestWorkflowDiscovery(ctx context.Context, workflowID uui
 		VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested',$4,$5,$5)`, uuid.NewV7().String(), workflowID.String(), nextGeneration, payload, now.UTC()); err != nil {
 		return err
 	}
-	detail, _ := json.Marshal(map[string]any{"rescan_generation": nextGeneration})
-	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at)
-		VALUES($1,'owner','workflow.discovery_requested','workflow',$2,$3,$4)`, uuid.NewV7().String(), workflowID.String(), detail, now.UTC()); err != nil {
-		return err
+	values := map[string]any{"rescan_generation": nextGeneration}
+	if reason != "" {
+		values["reason"] = reason
 	}
-	return transaction.Commit(ctx)
+	detail, _ := json.Marshal(values)
+	_, err = transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at)
+		VALUES($1,$2,'workflow.discovery_requested','workflow',$3,$4,$5)`, uuid.NewV7().String(), actor, workflowID.String(), detail, now.UTC())
+	return err
 }

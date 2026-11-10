@@ -138,7 +138,7 @@ func TestBuildRequestUsesVerifiedTVPackDialect(t *testing.T) {
 		Mode:       "tvsearch",
 		Params:     []newznab.Param{{Name: "q", Value: "Adolescence"}, {Name: "tvdbid", Value: "451609"}, {Name: "tmdbid", Value: "249042"}, {Name: "imdbid", Value: "13024830"}, {Name: "season", Value: "1"}, {Name: "year", Value: "2025"}},
 		Categories: []int{5000, 5040},
-		Limit:      100,
+		Limit:      250,
 		Extended:   true,
 	}
 	if !reflect.DeepEqual(request, want) {
@@ -167,7 +167,7 @@ func TestBuildRequestUsesVerifiedTVEpisodeDialect(t *testing.T) {
 		Mode:       "tvsearch",
 		Params:     []newznab.Param{{Name: "q", Value: "Rivalerne"}, {Name: "tvdbid", Value: "481455"}, {Name: "season", Value: "1"}, {Name: "ep", Value: "4"}, {Name: "year", Value: "2026"}},
 		Categories: []int{5000, 5040},
-		Limit:      100,
+		Limit:      250,
 		Extended:   true,
 	}
 	if !reflect.DeepEqual(request, want) {
@@ -190,9 +190,10 @@ func TestBuildRequestLimitBoundaries(t *testing.T) {
 		want    int
 	}{
 		{name: "not advertised", maximum: 0, want: 100},
-		{name: "below client ceiling", maximum: 50, want: 50},
-		{name: "at client ceiling", maximum: 100, want: 100},
-		{name: "above client ceiling", maximum: 250, want: 100},
+		{name: "below the default", maximum: 50, want: 50},
+		{name: "at the default", maximum: 100, want: 100},
+		{name: "advertised above the default", maximum: 250, want: 250},
+		{name: "above client ceiling", maximum: 900, want: 500},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
