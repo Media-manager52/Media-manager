@@ -131,7 +131,12 @@ excluded from the repository.
   uploads, newest first, in the same item format as a search. Media Manager's
   newest-uploads reader (`internal/acquisition/feed_watch.go`) uses exactly
   this request. A provider whose list cannot be read is asked again after an
-  hour, doubling to one day; its searches are unaffected.
+  hour, doubling to one day; its searches are unaffected. Nothing is selected
+  or fetched from the list: a match only brings the title's own search
+  forward or, for a title whose round is used up, opens the next round under
+  the owner action's guards (invariant S20). Opening a round adds no request
+  class and changes no pacing; the round's search and NZB fetches are the
+  ordinary paced ones.
 - **Stated totals.** Every studied provider states a total in
   `<newznab:response offset total>`. For a search the total is the number of
   matching releases; for the newest-uploads list it is a large catalogue

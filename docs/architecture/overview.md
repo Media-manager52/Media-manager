@@ -275,8 +275,11 @@ These summarize [acquisition-safety.md](acquisition-safety.md), [../invariants.m
 6. **Two-slot rounds.** A round has two durable submission slots; only
    release-attributable output failures consume slots and atomically exclude
    the exact release + NZB package inside that workflow. Infrastructure failures
-   reconcile the same job. After both slots, low-priority discovery may run but
-   only the owner can open the next round (`POST .../acquisition-rounds`).
+   reconcile the same job. After both slots, low-priority discovery may run.
+   The next round is opened by the owner (`POST .../acquisition-rounds`), or
+   by the newest-uploads reader for a new upload that fits the title: under
+   the same guards as the owner's action, at most once per title per 24 hours,
+   and not at all with `FEED_OPEN_ROUNDS=off` (invariant S20).
    Four retained failed outputs stop further rounds pending storage review.
 7. **Exact confirmation.** Plex confirmation requires a verified provider GUID
    and every exact expected path. Old current links are removed only inside that

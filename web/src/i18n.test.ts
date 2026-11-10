@@ -29,7 +29,9 @@ describe("labels", () => {
 describe("translateDetail", () => {
   it("translates the common waiting explanations and keeps numbers", () => {
     expect(translateDetail("All 4 acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner."))
-      .toBe("Alle 4 forsøg i runden er brugt. Media Manager holder øje med nye udgivelser; en ny runde kræver dig.")
+      .toBe("Alle 4 forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. En ny runde kan starte af sig selv, når en ny upload passer til titlen; du kan også selv starte den.")
+    expect(translateDetail("All 2 acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; another round is opened by the owner, or for a new upload that fits this title when automatic rounds are on."))
+      .toBe("Alle 2 forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. En ny runde kan starte af sig selv, når en ny upload passer til titlen; du kan også selv starte den.")
     expect(translateDetail("no eligible release yet")).toBe("Ingen egnet udgivelse fundet endnu.")
   })
 

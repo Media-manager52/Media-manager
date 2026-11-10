@@ -269,8 +269,18 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   ten workflows a minute, never a search that is leased or continues an
   unfinished one. A waiting workflow without a scheduled search (round
   exhausted) gets the paced discovery of `RequestWorkflowDiscovery`, audited as
-  actor `worker`. **The reader never selects, submits or opens a round**; the
-  search it brings forward does what every search does. The read interval
+  actor `worker`. **The reader never selects or submits a release**; the
+  search it brings forward does what every search does. When that discovery
+  holds a newly observed eligible release (already `ready` at the match, or
+  found by the discovery the match brought forward), the same pass opens the
+  next round through `openNextAcquisitionRound`, the transaction behind the
+  owner's `POST .../acquisition-rounds`, with every guard of that action
+  (waiting workflow, exhausted round, eligible untried release, unchanged
+  policy, retained-output limit). It is recorded as actor `worker` (transition
+  and `workflow.acquisition_round_opened` audit event), happens at most once
+  per workflow per 24 hours, and a refusal settles the match as
+  `not_applicable` without writing anything else. `FEED_OPEN_ROUNDS=off`
+  leaves every new round to the owner. The read interval
   moves between 5 and 20 minutes with the share of new uploads per read and
   never below `window × 3 pages × 10 / query_limit` (a tenth of the query limit
   with every page counted); a failing list backs off from one

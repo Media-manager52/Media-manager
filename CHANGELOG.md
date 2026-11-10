@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **A new upload can start the next round of attempts by itself.** Until now a title that had used up its round of attempts waited for the owner to press **Start ny runde**, even when a new release had been found for it. When a new upload on an indexer fits such a title and Media Manager's look for releases holds a new, eligible release that has not been tried, the next round now opens without a click. It is the same step as the owner's button and is refused in the same cases: the profile's rules changed since the round, the release was already tried or is excluded, or the limit for kept failed downloads is reached. A title gets at most one such round per 24 hours, each round has the usual number of attempts (`ACQUISITION_ATTEMPTS_PER_ROUND`), and the activity list shows it as done by **Baggrundsarbejde**. Language and quality requirements are applied unchanged, and files are measured after download as always. `FEED_OPEN_ROUNDS=off` in `.env` keeps every new round with the owner. Database schema 59 (one more outcome for recorded matches).
+
 ## [0.1.0-beta.8] - 2026-11-10
 
 The eighth public beta: `main` at `94010c1`, database schema 58. Reading each indexer's newest uploads, larger result pages and better use of every indexer (#187, #188, #189). The rules for checking language and quality are unchanged.

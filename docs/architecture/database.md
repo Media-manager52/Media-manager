@@ -170,7 +170,7 @@ non-obvious.
 | `indexer_budget_state` | Rolling query/grab windows per indexer. |
 | `indexer_request_reservations` | Durable per-call reservations (schema 30). |
 | `indexer_feed_state` | Newest-uploads reader per indexer: last and next read, current interval, last outcome, consecutive failures (schema 58). |
-| `indexer_feed_matches` | Uploads from the newest-uploads lists that matched a waiting workflow, with what was done about each (`pending`, `search_advanced`, `search_due`, `discovery_advanced`, `not_applicable`, `expired`). A note for the reader, not release evidence; rows older than 30 days are removed (schema 58). |
+| `indexer_feed_matches` | Uploads from the newest-uploads lists that matched a waiting workflow, with what was done about each (`pending`, `search_advanced`, `search_due`, `discovery_advanced`, `round_opened` (schema 59), `not_applicable`, `expired`). A note for the reader, not release evidence; rows older than 30 days are removed (schema 58). |
 | `indexer_operation_status` | Latest persisted operation outcome/cooldown/failures. |
 
 ### Seerr, notifications, import lists, backups, Prowlarr

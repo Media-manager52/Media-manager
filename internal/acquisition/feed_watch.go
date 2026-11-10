@@ -28,6 +28,12 @@ import (
 // scheduled search forward. That search asks the indexers as always and
 // applies every language, quality and identity rule unchanged; nothing is
 // selected or downloaded from the list itself.
+//
+// A title whose round of attempts is used up has no scheduled search. For it
+// a match brings the paced discovery forward and, with OpenRounds, opens the
+// next round once that discovery holds a newly observed eligible release: the
+// owner's "start next round" under the same guards, at most once a day per
+// title. The round's own search then selects under the unchanged rules.
 const (
 	feedTick = time.Minute
 	// One indexer is read at most every feedMinInterval and at least every
@@ -67,6 +73,11 @@ var feedCategories = []int{2000, 5000}
 type FeedWatcher struct {
 	Search *SearchService
 	Now    func() time.Time
+	// OpenRounds lets a match open the next round of attempts for a title
+	// whose round is used up, where the owner's own "start next round" would
+	// be accepted and at most once a day per title. Without it a new round
+	// stays the owner's action.
+	OpenRounds bool
 
 	seen     map[uuid.UUID]*feedSeen
 	titles   *feedTitles
@@ -139,12 +150,15 @@ func (watcher *FeedWatcher) RunOnce(ctx context.Context) error {
 			slog.Info("Newest-uploads watching: new uploads match waiting titles", "indexer", integration.Name, "matches", inserted)
 		}
 	}
-	result, err := store.AdvanceFeedMatches(ctx, watcher.now(), feedQuiet, feedAdvanceLimit)
+	result, err := store.AdvanceFeedMatches(ctx, watcher.now(), feedQuiet, feedAdvanceLimit, watcher.OpenRounds)
 	if err != nil {
 		return err
 	}
 	if result.SearchAdvanced+result.DiscoveryAdvanced > 0 {
 		slog.Info("Newest-uploads watching: searches brought forward", "searches", result.SearchAdvanced, "discoveries", result.DiscoveryAdvanced)
+	}
+	if result.RoundsOpened > 0 {
+		slog.Info("Newest-uploads watching: new rounds opened for titles with a new eligible release", "rounds", result.RoundsOpened)
 	}
 	return nil
 }
