@@ -208,7 +208,7 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 	attentionCode, attentionDetail := "", ""
 	if exhausted {
 		attentionCode = workflows.AttentionRoundExhaustedWaitingNewIdentity
-		attentionDetail = fmt.Sprintf("All %d acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner.", attemptLimit)
+		attentionDetail = fmt.Sprintf("All %d acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; another round is opened by the owner, or for a new upload that fits this title when automatic rounds are on.", attemptLimit)
 		var cutoff int64
 		if err := transaction.QueryRow(ctx, `SELECT COALESCE(max(first_seen_sequence),0) FROM release_candidates WHERE workflow_id=$1`, job.Workflow.ID.String()).Scan(&cutoff); err != nil {
 			return acquisitionFailureResult{}, err
@@ -282,12 +282,29 @@ func (store *Store) CompleteReleaseFailure(ctx context.Context, job AltMountJobC
 	return transaction.Commit(ctx)
 }
 
+// ownerRoundReason is the transition reason of a round the owner opened.
+const ownerRoundReason = "owner opened a new bounded acquisition round after new eligible discovery"
+
+// OpenNextAcquisitionRound is the owner's "start next round": it opens one new
+// bounded round for a waiting workflow whose discovery holds a newly observed
+// eligible release.
 func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uuid.UUID, now time.Time) error {
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return err
 	}
 	defer transaction.Rollback(ctx)
+	if err := store.openNextAcquisitionRound(ctx, transaction, workflowID, now, "owner", ownerRoundReason); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
+}
+
+// openNextAcquisitionRound is OpenNextAcquisitionRound inside the caller's
+// serializable transaction. actor and reason are recorded on the transition:
+// the owner, or the worker when a new upload matched the title. Every guard is
+// the same for both, and a refusal has written nothing.
+func (store *Store) openNextAcquisitionRound(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID, now time.Time, actor, reason string) error {
 	var workflowState workflows.State
 	var workflowRevision int64
 	if err := transaction.QueryRow(ctx, `SELECT state,revision FROM workflows WHERE id=$1 FOR UPDATE`, workflowID.String()).Scan(&workflowState, &workflowRevision); errors.Is(err, pgx.ErrNoRows) {
@@ -309,7 +326,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 	}
 	var exhaustedRoundText, readyCandidateText string
 	var generation, readySequence int64
-	err = transaction.QueryRow(ctx, `SELECT discovery.exhausted_round_id::text,discovery.ready_candidate_id::text,discovery.rescan_generation,discovery.ready_first_seen_sequence
+	err := transaction.QueryRow(ctx, `SELECT discovery.exhausted_round_id::text,discovery.ready_candidate_id::text,discovery.rescan_generation,discovery.ready_first_seen_sequence
 		FROM workflow_retry_discovery discovery WHERE discovery.workflow_id=$1 AND discovery.state='ready' FOR UPDATE`, workflowID.String()).Scan(&exhaustedRoundText, &readyCandidateText, &generation, &readySequence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return refuse("no_release_ready", "no newly observed eligible release is ready for owner approval", "Wait for paced discovery, queue one with discover, or try open_round_from_known.")
@@ -368,7 +385,7 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		return err
 	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at)
-		VALUES($1,$2,$3,'searching','owner opened a new bounded acquisition round after new eligible discovery','owner',$4)`, workflowID.String(), newRevision, workflowState, now.UTC()); err != nil {
+		VALUES($1,$2,$3,'searching',$5,$6,$4)`, workflowID.String(), newRevision, workflowState, now.UTC(), reason, actor); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(map[string]string{"workflow_id": workflowID.String(), "round_id": roundID.String()})
@@ -376,5 +393,5 @@ func (store *Store) OpenNextAcquisitionRound(ctx context.Context, workflowID uui
 		VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$5)`, uuid.NewV7().String(), workflowID.String(), newRevision, payload, now.UTC()); err != nil {
 		return err
 	}
-	return transaction.Commit(ctx)
+	return nil
 }

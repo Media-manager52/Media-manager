@@ -69,7 +69,7 @@ export function explainWorkflow(workflow: APIWorkflow, candidates: APIWorkflowCa
       : roundUsedUp(workflow)
         ? workflow.available_actions?.some((action) => action.action === "open_round_from_known" && action.available)
           ? "Ikke nødvendigt. Du kan prøve en kendt udgivelse nu. Ellers venter den på en ny."
-          : "Ikke lige nu. Når en ny udgivelse dukker op, skal du starte en ny runde."
+          : "Ikke lige nu. En ny runde kan starte af sig selv, når en ny upload passer til titlen. Ellers starter du den, når en ny udgivelse er fundet."
         : "Nej. Media Manager klarer det selv."
   const running = inFlight[workflow.state]
   if (running) {

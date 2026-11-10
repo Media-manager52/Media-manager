@@ -16,7 +16,9 @@ import (
 // compares each indexer's newest uploads with the waiting titles; this file
 // lists those titles, remembers what was read and matched, and brings a
 // matched title's own, already scheduled search forward. Nothing here selects
-// a release or opens a download round.
+// a release. A download round is opened only where the owner's own "start
+// next round" would be accepted: for a title whose round is used up and whose
+// discovery holds an eligible release (openFeedRound).
 
 // feedMatchLifetime is how long an unsettled match keeps trying to bring a
 // search forward. After that the title's normal schedule has covered it.
@@ -25,6 +27,14 @@ const feedMatchLifetime = 24 * time.Hour
 // feedMatchRetention is how long settled matches are kept for the owner to
 // read.
 const feedMatchRetention = 30 * 24 * time.Hour
+
+// feedRoundInterval is the least time between two rounds opened for one title
+// because of new uploads. With the attempts per round and the retained-output
+// limit it bounds what a title that keeps failing can cost.
+const feedRoundInterval = 24 * time.Hour
+
+// feedRoundReason is the transition reason of a round opened for a new upload.
+const feedRoundReason = "a new upload matched this title; a new bounded acquisition round was opened after new eligible discovery"
 
 // FeedWorkflow is one waiting title the newest uploads are compared with.
 // Media carries the saved titles and identities only.
@@ -160,6 +170,7 @@ type FeedAdvanceResult struct {
 	SearchAdvanced    int
 	SearchDue         int
 	DiscoveryAdvanced int
+	RoundsOpened      int
 	NotApplicable     int
 	Expired           int
 }
@@ -167,8 +178,10 @@ type FeedAdvanceResult struct {
 // AdvanceFeedMatches brings the scheduled search of matched workflows forward,
 // at most limit workflows per call. A workflow that was searched within quiet
 // is left for a later call, so a burst of uploads for one title costs one
-// search per quiet period, and old settled matches are removed.
-func (store *Store) AdvanceFeedMatches(ctx context.Context, now time.Time, quiet time.Duration, limit int) (FeedAdvanceResult, error) {
+// search per quiet period, and old settled matches are removed. With
+// openRounds a matched title whose round is used up also gets its next round
+// opened when discovery holds an eligible release for it (openFeedRound).
+func (store *Store) AdvanceFeedMatches(ctx context.Context, now time.Time, quiet time.Duration, limit int, openRounds bool) (FeedAdvanceResult, error) {
 	var result FeedAdvanceResult
 	now = now.UTC()
 	tag, err := store.Pool.Exec(ctx, `UPDATE indexer_feed_matches SET outcome='expired',settled_at=$1 WHERE outcome='pending' AND seen_at<$2`, now, now.Add(-feedMatchLifetime))
@@ -202,7 +215,7 @@ func (store *Store) AdvanceFeedMatches(ctx context.Context, now time.Time, quiet
 		return result, err
 	}
 	for _, workflowID := range due {
-		outcome, err := store.advanceFeedWorkflow(ctx, workflowID, now, quiet)
+		outcome, err := store.advanceFeedWorkflow(ctx, workflowID, now, quiet, openRounds)
 		if err != nil {
 			if ctx.Err() != nil {
 				return result, ctx.Err()
@@ -211,23 +224,46 @@ func (store *Store) AdvanceFeedMatches(ctx context.Context, now time.Time, quiet
 			// and the next pass decides again.
 			continue
 		}
-		switch outcome {
-		case "search_advanced":
-			result.SearchAdvanced++
-		case "search_due":
-			result.SearchDue++
-		case "discovery_advanced":
-			result.DiscoveryAdvanced++
-		case "not_applicable":
-			result.NotApplicable++
+		result.count(outcome)
+	}
+	if !openRounds {
+		return result, nil
+	}
+	found, err := store.feedDiscoveriesWithARelease(ctx, now, limit)
+	if err != nil {
+		return result, err
+	}
+	for _, workflowID := range found {
+		outcome, err := store.openFoundFeedRound(ctx, workflowID, now)
+		if err != nil {
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			continue
 		}
+		result.count(outcome)
 	}
 	return result, nil
 }
 
+func (result *FeedAdvanceResult) count(outcome string) {
+	switch outcome {
+	case "search_advanced":
+		result.SearchAdvanced++
+	case "search_due":
+		result.SearchDue++
+	case "discovery_advanced":
+		result.DiscoveryAdvanced++
+	case "round_opened":
+		result.RoundsOpened++
+	case "not_applicable":
+		result.NotApplicable++
+	}
+}
+
 // advanceFeedWorkflow settles the pending matches of one workflow. It returns
 // "" when they stay pending.
-func (store *Store) advanceFeedWorkflow(ctx context.Context, workflowID uuid.UUID, now time.Time, quiet time.Duration) (string, error) {
+func (store *Store) advanceFeedWorkflow(ctx context.Context, workflowID uuid.UUID, now time.Time, quiet time.Duration, openRounds bool) (string, error) {
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return "", err
@@ -256,6 +292,14 @@ func (store *Store) advanceFeedWorkflow(ctx context.Context, workflowID uuid.UUI
 		outcome, err = advanceFeedSearch(ctx, transaction, workflowID, revision, state, now)
 		if err != nil {
 			return "", err
+		}
+		if outcome == "not_applicable" && openRounds && state == workflows.StateWaiting {
+			// No search and no discovery to bring forward. Discovery may
+			// already hold a release that waits for a new round.
+			outcome, err = store.openFeedRound(ctx, transaction, workflowID, now)
+			if err != nil {
+				return "", err
+			}
 		}
 	}
 	if outcome == "" {
@@ -307,6 +351,97 @@ func advanceFeedSearch(ctx context.Context, transaction pgx.Tx, workflowID uuid.
 		return "", err
 	}
 	return "discovery_advanced", nil
+}
+
+// openFeedRound opens the next bounded round for a matched title exactly as
+// the owner's "start next round" would, and under every guard of that action:
+// the workflow is waiting, its newest round is exhausted, discovery holds an
+// eligible release that was not tried, the profile's policy is the round's,
+// and the retained-output limit is not reached. On top of that a title gets
+// at most one such round per feedRoundInterval. The round's search then asks
+// the indexers and applies the profile's rules as every search does. It
+// returns "round_opened", or "not_applicable" when the action is refused.
+func (store *Store) openFeedRound(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID, now time.Time) (string, error) {
+	var recent bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_transitions WHERE workflow_id=$1 AND actor='worker' AND reason=$2 AND occurred_at>$3)`,
+		workflowID.String(), feedRoundReason, now.Add(-feedRoundInterval)).Scan(&recent); err != nil {
+		return "", err
+	}
+	if recent {
+		return "not_applicable", nil
+	}
+	// A savepoint, so a refusal leaves nothing of the attempt behind in the
+	// caller's transaction.
+	attempt, err := transaction.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer attempt.Rollback(ctx)
+	err = store.openNextAcquisitionRound(ctx, attempt, workflowID, now, "worker", feedRoundReason)
+	var refusal ActionRefusal
+	if errors.As(err, &refusal) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConcurrentModification) {
+		if rollbackErr := attempt.Rollback(ctx); rollbackErr != nil {
+			return "", rollbackErr
+		}
+		return "not_applicable", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	detail, _ := json.Marshal(map[string]any{"reason": "feed_match"})
+	if _, err := attempt.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at)
+		VALUES($1,'worker','workflow.acquisition_round_opened','workflow',$2,$3,$4)`, uuid.NewV7().String(), workflowID.String(), detail, now); err != nil {
+		return "", err
+	}
+	if err := attempt.Commit(ctx); err != nil {
+		return "", err
+	}
+	return "round_opened", nil
+}
+
+// feedDiscoveriesWithARelease lists the titles whose discovery a match brought
+// forward within feedMatchLifetime and which has found a release since.
+func (store *Store) feedDiscoveriesWithARelease(ctx context.Context, now time.Time, limit int) ([]uuid.UUID, error) {
+	rows, err := store.Pool.Query(ctx, `SELECT hit.workflow_id::text FROM indexer_feed_matches hit
+		JOIN workflow_retry_discovery discovery ON discovery.workflow_id=hit.workflow_id AND discovery.state='ready'
+		WHERE hit.outcome='discovery_advanced' AND hit.settled_at>$1
+		GROUP BY hit.workflow_id ORDER BY min(hit.settled_at),hit.workflow_id LIMIT $2`, now.Add(-feedMatchLifetime), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var found []uuid.UUID
+	for rows.Next() {
+		var idText string
+		if err := rows.Scan(&idText); err != nil {
+			return nil, err
+		}
+		if id, parseErr := uuid.Parse(idText); parseErr == nil {
+			found = append(found, id)
+		}
+	}
+	return found, rows.Err()
+}
+
+// openFoundFeedRound finishes what a match started: the discovery it brought
+// forward found a release, so the round is opened and the matches say so.
+// A refusal settles them as not applicable, so the title is not asked again
+// for the same uploads.
+func (store *Store) openFoundFeedRound(ctx context.Context, workflowID uuid.UUID, now time.Time) (string, error) {
+	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return "", err
+	}
+	defer transaction.Rollback(ctx)
+	outcome, err := store.openFeedRound(ctx, transaction, workflowID, now)
+	if err != nil {
+		return "", err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE indexer_feed_matches SET outcome=$2,settled_at=$3 WHERE workflow_id=$1 AND outcome='discovery_advanced' AND settled_at>$4`,
+		workflowID.String(), outcome, now, now.Add(-feedMatchLifetime)); err != nil {
+		return "", err
+	}
+	return outcome, transaction.Commit(ctx)
 }
 
 // IndexerFeedSummary is the owner's view of the newest-uploads reader for one

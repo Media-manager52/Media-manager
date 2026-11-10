@@ -95,7 +95,7 @@ func TestFeedMatchBringsTheScheduledSearchForwardAndNothingElse(t *testing.T) {
 		t.Fatalf("state=%+v", state)
 	}
 
-	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 10)
+	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestFeedMatchBringsTheScheduledSearchForwardAndNothingElse(t *testing.T) {
 
 	// A second upload while that search is still due settles without a change.
 	recordFeedMatch(t, f, w.ID, "feed-guid-2", now.Add(time.Minute))
-	result, err = f.store.AdvanceFeedMatches(f.ctx, now.Add(time.Minute), 30*time.Minute, 10)
+	result, err = f.store.AdvanceFeedMatches(f.ctx, now.Add(time.Minute), 30*time.Minute, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestFeedMatchWaitsOutRecentAndUnfinishedSearches(t *testing.T) {
 	recordFeedMatch(t, f, recent.ID, "recent-guid", now)
 	recordFeedMatch(t, f, partial.ID, "partial-guid", now)
 
-	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 10)
+	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestFeedMatchWaitsOutRecentAndUnfinishedSearches(t *testing.T) {
 
 	// Once the quiet period has passed the recent title is brought forward.
 	later := now.Add(25 * time.Minute)
-	result, err = f.store.AdvanceFeedMatches(f.ctx, later, 30*time.Minute, 10)
+	result, err = f.store.AdvanceFeedMatches(f.ctx, later, 30*time.Minute, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestFeedMatchWaitsOutRecentAndUnfinishedSearches(t *testing.T) {
 	}
 
 	// A match nobody could act on within a day is closed.
-	result, err = f.store.AdvanceFeedMatches(f.ctx, now.Add(25*time.Hour), 30*time.Minute, 10)
+	result, err = f.store.AdvanceFeedMatches(f.ctx, now.Add(25*time.Hour), 30*time.Minute, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestFeedMatchWaitsOutRecentAndUnfinishedSearches(t *testing.T) {
 // TestFeedMatchAdvancesDiscoveryOfAnExhaustedRoundAsTheWorker proves that a
 // title whose round is used up gets its paced discovery brought forward, by
 // the same guarded step the owner's button uses and audited as the worker,
-// and that no round is opened.
+// and that no round is opened while discovery has not found a release.
 func TestFeedMatchAdvancesDiscoveryOfAnExhaustedRoundAsTheWorker(t *testing.T) {
 	f := newFailureRecoveryFixture(t)
 	w := f.newMovieWorkflow(t, "Feed Discovery", "903021")
@@ -234,7 +234,7 @@ func TestFeedMatchAdvancesDiscoveryOfAnExhaustedRoundAsTheWorker(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	recordFeedMatch(t, f, w.ID, "discovery-guid", now)
 
-	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 10)
+	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestFeedMatchForATitleThatIsNoLongerWaitingChangesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventsBefore := f.count(t, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1`, w.ID.String())
-	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 10)
+	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	}

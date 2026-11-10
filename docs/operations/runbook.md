@@ -82,6 +82,7 @@ Runtime variables in `.env` (Compose interpolation):
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | yes (password) | Database credentials. Compose passes discrete `PG*` vars so URL escaping is unnecessary. |
 | `MEDIA_MANAGER_VERSION`, `MEDIA_MANAGER_COMMIT` | recommended | Embedded in the binary and reported by `/api/v1/system/info` and `version`. |
 | `FEED_WATCH` | no (`on`) | `off` stops the reading of each indexer's newest uploads; waiting titles are then found only by their scheduled searches. |
+| `FEED_OPEN_ROUNDS` | no (`on`) | `off` leaves every new round of attempts to the owner. With `on`, a new upload that fits a title whose round is used up opens the next round when discovery holds an eligible release for it, at most once per title per 24 hours. Has no effect with `FEED_WATCH=off`. |
 | `ACQUISITION_ATTEMPTS_PER_ROUND` | no (2) | Distinct submissions per newly opened acquisition round, integer 1–6. Existing round snapshots remain unchanged. |
 | `ACQUISITION_RETAINED_OUTPUT_LIMIT` | no (4) | Retained failed-output jobs per workflow before owner review, integer 1–12. Raising it never deletes failures or queues work. |
 | `OWNER_TOKEN` | yes, ≥32 bytes | Owner bearer. Cosmos injects it; loopback clients use it. |

@@ -135,7 +135,10 @@ Request summaries expose optional `waiting_reason`, `last_search_at` and
 incomplete outbox events for the current workflow revision or retry-discovery
 generation. Stale and completed events do not promise another search. A waiting
 workflow with a discovery candidate ready for owner approval gives the request
-the `needs_attention` lifecycle; opening another round remains an owner action.
+the `needs_attention` lifecycle. Opening another round is an owner action; the
+newest-uploads reader takes the same step, recorded as actor `worker`, when a
+new upload fits the title (at most once per title per 24 hours, see invariant
+S20).
 
 ### Sources
 

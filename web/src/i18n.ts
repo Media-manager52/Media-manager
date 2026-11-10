@@ -200,6 +200,7 @@ const activityActions: Record<string, string> = {
   "workflow.plex_reconfirm_requested": "Plex bedt om at bekræfte igen",
   "workflow.access_rejected_release_retried": "Afvist udgivelse prøvet igen",
   "workflow.discovery_requested": "Bedt om at lede efter nye udgivelser",
+  "workflow.acquisition_round_opened": "Ny runde startet, fordi en ny upload passede",
   "workflow.quality_policy_applied": "Kvalitetsprofil anvendt på arbejdet",
 }
 
@@ -274,6 +275,9 @@ export function languageName(code: string | undefined): string {
  * Danish versions of the server's most common explanations. Anything not
  * listed is shown as the server wrote it, so no detail is ever lost.
  */
+/** How a used-up title gets its next round: by a fitting new upload or by the owner. */
+const nextRoundText = "En ny runde kan starte af sig selv, når en ny upload passer til titlen; du kan også selv starte den."
+
 const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^no eligible release yet$/i, () => "Ingen egnet udgivelse fundet endnu."],
   [/^replacement confirmed in Plex; the old (?:file was retired|symlink was removed)$/, () => "Erstatningen er bekræftet i Plex, og den gamle fil er fjernet."],
@@ -286,9 +290,11 @@ const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^season (\d+) episode (\d+) could not be verified: Plex and TMDB disagree on the episode \(numbering differs\)$/, (m) => `Sæson ${m[1]} afsnit ${m[2]} kunne ikke bekræftes, fordi Plex og TMDB nummererer afsnittene forskelligt.`],
   [/^Plex has no single item at (.+)$/, (m) => `Plex har ikke ét bestemt emne for filen: ${m[1]}`],
   [/^All (\d+) acquisition slots in this round were used\. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner\.$/,
-    (m) => `Alle ${m[1]} forsøg i runden er brugt. Media Manager holder øje med nye udgivelser; en ny runde kræver dig.`],
+    (m) => `Alle ${m[1]} forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. ${nextRoundText}`],
+  [/^All (\d+) acquisition slots in this round were used\. Scheduled discovery will wait for a newly observed eligible release; another round is opened by the owner, or for a new upload that fits this title when automatic rounds are on\.$/,
+    (m) => `Alle ${m[1]} forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. ${nextRoundText}`],
   [/^Two release-attributable acquisition slots were used\. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner\.$/,
-    () => "To forsøg i runden er brugt. Media Manager holder øje med nye udgivelser; en ny runde kræver dig."],
+    () => `To forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. ${nextRoundText}`],
   [/^Completed season has no season pack observed; released episodes are acquired individually\.$/,
     () => "Der er ingen sæsonpakke, så afsnittene hentes hver for sig."],
   [/^Airing season: released episodes are acquired individually as they air; future episodes are not searched before their release date\.$/,

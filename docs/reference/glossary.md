@@ -115,7 +115,9 @@ docs.
 
 - **Acquisition round** — a durable period with an immutable configured
   submission limit (default two, range one–six), policy snapshot and upgrade
-  baseline. Only the owner opens the next one.
+  baseline. The owner opens the next one; the newest-uploads reader opens it
+  for a new upload that fits the title, under the same guards and at most
+  once per title per 24 hours (invariant S20).
 - **Edition** — `standard` or `4k`, set on a library root and copied to its
   workflows. A title can have one active workflow per edition; the 4K edition
   only keeps 2160p files and only receives 4K requests.
