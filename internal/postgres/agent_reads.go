@@ -99,7 +99,7 @@ func (store *Store) IndexerUsages(ctx context.Context, now time.Time) ([]Indexer
 		_ = json.Unmarshal(config, &configured)
 		// The same constructor search and retrieval use, so defaults match.
 		budget := indexers.NewznabBudget(configured.MinimumIntervalMS, configured.QueryLimit, configured.GrabLimit, configured.WindowSeconds)
-		item.Budget = IndexerBudgetView{QueryLimit: budget.QueryLimit, GrabLimit: budget.GrabLimit, BackgroundQueryLimit: max(budget.QueryLimit/5, 1), WindowSeconds: int64(budget.LimitWindow / time.Second), MinimumIntervalMS: budget.MinimumInterval.Milliseconds(), Source: configured.Source}
+		item.Budget = IndexerBudgetView{QueryLimit: budget.QueryLimit, GrabLimit: budget.GrabLimit, BackgroundQueryLimit: indexers.BackgroundQueryLimit(budget.QueryLimit), WindowSeconds: int64(budget.LimitWindow / time.Second), MinimumIntervalMS: budget.MinimumInterval.Milliseconds(), Source: configured.Source}
 		result = append(result, item)
 	}
 	rows.Close()

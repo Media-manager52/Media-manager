@@ -277,7 +277,7 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			FROM release_candidates candidate
 			JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
 			JOIN workflows workflow ON workflow.id=candidate.workflow_id
-			JOIN acquisition_rounds round ON round.workflow_id=workflow.id AND round.state='open' AND round.policy_version=decision.policy_version
+			JOIN acquisition_rounds round ON round.workflow_id=workflow.id AND round.state='open' AND round.policy_version=decision.policy_version`+indexerReliabilityJoinSQL("candidate")+`
 			WHERE candidate.workflow_id=$1 AND decision.verdict='eligible'
 			  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
 			AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions denied WHERE denied.retrieval_round_id=round.id AND denied.indexer_instance_id=candidate.indexer_instance_id AND denied.retrieval_error_code IN ('newznab_http_401','newznab_http_403','oldboys_http_401','oldboys_http_403'))
@@ -287,7 +287,7 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 			      AND exclusion.indexer_instance_id=candidate.indexer_instance_id
 			      AND exclusion.native_key=candidate.native_key
 			  )`+" AND NOT "+knownSubtitleFailureSQL("candidate")+`
-			ORDER BY (candidate.first_seen_sequence>round.novelty_cutoff_sequence) DESC,decision.score DESC,candidate.indexer_instance_id,candidate.native_key
+			ORDER BY (candidate.first_seen_sequence>round.novelty_cutoff_sequence) DESC,`+providerUnusableSQL("candidate")+` ASC,decision.score DESC,`+indexerReliabilityOrderSQL+`,candidate.indexer_instance_id,candidate.native_key
 			LIMIT 1`, retrieval.Workflow.ID.String()).Scan(&nextCandidateText)
 	}
 	if err == nil && nextCandidateText != "" {
@@ -440,7 +440,7 @@ func (store *Store) SelectCrossPostWithGrabBudget(ctx context.Context, retrieval
 		JOIN candidate_decisions decision ON decision.workflow_id=candidate.workflow_id AND decision.candidate_id=candidate.id
 		  AND decision.policy_version=round.policy_version AND decision.verdict='eligible'
 		JOIN integration_instances integration ON integration.id=candidate.indexer_instance_id
-		  AND integration.kind IN ('newznab','oldboys') AND integration.enabled AND integration.config->'mode_verified'='true'::jsonb
+		  AND integration.kind IN ('newznab','oldboys') AND integration.enabled AND integration.config->'mode_verified'='true'::jsonb`+indexerReliabilityJoinSQL("candidate")+`
 		WHERE current.workflow_id=$1 AND current.id=$2
 		  AND NOT EXISTS (SELECT 1 FROM workflow_attempted_releases attempted WHERE attempted.workflow_id=candidate.workflow_id AND attempted.candidate_id=candidate.id)
 			AND NOT EXISTS (SELECT 1 FROM workflow_release_exclusions denied WHERE denied.retrieval_round_id=round.id AND denied.indexer_instance_id=candidate.indexer_instance_id AND denied.retrieval_error_code IN ('newznab_http_401','newznab_http_403','oldboys_http_401','oldboys_http_403'))
@@ -450,7 +450,7 @@ func (store *Store) SelectCrossPostWithGrabBudget(ctx context.Context, retrieval
 		       WHERE reservation.indexer_instance_id=candidate.indexer_instance_id AND reservation.request_family='grab'
 		         AND reservation.reserved_at > $3::timestamptz - make_interval(secs => COALESCE(NULLIF(integration.config->>'budget_window_seconds','')::bigint, 86400)))
 		      < COALESCE(NULLIF(NULLIF(integration.config->>'grab_limit',''),'0')::int, $4)`+" AND NOT "+knownSubtitleFailureSQL("candidate")+`
-		ORDER BY decision.score DESC,candidate.indexer_instance_id,candidate.native_key
+		ORDER BY `+providerUnusableSQL("candidate")+` ASC,decision.score DESC,`+indexerReliabilityOrderSQL+`,candidate.indexer_instance_id,candidate.native_key
 		LIMIT 1`, retrieval.Workflow.ID.String(), retrieval.CandidateID.String(), now.UTC(), indexers.ConservativeGrabLimit).Scan(&nextText, &indexerName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil

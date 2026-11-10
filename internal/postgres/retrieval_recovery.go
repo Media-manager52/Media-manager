@@ -194,7 +194,7 @@ func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval
 			JOIN acquisition_rounds r ON r.workflow_id=c.workflow_id AND r.id=$2
 			JOIN candidate_decisions d ON d.workflow_id=c.workflow_id AND d.candidate_id=c.id AND d.policy_version=r.policy_version AND d.verdict='eligible'
 			JOIN release_observations o ON o.id=c.observation_id
-			JOIN integration_instances i ON i.id=c.indexer_instance_id AND i.enabled AND i.kind IN ('newznab','oldboys') AND i.config->'mode_verified'='true'::jsonb
+			JOIN integration_instances i ON i.id=c.indexer_instance_id AND i.enabled AND i.kind IN ('newznab','oldboys') AND i.config->'mode_verified'='true'::jsonb`+indexerReliabilityJoinSQL("c")+`
 			WHERE c.workflow_id=$1
 			AND NOT EXISTS(SELECT 1 FROM release_blocks b WHERE (b.expires_at IS NULL OR b.expires_at>$5) AND
 			 ((b.scope='native_release' AND b.indexer_instance_id=c.indexer_instance_id AND b.native_key=c.native_key)
@@ -207,7 +207,7 @@ func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval
 			($3 AND o.title ~ $4) DESC,
 			(EXISTS(SELECT 1 FROM workflow_release_exclusions e JOIN release_candidates failed ON failed.id=e.candidate_id
 			 WHERE e.workflow_id=c.workflow_id AND e.failure_kind='subtitle_verification' AND lower(failed.title)=lower(c.title))) ASC,
-			(c.first_seen_sequence>r.novelty_cutoff_sequence) DESC,d.score DESC,c.indexer_instance_id,c.native_key
+			(c.first_seen_sequence>r.novelty_cutoff_sequence) DESC,`+providerUnusableSQL("c")+` ASC,d.score DESC,`+indexerReliabilityOrderSQL+`,c.indexer_instance_id,c.native_key
 			LIMIT 1`, retrieval.Workflow.ID.String(), admission.roundID, slices.Contains(policy.Required, "da") || slices.Contains(policy.RequiredAudio, "da"), releases.DanishSubtitleHintPattern, now.UTC()).Scan(&next)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err

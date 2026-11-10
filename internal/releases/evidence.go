@@ -209,20 +209,69 @@ func Evaluate(observation Observation, rules []Rule) (Evaluation, error) {
 	return result, nil
 }
 
+// DefaultIndexerReliability is the share assumed for an indexer with no
+// finished downloads yet. It equals the smoothed share of zero observations.
+const DefaultIndexerReliability = 0.25
+
+// RankOptions carries ordering knowledge that is not release evidence. It can
+// only reorder candidates of the same verdict; it never changes a verdict or a
+// policy score.
+type RankOptions struct {
+	// IndexerReliability is each indexer's recent share of downloads that
+	// ended in verified output. It breaks ties between equally scored
+	// releases, which are usually the same release on several indexers.
+	IndexerReliability map[uuid.UUID]float64
+}
+
+func (options RankOptions) reliability(indexer uuid.UUID) float64 {
+	if share, ok := options.IndexerReliability[indexer]; ok {
+		return share
+	}
+	return DefaultIndexerReliability
+}
+
+// ProviderMarksUnusable reports the Newznab "password" attribute values that
+// mark a release as holding a bad or password-protected archive (2 and 10).
+// Unknown (-1), none (0) and "potential" (1) are not marks.
+func ProviderMarksUnusable(fields []RawField) bool {
+	for _, field := range fields {
+		if strings.EqualFold(strings.TrimSpace(field.Name), "password") {
+			if value := strings.TrimSpace(field.Value); value == "2" || value == "10" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func Rank(observations []Observation, evaluations []Evaluation) []Evaluation {
+	return RankWith(observations, evaluations, RankOptions{})
+}
+
+// RankWith orders by verdict, then releases the provider did not mark
+// unusable, then policy score, then indexer reliability, then a stable key.
+func RankWith(observations []Observation, evaluations []Evaluation, options RankOptions) []Evaluation {
 	byID := make(map[uuid.UUID]Observation, len(observations))
+	unusable := make(map[uuid.UUID]bool, len(observations))
 	for _, observation := range observations {
 		byID[observation.ID] = observation
+		unusable[observation.ID] = ProviderMarksUnusable(observation.Fields)
 	}
 	result := append([]Evaluation(nil), evaluations...)
 	sort.SliceStable(result, func(i, j int) bool {
 		if result[i].Verdict != result[j].Verdict {
 			return verdictOrder(result[i].Verdict) < verdictOrder(result[j].Verdict)
 		}
+		if unusable[result[i].ObservationID] != unusable[result[j].ObservationID] {
+			return !unusable[result[i].ObservationID]
+		}
 		if result[i].Score != result[j].Score {
 			return result[i].Score > result[j].Score
 		}
 		left, right := byID[result[i].ObservationID], byID[result[j].ObservationID]
+		if leftShare, rightShare := options.reliability(left.IndexerID), options.reliability(right.IndexerID); leftShare != rightShare {
+			return leftShare > rightShare
+		}
 		if left.IndexerID != right.IndexerID {
 			return left.IndexerID.String() < right.IndexerID.String()
 		}

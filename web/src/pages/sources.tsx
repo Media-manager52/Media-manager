@@ -124,7 +124,7 @@ function EditIndexer({ indexer, onClose }: { indexer: APIIndexerUsage; onClose: 
         <label className="block">Hentninger pr. døgn<input inputMode="numeric" value={grabLimit} onChange={(event) => setGrabLimit(event.target.value)} className={field} /></label>
         <label className="block">Mindste pause mellem kald (ms)<input inputMode="numeric" value={interval} onChange={(event) => setIntervalMs(event.target.value)} className={field} /></label>
         {!valid ? <p role="alert" className="text-xs text-bad">Skriv et helt tal over 0 i hvert felt.</p> : null}
-        <p className="text-xs text-text-3">Sæt kun grænser, din konto hos indexeren faktisk tillader. Baggrundssøgning må højst bruge 20 % af søgningerne.</p>
+        <p className="text-xs text-text-3">Sæt kun grænser, din konto hos indexeren faktisk tillader. Baggrundssøgning må højst bruge 60 % af søgningerne.</p>
       </div>
     </Dialog>
   )

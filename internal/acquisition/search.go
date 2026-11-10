@@ -237,6 +237,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	// candidate freshness or observation counts.
 	successfulIndexers := len(reusedIndexers)
 	var earliestDeferral error
+	pagingWait := searchPagingWait
 	outcomes := make([]postgres.SearchIndexerOutcome, 0, len(search.Indexers))
 	for _, plan := range planned {
 		integration := plan.Integration
@@ -291,11 +292,18 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				outcomes = append(outcomes, outcome)
 				continue
 			}
-			executeSearch = func(request newznab.SearchRequest) ([]releases.Observation, error) {
+			searchPage := func(request newznab.SearchRequest) ([]releases.Observation, error) {
 				if recovery {
 					return client.BackgroundSearchGuarded(ctx, request, recoveryGuard)
 				}
 				return client.Search(ctx, request)
+			}
+			executeSearch = func(request newznab.SearchRequest) ([]releases.Observation, error) {
+				first, err := searchPage(request)
+				if err != nil {
+					return first, err
+				}
+				return searchFollowUpPages(ctx, request, first, &pagingWait, searchPage), nil
 			}
 		}
 		if recovery {

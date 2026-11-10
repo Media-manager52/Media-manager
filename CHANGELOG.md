@@ -4,6 +4,15 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **The same release on several indexers** is tried on the most reliable indexer first. Reliability is each indexer's share of downloads in the last 30 days that ended as verified files. It only decides between releases with the same score; before, the order between indexers was arbitrary.
+- **Background searches may use 60 % of an indexer's daily search limit** instead of 20 %. The rest stays reserved for new requests and searches you start yourself.
+- **A full result page is followed by the next page** (at most three pages per indexer and search), so releases beyond the first 100 results are seen.
+- **Releases an indexer marks as a bad or password-protected archive** (`password` 2 or 10) are tried last among the usable releases.
+
+The rules for checking language and quality are unchanged.
+
 ## [0.1.0-beta.7] - 2026-11-10
 
 The seventh public beta: `main` at `8e4b844`, database schema 57. Delete and rename in the settings, a tidier title page and faster lists (#183, #184, #185). The rules for checking language and quality are unchanged.
