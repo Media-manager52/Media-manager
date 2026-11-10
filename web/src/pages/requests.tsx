@@ -77,10 +77,10 @@ function RequestRow({ item }: { item: APIRequest }) {
     </>
   )
   const seasons = item.media_kind === "series" && item.season_count > 0 ? ` · ${item.available_seasons} af ${item.season_count} sæsoner klar` : ""
-  const progress = item.workflow_count > 0 ? ` · ${item.confirmed_count} af ${item.workflow_count} dele i Plex` : ""
+  const progress = item.workflow_count > 1 ? ` · ${item.confirmed_count} af ${item.workflow_count} dele i Plex` : ""
   return (
     <li className="flex gap-4 px-5 py-4">
-      <Poster src={sizedArtwork(item.poster_url, "w185")} title={item.title} kind={item.media_kind} className="w-12 shrink-0 rounded-lg" />
+      <Poster src={sizedArtwork(item.poster_url, "w185")} title={item.title} kind={item.media_kind} className="w-12 shrink-0 self-start rounded-lg" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-start gap-2">
           <div className="min-w-0 flex-1 font-medium">{item.media_id ? <Link to={titleHref(item.media_id)} className="hover:underline">{title}</Link> : title}</div>
