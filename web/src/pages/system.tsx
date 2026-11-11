@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState, type ReactNode } from "react"
-import { NavLink, Link, useParams } from "react-router"
+import { HardDriveDownload, Inbox, Play, Radar } from "lucide-react"
+import { Link, useParams } from "react-router"
 
 import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRepairs, loadSupportBundle, loadSystemHealth, loadSystemInfo, restoreRecycle, type APIRecycleEntry } from "@/api/client"
+import { chipColor, IconChip, initials } from "@/components/icon-chip"
 import { useToast } from "@/components/toast"
-import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader, ShowMore } from "@/components/ui"
+import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader, PillNav, ShowMore } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
 import { activityActorLabel, activityLabel, backupStateLabel, componentKindLabel, componentOutcomeLabel, errorMessage, externalCopyLabel, humanize, queueEventLabel, repairReasonLabel, translateDetail } from "@/i18n"
 import { confirmedExternalCopy, externalCopyState, latestExternalCopy, latestRestoreTest } from "@/lib/backup-evidence"
@@ -22,18 +24,21 @@ const sections = [
   { id: "aktivitet", label: "Aktivitet" },
 ]
 
+/** The coloured icon each kind of connection gets on the status page. */
+const kindChip: Record<string, { color: string; icon: ReactNode }> = {
+  altmount: { color: "#0d9488", icon: <HardDriveDownload className="size-4" /> },
+  newznab: { color: "#2563eb", icon: <Radar className="size-4" /> },
+  oldboys: { color: "#2563eb", icon: <Radar className="size-4" /> },
+  plex: { color: "#d97706", icon: <Play className="size-4" /> },
+  seerr: { color: "#7c3aed", icon: <Inbox className="size-4" /> },
+}
+
 export function SystemPage() {
   const { section = "" } = useParams()
   return (
     <>
       <PageHeader title="System" description="Hvordan Media Manager og forbindelserne har det." />
-      <nav aria-label="System" className="mb-6 flex gap-1 overflow-x-auto border-b border-line">
-        {sections.map((entry) => (
-          <NavLink key={entry.id} end to={entry.id ? `/system/${entry.id}` : "/system"} className={({ isActive }) => cx("-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium", isActive ? "border-accent text-text" : "border-transparent text-text-2 hover:text-text")}>
-            {entry.label}
-          </NavLink>
-        ))}
-      </nav>
+      <PillNav label="System" items={sections.map((entry) => ({ to: entry.id ? `/system/${entry.id}` : "/system", label: entry.label, end: true }))} />
       {section === "" ? <Status /> : null}
       {section === "koe" ? <Queue /> : null}
       {section === "backup" ? <Backups /> : null}
@@ -59,11 +64,12 @@ function Status() {
             const tone = !component.enabled ? "neutral" : component.consecutive_failure > 0 ? "bad" : component.configuration_state === "awaiting_commission" ? "warn" : "good"
             return (
               <li key={component.id} className="flex items-center gap-3 px-5 py-3 text-sm">
-                <Dot tone={tone} />
+                <IconChip color={kindChip[component.kind]?.color ?? chipColor(component.name)} className="size-8 rounded-lg">{kindChip[component.kind]?.icon ?? initials(component.name)}</IconChip>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{component.name.replace(/\s*\{DK\}\s*/i, "")}</span>
                   <span className="block text-xs text-text-3">{componentKindLabel(component.kind)}</span>
                 </span>
+                <Dot tone={tone} />
                 <span className="shrink-0 text-right text-text-2">
                   {!component.enabled ? "Slået fra" : component.consecutive_failure > 0 ? `${component.consecutive_failure} fejl i træk` : component.last_outcome ? componentOutcomeLabel(component.last_outcome) : "OK"}
                 </span>

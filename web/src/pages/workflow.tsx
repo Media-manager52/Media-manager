@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
-import { Check } from "lucide-react"
+import { Check, ChevronRight } from "lucide-react"
+import { useEffect } from "react"
 import { Link, useParams } from "react-router"
 
 import { isNotFound, loadWorkflow, loadWorkflowCandidates, loadWorkflowDryRun, loadWorkflowSearches, loadWorkflowVerifications, type APIDryRunResult, type APIWorkflow, type APIWorkflowCandidate } from "@/api/client"
-import { Badge, Button, Card, CardHeader, cx, Empty, ErrorBox, KeyValue, PageHeader, Progress, Skeleton } from "@/components/ui"
+import { sizedArtwork } from "@/components/poster"
+import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, Progress, Skeleton } from "@/components/ui"
 import { WorkflowActions } from "@/components/workflow-actions"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
 import { attentionLabel, humanize, stateLabel, stateTone, translateDetail, workflowDisplayState } from "@/i18n"
@@ -25,11 +27,7 @@ export function WorkflowPage() {
   const item = workflow.data
   return (
     <>
-      <PageHeader
-        eyebrow={<Link to={titleHref(item.media_id)} className="hover:underline">← {item.title}{item.year ? ` (${item.year})` : ""}</Link>}
-        title={`${item.title} · ${describeVariant(item)}`}
-        actions={<Badge tone={stateTone(workflowDisplayState(item))} className="h-7 px-3 text-sm">{stateLabel(workflowDisplayState(item))}</Badge>}
-      />
+      <WorkflowHero workflow={item} />
       <Stepper state={workflowDisplayState(item)} />
       {item.attention_code || item.attention_detail ? (
         <div className="mb-6 rounded-2xl border border-warn/30 bg-warn-soft p-4">
@@ -51,6 +49,34 @@ export function WorkflowPage() {
         </div>
         <Facts workflow={item} />
       </div>
+    </>
+  )
+}
+
+/** The top of a work page: the title's wide picture with the part and its state on it. */
+function WorkflowHero({ workflow }: { workflow: APIWorkflow }) {
+  const heading = `${workflow.title} · ${describeVariant(workflow)}`
+  useEffect(() => {
+    document.title = `${heading} · Media Manager`
+  }, [heading])
+  const wide = sizedArtwork(workflow.backdrop_url, "w1280")
+  const tall = sizedArtwork(workflow.poster_url, "w342")
+  const state = workflowDisplayState(workflow)
+  return (
+    <>
+      <nav aria-label="Brødkrumme" className="mb-3 flex items-center gap-1 text-sm text-text-3">
+        <Link to="/arbejde" className="hover:text-text hover:underline">Arbejde</Link>
+        <ChevronRight aria-hidden className="size-3.5" />
+        <Link to={titleHref(workflow.media_id)} className="min-w-0 truncate hover:text-text hover:underline">{workflow.title}{workflow.year ? ` (${workflow.year})` : ""}</Link>
+      </nav>
+      <section aria-label={heading} className="relative mb-6 flex min-h-40 items-end overflow-hidden rounded-2xl bg-[#1d1d1f] shadow-card sm:min-h-52">
+        {wide ? <img src={wide} alt="" className="absolute inset-0 size-full object-cover" /> : tall ? <img src={tall} alt="" className="absolute inset-0 size-full scale-110 object-cover opacity-60 blur-2xl" /> : null}
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/10" />
+        <div className="relative flex w-full flex-wrap items-end justify-between gap-3 p-5 sm:p-6">
+          <h1 className="min-w-0 break-words text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl">{heading}</h1>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1 text-sm font-semibold text-white backdrop-blur"><Dot tone={stateTone(state)} />{stateLabel(state)}</span>
+        </div>
+      </section>
     </>
   )
 }

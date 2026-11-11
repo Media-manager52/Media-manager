@@ -146,3 +146,14 @@ test("the calendar shows each episode as a picture with its state, and work list
   await expect(row.getByRole("progressbar", { name: "Hentet 42 %" }).first()).toBeAttached()
   await expect(row.getByText("42 %").first()).toBeAttached()
 })
+
+test("the work page opens with the title's picture, a way back and its state; settings tabs mark the current page", async ({ page }) => {
+  await page.goto(`/arbejde/${ids.attention}`)
+  await expect(page.getByRole("heading", { level: 1, name: /^Testfilmen · / })).toBeVisible()
+  const crumbs = page.getByRole("navigation", { name: "Brødkrumme" })
+  await expect(crumbs.getByRole("link", { name: "Arbejde" })).toHaveAttribute("href", "/arbejde")
+  await expect(crumbs.getByRole("link", { name: /Testfilmen/ })).toHaveAttribute("href", `/bibliotek/${ids.movie}`)
+  await expect(page).toHaveTitle(/^Testfilmen · .* · Media Manager$/)
+  await page.goto("/indstillinger/biblioteker")
+  await expect(page.getByRole("navigation", { name: "Indstillinger" }).getByRole("link", { name: "Biblioteker" })).toHaveAttribute("aria-current", "page")
+})
