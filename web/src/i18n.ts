@@ -200,7 +200,7 @@ const activityActions: Record<string, string> = {
   "workflow.plex_reconfirm_requested": "Plex bedt om at bekræfte igen",
   "workflow.access_rejected_release_retried": "Afvist udgivelse prøvet igen",
   "workflow.discovery_requested": "Bedt om at lede efter nye udgivelser",
-  "workflow.acquisition_round_opened": "Ny runde startet, fordi en ny upload passede",
+  "workflow.acquisition_round_opened": "Ny runde startet af sig selv, fordi en ny udgivelse passede",
   "workflow.quality_policy_applied": "Kvalitetsprofil anvendt på arbejdet",
 }
 
@@ -276,7 +276,7 @@ export function languageName(code: string | undefined): string {
  * listed is shown as the server wrote it, so no detail is ever lost.
  */
 /** How a used-up title gets its next round: by a fitting new upload or by the owner. */
-const nextRoundText = "En ny runde kan starte af sig selv, når en ny upload passer til titlen; du kan også selv starte den."
+const nextRoundText = "En ny runde kan starte af sig selv, når der findes en ny udgivelse, der passer til titlen; du kan også selv starte den."
 
 const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^no eligible release yet$/i, () => "Ingen egnet udgivelse fundet endnu."],
@@ -292,6 +292,8 @@ const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^All (\d+) acquisition slots in this round were used\. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner\.$/,
     (m) => `Alle ${m[1]} forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. ${nextRoundText}`],
   [/^All (\d+) acquisition slots in this round were used\. Scheduled discovery will wait for a newly observed eligible release; another round is opened by the owner, or for a new upload that fits this title when automatic rounds are on\.$/,
+    (m) => `Alle ${m[1]} forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. ${nextRoundText}`],
+  [/^All (\d+) acquisition slots in this round were used\. Scheduled discovery will wait for a newly observed eligible release; when automatic rounds are on another round opens once one is found, otherwise the owner opens it\.$/,
     (m) => `Alle ${m[1]} forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. ${nextRoundText}`],
   [/^Two release-attributable acquisition slots were used\. Scheduled discovery will wait for a newly observed eligible release; opening another round requires the owner\.$/,
     () => `To forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. ${nextRoundText}`],

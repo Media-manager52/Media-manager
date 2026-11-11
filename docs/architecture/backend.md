@@ -279,8 +279,13 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   policy, retained-output limit). It is recorded as actor `worker` (transition
   and `workflow.acquisition_round_opened` audit event), happens at most once
   per workflow per 24 hours, and a refusal settles the match as
-  `not_applicable` without writing anything else. `FEED_OPEN_ROUNDS=off`
-  leaves every new round to the owner. The read interval
+  `not_applicable` without writing anything else. Each pass then also opens
+  that round for titles whose own scheduled rescan found such a release
+  (`OpenRescanFoundRounds`, transition reason `rescanRoundReason`, audit
+  reason `rescan_found`), under the same guards and the same once-per-24-hours
+  limit, shared with the match path; a refusal only stores the discovery
+  generation in `automatic_round_refused_generation`, so that discovery is
+  not asked again. `FEED_OPEN_ROUNDS=off` leaves every new round to the owner. The read interval
   moves between 5 and 20 minutes with the share of new uploads per read and
   never below `window × 3 pages × 10 / query_limit` (a tenth of the query limit
   with every page counted); a failing list backs off from one
