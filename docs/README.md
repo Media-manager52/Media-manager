@@ -42,6 +42,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.9.md](releases/v0.1.0-beta.9.md) | Ninth public beta (2026-11-11): one search per season, the next release without a new search after a failed download, learned Danish records of release groups, Find manglende and the HolyArrs-style redesign. |
 | [releases/v0.1.0-beta.8.md](releases/v0.1.0-beta.8.md) | Eighth public beta (2026-11-10): reading each indexer's newest uploads, larger result pages, the most reliable indexer first and more room for background searches. |
 | [releases/v0.1.0-beta.7.md](releases/v0.1.0-beta.7.md) | Seventh public beta (2026-11-10): delete and rename in the settings, moving a profile's titles before deleting it, a tidier title page and faster lists. |
 | [releases/v0.1.0-beta.6.md](releases/v0.1.0-beta.6.md) | Sixth public beta (2026-11-10): recently added row, menu search, library sort and folder filter, group actions, indexer download numbers and calendar posters. |

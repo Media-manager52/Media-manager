@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.9] - 2026-11-11
+
 ### Changed
 
 - **A failed download picks the next release without searching again.** After a release failed (for example no Danish in the download) the title searched every indexer again, on average a few minutes after the search that found it, about 1,600 times a day. It now picks the next release from that search's answers when they are at most two hours old and no new upload or owner search came since; the failed release stays excluded. Schema 62 adds `search_recent_answers`.
@@ -478,6 +480,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.9]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.6
