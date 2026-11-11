@@ -32,11 +32,13 @@ const titles: DemoTitle[] = ([
 ] satisfies Omit<DemoTitle, "id">[]).map((title, index) => ({ ...title, id: `d0000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}` }))
 
 const poster = (title: DemoTitle) => `https://image.tmdb.org/t/p/w342/demo-${titles.indexOf(title)}.svg`
+const backdrop = (title: DemoTitle) => `https://image.tmdb.org/t/p/w1280/backdrop-${titles.indexOf(title)}.svg`
+const art = (title: DemoTitle) => ({ poster_url: poster(title), backdrop_url: backdrop(title) })
 
 const media = titles.map((title) => ({
   id: title.id, kind: title.kind, title: title.title, year: title.year,
   identities: [{ namespace: "tmdb", value: String(900_000 + titles.indexOf(title)) }],
-  metadata: { overview: title.overview, original_language: "da", genres: title.genres, poster_url: poster(title), season_count: title.kind === "series" ? 3 : undefined },
+  metadata: { overview: title.overview, original_language: "da", genres: title.genres, ...art(title), season_count: title.kind === "series" ? 3 : undefined },
 }))
 
 const byTitle = (name: string) => titles.find((title) => title.title === name)!
@@ -48,13 +50,15 @@ function workflow(name: string, variant: string, state: string, minutesAgo: numb
     media_id: title.id, media_kind: title.kind, title: title.title, year: title.year, variant, state, revision: 4,
     adopted_replacement_confirmation_required: false, created_at: at(minutesAgo + 600), updated_at: at(minutesAgo),
     quality_profile: title.kind === "movie" ? "Film med danske undertekster" : "Serier med danske undertekster",
-    available_actions: [], ...extra,
+    available_actions: [], ...art(title), ...extra,
   }
 }
 
+const action = (name: string, available = true) => ({ action: name, operation_id: name, method: "POST", path: `/api/v1/demo/${name}`, effect: "write", available })
+
 const attention = [
-  workflow("Den sidste færge", "default", "needs_attention", 95, { attention_code: "retained_failed_output_limit", owner_action_required: true }),
-  workflow("Kystvagten", "season:2", "needs_attention", 240, { attention_code: "altmount_job_attention", owner_action_required: true }),
+  workflow("Den sidste færge", "default", "needs_attention", 95, { attention_code: "retained_failed_output_limit", owner_action_required: true, available_actions: [action("search"), action("cancel")] }),
+  workflow("Kystvagten", "season:2", "needs_attention", 240, { attention_code: "altmount_job_attention", owner_action_required: true, available_actions: [action("reconcile_altmount"), action("cancel")] }),
 ]
 
 const recent = [
@@ -74,10 +78,21 @@ const calendar = [
   { title: "Sporet i sneen", season: 2, episode: 1, name: "Den lange nat", offset: 4 },
   { title: "Byens lys", season: 4, episode: 3, name: "Sidste runde", offset: 6 },
 ].map((entry) => ({
-  media_id: byTitle(entry.title).id, media_kind: "series", media_title: entry.title, workflow_id: byTitle(entry.title).id,
+  media_id: byTitle(entry.title).id, media_kind: "series", media_title: entry.title, ...art(byTitle(entry.title)), workflow_id: byTitle(entry.title).id,
   variant: `season:${entry.season}:episode:${entry.episode}`, season: entry.season, episode: entry.episode, episode_title: entry.name,
   air_date: day(entry.offset), monitored: true, workflow_state: "waiting",
 }))
+
+const additions = recent.filter((item) => item.state === "plex_confirmed").concat([
+  workflow("Bogtyven", "default", "plex_confirmed", 300, { terminal_at: at(300) }),
+  workflow("Kolonihaven", "season:2:episode:8", "plex_confirmed", 420, { terminal_at: at(420) }),
+  workflow("Fyrtårnet", "default", "plex_confirmed", 610, { terminal_at: at(610) }),
+  workflow("Byens lys", "season:4:episode:2", "plex_confirmed", 900, { terminal_at: at(900) }),
+  workflow("Sommeren på Fanø", "default", "plex_confirmed", 1300, { terminal_at: at(1300) }),
+]).map((item) => {
+  const title = byTitle(item.title)
+  return { media_id: title.id, media_kind: title.kind, title: title.title, year: title.year, ...art(title), variant: item.variant, edition: "standard", added_at: (item as { terminal_at?: string }).terminal_at ?? at(0) }
+})
 
 const series = byTitle("Havnefogeden")
 const seriesDetail = {
@@ -117,6 +132,18 @@ ${text}
 </svg>`
 }
 
+/** A wide, abstract backdrop: sky, sea and land in the title's colours. */
+function backdropSVG(index: number): string {
+  const { hue } = titles[index] ?? titles[0]
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+<defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${hue} 45% 62%)"/><stop offset="0.6" stop-color="hsl(${(hue + 25) % 360} 50% 38%)"/><stop offset="1" stop-color="hsl(${(hue + 40) % 360} 55% 14%)"/></linearGradient></defs>
+<rect width="1280" height="720" fill="url(#s)"/>
+<circle cx="${300 + (index * 97) % 700}" cy="210" r="90" fill="#fff" fill-opacity="0.18"/>
+<path d="M0 470 Q 220 400 460 450 T 900 430 T 1280 420 V 720 H 0 Z" fill="#000" fill-opacity="0.22"/>
+<path d="M0 560 Q 320 500 640 550 T 1280 530 V 720 H 0 Z" fill="#000" fill-opacity="0.3"/>
+</svg>`
+}
+
 /** Serves the shared browser-test mock, overridden with the demo library. */
 export async function mockDemo(page: Page): Promise<void> {
   await page.clock.setFixedTime(now)
@@ -125,6 +152,12 @@ export async function mockDemo(page: Page): Promise<void> {
     [/^\/api\/v1\/dashboard$/, () => ({ counts: { movies: 412, series: 87, active_workflows: 23, needs_attention: attention.length, current_files: 3_948, recycle_entries: 0, pending_events: 12 }, recent_workflows: recent, recent_activity: [], generated_at: now.toISOString() })],
     [/^\/api\/v1\/workflows$/, (url) => (url.searchParams.get("attention") === "true" ? attention : [...attention, ...recent].filter((item) => item.state !== "plex_confirmed"))],
     [/^\/api\/v1\/calendar$/, () => calendar],
+    [/^\/api\/v1\/media\/recent$/, () => additions],
+    [/^\/api\/v1\/media\/status$/, () => titles.map((title, index) => ({
+      media_id: title.id, in_plex: index % 5 !== 2, missing: index % 7 === 3 ? 2 : 0,
+      attention: attention.some((item) => item.media_id === title.id), added_at: at(index * 700),
+    }))],
+    [/^\/api\/v1\/setup\/status$/, () => ({ complete: true, secret_storage_enabled: true, servarr_enabled: false, seerr_intake_enabled: true, steps: [] })],
     [/^\/api\/v1\/media$/, (url) => (url.searchParams.get("offset") === "0" || !url.searchParams.get("offset") ? media : [])],
     [/^\/api\/v1\/media\/[0-9a-f-]+\/detail$/, () => seriesDetail],
     [/^\/api\/v1\/system\/health$/, () => ({
@@ -139,8 +172,9 @@ export async function mockDemo(page: Page): Promise<void> {
     return route.fulfill({ json: { data: match[1](url) } })
   })
   await page.route("https://image.tmdb.org/**", (route) => {
-    const index = Number(/demo-(\d+)\.svg$/.exec(new URL(route.request().url()).pathname)?.[1] ?? 0)
-    return route.fulfill({ contentType: "image/svg+xml", body: posterSVG(index) })
+    const path = new URL(route.request().url()).pathname
+    const index = Number(/-(\d+)\.svg$/.exec(path)?.[1] ?? 0)
+    return route.fulfill({ contentType: "image/svg+xml", body: path.includes("/backdrop-") ? backdropSVG(index) : posterSVG(index) })
   })
 }
 
