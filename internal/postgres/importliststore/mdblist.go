@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"regexp"
 	"strings"
 	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/importlists"
 	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 )
 
@@ -17,11 +17,6 @@ import (
 // Sonarr's list sync. One read is one request to mdblist.com; it never
 // searches an indexer by itself.
 const MDBListSyncInterval = 6 * time.Hour
-
-var (
-	mdbListOwner = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
-	mdbListSlug  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,200}$`)
-)
 
 // MDBListSettings is what the owner chooses for a followed list. Empty
 // roots and profiles mean the defaults of each media kind.
@@ -95,7 +90,7 @@ func normalizeMDBListSettings(settings MDBListSettings) (MDBListSettings, error)
 	if len(settings.Name) > 200 {
 		return settings, invalidList("the name must be at most 200 characters")
 	}
-	if !mdbListOwner.MatchString(settings.Owner) || !mdbListSlug.MatchString(settings.Slug) {
+	if !(importlists.MDBListRef{Owner: settings.Owner, Slug: settings.Slug}).Valid() {
 		return settings, invalidList("the MDBList list address is invalid")
 	}
 	return settings, nil
@@ -131,7 +126,7 @@ func (store *ImportLists) CreateMDBList(ctx context.Context, settings MDBListSet
 	next := now.UTC()
 	item.NextSyncAt = &next
 	item.Entries = &ImportListCounts{}
-	item.SourceURL = "https://mdblist.com/lists/" + item.SourceOwner + "/" + item.SourceSlug
+	item.SourceURL = importlists.MDBListRef{Owner: item.SourceOwner, Slug: item.SourceSlug}.URL()
 	detail, _ := json.Marshal(map[string]any{"name": item.Name, "provider": "mdblist", "source": item.SourceURL, "enabled": item.Enabled})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','import_list.created','import_list',$2,$3,$4)`, uuid.NewV7().String(), item.ID.String(), detail, now.UTC()); err != nil {
 		return ImportList{}, err

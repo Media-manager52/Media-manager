@@ -3,18 +3,30 @@ package importlists
 import (
 	"errors"
 	"net/url"
-	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ErrInvalidMDBListURL is returned for an address that is not a public
 // MDBList list.
 var ErrInvalidMDBListURL = errors.New("not an MDBList list address")
 
-var (
-	mdbListOwnerPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
-	mdbListSlugPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,200}$`)
-)
+// segmentValid accepts one path segment of a list address: any letters
+// (also æ, ø and å), digits and punctuation, but no slash, backslash, query,
+// fragment, percent sign, space or control character, and not "." or "..".
+// The segment is escaped again when the list is fetched.
+func segmentValid(value string, maxRunes int) bool {
+	if value == "" || value == "." || value == ".." || !utf8.ValidString(value) || utf8.RuneCountInString(value) > maxRunes {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsSpace(character) || unicode.IsControl(character) || strings.ContainsRune(`/\?#%`, character) {
+			return false
+		}
+	}
+	return true
+}
 
 // MDBListRef names one public list: mdblist.com/lists/{Owner}/{Slug}.
 type MDBListRef struct {
@@ -24,12 +36,12 @@ type MDBListRef struct {
 
 // Valid reports whether both parts are safe path segments.
 func (ref MDBListRef) Valid() bool {
-	return mdbListOwnerPattern.MatchString(ref.Owner) && mdbListSlugPattern.MatchString(ref.Slug) && ref.Owner != "." && ref.Owner != ".." && ref.Slug != "." && ref.Slug != ".."
+	return segmentValid(ref.Owner, 100) && segmentValid(ref.Slug, 200)
 }
 
 // URL is the list's page on mdblist.com.
 func (ref MDBListRef) URL() string {
-	return "https://mdblist.com/lists/" + ref.Owner + "/" + ref.Slug
+	return "https://mdblist.com/lists/" + url.PathEscape(ref.Owner) + "/" + url.PathEscape(ref.Slug)
 }
 
 // ParseMDBListURL accepts the address of a list page as copied from the
@@ -60,6 +72,15 @@ func ParseMDBListURL(raw string) (MDBListRef, error) {
 	parts := strings.Split(path, "/")
 	if len(parts) != 2 {
 		return MDBListRef{}, ErrInvalidMDBListURL
+	}
+	// A pasted address may keep æ, ø and å as they are or carry them
+	// percent-encoded (%C3%A6); both mean the same list.
+	for index, part := range parts {
+		decoded, err := url.PathUnescape(part)
+		if err != nil {
+			return MDBListRef{}, ErrInvalidMDBListURL
+		}
+		parts[index] = decoded
 	}
 	ref := MDBListRef{Owner: parts[0], Slug: parts[1]}
 	if !ref.Valid() {

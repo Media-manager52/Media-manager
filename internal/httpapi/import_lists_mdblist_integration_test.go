@@ -300,3 +300,53 @@ func TestFollowedMDBListAddsNewTitlesLikeAdd(t *testing.T) {
 		t.Fatalf("entries of unknown list = %d", status)
 	}
 }
+
+func TestMDBListAddressesMayContainDanishLetters(t *testing.T) {
+	store := openHTTPTestStore(t)
+	ctx := context.Background()
+	server, err := New(Config{OwnerToken: testOwnerToken, Version: "test"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testServer := httptest.NewServer(server.Handler())
+	defer testServer.Close()
+	post := func(body map[string]any) (int, []byte) {
+		encoded, _ := json.Marshal(body)
+		request, _ := http.NewRequest(http.MethodPost, testServer.URL+"/api/v1/import-lists", bytes.NewReader(encoded))
+		request.Header.Set("Authorization", "Bearer "+testOwnerToken)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var buffer bytes.Buffer
+		_, _ = buffer.ReadFrom(response.Body)
+		return response.StatusCode, buffer.Bytes()
+	}
+	status, body := post(map[string]any{"provider": "mdblist", "url": "https://mdblist.com/lists/søren/julefilm-på-dansk-æøå", "enabled": true})
+	if status != http.StatusCreated {
+		t.Fatalf("create = %d %s", status, body)
+	}
+	var created struct{ Data postgres.ImportList }
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Data.Name != "julefilm-på-dansk-æøå" || created.Data.SourceSlug != "julefilm-på-dansk-æøå" || created.Data.SourceURL != "https://mdblist.com/lists/s%C3%B8ren/julefilm-p%C3%A5-dansk-%C3%A6%C3%B8%C3%A5" {
+		t.Fatalf("created = %+v", created.Data)
+	}
+	// The same list pasted percent-encoded and in other case is the same list.
+	if status, body := post(map[string]any{"provider": "mdblist", "url": "https://mdblist.com/lists/S%C3%98REN/JULEFILM-P%C3%85-DANSK-%C3%86%C3%98%C3%85", "name": "Anden", "enabled": true}); status != http.StatusConflict {
+		t.Fatalf("same list encoded = %d %s", status, body)
+	}
+	loaded, err := store.ImportList(ctx, created.Data.ID)
+	if err != nil || loaded.SourceOwner != "søren" {
+		t.Fatalf("loaded = %+v, %v", loaded, err)
+	}
+	// The database refuses what the application refuses.
+	for _, slug := range []string{"a/b", "a b", "..", "a%b", "a?b", "a\\b"} {
+		if _, err := store.Pool.Exec(ctx, `UPDATE import_lists SET source_slug=$2 WHERE id=$1`, created.Data.ID.String(), slug); err == nil {
+			t.Errorf("database accepted slug %q", slug)
+		}
+	}
+}

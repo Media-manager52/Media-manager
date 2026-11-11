@@ -192,7 +192,7 @@ func scanImportList(row dbcore.RowScanner) (ImportList, error) {
 	item.SeriesRootID = parseOptionalUUID(seriesRootText)
 	item.SeriesQualityProfileID = parseOptionalUUID(seriesProfileText)
 	if item.Provider == "mdblist" {
-		item.SourceURL = "https://mdblist.com/lists/" + item.SourceOwner + "/" + item.SourceSlug
+		item.SourceURL = importlists.MDBListRef{Owner: item.SourceOwner, Slug: item.SourceSlug}.URL()
 		item.Entries = &counts
 	}
 	if snapshotText != nil {

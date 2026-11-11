@@ -626,7 +626,7 @@ dependency).
 ### mdblist
 
 `client.go`: reads a public list as `https://mdblist.com/lists/{owner}/{slug}/json`
-(no account or key). `importlists.ParseMDBListURL` accepts only mdblist.com list addresses
+(no account or key). `importlists.ParseMDBListURL` accepts only mdblist.com list addresses (any letters, also æ, ø and å, plain or percent-encoded)
 (or `owner/slug`); redirects are not followed, the answer is capped at 8 MiB
 and 5,000 titles (a longer list is refused, never cut short), and only films
 and shows with a TMDB number are kept.

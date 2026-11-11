@@ -88,7 +88,11 @@ func (client *Client) Fetch(ctx context.Context, ref ListRef) ([]Item, error) {
 		return nil, ErrInvalidListURL
 	}
 	endpoint := *client.base
-	endpoint.Path = strings.TrimSuffix(client.base.Path, "/") + "/lists/" + url.PathEscape(ref.Owner) + "/" + url.PathEscape(ref.Slug) + "/json"
+	// Path holds the plain segments and RawPath the escaped ones, so æ, ø
+	// and å are sent percent-encoded exactly once.
+	prefix := strings.TrimSuffix(client.base.Path, "/") + "/lists/"
+	endpoint.Path = prefix + ref.Owner + "/" + ref.Slug + "/json"
+	endpoint.RawPath = prefix + url.PathEscape(ref.Owner) + "/" + url.PathEscape(ref.Slug) + "/json"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return nil, ErrUnavailable

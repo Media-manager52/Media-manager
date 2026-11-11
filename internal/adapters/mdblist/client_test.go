@@ -88,3 +88,22 @@ func TestFetchReadsTheListJSONAndFollowsNoRedirect(t *testing.T) {
 		t.Fatalf("bad owner = %v, want ErrInvalidListURL", err)
 	}
 }
+
+func TestFetchSendsDanishLettersEncodedOnce(t *testing.T) {
+	var rawPath, path string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		rawPath, path = request.URL.EscapedPath(), request.URL.Path
+		_, _ = writer.Write([]byte(`[{"id":550,"rank":1,"title":"Fight Club","mediatype":"movie"}]`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Fetch(context.Background(), ListRef{Owner: "søren", Slug: "julefilm-på-dansk"}); err != nil {
+		t.Fatal(err)
+	}
+	if rawPath != "/lists/s%C3%B8ren/julefilm-p%C3%A5-dansk/json" || path != "/lists/søren/julefilm-på-dansk/json" {
+		t.Fatalf("request path = %q (%q)", rawPath, path)
+	}
+}
