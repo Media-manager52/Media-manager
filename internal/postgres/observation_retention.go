@@ -25,6 +25,7 @@ import (
 //     timestamp (that earlier copy is always kept);
 //   - no release candidate points at it;
 //   - no partial-search retry evidence names it;
+//   - no shared season search answer names it;
 //   - it was observed before the cutoff.
 //
 // So the first appearance of every distinct piece of evidence stays, and so
@@ -87,6 +88,8 @@ protected AS (
 		jsonb_each(CASE WHEN jsonb_typeof(retry.completed_indexers)='object' THEN retry.completed_indexers ELSE '{}'::jsonb END) AS indexer(key, list),
 		jsonb_array_elements(CASE WHEN jsonb_typeof(indexer.list)='array' THEN indexer.list ELSE '[]'::jsonb END) AS evidence
 	WHERE evidence->>'observation_id' ~ '^[0-9a-fA-F-]{36}$'
+	UNION ALL
+	SELECT unnest(response.observation_ids) FROM season_search_responses response
 ),
 versions AS (
 	SELECT observation.id, observation.indexer_instance_id, observation.native_guid, observation.observed_at,

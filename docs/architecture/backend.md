@@ -257,7 +257,19 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   releases per indexer. It continues after a (nearly) full page, or after a
   short page while the provider's stated total (`newznab:response total`) is
   clearly larger than what was read. A failed, deferred or unaffordable
-  follow-up page keeps the pages already read.
+  follow-up page keeps the pages already read. `searchAllPages` also reports
+  whether everything was read.
+- Shared season answers (`season_share.go`, `postgres/season_search.go`): an
+  episode search in a season with at least three open episode workflows sends
+  the same `tvsearch` request without `ep` and stores the indexer's complete
+  answer in `season_search_responses` for 12 hours; the season's other
+  episodes reuse it (indexer outcome detail `season search` / `reused season
+  search`). Each episode keeps only the releases its scope rules do not reject
+  and evaluates them under its own rules; reused releases become its own
+  candidates with the provider's download locator. An answer is not reused by
+  a workflow created after it, after a newest-uploads match for that workflow,
+  or after an owner search; an incomplete answer (more results than the page
+  bound) is never shared and the episodes search on their own (invariant S21).
 - `FeedWatcher` (`feed_watch.go`): every minute it reads the newest uploads
   (`t=search` without a query, movie and TV categories) of each enabled,
   commissioned Newznab indexer whose read is due, through the paced client as

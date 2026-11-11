@@ -237,6 +237,10 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	// attempt. It is not a fresh provider response and must not inflate
 	// candidate freshness or observation counts.
 	successfulIndexers := len(reusedIndexers)
+	shareSeason, err := service.seasonShareApplies(ctx, search)
+	if err != nil {
+		return err
+	}
 	var earliestDeferral error
 	pagingWait := searchPagingWait
 	outcomes := make([]postgres.SearchIndexerOutcome, 0, len(search.Indexers))
@@ -258,6 +262,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			return err
 		}
 		var executeSearch func(newznab.SearchRequest) ([]releases.Observation, error)
+		var searchPage func(newznab.SearchRequest) (newznab.SearchPage, error)
 		recoveryGuard := func(guardCtx context.Context) error {
 			if recovery {
 				return service.Store.ValidateRecoveryDiscovery(guardCtx, event.AggregateID, int64(event.AggregateRevision))
@@ -293,7 +298,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				outcomes = append(outcomes, outcome)
 				continue
 			}
-			searchPage := func(request newznab.SearchRequest) (newznab.SearchPage, error) {
+			searchPage = func(request newznab.SearchRequest) (newznab.SearchPage, error) {
 				if recovery {
 					return client.BackgroundSearchPageGuarded(ctx, request, recoveryGuard)
 				}
@@ -319,7 +324,15 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		// so a capability/plan change cannot silently reuse incompatible evidence.
 		request := plan.Request
 		var observations []releases.Observation
-		observations, err = executeSearch(request)
+		var seasonLocators []string
+		seasonDetail, seasonShared := "", false
+		err = nil
+		if shareSeason && searchPage != nil {
+			observations, seasonLocators, seasonDetail, seasonShared, err = service.seasonAnswer(ctx, integration.ID, search, request, searchNow, &pagingWait, searchPage)
+		}
+		if !seasonShared && err == nil {
+			observations, err = executeSearch(request)
+		}
 		if err != nil {
 			if recovery && errors.Is(err, postgres.ErrConcurrentModification) {
 				return nil
@@ -339,14 +352,22 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			continue
 		}
 		successfulIndexers++
-		outcome.State, outcome.Detail = "succeeded", ""
+		outcome.State, outcome.Detail = "succeeded", seasonDetail
 		outcomes = append(outcomes, outcome)
-		for _, observation := range observations {
+		for index, observation := range observations {
 			observation, evaluation, evaluateErr := evaluateCandidateObservation(observation, search, rules, scopeRules, qualityRules, currentEvaluation, integration.Kind == "oldboys", searchNow)
 			if evaluateErr != nil {
 				return evaluateErr
 			}
-			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation, ProviderResult: true})
+			entry := postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation, ProviderResult: true}
+			if seasonShared {
+				// A season answer holds every episode; keep this episode's.
+				if !episodeInScope(observation, scopeRules) {
+					continue
+				}
+				entry.Stored, entry.LocatorRef = true, seasonLocators[index]
+			}
+			evaluated = append(evaluated, entry)
 		}
 	}
 	if successfulIndexers == 0 && !recovery {
