@@ -54,9 +54,10 @@ func (service *SearchService) seasonShareApplies(ctx context.Context, search pos
 }
 
 // seasonRequest turns an identity-based episode search into the same search
-// for the whole season. Only tvsearch requests qualify: a free-text "Title
-// S02" is not reliably matched against "S02E05" names.
-func seasonRequest(request newznab.SearchRequest) (newznab.SearchRequest, bool) {
+// for the whole season, asking with title (when the request carries a title
+// at all). Only tvsearch requests qualify: a free-text "Title S02" is not
+// reliably matched against "S02E05" names.
+func seasonRequest(request newznab.SearchRequest, title string) (newznab.SearchRequest, bool) {
 	if request.Mode != "tvsearch" || request.Offset != 0 {
 		return request, false
 	}
@@ -69,6 +70,10 @@ func seasonRequest(request newznab.SearchRequest) (newznab.SearchRequest, bool) 
 			continue
 		case "season":
 			season = true
+		case "q":
+			if title != "" {
+				param.Value = title
+			}
 		}
 		params = append(params, param)
 	}
@@ -77,6 +82,21 @@ func seasonRequest(request newznab.SearchRequest) (newznab.SearchRequest, bool) 
 	}
 	request.Params = params
 	return request, true
+}
+
+// seasonTitle is the title every episode of a season asks with during one
+// seasonShareLifetime slot. Episode searches rotate through the title's names
+// one per search, so two episodes of a season usually ask with different
+// names and could never share an answer; the season answer rotates through
+// the same names by time instead.
+func seasonTitle(search postgres.SearchContext, now time.Time) string {
+	slot := search
+	slot.CompleteSearches = uint64(now.Unix() / int64(seasonShareLifetime/time.Second))
+	if slot.EpisodeNumbering.Year != 0 {
+		// searchTitle halves the phase for annually numbered series.
+		slot.CompleteSearches *= 2
+	}
+	return searchTitle(slot)
 }
 
 // seasonRequestFingerprint identifies one indexer's season request.
@@ -99,7 +119,7 @@ func seasonRequestFingerprint(indexerID uuid.UUID, request newznab.SearchRequest
 // episode search as before. An error is the indexer's error for the season
 // request and is handled like an episode search error.
 func (service *SearchService) seasonAnswer(ctx context.Context, indexerID uuid.UUID, search postgres.SearchContext, request newznab.SearchRequest, now time.Time, pagingWait *time.Duration, searchPage func(newznab.SearchRequest) (newznab.SearchPage, error)) (observations []releases.Observation, locators []string, detail string, ok bool, err error) {
-	season, applies := seasonRequest(request)
+	season, applies := seasonRequest(request, seasonTitle(search, now))
 	if !applies {
 		return nil, nil, "", false, nil
 	}

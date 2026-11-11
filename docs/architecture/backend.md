@@ -261,7 +261,8 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   whether everything was read.
 - Shared season answers (`season_share.go`, `postgres/season_search.go`): an
   episode search in a season with at least three open episode workflows sends
-  the same `tvsearch` request without `ep` and stores the indexer's complete
+  the same `tvsearch` request without `ep`, asking with one of the title's
+  names per 12-hour slot for every episode (`seasonTitle`), and stores the indexer's complete
   answer in `season_search_responses` for 12 hours; the season's other
   episodes reuse it (indexer outcome detail `season search` / `reused season
   search`). Each episode keeps only the releases its scope rules do not reject

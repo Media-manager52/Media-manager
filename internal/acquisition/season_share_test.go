@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
+	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/postgres"
 	"uuid"
 )
 
@@ -42,7 +45,7 @@ func TestSearchAllPagesReportsWhetherEverythingWasRead(t *testing.T) {
 func TestSeasonRequestDropsOnlyTheEpisode(t *testing.T) {
 	t.Parallel()
 	episode := newznab.SearchRequest{Mode: "tvsearch", Limit: 100, Categories: []int{5000}, Params: []newznab.Param{{Name: "q", Value: "Example"}, {Name: "tvdbid", Value: "1"}, {Name: "season", Value: "2"}, {Name: "ep", Value: "5"}}}
-	season, ok := seasonRequest(episode)
+	season, ok := seasonRequest(episode, "")
 	if !ok || len(season.Params) != 3 {
 		t.Fatalf("season request=%+v ok=%v", season, ok)
 	}
@@ -54,7 +57,8 @@ func TestSeasonRequestDropsOnlyTheEpisode(t *testing.T) {
 	if len(episode.Params) != 4 {
 		t.Fatal("the episode request was changed")
 	}
-	other, _ := seasonRequest(newznab.SearchRequest{Mode: "tvsearch", Limit: 100, Categories: []int{5000}, Params: []newznab.Param{{Name: "q", Value: "Example"}, {Name: "tvdbid", Value: "1"}, {Name: "season", Value: "2"}, {Name: "ep", Value: "6"}}})
+	// Another episode that rotated to another name asks with the season's title.
+	other, _ := seasonRequest(newznab.SearchRequest{Mode: "tvsearch", Limit: 100, Categories: []int{5000}, Params: []newznab.Param{{Name: "q", Value: "Eksempel"}, {Name: "tvdbid", Value: "1"}, {Name: "season", Value: "2"}, {Name: "ep", Value: "6"}}}, "Example")
 	indexer := uuid.NewV7()
 	if !bytes.Equal(seasonRequestFingerprint(indexer, season), seasonRequestFingerprint(indexer, other)) {
 		t.Fatal("two episodes of one season must share one season request")
@@ -67,8 +71,25 @@ func TestSeasonRequestDropsOnlyTheEpisode(t *testing.T) {
 		{Mode: "tvsearch", Params: []newznab.Param{{Name: "q", Value: "Example"}, {Name: "season", Value: "2"}}},
 		{Mode: "tvsearch", Params: []newznab.Param{{Name: "q", Value: "Example"}, {Name: "ep", Value: "5"}}},
 	} {
-		if _, ok := seasonRequest(request); ok {
+		if _, ok := seasonRequest(request, "Example"); ok {
 			t.Fatalf("%+v must not become a season request", request)
 		}
+	}
+}
+
+func TestSeasonTitleIsSharedByEpisodesAndRotatesOverTime(t *testing.T) {
+	t.Parallel()
+	media := catalog.MediaItem{Kind: catalog.KindSeries, Title: "Example", Metadata: &catalog.MediaMetadata{OriginalTitle: "Example", Aliases: []catalog.MetadataAlias{{Name: "Eksempel", Language: "da", Source: "tvdb"}}}}
+	first := postgres.SearchContext{Media: media, CompleteSearches: 3}
+	second := postgres.SearchContext{Media: media, CompleteSearches: 8}
+	if searchTitle(first) == searchTitle(second) {
+		t.Fatal("the fixture must give the two episodes different rotating names")
+	}
+	now := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	if seasonTitle(first, now) != seasonTitle(second, now) {
+		t.Fatal("episodes of a season must ask with one title at a time")
+	}
+	if seasonTitle(first, now) == seasonTitle(first, now.Add(seasonShareLifetime)) {
+		t.Fatal("the season title must still rotate through the names")
 	}
 }
