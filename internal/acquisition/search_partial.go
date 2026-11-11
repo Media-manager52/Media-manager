@@ -187,6 +187,9 @@ type searchEventPayload struct {
 	Reason           string `json:"reason"`
 	RescanGeneration int64  `json:"rescan_generation"`
 	PartialRetry     bool   `json:"partial_retry"`
+	// ReuseRecentAnswer is set on the search that follows a failed release;
+	// it may pick the next release from the search that selected it.
+	ReuseRecentAnswer bool `json:"reuse_recent_answer"`
 }
 
 // partialRetryEvent is true only for the automatic continuation written after

@@ -90,6 +90,12 @@ protected AS (
 	WHERE evidence->>'observation_id' ~ '^[0-9a-fA-F-]{36}$'
 	UNION ALL
 	SELECT unnest(response.observation_ids) FROM season_search_responses response
+	UNION ALL
+	SELECT (evidence->>'observation_id')::uuid
+	FROM search_recent_answers answer,
+		jsonb_each(answer.completed_indexers) AS indexer(key, list),
+		jsonb_array_elements(CASE WHEN jsonb_typeof(indexer.list)='array' THEN indexer.list ELSE '[]'::jsonb END) AS evidence
+	WHERE evidence->>'observation_id' ~ '^[0-9a-fA-F-]{36}$'
 ),
 versions AS (
 	SELECT observation.id, observation.indexer_instance_id, observation.native_guid, observation.observed_at,
