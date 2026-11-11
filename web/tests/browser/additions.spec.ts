@@ -172,7 +172,7 @@ test("sources show the newest-uploads reader and let the owner set the page size
   await expect.poll(() => patches).toEqual([{ page_limit: 300 }])
 })
 
-test("the calendar shows a poster and marks episodes that have not been sent", async ({ page }) => {
+test("the calendar shows a poster, marks episodes that have not been sent and groups a show's day", async ({ page }) => {
   await mockApi(page)
   const day = (offset: number) => {
     const date = new Date(Date.now() + offset * 86_400_000)
@@ -187,8 +187,10 @@ test("the calendar shows a poster and marks episodes that have not been sent", a
   await page.goto("/kalender")
   const row = (name: string) => page.getByRole("link", { name: new RegExp(name) })
   await expect(row("Sendt")).toContainText("Venter")
-  await expect(row("Senere")).toContainText("Kommer")
-  await expect(row("Tidligt ude")).toContainText("I Plex")
-  await expect(row("Senere").locator("img")).toHaveAttribute("src", pixel)
-  await expect(page.getByText("2 afsnit")).toBeVisible()
+  // Two episodes of the same show and day are one picture that counts both states.
+  const later = row("S02E02–E03 · 2 afsnit")
+  await expect(later).toContainText("1 Kommer")
+  await expect(later).toContainText("1 I Plex")
+  await expect(later.locator("img")).toHaveAttribute("src", pixel)
+  await expect(page.getByText("2 afsnit", { exact: true })).toBeVisible()
 })

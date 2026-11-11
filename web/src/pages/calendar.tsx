@@ -2,12 +2,13 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
 
 import { loadCalendar, type APICalendarEntry } from "@/api/client"
-import { Poster, sizedArtwork } from "@/components/poster"
-import { Badge, Card, Empty, ErrorBox, PageHeader } from "@/components/ui"
+import { CardGridSkeleton } from "@/components/media-card"
+import { sizedArtwork } from "@/components/poster"
+import { Badge, Card, Dot, Empty, ErrorBox, PageHeader } from "@/components/ui"
 import { formatWeekday, pluralize } from "@/format"
 import { stateLabel, stateTone } from "@/i18n"
+import { groupCalendarDay, type CalendarGroup } from "@/lib/calendar-groups"
 import { titleHref } from "@/lib/links"
-import { ListSkeleton } from "@/pages/overview"
 
 function localDay(value: string): string {
   return value.slice(0, 10)
@@ -27,34 +28,43 @@ export function CalendarPage() {
     <>
       <PageHeader title="Kalender" description="Afsnit fra den seneste uge og dem, der kommer. Media Manager søger automatisk, når de er sendt." />
       {query.error ? <ErrorBox error={query.error} retry={() => query.refetch()} /> : null}
-      {query.isPending ? <Card><ListSkeleton rows={6} /></Card> : null}
+      {query.isPending ? <CardGridSkeleton /> : null}
       {!query.isPending && groups.size === 0 && !query.error ? <Card><Empty title="Ingen afsnit i kalenderen" /></Card> : null}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-9">
         {[...groups.entries()].map(([day, entries]) => (
-          <Card key={day} className={day === todayKey ? "border-accent" : undefined}>
-            <div className="flex items-center gap-2 border-b border-line px-5 py-3">
-              <h2 className="font-semibold first-letter:uppercase">{formatWeekday(`${day}T12:00:00`)}</h2>
+          <section key={day} aria-label={formatWeekday(`${day}T12:00:00`)}>
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className={day < todayKey ? "text-lg font-semibold tracking-tight text-text-2 first-letter:uppercase" : "text-lg font-semibold tracking-tight first-letter:uppercase"}>{formatWeekday(`${day}T12:00:00`)}</h2>
               {day === todayKey ? <Badge tone="info">I dag</Badge> : null}
               <span className="ml-auto text-sm text-text-3">{pluralize(entries.length, "afsnit", "afsnit")}</span>
             </div>
-            <ul className="divide-y divide-line">
-              {entries.map((entry) => (
-                <li key={`${entry.workflow_id}-${entry.season}-${entry.episode}`}>
-                  <Link to={titleHref(entry.media_id)} className="flex items-center gap-3 px-5 py-3 hover:bg-surface-2">
-                    <Poster compact src={sizedArtwork(entry.poster_url, "w185")} title={entry.media_title} kind={entry.media_kind} className="w-10 shrink-0 rounded-md" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{entry.media_title}</div>
-                      <div className="truncate text-sm text-text-2">S{String(entry.season).padStart(2, "0")}E{String(entry.episode).padStart(2, "0")}{entry.episode_title ? ` · ${entry.episode_title}` : ""}</div>
-                    </div>
-                    <EpisodeBadge entry={entry} upcoming={day > todayKey} />
-                  </Link>
-                </li>
-              ))}
+            <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {groupCalendarDay(entries, (entry) => calendarBadge(entry, day > todayKey)).map((group) => <EpisodeTile key={group.key} group={group} />)}
             </ul>
-          </Card>
+          </section>
         ))}
       </div>
     </>
+  )
+}
+
+/** One episode, or a show's episodes of the same day, as a picture with the state on it. */
+function EpisodeTile({ group }: { group: CalendarGroup }) {
+  const entry = group.first
+  const wide = sizedArtwork(entry.backdrop_url, "w780")
+  const tall = sizedArtwork(entry.poster_url, "w342")
+  return (
+    <li>
+      <Link to={titleHref(entry.media_id)} className="group relative block h-36 overflow-hidden rounded-2xl bg-[#1d1d1f] shadow-card transition-shadow hover:shadow-lift">
+        {wide ? <img src={wide} alt="" loading="lazy" className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" /> : tall ? <img src={tall} alt="" loading="lazy" className="absolute inset-0 size-full scale-110 object-cover opacity-70 blur-xl" /> : null}
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/0" />
+        <span className="absolute left-3 right-3 top-3 inline-flex max-w-max items-center gap-1.5 truncate rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur"><Dot tone={group.badge.tone} /><span className="truncate">{group.badge.text}</span></span>
+        <div className="absolute inset-x-4 bottom-3 text-white">
+          <div className="truncate text-base font-bold tracking-tight">{entry.media_title}</div>
+          <div className="truncate text-xs text-white/85">{group.label}</div>
+        </div>
+      </Link>
+    </li>
   )
 }
 
@@ -68,11 +78,6 @@ const idleStates = new Set(["", "monitored", "waiting", "planned"])
 export function calendarBadge(entry: Pick<APICalendarEntry, "workflow_state">, upcoming: boolean): { tone: ReturnType<typeof stateTone>; text: string } {
   if (upcoming && idleStates.has(entry.workflow_state ?? "")) return { tone: "neutral", text: "Kommer" }
   return { tone: stateTone(entry.workflow_state), text: stateLabel(entry.workflow_state) }
-}
-
-function EpisodeBadge({ entry, upcoming }: { entry: APICalendarEntry; upcoming: boolean }) {
-  const badge = calendarBadge(entry, upcoming)
-  return <Badge tone={badge.tone}>{badge.text}</Badge>
 }
 
 function shiftDay(day: string, delta: number): string {
