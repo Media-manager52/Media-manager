@@ -58,6 +58,9 @@ type Discovered struct {
 	TMDBID     int64
 	Identities []catalog.ExternalIdentity
 	Result     Result
+	// Seasons are the season numbers TMDB lists for a series, specials (0)
+	// included, in TMDB's order.
+	Seasons []int
 }
 
 // Discover looks a TMDB id up through Seerr and builds the verified identity
@@ -95,6 +98,9 @@ func (service *Service) Discover(ctx context.Context, source SeerrSource, mediaT
 		return Discovered{}, err
 	}
 	discovered := Discovered{Kind: kind, Title: title, TMDBID: tmdbID, Identities: result.Identities, Result: result}
+	for _, season := range value.Seasons {
+		discovered.Seasons = append(discovered.Seasons, season.SeasonNumber)
+	}
 	if parsed, parseErr := time.Parse("2006-01-02", date); parseErr == nil && parsed.Year() >= 1800 && parsed.Year() <= 9999 {
 		year := uint16(parsed.Year())
 		discovered.Year = &year

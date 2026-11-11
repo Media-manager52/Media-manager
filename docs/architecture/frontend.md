@@ -82,6 +82,7 @@ Routes live in `web/src/routes.tsx`; each screen is one file in
 | `/arbejde/:id` | One workflow: steps, actions, searches, candidates, facts | `workflows/{id}`, `/searches`, `/candidates` |
 | `/kalender` | Episodes from the last week and upcoming | `calendar` |
 | `/kilder` | Indexers: limits, use, pacing, edit; OldBoys keys | `indexers`, `PATCH settings/integrations/{id}`, `settings/oldboys/credentials` |
+| `/lister` | Followed MDBList lists: add by address, film and series folder and profile, read now, each title's outcome, stop following | `import-lists`, `PATCH`/`DELETE import-lists/{id}`, `import-lists/{id}/sync`, `import-lists/{id}/entries` |
 | `/indstillinger/:section` | Profiles, library roots, Seerr rules, notifications | `settings/*` |
 | `/system/:section` | Status, background queue, backups, repairs, activity | `system/*`, `backups`, `repairs`, `activity` |
 

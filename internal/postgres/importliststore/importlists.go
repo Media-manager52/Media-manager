@@ -19,18 +19,59 @@ var importListIMDbID = regexp.MustCompile(`^tt[0-9]{7,12}$`)
 
 var ErrDuplicateSnapshot = errors.New("import-list snapshot already exists")
 
+const importListSelect = `SELECT list.id::text,list.name,list.provider,list.enabled,list.movie_root_id::text,COALESCE(root.name,''),list.movie_quality_profile_id::text,COALESCE(profile.name,''),
+	list.series_root_id::text,COALESCE(series_root.name,''),list.series_quality_profile_id::text,COALESCE(series_profile.name,''),
+	COALESCE(list.source_owner,''),COALESCE(list.source_slug,''),list.next_sync_at,list.last_synced_at,COALESCE(list.last_sync_state,''),COALESCE(list.last_sync_detail,''),
+	counts.total,counts.pending,counts.added,counts.in_library,counts.removed_earlier,counts.failed,
+	list.created_at,list.updated_at,snapshot.id::text,snapshot.source_digest,snapshot.item_count,snapshot.pending_count,snapshot.existing_count,snapshot.unsupported_count,snapshot.created_at
+	FROM import_lists list
+	LEFT JOIN library_roots root ON root.id=list.movie_root_id
+	LEFT JOIN quality_profiles profile ON profile.id=list.movie_quality_profile_id
+	LEFT JOIN library_roots series_root ON series_root.id=list.series_root_id
+	LEFT JOIN quality_profiles series_profile ON series_profile.id=list.series_quality_profile_id
+	LEFT JOIN LATERAL (SELECT count(*)::int AS total,
+		(count(*) FILTER (WHERE entry.state='pending'))::int AS pending,
+		(count(*) FILTER (WHERE entry.state='added'))::int AS added,
+		(count(*) FILTER (WHERE entry.state='in_library'))::int AS in_library,
+		(count(*) FILTER (WHERE entry.state='removed_earlier'))::int AS removed_earlier,
+		(count(*) FILTER (WHERE entry.state='failed'))::int AS failed
+		FROM import_list_entries entry WHERE entry.import_list_id=list.id) counts ON true
+	LEFT JOIN LATERAL (SELECT * FROM import_list_snapshots candidate WHERE candidate.import_list_id=list.id ORDER BY candidate.created_at DESC,candidate.id DESC LIMIT 1) snapshot ON true`
+
 type ImportList struct {
-	ID                    uuid.UUID           `json:"id"`
-	Name                  string              `json:"name"`
-	Provider              string              `json:"provider"`
-	Enabled               bool                `json:"enabled"`
-	MovieRootID           *uuid.UUID          `json:"movie_root_id,omitempty"`
-	MovieRootName         string              `json:"movie_root_name,omitempty"`
-	MovieQualityProfileID *uuid.UUID          `json:"movie_quality_profile_id,omitempty"`
-	MovieQualityProfile   string              `json:"movie_quality_profile,omitempty"`
-	CreatedAt             time.Time           `json:"created_at"`
-	UpdatedAt             time.Time           `json:"updated_at"`
-	LatestSnapshot        *ImportListSnapshot `json:"latest_snapshot,omitempty"`
+	ID                     uuid.UUID           `json:"id"`
+	Name                   string              `json:"name"`
+	Provider               string              `json:"provider"`
+	Enabled                bool                `json:"enabled"`
+	MovieRootID            *uuid.UUID          `json:"movie_root_id,omitempty"`
+	MovieRootName          string              `json:"movie_root_name,omitempty"`
+	MovieQualityProfileID  *uuid.UUID          `json:"movie_quality_profile_id,omitempty"`
+	MovieQualityProfile    string              `json:"movie_quality_profile,omitempty"`
+	SeriesRootID           *uuid.UUID          `json:"series_root_id,omitempty"`
+	SeriesRootName         string              `json:"series_root_name,omitempty"`
+	SeriesQualityProfileID *uuid.UUID          `json:"series_quality_profile_id,omitempty"`
+	SeriesQualityProfile   string              `json:"series_quality_profile,omitempty"`
+	SourceOwner            string              `json:"source_owner,omitempty"`
+	SourceSlug             string              `json:"source_slug,omitempty"`
+	SourceURL              string              `json:"source_url,omitempty"`
+	NextSyncAt             *time.Time          `json:"next_sync_at,omitempty"`
+	LastSyncedAt           *time.Time          `json:"last_synced_at,omitempty"`
+	LastSyncState          string              `json:"last_sync_state,omitempty"`
+	LastSyncDetail         string              `json:"last_sync_detail,omitempty"`
+	Entries                *ImportListCounts   `json:"entries,omitempty"`
+	CreatedAt              time.Time           `json:"created_at"`
+	UpdatedAt              time.Time           `json:"updated_at"`
+	LatestSnapshot         *ImportListSnapshot `json:"latest_snapshot,omitempty"`
+}
+
+// ImportListCounts counts a followed list's titles by what happened to them.
+type ImportListCounts struct {
+	Total          int `json:"total"`
+	Pending        int `json:"pending"`
+	Added          int `json:"added"`
+	InLibrary      int `json:"in_library"`
+	RemovedEarlier int `json:"removed_earlier"`
+	Failed         int `json:"failed"`
 }
 
 type ImportListSnapshot struct {
@@ -95,7 +136,7 @@ func (store *ImportLists) CreateImportList(ctx context.Context, item ImportList,
 }
 
 func (store *ImportLists) ListImportLists(ctx context.Context) ([]ImportList, error) {
-	rows, err := store.Pool.Query(ctx, `SELECT list.id::text,list.name,list.provider,list.enabled,list.movie_root_id::text,COALESCE(root.name,''),list.movie_quality_profile_id::text,COALESCE(profile.name,''),list.created_at,list.updated_at,snapshot.id::text,snapshot.source_digest,snapshot.item_count,snapshot.pending_count,snapshot.existing_count,snapshot.unsupported_count,snapshot.created_at FROM import_lists list LEFT JOIN library_roots root ON root.id=list.movie_root_id LEFT JOIN quality_profiles profile ON profile.id=list.movie_quality_profile_id LEFT JOIN LATERAL (SELECT * FROM import_list_snapshots candidate WHERE candidate.import_list_id=list.id ORDER BY candidate.created_at DESC,candidate.id DESC LIMIT 1) snapshot ON true ORDER BY list.name`)
+	rows, err := store.Pool.Query(ctx, importListSelect+` ORDER BY list.name`)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +153,7 @@ func (store *ImportLists) ListImportLists(ctx context.Context) ([]ImportList, er
 }
 
 func (store *ImportLists) ImportList(ctx context.Context, id uuid.UUID) (ImportList, error) {
-	row := store.Pool.QueryRow(ctx, `SELECT list.id::text,list.name,list.provider,list.enabled,list.movie_root_id::text,COALESCE(root.name,''),list.movie_quality_profile_id::text,COALESCE(profile.name,''),list.created_at,list.updated_at,snapshot.id::text,snapshot.source_digest,snapshot.item_count,snapshot.pending_count,snapshot.existing_count,snapshot.unsupported_count,snapshot.created_at FROM import_lists list LEFT JOIN library_roots root ON root.id=list.movie_root_id LEFT JOIN quality_profiles profile ON profile.id=list.movie_quality_profile_id LEFT JOIN LATERAL (SELECT * FROM import_list_snapshots candidate WHERE candidate.import_list_id=list.id ORDER BY candidate.created_at DESC,candidate.id DESC LIMIT 1) snapshot ON true WHERE list.id=$1`, id.String())
+	row := store.Pool.QueryRow(ctx, importListSelect+` WHERE list.id=$1`, id.String())
 	item, err := scanImportList(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ImportList{}, dbcore.ErrNotFound
@@ -133,16 +174,27 @@ func (store *ImportLists) ImportList(ctx context.Context, id uuid.UUID) (ImportL
 func scanImportList(row dbcore.RowScanner) (ImportList, error) {
 	var item ImportList
 	var idText string
-	var rootText, profileText, snapshotText *string
+	var rootText, profileText, seriesRootText, seriesProfileText, snapshotText *string
 	var digest *string
 	var itemCount, pendingCount, existingCount, unsupportedCount *int
 	var snapshotCreated *time.Time
-	if err := row.Scan(&idText, &item.Name, &item.Provider, &item.Enabled, &rootText, &item.MovieRootName, &profileText, &item.MovieQualityProfile, &item.CreatedAt, &item.UpdatedAt, &snapshotText, &digest, &itemCount, &pendingCount, &existingCount, &unsupportedCount, &snapshotCreated); err != nil {
+	var counts ImportListCounts
+	if err := row.Scan(&idText, &item.Name, &item.Provider, &item.Enabled, &rootText, &item.MovieRootName, &profileText, &item.MovieQualityProfile,
+		&seriesRootText, &item.SeriesRootName, &seriesProfileText, &item.SeriesQualityProfile,
+		&item.SourceOwner, &item.SourceSlug, &item.NextSyncAt, &item.LastSyncedAt, &item.LastSyncState, &item.LastSyncDetail,
+		&counts.Total, &counts.Pending, &counts.Added, &counts.InLibrary, &counts.RemovedEarlier, &counts.Failed,
+		&item.CreatedAt, &item.UpdatedAt, &snapshotText, &digest, &itemCount, &pendingCount, &existingCount, &unsupportedCount, &snapshotCreated); err != nil {
 		return ImportList{}, err
 	}
 	item.ID, _ = uuid.Parse(idText)
 	item.MovieRootID = parseOptionalUUID(rootText)
 	item.MovieQualityProfileID = parseOptionalUUID(profileText)
+	item.SeriesRootID = parseOptionalUUID(seriesRootText)
+	item.SeriesQualityProfileID = parseOptionalUUID(seriesProfileText)
+	if item.Provider == "mdblist" {
+		item.SourceURL = "https://mdblist.com/lists/" + item.SourceOwner + "/" + item.SourceSlug
+		item.Entries = &counts
+	}
 	if snapshotText != nil {
 		snapshotID, _ := uuid.Parse(*snapshotText)
 		item.LatestSnapshot = &ImportListSnapshot{ID: snapshotID, ImportListID: item.ID, SourceDigest: *digest, ItemCount: *itemCount, PendingCount: *pendingCount, ExistingCount: *existingCount, UnsupportedCount: *unsupportedCount, CreatedAt: *snapshotCreated}

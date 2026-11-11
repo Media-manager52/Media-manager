@@ -53,6 +53,12 @@ var RedactNotificationEndpoint = notificationstore.RedactNotificationEndpoint
 type ImportList = importliststore.ImportList
 type ImportListItem = importliststore.ImportListItem
 type ImportListSnapshot = importliststore.ImportListSnapshot
+type ImportListEntry = importliststore.ImportListEntry
+type ImportListCounts = importliststore.ImportListCounts
+type ImportListSeen = importliststore.ImportListSeen
+type MDBListSettings = importliststore.MDBListSettings
+
+const MDBListSyncInterval = importliststore.MDBListSyncInterval
 
 var ErrDuplicateSnapshot = importliststore.ErrDuplicateSnapshot
 

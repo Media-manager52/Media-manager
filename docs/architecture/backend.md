@@ -441,6 +441,23 @@ scanning never moves files.
 - `SeerrStatusService.Handle`: pushes availability only after exact Plex
   confirmation; partial TV requests keep unconfirmed seasons `requested`.
   `ErrSeerrStatusIdentityMismatch` protects against drift.
+- `ImportListService.Handle` (`import_lists.go`, event
+  `import_list.sync_requested`) reads a followed public MDBList list through
+  `adapters/mdblist` and records every title in `import_list_entries`. Each
+  new title (and each one that failed before) is first matched against the
+  catalogue by verified TMDB/IMDb (and, for series, TVDB) identity: a known
+  title becomes `in_library`, one the owner removed `removed_earlier`, and
+  neither is touched. Otherwise it goes through the same path as **Tilføj**:
+  `metadata.Service.Discover`, every season from TMDB's season list except
+  specials (0), each frozen from TMDB's exact episode list (seasons with no
+  episodes yet are skipped), the list's film or series folder and quality
+  profile or the defaults, `CreateManualMedia` with an immediate search. A
+  title that cannot be added now is `failed` with a stable code and tried
+  again on the next read. Titles that leave the list are never removed. The
+  handler runs on its own outbox lane, so a long list never holds up the main
+  worker; reads are due every 6 hours (`QueueDueImportListSyncs` on the
+  five-minute ticker), and a list that could not be read is retried after an
+  hour.
 
 ## internal/notifications
 
@@ -464,7 +481,8 @@ and secrets excluded from payloads. Retries stay visible
 ## internal/importlists
 
 `parser.go`: strict IMDb CSV export parsing (identity/year/duplicate bounds) →
-review-only snapshots. No monitoring is applied by parsing alone.
+review-only snapshots. No monitoring is applied by parsing alone. Followed
+MDBList lists are handled by `intake.ImportListService` (above).
 
 ## internal/prowlarrbackup
 
@@ -604,6 +622,14 @@ dependency).
   `AuthenticateWebhook` (constant-time secret check), `Identity`/`ExternalIDs` for TMDB/TVDB/IMDb.
 - `MediaStatus` values (`available`, `partial`, ...). Status updates go through
   the supported media-status API only after exact Plex confirmation.
+
+### mdblist
+
+`client.go`: reads a public list as `https://mdblist.com/lists/{owner}/{slug}/json`
+(no account or key). `importlists.ParseMDBListURL` accepts only mdblist.com list addresses
+(or `owner/slug`); redirects are not followed, the answer is capped at 8 MiB
+and 5,000 titles (a longer list is refused, never cut short), and only films
+and shows with a TMDB number are kept.
 
 ### metadataproviders
 

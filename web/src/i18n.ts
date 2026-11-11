@@ -454,3 +454,55 @@ export function backupStateLabel(state: string, localFileDeleted = false): strin
   if (localFileDeleted) return "Filen er slettet"
   return ({ verified: "Database kontrolleret", failed: "Backup fejlet", queued: "I kø", running: "Kører" } as Record<string, string>)[state] ?? "Ukendt backupstatus"
 }
+
+const listSyncDetails: Record<string, string> = {
+  list_not_found: "Listen findes ikke eller er ikke offentlig på MDBList. Tjek adressen, og at listen er offentlig.",
+  list_too_long: "Listen har over 5.000 titler. Del den op i mindre lister på MDBList.",
+  mdblist_unavailable: "MDBList kunne ikke nås. Media Manager prøver igen om en time.",
+  metadata_unavailable: "Titlerne kan ikke slås op, fordi der mangler forbindelse til TMDB eller Seerr. Tilføj den under Indstillinger → Forbindelser.",
+}
+
+/** Why the last read of a followed list did not go through. */
+export function listSyncDetail(code: string | undefined): string {
+  if (!code) return ""
+  return listSyncDetails[code] ?? humanize(code)
+}
+
+const listEntryStates: Record<string, string> = {
+  pending: "Venter",
+  added: "Tilføjet",
+  in_library: "Fandtes allerede",
+  removed_earlier: "Fjernet af dig før",
+  failed: "Prøves igen",
+}
+
+export function listEntryLabel(state: string): string {
+  return listEntryStates[state] ?? humanize(state)
+}
+
+export function listEntryTone(state: string): Tone {
+  switch (state) {
+    case "added":
+    case "in_library":
+      return "good"
+    case "failed":
+      return "warn"
+    default:
+      return "neutral"
+  }
+}
+
+const listEntryDetails: Record<string, string> = {
+  metadata_failed: "TMDB kunne ikke give oplysninger om titlen.",
+  identity_missing: "TMDB mangler år eller id for titlen.",
+  no_episodes: "TMDB har ingen afsnit for serien endnu.",
+  defaults_missing: "Listens mappe eller profil er ikke tilgængelig.",
+  no_commissioned_indexer: "Der er ingen godkendt indexer, der kan søge efter titlen.",
+  add_failed: "Titlen kunne ikke tilføjes.",
+}
+
+/** Why a title from a list could not be added yet; it is tried again on the next read. */
+export function listEntryDetail(code: string | undefined): string {
+  if (!code) return ""
+  return listEntryDetails[code] ?? humanize(code)
+}

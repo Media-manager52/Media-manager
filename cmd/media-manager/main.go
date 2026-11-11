@@ -15,6 +15,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/acquisition"
+	"github.com/media-manager/media-manager/internal/adapters/mdblist"
 	metadataproviders "github.com/media-manager/media-manager/internal/adapters/metadataproviders"
 	seerradapter "github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/adoptionexec"
@@ -354,6 +355,23 @@ func run() error {
 	backupService := &backups.Service{Store: store, Directory: backupDirectory, ResolveSecret: resolveSecret, Offsite: offsite, OffsitePrefix: offsitePrefix}
 	handlers["backup.create_requested"] = backupService.Handle
 	handlers["backup.offsite_requested"] = backupService.HandleOffsite
+	// Followed MDBList lists are read on their own lane: a read only calls
+	// mdblist.com and TMDB and queues searches, so it never holds up the
+	// main worker that keeps indexer pacing.
+	mdbListClient, err := mdblist.New("", nil)
+	if err != nil {
+		return err
+	}
+	importListService := &intake.ImportListService{Store: store, Lists: mdbListClient, MetadataEnricher: metadataService, Discovery: func(ctx context.Context) (metadataservice.DiscoveryProvider, bool) {
+		if seerrClient != nil {
+			return seerrClient, true
+		}
+		if tmdbSource.Configured(ctx) {
+			return tmdbSource, true
+		}
+		return nil, false
+	}}
+	handlers["import_list.sync_requested"] = importListService.Handle
 	if seerrEnabled {
 		service := &intake.SeerrService{Client: seerrClient, Store: store, InstanceID: seerrInstance, MetadataEnricher: metadataService}
 		handlers["seerr.reconcile"] = service.Handle
@@ -366,10 +384,12 @@ func run() error {
 	// and searches, publishing and repairs carry on meanwhile. Every other
 	// event stays on the single main worker, which keeps indexer pacing.
 	backupEvents := []string{"backup.create_requested", "backup.offsite_requested"}
-	handlerLimits := map[string]time.Duration{"backup.create_requested": 3 * time.Hour, "backup.offsite_requested": 3 * time.Hour}
+	listEvents := []string{"import_list.sync_requested"}
+	handlerLimits := map[string]time.Duration{"backup.create_requested": 3 * time.Hour, "backup.offsite_requested": 3 * time.Hour, "import_list.sync_requested": 3 * time.Hour}
 	lanes := []*platform.Worker{
-		{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: handlerLimits, Lane: postgres.OutboxLane{Except: backupEvents}},
+		{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: handlerLimits, Lane: postgres.OutboxLane{Except: append(append([]string{}, backupEvents...), listEvents...)}},
 		{Store: store, Owner: workerOwner() + "-backup", Handlers: handlers, Limits: handlerLimits, PollInterval: 10 * time.Second, Lane: postgres.OutboxLane{Only: backupEvents}},
+		{Store: store, Owner: workerOwner() + "-lists", Handlers: handlers, Limits: handlerLimits, PollInterval: 15 * time.Second, Lane: postgres.OutboxLane{Only: listEvents}},
 	}
 	for _, worker := range lanes {
 		go func() {
@@ -396,6 +416,7 @@ func run() error {
 		_, _ = store.DeleteExpiredRecentSearchAnswers(workerContext, time.Now().UTC().Add(-24*time.Hour))
 		_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 		_, _ = store.QueueAltMountRepairSweeps(workerContext, time.Now().UTC())
+		_, _ = store.QueueDueImportListSyncs(workerContext, time.Now().UTC())
 		if seerrEnabled {
 			_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)
 			_, _ = store.QueueConfirmedSeerrStatusSyncs(workerContext, seerrInstance, time.Now().UTC(), 25)
@@ -418,6 +439,9 @@ func run() error {
 				// corrupted; Media Manager acquires their replacement itself.
 				_, _ = store.QueueAltMountRepairSweeps(workerContext, time.Now().UTC())
 			case <-seerrTicker.C:
+				// Followed lists are due every few hours; checking which are
+				// due is a cheap database query.
+				_, _ = store.QueueDueImportListSyncs(workerContext, time.Now().UTC())
 				_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 				if seerrEnabled {
 					_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)

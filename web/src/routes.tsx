@@ -7,6 +7,7 @@ import { AttentionPage } from "@/pages/attention"
 import { ErrorLogPage } from "@/pages/error-log"
 import { CalendarPage } from "@/pages/calendar"
 import { LibraryPage } from "@/pages/library"
+import { ListsPage } from "@/pages/lists"
 import { MissingPage } from "@/pages/missing"
 import { NotFoundPage } from "@/pages/not-found"
 import { OverviewPage } from "@/pages/overview"
@@ -65,6 +66,7 @@ export const router = createBrowserRouter([
       { path: "arbejde/:id", element: <WorkflowPage /> },
       { path: "kalender", element: <CalendarPage /> },
       { path: "kilder", element: <SourcesPage /> },
+      { path: "lister", element: <ListsPage /> },
       { path: "kom-i-gang", element: <SetupPage /> },
       { path: "indstillinger", element: <Navigate to="/indstillinger/profiler" replace /> },
       { path: "indstillinger/:section", element: <SettingsPage /> },

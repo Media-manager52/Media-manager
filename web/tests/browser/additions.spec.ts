@@ -145,6 +145,25 @@ test("a single case gets no group button, and a group can be abandoned", async (
   expect(writes).toEqual([])
 })
 
+test("lists show what a followed MDBList list added and follow a new list by its address", async ({ page }) => {
+  const writes = await mockApi(page)
+  await page.goto("/lister")
+  await expect(page.getByText("3 titler på listen: 1 tilføjet · 1 fandtes allerede · 1 prøves igen.")).toBeVisible()
+  await expect(page.getByText("Serier: Serier · standardprofilen")).toBeVisible()
+  await page.getByRole("button", { name: "Vis titler" }).click()
+  await expect(page.getByText("TMDB har ingen afsnit for serien endnu.")).toBeVisible()
+  await expect(page.getByRole("link", { name: "Testserien" })).toHaveAttribute("href", `/bibliotek/${ids.series}`)
+  await page.getByRole("button", { name: "Læs nu" }).click()
+  await expect.poll(() => writes.map((write) => `${write.method} ${write.path}`)).toContain("POST /api/v1/import-lists/44444444-4444-4444-8444-444444444444/sync")
+  await page.getByRole("button", { name: "Tilføj liste" }).click()
+  await page.getByLabel("Listens adresse").fill("https://mdblist.com/lists/someone/julefilm")
+  await page.getByRole("button", { name: "Følg liste" }).click()
+  await expect.poll(() => writes.find((write) => write.method === "POST" && write.path === "/api/v1/import-lists")?.body).toEqual({
+    name: "", enabled: true, movie_root_id: "", movie_quality_profile_id: "", series_root_id: "", series_quality_profile_id: "",
+    url: "https://mdblist.com/lists/someone/julefilm", provider: "mdblist",
+  })
+})
+
 test("sources show how many downloads from each indexer were approved", async ({ page }) => {
   await mockApi(page)
   await page.goto("/kilder")
