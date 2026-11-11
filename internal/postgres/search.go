@@ -592,12 +592,9 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		return workflows.Workflow{}, err
 	}
 	if slices.Contains(subtitlePolicy.Required, "da") || slices.Contains(subtitlePolicy.RequiredAudio, "da") {
-		groups, err := store.DanishGroupRecords(ctx)
-		if err != nil {
+		if ranked, err = store.rankForDanish(ctx, observations, evaluations, rankOptions, slices.Contains(subtitlePolicy.RequiredAudio, "da")); err != nil {
 			return workflows.Workflow{}, err
 		}
-		rankOptions.DanishGroupShare = groups.Shares(slices.Contains(subtitlePolicy.RequiredAudio, "da"))
-		ranked = releases.RankForDanishSubtitlesWith(observations, evaluations, rankOptions)
 	}
 	if options.RecoveryRescan {
 		partialNext, err := store.persistRecoveryDiscovery(ctx, transaction, search, ranked, candidateByObservation, candidateSequenceByObservation, options, now)

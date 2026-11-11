@@ -138,3 +138,14 @@ func loadDanishGroupRecords(ctx context.Context, pool *pgxpool.Pool) (DanishGrou
 	}
 	return records, rows.Err()
 }
+
+// rankForDanish ranks releases for a profile that requires Danish, putting
+// releases of groups that usually carry the required Danish first.
+func (store *Store) rankForDanish(ctx context.Context, observations []releases.Observation, evaluations []releases.Evaluation, options releases.RankOptions, audio bool) ([]releases.Evaluation, error) {
+	groups, err := store.DanishGroupRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	options.DanishGroupShare = groups.Shares(audio)
+	return releases.RankForDanishSubtitlesWith(observations, evaluations, options), nil
+}
