@@ -7,9 +7,12 @@ import { demoSeriesID, mockDemo } from "./demo-data"
 // Not part of the normal browser suite (playwright.config.ts runs tests/browser).
 
 const shots: Array<{ file: string; path: string; heading: string; scheme: "light" | "dark" }> = [
+  { file: "overview.png", path: "/", heading: "Oversigt", scheme: "light" },
   { file: "overview-dark.png", path: "/", heading: "Oversigt", scheme: "dark" },
-  { file: "library.png", path: "/bibliotek", heading: "Bibliotek", scheme: "dark" },
-  { file: "title.png", path: `/bibliotek/${demoSeriesID}`, heading: "Havnefogeden", scheme: "dark" },
+  { file: "library.png", path: "/bibliotek", heading: "Bibliotek", scheme: "light" },
+  { file: "title.png", path: `/bibliotek/${demoSeriesID}`, heading: "Havnefogeden", scheme: "light" },
+  { file: "attention.png", path: "/handling", heading: "Kræver handling", scheme: "light" },
+  { file: "calendar.png", path: "/kalender", heading: "Kalender", scheme: "light" },
 ]
 
 for (const shot of shots) {

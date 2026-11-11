@@ -15,7 +15,7 @@
 
 </div>
 
-![Media Manager overview with the work that needs you, recent progress, system status and the coming week's episodes](docs/images/overview-dark.png)
+![Media Manager overview: the next episodes, the latest title in the library, what needs you, work in progress and recently added titles](docs/images/overview.png)
 
 Media Manager takes a movie or series request from [Seerr](https://github.com/seerr-team/seerr) or from its own web UI, searches your Newznab indexers, chooses a release on recorded evidence, streams it through [AltMount](https://github.com/javi11/altmount), inspects the actual file, and only then links it into your Plex library and confirms that Plex sees exactly that file.
 
@@ -26,8 +26,9 @@ It replaces Radarr and Sonarr in this setup: Seerr talks to Media Manager throug
 - **Verified before it reaches Plex.** Downloaded output is probed for video, audio and subtitle tracks. Required languages, such as Danish subtitles or Danish audio for children's libraries, must be present in the file itself; a release name is never taken as proof.
 - **Never replaces what works.** An upgrade becomes current only after Plex confirms the new file at the exact path and identity. AltMount output is read-only, and failed downloads are kept for review instead of being deleted.
 - **Season packs done properly.** A pack is one download job, and publication waits until every expected episode maps to exactly one file.
-- **Sparing with indexer calls.** Missing episodes of a season share one season search, a failed download picks the next release from the search that just found it, and each indexer's newest uploads bring a waiting title's search forward instead of searching blindly. Each indexer still gets one request at a time, persisted pacing, rolling daily query and download budgets, and `Retry-After` handling.
+- **Sparing with indexer calls.** Missing episodes of a season share one season search, a failed download picks the next release from the search that just found it, date-named shows are searched by series ID and air date, and each indexer's newest uploads (read without gaps, also across restarts) bring a waiting title's search forward instead of searching blindly. Each indexer still gets one request at a time, persisted pacing, rolling daily query and download budgets, and `Retry-After` handling.
 - **Learns where the Danish is.** Media Manager keeps each release group's measured Danish record and tries groups that usually carry Danish first; groups that almost never do are held with the reason shown, so fewer downloads are wasted.
+- **Shows what is missing.** *Find manglende* lists the seasons of your series that are neither followed nor in Plex and the films without a file, and you choose what to fetch.
 - **Explains itself.** Every search, candidate, verdict and attempt is stored, so the UI can show why a title is waiting and which owner actions are safe right now.
 - **Repairs itself.** Files that AltMount reports as corrupted, or has removed because their Usenet articles are gone, are re-acquired automatically and swapped in after Plex confirms the replacement.
 - **Danish sources built in.** Includes a native client for the OldBoys Danish-original provider alongside standard Newznab indexers.
@@ -53,9 +54,11 @@ Each step is a durable, retryable event in PostgreSQL, so a restart or an outage
 
 | Library | Title and season progress |
 | --- | --- |
-| ![Library grid with posters and film/series filters](docs/images/library.png) | ![Series page with per-season episode progress](docs/images/title.png) |
+| ![Library grid with posters, status filters and a note about missing seasons](docs/images/library.png) | ![Series page with backdrop, actions and per-season episode progress](docs/images/title.png) |
+| **Needs you** | **Calendar** |
+| ![Cases that need a decision, grouped by reason, each with its safe actions](docs/images/attention.png) | ![Coming episodes as picture tiles per day](docs/images/calendar.png) |
 
-The UI has light and dark themes and works on phones. The screenshots use invented demo data; `npm run screenshots` in `web/` regenerates them.
+The UI has light and dark themes ([dark overview](docs/images/overview-dark.png)) and works on phones. The screenshots use invented demo data and locally drawn artwork; `npm run build && npm run screenshots` in `web/` regenerates them.
 
 ## Getting started
 
