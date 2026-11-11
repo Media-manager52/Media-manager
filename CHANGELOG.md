@@ -4,10 +4,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.10] - 2026-11-11
+
 ### Changed
 
 - **A title that found nothing is searched on a schedule, and new uploads do the rest.** A new title that found nothing was searched about six times on its first day (after 30 minutes, then 1, 2, 4, 8 and 16 hours) and every waiting title at least weekly forever, which was most of the daily indexer queries, almost all empty. Of the titles found at all, about 97 % were found within the first three searches. The next search now comes after 30 minutes, 6 hours and a day, then monthly as a safety net (weekly for titles from this or last year). A title whose round is used up is rescanned after a day, a week, then monthly. A fitting new upload seen by the newest-uploads reader still brings the search forward at once, and a search you start yourself is unaffected.
-
 - **The newest-uploads list misses less.** It remembers the uploads it saw last across restarts, so a read after a restart goes on from where the last one stopped instead of starting over. A busy indexer is read up to ten pages back instead of three until the reader reaches uploads it has seen, and a read that still does not reach them is counted as a gap and followed by a quick re-read; **Kilder** shows how many reads had a gap. New episodes waiting for their first scheduled search are now matched too, so an episode uploaded before its search is found at once (one such episode on this server waited two hours). Schema 63.
 - **Old wrestling episodes are found by their date.** Episodes of date-named shows (WWE SmackDown, Raw and the like) needed about 65 searches on average before a release was found, because the date search asked with the long catalogue name ("WWE Friday Night SmackDown 2016 12 27") while releases use short names ("WWE.Smackdown.2016.12.27"). An old episode now also asks each indexer the standard way for daily shows, by the series ID and air date without any name, and its text date search uses the title's shortest name. Every answer is still checked under the same identity, date and quality rules.
 
@@ -487,6 +488,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.10]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.7
