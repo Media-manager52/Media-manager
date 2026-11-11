@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"strings"
 	"time"
 	"uuid"
 
@@ -66,6 +67,11 @@ func seasonRequest(request newznab.SearchRequest, title string) (newznab.SearchR
 	for _, param := range request.Params {
 		switch param.Name {
 		case "ep":
+			if strings.Contains(param.Value, "/") {
+				// A daily episode (month/day): its season is a whole year of
+				// dated releases, too many to share.
+				return request, false
+			}
 			removed = true
 			continue
 		case "season":

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
@@ -24,12 +25,29 @@ const numberedIDOnlyMaxAge = 180 * 24 * time.Hour
 // only modern episodes and storing hundreds of irrelevant candidates. An old
 // episode uses the same alternate scan to ask for its air date by text, which
 // is how those releases are named. The request count stays the same.
+//
+// An old episode rotates through three forms, one per complete search: the
+// provider's own daily-episode search (series ID, season = air year, ep =
+// month/day, the Newznab form for date-named shows, which needs no name), its
+// air date by text under the shortest saved name, and the scoped catalogue
+// search. Daily shows are named by date in many spellings ("WWE.Smackdown.
+// 2016.12.27" for "WWE Friday Night SmackDown"), so the long canonical name
+// alone rarely matched.
 func numberedSearchRequest(search postgres.SearchContext, request newznab.SearchRequest, now time.Time) newznab.SearchRequest {
-	if search.EpisodeNumbering.Year == 0 || search.CompleteSearches%2 == 0 || request.Mode != "tvsearch" {
+	if search.EpisodeNumbering.Year == 0 || request.Mode != "tvsearch" {
 		return request
 	}
 	if !recentNumberedTarget(search, now) {
-		return airDateSearchRequest(search, request)
+		switch search.CompleteSearches % 3 {
+		case 0:
+			return dailyEpisodeSearchRequest(search, request)
+		case 1:
+			return airDateSearchRequest(search, request)
+		}
+		return request
+	}
+	if search.CompleteSearches%2 == 0 {
+		return request
 	}
 	var ids []newznab.Param
 	for _, p := range request.Params {
@@ -59,11 +77,79 @@ func airDateSearchRequest(search postgres.SearchContext, request newznab.SearchR
 	}
 	for _, p := range request.Params {
 		if p.Name == "q" {
-			request.Params = []newznab.Param{{Name: "q", Value: releases.SearchQueryTitle(search.Media.Title) + " " + date.Format("2006 01 02")}}
+			request.Params = []newznab.Param{{Name: "q", Value: shortSearchTitle(search, search.CompleteSearches/3) + " " + date.Format("2006 01 02")}}
 			return request
 		}
 	}
 	return request
+}
+
+// dailyEpisodeSearchRequest asks for one dated episode the way Newznab names
+// daily shows: the series IDs with season = air year and ep = month/day. It
+// needs no name, so it finds every spelling the indexer filed under the
+// series. Without a series ID or a season/ep parameter the request is left as
+// it is.
+func dailyEpisodeSearchRequest(search postgres.SearchContext, request newznab.SearchRequest) newznab.SearchRequest {
+	if selectedNumberedEpisode(search.Variant) == 0 {
+		return request
+	}
+	date := latestNumberedAirDate(search)
+	if date.IsZero() {
+		return request
+	}
+	var ids []newznab.Param
+	season, episode := false, false
+	for _, p := range request.Params {
+		switch p.Name {
+		case "tvdbid", "tmdbid", "imdbid":
+			ids = append(ids, p)
+		case "season":
+			season = true
+		case "ep":
+			episode = true
+		}
+	}
+	if len(ids) == 0 || !season || !episode {
+		return request
+	}
+	request.Params = append(ids, newznab.Param{Name: "season", Value: date.Format("2006")}, newznab.Param{Name: "ep", Value: date.Format("01/02")})
+	return request
+}
+
+// shortSearchTitle is one of the saved names with the fewest words, written
+// for searching; phase rotates among names of that length. Release names of
+// date-named shows mostly use the short form of the name, and an indexer
+// matches every word of the query.
+func shortSearchTitle(search postgres.SearchContext, phase uint64) string {
+	var shortest []string
+	fewest := 0
+	for _, title := range searchTitles(search) {
+		if !latinTitle(title) {
+			continue
+		}
+		words := len(strings.Fields(title))
+		switch {
+		case len(shortest) == 0 || words < fewest:
+			shortest, fewest = []string{title}, words
+		case words == fewest:
+			shortest = append(shortest, title)
+		}
+	}
+	if len(shortest) == 0 {
+		return releases.SearchQueryTitle(search.Media.Title)
+	}
+	return shortest[phase%uint64(len(shortest))]
+}
+
+// latinTitle reports whether a search title is written in Latin letters,
+// digits and spaces: release names are, so a Japanese alias cannot match.
+func latinTitle(title string) bool {
+	for _, r := range title {
+		if r > unicode.MaxLatin1 && !unicode.In(r, unicode.Latin) {
+			return false
+		}
+	}
+	return strings.TrimSpace(title) != ""
 }
 
 func recentNumberedTarget(search postgres.SearchContext, now time.Time) bool {

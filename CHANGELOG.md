@@ -7,6 +7,7 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 ### Changed
 
 - **The newest-uploads list misses less.** It remembers the uploads it saw last across restarts, so a read after a restart goes on from where the last one stopped instead of starting over. A busy indexer is read up to ten pages back instead of three until the reader reaches uploads it has seen, and a read that still does not reach them is counted as a gap and followed by a quick re-read; **Kilder** shows how many reads had a gap. New episodes waiting for their first scheduled search are now matched too, so an episode uploaded before its search is found at once (one such episode on this server waited two hours). Schema 63.
+- **Old wrestling episodes are found by their date.** Episodes of date-named shows (WWE SmackDown, Raw and the like) needed about 65 searches on average before a release was found, because the date search asked with the long catalogue name ("WWE Friday Night SmackDown 2016 12 27") while releases use short names ("WWE.Smackdown.2016.12.27"). An old episode now also asks each indexer the standard way for daily shows, by the series ID and air date without any name, and its text date search uses the title's shortest name. Every answer is still checked under the same identity, date and quality rules.
 
 ## [0.1.0-beta.9] - 2026-11-11
 

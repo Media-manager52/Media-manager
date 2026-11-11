@@ -37,6 +37,19 @@ func mediaTitleMatches(releaseTitle string, media catalog.MediaItem) bool {
 // canonical names come first, followed by Danish aliases, then other aliases.
 // CompleteSearches is durable; deferred/replayed work keeps the same query.
 func searchTitle(search postgres.SearchContext) string {
+	titles := searchTitles(search)
+	if len(titles) == 0 {
+		return ""
+	}
+	phase := search.CompleteSearches
+	if search.EpisodeNumbering.Year != 0 {
+		phase /= 2
+	}
+	return titles[phase%uint64(len(titles))]
+}
+
+// searchTitles are the saved names written for searching, in rotation order.
+func searchTitles(search postgres.SearchContext) []string {
 	titles := make([]string, 0, maxSearchTitles)
 	seen := map[string]bool{}
 	add := func(title string) {
@@ -62,12 +75,5 @@ func searchTitle(search postgres.SearchContext) string {
 			}
 		}
 	}
-	if len(titles) == 0 {
-		return ""
-	}
-	phase := search.CompleteSearches
-	if search.EpisodeNumbering.Year != 0 {
-		phase /= 2
-	}
-	return titles[phase%uint64(len(titles))]
+	return titles
 }
