@@ -18,6 +18,7 @@ const pages: Array<[string, string]> = [
   [`/arbejde/${ids.attention}`, "Testfilmen · Film"],
   ["/kalender", "Kalender"],
   ["/kilder", "Kilder"],
+  ["/lister", "Lister"],
   ["/indstillinger/profiler", "Indstillinger"],
   ["/indstillinger/biblioteker", "Indstillinger"],
   ["/indstillinger/seerr", "Indstillinger"],

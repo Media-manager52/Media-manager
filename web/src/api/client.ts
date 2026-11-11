@@ -110,7 +110,21 @@ export type APINotificationDestination = { id: string; name: string; endpoint: s
 export type APINotificationDelivery = { id: string; destination_id: string; destination: string; audit_event_id: string; payload: { event_id: string; action: string; aggregate_type: string; aggregate_id?: string; occurred_at: string }; state: string; attempts: number; response_status?: number; last_error?: string; created_at: string; delivered_at?: string }
 export type APIImportListItem = { id: string; snapshot_id: string; ordinal: number; media_kind: "movie" | "series" | "unknown"; provider: string; provider_id: string; title: string; year?: number; state: "pending_review" | "already_cataloged" | "unsupported"; attention?: string; existing_media_id?: string }
 export type APIImportListSnapshot = { id: string; import_list_id: string; source_digest: string; item_count: number; pending_count: number; existing_count: number; unsupported_count: number; created_at: string; items?: APIImportListItem[] }
-export type APIImportList = { id: string; name: string; provider: "imdb_export"; enabled: boolean; movie_root_id?: string; movie_root_name?: string; movie_quality_profile_id?: string; movie_quality_profile?: string; created_at: string; updated_at: string; latest_snapshot?: APIImportListSnapshot }
+export type APIImportListCounts = { total: number; pending: number; added: number; in_library: number; removed_earlier: number; failed: number }
+export type APIImportList = {
+  id: string; name: string; provider: "imdb_export" | "mdblist"; enabled: boolean
+  movie_root_id?: string; movie_root_name?: string; movie_quality_profile_id?: string; movie_quality_profile?: string
+  series_root_id?: string; series_root_name?: string; series_quality_profile_id?: string; series_quality_profile?: string
+  source_owner?: string; source_slug?: string; source_url?: string
+  next_sync_at?: string; last_synced_at?: string; last_sync_state?: "ok" | "failed" | "needs_configuration" | ""; last_sync_detail?: string
+  entries?: APIImportListCounts
+  created_at: string; updated_at: string; latest_snapshot?: APIImportListSnapshot
+}
+export type APIImportListEntry = {
+  media_kind: "movie" | "series"; tmdb_id: number; imdb_id?: string; tvdb_id?: number; title: string; year?: number; rank: number
+  state: "pending" | "added" | "in_library" | "removed_earlier" | "failed"; detail?: string; media_id?: string; attempts: number
+  first_seen_at: string; last_seen_at: string; updated_at: string
+}
 export type APIBackupRecord = { id: string; local_file_deleted?: boolean; state: "queued" | "running" | "verified" | "failed"; format: string; filename?: string; size_bytes?: number; sha256?: string; schema_version?: number; attempts: number; last_error?: string; offsite_state?: "uploaded" | "failed"; offsite_key?: string; offsite_error?: string; offsite_uploaded_at?: string; created_at: string; started_at?: string; completed_at?: string }
 export type APIBackupOverview = { configured: boolean; key_file?: string; format: string; restore_verification: string; automatic_deletion: boolean; production_restore: boolean; offsite: { configured: boolean; kind: string; prefix: string }; records: APIBackupRecord[] }
 export type APIProblem = { code: string; area: string; level: "error" | "warning"; title: string; detail?: string; count: number; oldest_at?: string; latest_at?: string; href?: string }
@@ -371,6 +385,12 @@ export const deleteCollection = (id: string) => requestJSON<void>(`/api/v1/colle
 export const createNotificationDestination = (input: { name: string; endpoint: string; allow_http: boolean; enabled: boolean; events: string[]; secret_ref?: string }) => requestJSON<APINotificationDestination>("/api/v1/settings/notifications", { method: "POST", body: JSON.stringify(input) })
 export const setNotificationDestinationEnabled = (id: string, enabled: boolean) => requestJSON<{ id: string; enabled: boolean }>(`/api/v1/settings/notifications/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ enabled }) })
 export const createImportList = (input: { name: string; provider: "imdb_export"; enabled: boolean; movie_root_id?: string; movie_quality_profile_id?: string }) => requestJSON<APIImportList>("/api/v1/import-lists", { method: "POST", body: JSON.stringify(input) })
+export type MDBListInput = { name: string; enabled: boolean; movie_root_id: string; movie_quality_profile_id: string; series_root_id: string; series_quality_profile_id: string }
+export const createMDBList = (input: MDBListInput & { url: string }) => requestJSON<APIImportList>("/api/v1/import-lists", { method: "POST", body: JSON.stringify({ ...input, provider: "mdblist" }) })
+export const updateImportList = (id: string, input: MDBListInput) => requestJSON<APIImportList>(`/api/v1/import-lists/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })
+export const deleteImportList = (id: string) => requestJSON<unknown>(`/api/v1/import-lists/${encodeURIComponent(id)}`, { method: "DELETE" })
+export const syncImportList = (id: string) => requestJSON<{ queued: boolean; already_waiting: boolean }>(`/api/v1/import-lists/${encodeURIComponent(id)}/sync`, { method: "POST" })
+export const loadImportListEntries = async (id: string, signal?: AbortSignal) => await requestJSON<APIImportListEntry[] | null>(`/api/v1/import-lists/${encodeURIComponent(id)}/entries`, { signal }) ?? []
 export const uploadImportListSnapshot = (id: string, file: File) => requestJSON<APIImportListSnapshot>(`/api/v1/import-lists/${encodeURIComponent(id)}/snapshots`, { method: "POST", headers: { "Content-Type": "text/csv" }, body: file })
 export const createBackup = () => requestJSON<APIBackupRecord>("/api/v1/backups", { method: "POST" })
 export const retryBackupOffsite = (id: string) => requestJSON<{ id: string; state: string }>(`/api/v1/backups/${encodeURIComponent(id)}/offsite`, { method: "POST" })

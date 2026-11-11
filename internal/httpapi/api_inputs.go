@@ -14,6 +14,20 @@ type createImportListInput struct {
 	Enabled               bool   `json:"enabled"`
 	MovieRootID           string `json:"movie_root_id"`
 	MovieQualityProfileID string `json:"movie_quality_profile_id"`
+	// For provider "mdblist": the public list's address and the series
+	// folder and profile. Empty folders and profiles mean the defaults.
+	URL                    string `json:"url,omitempty"`
+	SeriesRootID           string `json:"series_root_id,omitempty"`
+	SeriesQualityProfileID string `json:"series_quality_profile_id,omitempty"`
+}
+
+type updateImportListInput struct {
+	Name                   string `json:"name"`
+	Enabled                bool   `json:"enabled"`
+	MovieRootID            string `json:"movie_root_id"`
+	MovieQualityProfileID  string `json:"movie_quality_profile_id"`
+	SeriesRootID           string `json:"series_root_id"`
+	SeriesQualityProfileID string `json:"series_quality_profile_id"`
 }
 
 type createNotificationDestinationInput struct {

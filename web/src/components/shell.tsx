@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import {
-  Activity, AlertTriangle, CalendarDays, Clapperboard, Film, Home, Inbox, LibraryBig, ListChecks, Menu, Monitor, Moon, Plus, Radio, Search, SearchCheck, Settings, Sun, Tv, X, Server, Bug,
+  Activity, AlertTriangle, CalendarDays, Clapperboard, Film, Home, Inbox, LibraryBig, ListChecks, ListPlus, Menu, Monitor, Moon, Plus, Radio, Search, SearchCheck, Settings, Sun, Tv, X, Server, Bug,
 } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 import { NavLink, Outlet, useLocation } from "react-router"
@@ -33,6 +33,7 @@ const groups: NavGroup[] = [
   ] },
   { label: "Opsætning", items: [
     { to: "/kilder", label: "Kilder", icon: Radio },
+    { to: "/lister", label: "Lister", icon: ListPlus },
     { to: "/indstillinger", label: "Indstillinger", icon: Settings },
     { to: "/system", label: "System", icon: Server },
     { to: "/kom-i-gang", label: "Kom i gang", icon: ListChecks },

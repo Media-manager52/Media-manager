@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Lister: follow MDBList lists, as in Radarr and Sonarr.** Paste the address of a public list from mdblist.com on the new **Lister** page (no account or key) and choose the film and series library and quality profile, or keep the defaults. Every new title on the list is added exactly as with **Tilføj** and searched at once: films with their TMDB identity, series with every season (specials left out), each season frozen from TMDB's episode list. The profile sets the language and quality requirements as for any other title. Titles you already have are skipped, titles you removed are never added again, and a title that leaves the list stays in the library. Lists are read every 6 hours or with **Læs nu**; the page shows what happened to each title. `POST/PATCH/DELETE /api/v1/import-lists`, `POST /api/v1/import-lists/{id}/sync` and `GET /api/v1/import-lists/{id}/entries`. Schema 64.
+
 ## [0.1.0-beta.10] - 2026-11-11
 
 ### Changed

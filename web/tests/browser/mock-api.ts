@@ -100,6 +100,17 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   [/^\/api\/v1\/backups$/, () => ({ configured: true, format: "mmbackup", restore_verification: "isolated", automatic_deletion: false, production_restore: false, offsite: { configured: false, kind: "", prefix: "" }, records: [{ id: "b1", state: "verified", format: "mmbackup", size_bytes: 1_000_000, attempts: 1, created_at: now, completed_at: now }] })],
   [/^\/api\/v1\/repairs$/, () => []],
   [/^\/api\/v1\/activity$/, () => [{ id: "act-1", kind: "audit", actor: "owner", action: "workflow.search_requested", aggregate_type: "workflow", aggregate_id: ids.attention, detail: {}, occurred_at: now }]],
+  [/^\/api\/v1\/import-lists$/, () => [{
+    id: "44444444-4444-4444-8444-444444444444", name: "Danske favoritter", provider: "mdblist", enabled: true,
+    source_owner: "someone", source_slug: "danske-favoritter", source_url: "https://mdblist.com/lists/someone/danske-favoritter",
+    series_root_id: "r2", series_root_name: "Serier", last_synced_at: now, next_sync_at: now, last_sync_state: "ok",
+    entries: { total: 3, pending: 0, added: 1, in_library: 1, removed_earlier: 0, failed: 1 }, created_at: now, updated_at: now,
+  }]],
+  [/^\/api\/v1\/import-lists\/[^/]+\/entries$/, () => [
+    { media_kind: "movie", tmdb_id: 1, title: "Testfilmen", year: 2024, rank: 1, state: "in_library", media_id: ids.movie, attempts: 0, first_seen_at: now, last_seen_at: now, updated_at: now },
+    { media_kind: "series", tmdb_id: 2, title: "Testserien", year: 2023, rank: 2, state: "added", media_id: ids.series, attempts: 0, first_seen_at: now, last_seen_at: now, updated_at: now },
+    { media_kind: "series", tmdb_id: 3, title: "Kommer snart", rank: 3, state: "failed", detail: "no_episodes", attempts: 2, first_seen_at: now, last_seen_at: now, updated_at: now },
+  ]],
   [/^\/api\/v1\/discovery\/search$/, () => ({ page: 1, totalPages: 1, totalResults: 1, results: [{ id: 99, mediaType: "movie", title: "Nyfilmen", releaseDate: "2025-05-01" }] })],
   [/^\/api\/v1\/discovery\/movie\/99$/, () => ({ kind: "movie", title: "Nyfilmen", year: 2025, tmdb_id: 99, identities: [{ namespace: "tmdb", value: "99", source: "seerr_metadata" }], metadata: { overview: "En ny film." }, enrichment_state: "tmdb_via_seerr", provider_states: {} })],
 ]

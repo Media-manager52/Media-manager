@@ -685,6 +685,15 @@
           },
           "provider": {
             "type": "string"
+          },
+          "series_quality_profile_id": {
+            "type": "string"
+          },
+          "series_root_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1045,6 +1054,57 @@
           },
           "reason": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_ImportListEntry": {
+        "properties": {
+          "attempts": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "imdb_id": {
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "tmdb_id": {
+            "type": "integer"
+          },
+          "tvdb_id": {
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -2526,6 +2586,29 @@
         },
         "type": "object"
       },
+      "UpdateImportListInput": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "movie_quality_profile_id": {
+            "type": "string"
+          },
+          "movie_root_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "series_quality_profile_id": {
+            "type": "string"
+          },
+          "series_root_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "WorkflowAction": {
         "properties": {
           "action": {
@@ -3990,7 +4073,7 @@
         "x-mm-effect": "read"
       },
       "post": {
-        "description": "Changes Media Manager state or queues local work. Audited.",
+        "description": "provider \"mdblist\" follows a public MDBList list given by url, like Radarr and Sonarr list imports: every title on it is added with the chosen (or default) film and series folder and quality profile, every season of a series, and searched at once. provider \"imdb_export\" creates a review-only list.\n\nChanges Media Manager state or queues local work. Audited.",
         "operationId": "createImportList",
         "requestBody": {
           "content": {
@@ -4041,6 +4124,48 @@
       }
     },
     "/api/v1/import-lists/{id}": {
+      "delete": {
+        "description": "Forgets the list and its titles. Titles it added stay in the library unchanged. Lists with reviewed IMDb snapshots are refused.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "deleteImportList",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Stop following a list",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      },
       "get": {
         "description": "No state change and no provider contact. Always safe.",
         "operationId": "getImportList",
@@ -4077,6 +4202,125 @@
           }
         },
         "summary": "One import list",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "read"
+      },
+      "patch": {
+        "description": "Name, on/off and the film and series library folder and quality profile (empty means the default). Titles already added keep theirs. Turning a list on queues a read.\n\nChanges Media Manager state or queues local work. Audited.",
+        "operationId": "updateImportList",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/UpdateImportListInput"
+                  }
+                ],
+                "required": [
+                  "name",
+                  "enabled"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Change a followed MDBList list",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/import-lists/{id}/entries": {
+      "get": {
+        "description": "No state change and no provider contact. Always safe.",
+        "operationId": "listImportListEntries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/Postgres_ImportListEntry"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Titles of a followed list and what happened to each",
         "tags": [
           "discovery"
         ],
@@ -4121,6 +4365,50 @@
           }
         },
         "summary": "Fetch a new snapshot of an import list",
+        "tags": [
+          "discovery"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/import-lists/{id}/sync": {
+      "post": {
+        "description": "Queues one read of the list from mdblist.com. New titles are added through the same path as Add and searched at once; titles already in the library or removed by the owner are left alone.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "syncImportList",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Read a followed MDBList list now",
         "tags": [
           "discovery"
         ],

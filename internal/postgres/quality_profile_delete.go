@@ -111,6 +111,7 @@ func (store *Store) DeleteQualityProfile(ctx context.Context, id uuid.UUID, repl
 			{`UPDATE adoption_batches SET default_quality_profile_id=$2 WHERE default_quality_profile_id=$1`, &result.MovedSettings},
 			{`UPDATE adoption_items SET quality_profile_id=$2 WHERE quality_profile_id=$1`, &result.MovedSettings},
 			{`UPDATE import_lists SET movie_quality_profile_id=$2 WHERE movie_quality_profile_id=$1`, &result.MovedSettings},
+			{`UPDATE import_lists SET series_quality_profile_id=$2 WHERE series_quality_profile_id=$1`, &result.MovedSettings},
 			{`UPDATE seerr_library_routes SET quality_profile_id=$2 WHERE quality_profile_id=$1`, &result.MovedSettings},
 		}
 		for _, move := range moves {
@@ -129,7 +130,7 @@ func (store *Store) DeleteQualityProfile(ctx context.Context, id uuid.UUID, repl
 			OR EXISTS(SELECT 1 FROM adopted_files WHERE quality_profile_id=$1)
 			OR EXISTS(SELECT 1 FROM adoption_batches WHERE default_quality_profile_id=$1)
 			OR EXISTS(SELECT 1 FROM adoption_items WHERE quality_profile_id=$1)
-			OR EXISTS(SELECT 1 FROM import_lists WHERE movie_quality_profile_id=$1)
+			OR EXISTS(SELECT 1 FROM import_lists WHERE movie_quality_profile_id=$1 OR series_quality_profile_id=$1)
 			OR EXISTS(SELECT 1 FROM seerr_library_routes WHERE quality_profile_id=$1)`, id.String()).Scan(&inUse); err != nil {
 			return result, err
 		}

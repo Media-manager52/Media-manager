@@ -183,7 +183,8 @@ non-obvious.
 | `seerr_request_snapshots`, `seerr_request_seasons`, `seerr_request_workflows` | Durable request display state, workflow links, and observed `seerr_server_id`/`seerr_profile_id`/`seerr_root_folder`/`seerr_is_4k` routing provenance. |
 | `seerr_library_routes` | Maps a Seerr root folder (instance + media kind + folder) to a Media Manager `library_roots` row and optional `quality_profiles` override. |
 | `notification_destinations`, `notification_deliveries` | Owner webhook subscriptions + attempts. |
-| `import_lists`, `import_list_snapshots`, `import_list_snapshot_items` | IMDb export lists and review-only snapshots. |
+| `import_lists`, `import_list_snapshots`, `import_list_snapshot_items` | IMDb export lists and review-only snapshots; followed MDBList lists (`provider='mdblist'`, `source_owner`/`source_slug`, film and series folder and profile, `next_sync_at`, last read state, schema 64). |
+| `import_list_entries` | Every title a followed MDBList list has carried and what happened to it (`pending`, `added`, `in_library`, `removed_earlier`, `failed` with a code and attempt count), with the media it maps to. Deleting a list deletes its entries, never its titles (schema 64). |
 | `backup_records` | Encrypted backup jobs, checksums, verification state. |
 | `prowlarr_backup_imports`, `prowlarr_indexer_candidates` | Review-only Prowlarr backup import. |
 
