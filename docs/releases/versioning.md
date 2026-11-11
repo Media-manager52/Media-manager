@@ -1,10 +1,10 @@
 # Versioning and image identity
 
 This document defines the contract every Media Manager release follows. The
-current release, `v0.1.0-beta.9`, was published on 2026-11-11; see
-[`v0.1.0-beta.9.md`](v0.1.0-beta.9.md) and its
-[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.9).
-Earlier releases: [`v0.1.0-beta.8`](v0.1.0-beta.8.md), [`v0.1.0-beta.7`](v0.1.0-beta.7.md), [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
+current release, `v0.1.0-beta.10`, was published on 2026-11-11; see
+[`v0.1.0-beta.10.md`](v0.1.0-beta.10.md) and its
+[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.10).
+Earlier releases: [`v0.1.0-beta.9`](v0.1.0-beta.9.md), [`v0.1.0-beta.8`](v0.1.0-beta.8.md), [`v0.1.0-beta.7`](v0.1.0-beta.7.md), [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
 [`v0.1.0-beta.1`](v0.1.0-beta.1.md).
 
 ## Versions
@@ -42,6 +42,15 @@ under `/usr/share/doc/media-manager/`, and carries the
 `org.opencontainers.image.licenses="AGPL-3.0-only"` label. The corresponding
 source is <https://github.com/Media-manager52/Media-manager>. Release checks must
 verify the label and both files in the published image.
+
+Released images (`v0.1.0-beta.10`, commit `03e1c1a4cfe59937a48312354c4eb3587a094b11`):
+
+```text
+api index         sha256:65e7baa952ceefbb9195526302cbba6e4b92aacb083e2b1fc7dc83c15f3fdeb0
+api linux/amd64   sha256:945a0954a5d930dd2943b4a51c2450c60f68f561683917f4db408da014e6cae2
+ui  index         sha256:cafe4da286a9cfa3345a55a79bacbc9cf8b9e7641c9410cfeaaaa647b1f12c2b
+ui  linux/amd64   sha256:16c99dace804ebccec2fc506b3f740bf032b7cc0a9ed8a0fd746cb8a00ab6311
+```
 
 Released images (`v0.1.0-beta.9`, commit `9160aae85642ccdbfc7aaad90722b0539bd7289d`):
 
