@@ -137,7 +137,8 @@ These have no React and are covered by Vitest. The preset fixture
   the overview's picture tiles, the library's poster grid and the title page's
   wide picture with facts and cast row (`components/title-hero.tsx`,
   `lib/title-facts.ts`) and the picture cards on Kræver handling and
-  Anmodninger (`components/media-card.tsx`) are adapted from HolyArrs
+  Anmodninger (`components/media-card.tsx`), the calendar's picture tiles
+  (`lib/calendar-groups.ts`) and Arbejde's dense list are adapted from HolyArrs
   (AGPL-3.0-only, see
   `THIRD_PARTY_NOTICES.md`).
 

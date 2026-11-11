@@ -4,7 +4,8 @@ import { useState, type ReactNode } from "react"
 import { Link, useSearchParams } from "react-router"
 
 import { loadAttentionWorkflows, loadWorkflowsByState, type APIWorkflow } from "@/api/client"
-import { Badge, Button, Card, Empty, ErrorBox, PageHeader, SearchField, Segmented } from "@/components/ui"
+import { Poster, sizedArtwork } from "@/components/poster"
+import { Button, Card, Dot, Empty, ErrorBox, PageHeader, Progress, SearchField, Segmented } from "@/components/ui"
 import { formatRelative } from "@/format"
 import { attentionLabel, stateLabel, stateTone, workflowDisplayState } from "@/i18n"
 import { describeVariant, workflowHref } from "@/lib/links"
@@ -79,25 +80,18 @@ export function WorkPage() {
             ? <Empty title="Ingen titler passer til filteret" icon={<Search className="size-8" />}>Prøv et andet navn{paged ? ", eller se næste side" : ""}.</Empty>
             : <Empty title={emptyStates[tab].title} icon={emptyStates[tab].icon}>{emptyStates[tab].text}</Empty>
         ) : null}
+        {items.length > 0 ? (
+          <div aria-hidden className="hidden grid-cols-[2.25rem_minmax(0,1fr)_10rem_9rem_9rem_1rem] items-center gap-4 border-b border-line px-4 py-2.5 text-xs font-medium text-text-3 md:grid">
+            <span />
+            <span>Titel</span>
+            <span>Fremdrift</span>
+            <span>Status</span>
+            <span>Ændret</span>
+            <span />
+          </div>
+        ) : null}
         <ul className="divide-y divide-line">
-          {items.map((workflow) => (
-            <li key={workflow.id}>
-              <Link to={workflowHref(workflow)} className="flex items-center gap-3 px-5 py-3 hover:bg-surface-2">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{workflow.title}{workflow.year ? <span className="font-normal text-text-3"> ({workflow.year})</span> : null}</div>
-                  <div className="truncate text-sm text-text-2">
-                    {describeVariant(workflow)}
-                    {workflow.attention_code ? ` · ${attentionLabel(workflow.attention_code)}` : ""}
-                    {workflow.download_percent !== undefined && workflow.state === "queued" ? ` · ${Math.round(workflow.download_percent)} %` : ""}
-                    {workflow.next_rescan_at && tab === "venter" ? ` · ny søgning ${formatRelative(workflow.next_rescan_at)}` : ""}
-                  </div>
-                </div>
-                <span className="hidden text-xs text-text-3 sm:block">{formatRelative(workflow.updated_at)}</span>
-                <Badge tone={stateTone(workflowDisplayState(workflow))}>{stateLabel(workflowDisplayState(workflow))}</Badge>
-                <ChevronRight aria-hidden className="size-4 shrink-0 text-text-3" />
-              </Link>
-            </li>
-          ))}
+          {items.map((workflow) => <WorkRow key={workflow.id} workflow={workflow} tab={tab} />)}
         </ul>
       </Card>
       {paged ? (
@@ -109,4 +103,46 @@ export function WorkPage() {
       ) : null}
     </>
   )
+}
+
+/** One row of work, dense like a download list: small poster, title, progress, status and age. */
+function WorkRow({ workflow, tab }: { workflow: APIWorkflow; tab: Tab }) {
+  const state = workflowDisplayState(workflow)
+  const progress = workProgress(workflow, tab)
+  return (
+    <li>
+      <Link to={workflowHref(workflow)} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 hover:bg-surface-2 md:grid-cols-[2.25rem_minmax(0,1fr)_10rem_9rem_9rem_1rem] md:gap-x-4">
+        <Poster compact src={sizedArtwork(workflow.poster_url, "w185")} title={workflow.title} kind={workflow.media_kind} className="w-9 rounded-md" />
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">{workflow.title}{workflow.year ? <span className="font-normal text-text-3"> ({workflow.year})</span> : null}</div>
+          <div className="truncate text-xs text-text-2">{describeVariant(workflow)}</div>
+          {progress ? <div className="mt-1 md:hidden">{progress}</div> : null}
+        </div>
+        <div className="hidden min-w-0 md:block">{progress}</div>
+        <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-text-2"><Dot tone={stateTone(state)} /><span className="truncate">{stateLabel(state)}</span></span>
+        <span className="hidden text-xs text-text-3 md:block">{formatRelative(workflow.updated_at)}</span>
+        <ChevronRight aria-hidden className="hidden size-4 shrink-0 text-text-3 md:block" />
+      </Link>
+    </li>
+  )
+}
+
+/**
+ * What the progress column says: AltMount's own percentage while a download is
+ * queued (never an estimate), why the work waits on the owner, or when the
+ * next search is due. Nothing when there is nothing to say.
+ */
+function workProgress(workflow: APIWorkflow, tab: Tab): ReactNode {
+  if (workflow.download_percent !== undefined && workflow.state === "queued") {
+    const percent = Math.max(0, Math.min(100, Math.round(workflow.download_percent)))
+    return (
+      <div className="flex items-center gap-2">
+        <Progress value={percent} max={100} tone="good" label={`Hentet ${percent} %`} />
+        <span className="tabular w-9 shrink-0 text-right text-xs text-text-2">{percent} %</span>
+      </div>
+    )
+  }
+  if (workflow.attention_code) return <span title={attentionLabel(workflow.attention_code)} className="block truncate text-xs text-warn">{attentionLabel(workflow.attention_code)}</span>
+  if (workflow.next_rescan_at && tab === "venter") return <span className="block truncate text-xs text-text-3">Ny søgning {formatRelative(workflow.next_rescan_at)}</span>
+  return null
 }
