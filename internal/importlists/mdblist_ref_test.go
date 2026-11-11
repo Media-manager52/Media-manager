@@ -45,3 +45,27 @@ func TestParseMDBListURLRefusesOtherAddresses(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMDBListURLKeepsDanishLetters(t *testing.T) {
+	want := MDBListRef{Owner: "søren", Slug: "julefilm-på-dansk-æøå"}
+	for _, input := range []string{
+		"https://mdblist.com/lists/søren/julefilm-på-dansk-æøå",
+		"https://mdblist.com/lists/s%C3%B8ren/julefilm-p%C3%A5-dansk-%C3%A6%C3%B8%C3%A5/",
+		"mdblist.com/lists/søren/julefilm-på-dansk-æøå/json",
+		"søren/julefilm-på-dansk-æøå",
+		"s%C3%B8ren/julefilm-p%C3%A5-dansk-%C3%A6%C3%B8%C3%A5",
+	} {
+		got, err := ParseMDBListURL(input)
+		if err != nil || got != want {
+			t.Errorf("ParseMDBListURL(%q) = %+v, %v; want %+v", input, got, err, want)
+		}
+	}
+	if got := want.URL(); got != "https://mdblist.com/lists/s%C3%B8ren/julefilm-p%C3%A5-dansk-%C3%A6%C3%B8%C3%A5" {
+		t.Fatalf("URL() = %q", got)
+	}
+	for _, input := range []string{"someone/a%2Fb", "someone/%zz", "someone/a%20b", "someone/%2E%2E", "someone/a\\b", "someone/a%25b"} {
+		if got, err := ParseMDBListURL(input); !errors.Is(err, ErrInvalidMDBListURL) {
+			t.Errorf("ParseMDBListURL(%q) = %+v, %v; want ErrInvalidMDBListURL", input, got, err)
+		}
+	}
+}
