@@ -8,6 +8,7 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 - **A title whose round is used up starts its next round by itself when its own rescan finds a new release.** Until now only a new upload seen by the newest-uploads reader did that; a release found by the title's daily rescan waited for you to press **Start ny runde** (about 100 titles were waiting like that). It is the same step as your button, under the same rules: unchanged language and quality requirements, the retained-output limit, and at most one automatic round per title per day across both paths. When a rule says no, nothing is written and the same find is not asked again. `FEED_OPEN_ROUNDS=off` still leaves every new round to you.
 - **Fewer pointless rescans.** A rescan of a used-up title that some indexers postponed (pacing or daily limit) waited at least two hours before trying the rest again, about 3,500 runs a day that mostly reused saved answers and were postponed again. It now waits at least 12 hours; the newest-uploads reader still brings it forward at once when a fitting upload appears.
+- **Go 1.27.4.** The build and CI move from Go 1.27.3 to 1.27.4, which fixes the `net/http` vulnerability GO-2026-6859 reported by `govulncheck`.
 - **Bibliotek and Find manglende load faster.** Looking up a title's workflows scanned every workflow ever made once per title; schema 60 adds an index on `workflows (media_id, variant, edition)`.
 
 ### Added
