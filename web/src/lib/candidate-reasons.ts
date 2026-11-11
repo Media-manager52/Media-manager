@@ -9,7 +9,22 @@ const reasonTexts: Record<string, string> = {
 const ruleNames: Array<[RegExp, (language: string) => string]> = [
   [/^Required subtitle or audio ([a-z]{2,3})$/, (language) => `${language} tale eller undertekst`],
   [/^Required audio ([a-z]{2,3})$/, (language) => `${language} tale`],
+  [/^Danish record of the release group$/, () => "Udgivergruppen"],
 ]
+
+/** Server reasons that carry numbers. */
+const reasonPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
+  [/^release group (\S+) had the required Danish in (\d+) of (\d+) measured downloads$/,
+    (match) => `${match[1]} havde dansk i kun ${match[2]} af ${match[3]} downloads, så den prøves ikke`],
+]
+
+function reasonText(reason: string): string {
+  for (const [pattern, render] of reasonPatterns) {
+    const match = reason.match(pattern)
+    if (match) return render(match)
+  }
+  return reasonTexts[reason] ?? reason
+}
 
 /** The server names its generated language rules in English; a saved profile's own rule keeps its name. */
 function ruleName(rule: string): string {
@@ -32,7 +47,7 @@ export function candidateReasonText(verdict: string | undefined, reasons: APIDec
   return blocking
     .slice(0, limit)
     .map((reason) => {
-      const text = reasonTexts[reason.reason] ?? reason.reason
+      const text = reasonText(reason.reason)
       return reason.rule ? `${ruleName(reason.rule)}: ${text}` : text
     })
     .join(" · ")

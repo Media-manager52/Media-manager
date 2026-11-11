@@ -221,6 +221,28 @@ type RankOptions struct {
 	// ended in verified output. It breaks ties between equally scored
 	// releases, which are usually the same release on several indexers.
 	IndexerReliability map[uuid.UUID]float64
+	// DanishGroupShare is each release group's smoothed share of downloads
+	// that had the required Danish, learned from this installation's own
+	// verified outputs. Among releases that say nothing about Danish, groups
+	// that usually have it are tried first.
+	DanishGroupShare map[string]float64
+}
+
+// danishGroupTier sorts release groups into likely (2), unknown or mixed
+// (1) and unlikely (0) to carry Danish. Coarse tiers keep the policy score
+// deciding between groups of similar record.
+func (options RankOptions) danishGroupTier(group string) int {
+	share, ok := options.DanishGroupShare[group]
+	switch {
+	case !ok || group == "":
+		return 1
+	case share >= 0.5:
+		return 2
+	case share < 0.15:
+		return 0
+	default:
+		return 1
+	}
 }
 
 func (options RankOptions) reliability(indexer uuid.UUID) float64 {

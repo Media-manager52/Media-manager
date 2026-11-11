@@ -22,23 +22,20 @@ func RankForDanishSubtitles(observations []Observation, evaluations []Evaluation
 func RankForDanishSubtitlesWith(observations []Observation, evaluations []Evaluation, options RankOptions) []Evaluation {
 	ranked := RankWith(observations, evaluations, options)
 	evidence := make(map[string]int, len(observations))
+	tier := make(map[string]int, len(observations))
 	for _, observation := range observations {
-		rank := 0
-		if danishSubtitleHint.MatchString(observation.Title) {
-			rank = 1
-		}
-		for _, fact := range observation.Facts {
-			if (fact.Name == "subtitle_languages" || fact.Name == "audio_languages" || fact.Name == "audio_language_hints") && (fact.State == FactObserved || fact.State == FactInferred) && intersectsFold(fact.Values, []string{"da"}) {
-				rank = 2
-			}
-		}
-		evidence[observation.ID.String()] = rank
+		evidence[observation.ID.String()] = DanishEvidence(observation)
+		tier[observation.ID.String()] = options.danishGroupTier(ReleaseGroup(observation.Title))
 	}
 	sort.SliceStable(ranked, func(i, j int) bool {
 		if ranked[i].Verdict != ranked[j].Verdict {
 			return verdictOrder(ranked[i].Verdict) < verdictOrder(ranked[j].Verdict)
 		}
-		return evidence[ranked[i].ObservationID.String()] > evidence[ranked[j].ObservationID.String()]
+		left, right := ranked[i].ObservationID.String(), ranked[j].ObservationID.String()
+		if evidence[left] != evidence[right] {
+			return evidence[left] > evidence[right]
+		}
+		return tier[left] > tier[right]
 	})
 	return ranked
 }
