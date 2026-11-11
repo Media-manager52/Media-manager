@@ -3,6 +3,7 @@ import { useState } from "react"
 
 import { deleteIntegration, loadIndexers, loadOldBoysCredentialStatus, saveOldBoysCredentials, updateIndexer, type APIIndexerUsage } from "@/api/client"
 import { AddIndexerDialog, DeleteSettingDialog, IndexerSetupActions } from "@/components/setup-forms"
+import { chipColor, IconChip, initials } from "@/components/icon-chip"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox, PageHeader, Progress } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative } from "@/format"
@@ -47,12 +48,15 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
-        <div className="min-w-0">
-          <h2 className="font-semibold">{indexer.name.replace(/\s*\{DK\}\s*/i, "")}</h2>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {!indexer.enabled ? <Badge>Slået fra</Badge> : failing ? <Badge tone="bad">{pacing.consecutive_failures} fejl i træk</Badge> : cooling ? <Badge tone="warn">Holder pause</Badge> : <Badge tone="good">Kører</Badge>}
-            {!indexer.commissioned && indexer.enabled ? <Badge tone="warn">Ikke godkendt</Badge> : null}
-            <Badge>{indexer.kind === "oldboys" ? "OldBoys" : "Newznab"}</Badge>
+        <div className="flex min-w-0 items-start gap-3">
+          <IconChip color={chipColor(indexer.name)}>{initials(indexer.name)}</IconChip>
+          <div className="min-w-0">
+            <h2 className="font-semibold">{indexer.name.replace(/\s*\{DK\}\s*/i, "")}</h2>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {!indexer.enabled ? <Badge>Slået fra</Badge> : failing ? <Badge tone="bad">{pacing.consecutive_failures} fejl i træk</Badge> : cooling ? <Badge tone="warn">Holder pause</Badge> : <Badge tone="good">Kører</Badge>}
+              {!indexer.commissioned && indexer.enabled ? <Badge tone="warn">Ikke godkendt</Badge> : null}
+              <Badge>{indexer.kind === "oldboys" ? "OldBoys" : "Newznab"}</Badge>
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

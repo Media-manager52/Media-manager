@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Trash2 } from "lucide-react"
 import { useState } from "react"
-import { Link, NavLink, useParams } from "react-router"
+import { Link, useParams } from "react-router"
 
 import {
   applyQualityProfilePolicy, ApiError, deleteLibraryRoot, deleteQualityProfile, deleteSeerrRoute, loadIntegrations, loadLibraryRoots, loadMediaStatus, loadNotificationDestinations, loadQualityProfiles, loadSeerrRouting, saveSeerrRoute,
@@ -12,7 +12,7 @@ import { AdoptionGuide } from "@/components/adoption-guide"
 import { OptionPicker } from "@/components/option-picker"
 import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection, DeleteSettingDialog, EditProfileDialog, fieldClass } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
-import { Badge, Button, Card, CardHeader, cx, Dialog, Empty, ErrorBox, PageHeader } from "@/components/ui"
+import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox, PageHeader, PillNav } from "@/components/ui"
 import { formatNumber, formatRelative, pluralize } from "@/format"
 import { errorMessage, kindLabel, languageName } from "@/i18n"
 import { profileOptions, rootOptions } from "@/lib/pickers"
@@ -33,13 +33,7 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Indstillinger" description="Hvordan Media Manager vælger udgivelser, og hvor filerne havner." />
-      <nav aria-label="Indstillinger" className="mb-6 flex gap-1 overflow-x-auto border-b border-line">
-        {sections.map((entry) => (
-          <NavLink key={entry.id} to={`/indstillinger/${entry.id}`} className={({ isActive }) => cx("-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium", isActive ? "border-accent text-text" : "border-transparent text-text-2 hover:text-text")}>
-            {entry.label}
-          </NavLink>
-        ))}
-      </nav>
+      <PillNav label="Indstillinger" items={sections.map((entry) => ({ to: `/indstillinger/${entry.id}`, label: entry.label }))} />
       {section === "profiler" ? <Profiles /> : null}
       {section === "biblioteker" ? <Roots /> : null}
       {section === "seerr" ? <SeerrRoutes /> : null}

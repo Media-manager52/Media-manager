@@ -1,6 +1,6 @@
 import { AlertTriangle, Loader2, Search, X } from "lucide-react"
 import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react"
-import { Link } from "react-router"
+import { Link, NavLink } from "react-router"
 
 import type { Tone } from "@/lib/tone"
 import { errorMessage } from "@/i18n"
@@ -32,7 +32,7 @@ export function Dot({ tone }: { tone: Tone }) {
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "inverse"
 const buttonClasses: Record<ButtonVariant, string> = {
-  primary: "bg-accent text-[#1b1b1b] hover:bg-accent-strong shadow-sm",
+  primary: "bg-text text-bg hover:opacity-90 shadow-sm",
   secondary: "bg-surface border border-line text-text hover:bg-surface-2",
   ghost: "text-text-2 hover:bg-surface-2 hover:text-text",
   danger: "bg-bad-soft text-bad hover:brightness-95",
@@ -241,3 +241,17 @@ export function Progress({ value, max, tone = "info", label }: { value: number; 
     </div>
   )
 }
+
+/** Section links shown as pills, like the segmented filters; the current page is highlighted. */
+export function PillNav({ label, items }: { label: string; items: Array<{ to: string; label: string; end?: boolean }> }) {
+  return (
+    <nav aria-label={label} className="mb-6 flex max-w-full gap-1 self-start overflow-x-auto rounded-xl bg-surface-2 p-1 sm:w-fit">
+      {items.map((entry) => (
+        <NavLink key={entry.to} end={entry.end} to={entry.to} className={({ isActive }) => cx("flex h-10 shrink-0 items-center rounded-lg px-3 text-sm font-medium transition-colors sm:h-8", isActive ? "bg-surface text-text shadow-sm" : "text-text-2 hover:text-text")}>
+          {entry.label}
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
+

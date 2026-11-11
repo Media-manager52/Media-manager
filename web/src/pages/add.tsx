@@ -7,6 +7,7 @@ import {
   ApiError, createMedia, loadDiscoveryMetadata, loadLibraryRoots, loadQualityProfiles, searchMetadata,
   type APIDiscoveryDetail, type APIDiscoverySearchResult, type CreateMediaInput,
 } from "@/api/client"
+import { IconChip } from "@/components/icon-chip"
 import { OptionPicker } from "@/components/option-picker"
 import { Poster, sizedArtwork } from "@/components/poster"
 import { useToast } from "@/components/toast"
@@ -24,9 +25,9 @@ export function AddPage() {
 }
 
 const addShortcuts = [
-  { to: "/bibliotek/mangler", title: "Find manglende", text: "Nye sæsoner af dine serier og film uden fil, klar til at blive tilføjet.", Icon: SearchCheck },
-  { to: "/anmodninger", title: "Anmodninger fra Seerr", text: "Det, du og andre har bedt om i Seerr, og hvor langt det er nået.", Icon: Inbox },
-  { to: "/indstillinger/overtag", title: "Overtag dit bibliotek", text: "Lad Media Manager holde øje med film og serier, der allerede ligger i Plex.", Icon: FolderInput },
+  { to: "/bibliotek/mangler", title: "Find manglende", text: "Nye sæsoner af dine serier og film uden fil, klar til at blive tilføjet.", Icon: SearchCheck, color: "#2563eb" },
+  { to: "/anmodninger", title: "Anmodninger fra Seerr", text: "Det, du og andre har bedt om i Seerr, og hvor langt det er nået.", Icon: Inbox, color: "#7c3aed" },
+  { to: "/indstillinger/overtag", title: "Overtag dit bibliotek", text: "Lad Media Manager holde øje med film og serier, der allerede ligger i Plex.", Icon: FolderInput, color: "#0d9488" },
 ]
 
 function AddView({ initial }: { initial: string }) {
@@ -66,10 +67,10 @@ function AddView({ initial }: { initial: string }) {
       {picked ? <AddForm result={picked} onBack={() => setPicked(null)} /> : null}
       {!picked && submitted.length < 2 ? (
         <div className="grid gap-3 sm:grid-cols-3">
-          {addShortcuts.map(({ to, title, text, Icon }) => (
-            <Link key={to} to={to} className="group rounded-2xl border border-line bg-surface p-4 shadow-card transition-colors hover:border-text-3">
-              <Icon aria-hidden className="size-5 text-accent-strong" />
-              <div className="mt-2 font-medium group-hover:underline">{title}</div>
+          {addShortcuts.map(({ to, title, text, Icon, color }) => (
+            <Link key={to} to={to} className="group rounded-2xl border border-line bg-surface p-4 shadow-card transition-shadow hover:shadow-lift">
+              <IconChip color={color}><Icon className="size-4" /></IconChip>
+              <div className="mt-3 font-semibold group-hover:underline">{title}</div>
               <p className="mt-1 text-sm text-text-2">{text}</p>
             </Link>
           ))}

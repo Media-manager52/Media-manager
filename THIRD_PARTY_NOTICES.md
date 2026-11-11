@@ -33,8 +33,8 @@ text shipped with each dependency.
   surface, text and shadow values in `web/src/styles.css`, the grouped menu and
   the overview's picture tiles and count cards, the library's poster grid and
   the title page's wide picture, facts and cast row, and the picture cards on
-  Kræver handling and Anmodninger, the calendar tiles and Arbejde's dense list
-  are adapted from HolyArrs'
+  Kræver handling and Anmodninger, the calendar tiles, Arbejde's dense list,
+  the dark main buttons, pill tabs and coloured chips are adapted from HolyArrs'
   design. No HolyArrs source file is copied; Media Manager's own components
   are written in React. HolyArrs' name and logo are not used.
 
