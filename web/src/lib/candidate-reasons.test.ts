@@ -36,6 +36,11 @@ describe("candidateReasonText rule names", () => {
     expect(candidateReasonText("rejected", [failed("Required audio da")])).toBe("Dansk tale: opfylder ikke kravet")
   })
 
+  it("explains a release group that almost never had Danish", () => {
+    expect(candidateReasonText("held", [{ rule: "Danish record of the release group", rule_kind: "required", decision: "fail", reason: "release group megusta had the required Danish in 10 of 340 measured downloads" }]))
+      .toBe("Udgivergruppen: megusta havde dansk i kun 10 af 340 downloads, så den prøves ikke")
+  })
+
   it("keeps the name of a rule the owner wrote", () => {
     expect(candidateReasonText("rejected", [failed("Danske undertekster")])).toBe("Danske undertekster: opfylder ikke kravet")
   })

@@ -270,6 +270,15 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   a workflow created after it, after a newest-uploads match for that workflow,
   or after an owner search; an incomplete answer (more results than the page
   bound) is never shared and the episodes search on their own (invariant S21).
+- Danish group record (`danish_groups.go`, `postgres/danish_groups.go`): each
+  release group's measured Danish outcomes (`output_verified` versus
+  `subtitle_requirements_unverified`, 90 days, profiles requiring Danish,
+  titles not originally Danish, names without a Danish clue), cached for 30
+  minutes and kept apart for Danish-audio profiles. `PersistSearch` ranks
+  releases without a Danish clue by the group's tier
+  (`RankOptions.DanishGroupShare`); `holdUnlikelyDanishGroups` holds an
+  eligible release without a clue from a group with ≥ 20 downloads and ≤ 5 %
+  Danish (invariant S22).
 - `FeedWatcher` (`feed_watch.go`): every minute it reads the newest uploads
   (`t=search` without a query, movie and TV categories) of each enabled,
   commissioned Newznab indexer whose read is due, through the paced client as

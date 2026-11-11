@@ -432,6 +432,11 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 			returned[observation.IndexerID.String()+"\x00"+observation.NativeGUID] = true
 		}
 	}
+	danishGroups, err := service.Store.DanishGroupRecords(ctx)
+	if err != nil {
+		return err
+	}
+	holdUnlikelyDanishGroups(evaluated, subtitlePolicy, danishGroups)
 	var state *postgres.SearchPartialRetry
 	if search.SearchRoundID != (uuid.UUID{}) {
 		state = &postgres.SearchPartialRetry{
