@@ -293,8 +293,9 @@ If you add a service handler, keep it idempotent: events are at-least-once.
 - `FeedWatcher` (`feed_watch.go`): every minute it reads the newest uploads
   (`t=search` without a query, movie and TV categories) of each enabled,
   commissioned Newznab indexer whose read is due, through the paced client as
-  `WorkloadFeed`. Uploads not seen before are matched against all waiting and
-  held workflows with the search's own checks (`TitleIndex` lookup, then
+  `WorkloadFeed`. Uploads not seen before are matched against all waiting,
+  held and monitored (a new episode before its first scheduled search)
+  workflows with the search's own checks (`TitleIndex` lookup, then
   `workflowScopeRules` and `constrainMediaMatch`; only `eligible` counts).
   Matches are stored and `Store.AdvanceFeedMatches` brings the workflow's own
   scheduled search forward: never within 30 minutes of its last search, at most
@@ -320,8 +321,12 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   not asked again. `FEED_OPEN_ROUNDS=off` leaves every new round to the owner. The read interval
   moves between 5 and 20 minutes with the share of new uploads per read and
   never below `window × 3 pages × 10 / query_limit` (a tenth of the query limit
-  with every page counted); a failing list backs off from one
-  hour to one day. `FEED_WATCH=off` disables it.
+  at three pages a read); a failing list backs off from one
+  hour to one day. A read follows further pages while a whole page is new, up
+  to ten; a read that never reaches an upload seen before counts as a gap
+  (`gap_reads_total`, logged, next read at the lower bound). The newest 1,000
+  upload IDs are saved with the state (`recent_guids`), so a read after a
+  restart goes on from the last one. `FEED_WATCH=off` disables it.
 - `SearchPlan`/`PlanSearch` (`search_plan.go`): pure translation of a validated
   `newznab.CapabilityProfile` + verified identities into one primary request and
   strictly bound fallbacks (`FallbackFor(trigger)`).

@@ -94,6 +94,7 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
             <span className="sm:col-span-2" title="Media Manager læser listen over indexerens nyeste uploads. Passer en upload til en titel, der venter, søges titlen med det samme.">
               {newUploadsFailed ? `Nye uploads kunne ikke læses${newUploads.next_read_at ? ` (prøver igen ${formatRelative(newUploads.next_read_at)})` : ""}` : `Nye uploads læst ${newUploads.last_read_at ? formatRelative(newUploads.last_read_at) : "snart"}`}
               {newUploads.matches_24h ? ` · ${formatNumber(newUploads.matches_24h)} passede til ventende titler sidste døgn` : ""}
+              {newUploads.gap_reads ? ` · ${formatNumber(newUploads.gap_reads)} af ${formatNumber(newUploads.reads ?? 0)} læsninger nåede ikke tilbage til forrige læsning` : ""}
             </span>
           ) : null}
         </div>

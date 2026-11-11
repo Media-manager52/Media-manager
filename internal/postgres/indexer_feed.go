@@ -54,7 +54,8 @@ type FeedWorkflow struct {
 }
 
 // ListFeedWorkflows returns every workflow that is waiting for a release:
-// waiting ones and held ones. Both have a search of their own scheduled.
+// waiting ones, held ones and new episodes waiting for their first search
+// (monitored). Each has a search of its own scheduled.
 func (store *Store) ListFeedWorkflows(ctx context.Context) ([]FeedWorkflow, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,workflow.variant,media.id::text,media.kind,media.title,media.year,
 		COALESCE(metadata.data->>'original_title',''),COALESCE(metadata.data->'aliases','[]'::jsonb),
@@ -63,7 +64,7 @@ func (store *Store) ListFeedWorkflows(ctx context.Context) ([]FeedWorkflow, erro
 		FROM workflows workflow
 		JOIN media_items media ON media.id=workflow.media_id
 		LEFT JOIN media_metadata metadata ON metadata.media_id=media.id
-		WHERE workflow.state IN ('waiting','held') AND media.deleted_at IS NULL
+		WHERE workflow.state IN ('waiting','held','monitored') AND media.deleted_at IS NULL
 		ORDER BY media.id,workflow.id`)
 	if err != nil {
 		return nil, err
@@ -110,10 +111,19 @@ type IndexerFeedState struct {
 	ConsecutiveFailures int
 	LastItemCount       int
 	LastNewCount        int
+	// RecentGUIDs are the upload IDs the reader saw last, oldest first, so a
+	// read after a restart goes on from where the last one stopped.
+	RecentGUIDs []string
+	// ReadsTotal counts successful reads; GapReadsTotal those that did not
+	// reach an upload seen before, so uploads may have been missed.
+	ReadsTotal       int64
+	GapReadsTotal    int64
+	LastReadComplete bool
 }
 
 func (store *Store) IndexerFeedStates(ctx context.Context) (map[uuid.UUID]IndexerFeedState, error) {
-	rows, err := store.Pool.Query(ctx, `SELECT indexer_instance_id::text,last_read_at,next_read_at,interval_seconds,last_outcome,consecutive_failures,last_item_count,last_new_count FROM indexer_feed_state`)
+	rows, err := store.Pool.Query(ctx, `SELECT indexer_instance_id::text,last_read_at,next_read_at,interval_seconds,last_outcome,consecutive_failures,last_item_count,last_new_count,
+		recent_guids,reads_total,gap_reads_total,last_read_complete FROM indexer_feed_state`)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +132,8 @@ func (store *Store) IndexerFeedStates(ctx context.Context) (map[uuid.UUID]Indexe
 	for rows.Next() {
 		var state IndexerFeedState
 		var idText string
-		if err := rows.Scan(&idText, &state.LastReadAt, &state.NextReadAt, &state.IntervalSeconds, &state.LastOutcome, &state.ConsecutiveFailures, &state.LastItemCount, &state.LastNewCount); err != nil {
+		if err := rows.Scan(&idText, &state.LastReadAt, &state.NextReadAt, &state.IntervalSeconds, &state.LastOutcome, &state.ConsecutiveFailures, &state.LastItemCount, &state.LastNewCount,
+			&state.RecentGUIDs, &state.ReadsTotal, &state.GapReadsTotal, &state.LastReadComplete); err != nil {
 			return nil, err
 		}
 		state.IndexerInstanceID, _ = uuid.Parse(idText)
@@ -148,11 +159,18 @@ func (store *Store) RecordIndexerFeedRead(ctx context.Context, state IndexerFeed
 		return 0, err
 	}
 	defer transaction.Rollback(ctx)
-	if _, err := transaction.Exec(ctx, `INSERT INTO indexer_feed_state(indexer_instance_id,last_read_at,next_read_at,interval_seconds,last_outcome,consecutive_failures,last_item_count,last_new_count,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+	recent := state.RecentGUIDs
+	if recent == nil {
+		recent = []string{}
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO indexer_feed_state(indexer_instance_id,last_read_at,next_read_at,interval_seconds,last_outcome,consecutive_failures,last_item_count,last_new_count,updated_at,
+			recent_guids,reads_total,gap_reads_total,last_read_complete)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (indexer_instance_id) DO UPDATE SET last_read_at=EXCLUDED.last_read_at,next_read_at=EXCLUDED.next_read_at,interval_seconds=EXCLUDED.interval_seconds,
-			last_outcome=EXCLUDED.last_outcome,consecutive_failures=EXCLUDED.consecutive_failures,last_item_count=EXCLUDED.last_item_count,last_new_count=EXCLUDED.last_new_count,updated_at=EXCLUDED.updated_at`,
-		state.IndexerInstanceID.String(), state.LastReadAt, state.NextReadAt, state.IntervalSeconds, state.LastOutcome, state.ConsecutiveFailures, state.LastItemCount, state.LastNewCount, now.UTC()); err != nil {
+			last_outcome=EXCLUDED.last_outcome,consecutive_failures=EXCLUDED.consecutive_failures,last_item_count=EXCLUDED.last_item_count,last_new_count=EXCLUDED.last_new_count,updated_at=EXCLUDED.updated_at,
+			recent_guids=EXCLUDED.recent_guids,reads_total=EXCLUDED.reads_total,gap_reads_total=EXCLUDED.gap_reads_total,last_read_complete=EXCLUDED.last_read_complete`,
+		state.IndexerInstanceID.String(), state.LastReadAt, state.NextReadAt, state.IntervalSeconds, state.LastOutcome, state.ConsecutiveFailures, state.LastItemCount, state.LastNewCount, now.UTC(),
+		recent, state.ReadsTotal, state.GapReadsTotal, state.LastReadComplete); err != nil {
 		return 0, err
 	}
 	inserted := 0
@@ -287,7 +305,7 @@ func (store *Store) advanceFeedWorkflow(ctx context.Context, workflowID uuid.UUI
 	}
 	outcome := ""
 	switch {
-	case state != workflows.StateWaiting && state != workflows.StateHeld:
+	case state != workflows.StateWaiting && state != workflows.StateHeld && state != workflows.StateMonitored:
 		// Searching, downloading, done or with the owner: nothing to bring forward.
 		outcome = "not_applicable"
 	default:
@@ -546,11 +564,16 @@ type IndexerFeedSummary struct {
 	NextReadAt  *time.Time `json:"next_read_at,omitempty"`
 	LastOutcome string     `json:"last_outcome,omitempty"`
 	Matches24h  int        `json:"matches_24h"`
+	// Reads counts successful reads; GapReads those that did not reach an
+	// upload seen before, so uploads may have been missed between them.
+	Reads    int64 `json:"reads"`
+	GapReads int64 `json:"gap_reads"`
 }
 
 func (store *Store) IndexerFeedSummaries(ctx context.Context, now time.Time) (map[uuid.UUID]IndexerFeedSummary, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT feed.indexer_instance_id::text,feed.last_read_at,feed.next_read_at,feed.last_outcome,
-		(SELECT count(*) FROM indexer_feed_matches hit WHERE hit.indexer_instance_id=feed.indexer_instance_id AND hit.seen_at>$1)
+		(SELECT count(*) FROM indexer_feed_matches hit WHERE hit.indexer_instance_id=feed.indexer_instance_id AND hit.seen_at>$1),
+		feed.reads_total,feed.gap_reads_total
 		FROM indexer_feed_state feed`, now.UTC().Add(-24*time.Hour))
 	if err != nil {
 		return nil, err
@@ -560,7 +583,7 @@ func (store *Store) IndexerFeedSummaries(ctx context.Context, now time.Time) (ma
 	for rows.Next() {
 		var summary IndexerFeedSummary
 		var idText string
-		if err := rows.Scan(&idText, &summary.LastReadAt, &summary.NextReadAt, &summary.LastOutcome, &summary.Matches24h); err != nil {
+		if err := rows.Scan(&idText, &summary.LastReadAt, &summary.NextReadAt, &summary.LastOutcome, &summary.Matches24h, &summary.Reads, &summary.GapReads); err != nil {
 			return nil, err
 		}
 		if id, parseErr := uuid.Parse(idText); parseErr == nil {

@@ -386,7 +386,7 @@ export type APIIndexerUsage = {
   /** Downloads with a final outcome in the last 30 days; verified ones passed every check. */
   downloads_30d?: { finished: number; verified: number }
   /** The newest-uploads reader; absent until the indexer's list has been read once. last_outcome is "ok", "deferred" or a failure code. */
-  new_uploads?: { last_read_at?: string; next_read_at?: string; last_outcome?: string; matches_24h: number }
+  new_uploads?: { last_read_at?: string; next_read_at?: string; last_outcome?: string; matches_24h: number; reads?: number; gap_reads?: number }
 }
 export type APIQueueSnapshot = {
   checked_at: string; due: number; scheduled: number; leased: number; retrying: number
