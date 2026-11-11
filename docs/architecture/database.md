@@ -98,7 +98,7 @@ non-obvious.
 | `workflow_release_exclusions` | Exact release exclusions after attributable failure. |
 | `workflow_package_exclusions` | Canonical NZB package exclusions. |
 | `workflow_submitted_packages` | Package identity → submission dedup. |
-| `workflow_retry_discovery` | Low-priority discovery state, completeness, jitter, new-identity flags. |
+| `workflow_retry_discovery` | Low-priority discovery state, completeness, jitter, new-identity flags; `automatic_round_refused_generation` remembers a discovery for which an automatic round was refused (schema 60). |
 | `search_partial_retries` | Durable targeted/recovery partial-search completion evidence keyed by workflow, round, mode and search-intent fingerprint; stores exact candidate and immutable observation IDs. |
 
 ### Search, evidence, selection, blocklist

@@ -714,8 +714,12 @@ const (
 	// Recovery rescans whose coverage was cut short by pacing or exhausted
 	// budgets wait at least this long. Retrying at the next pacing slot made
 	// every waiting title rescan every few minutes while the background
-	// budget was exhausted, without ever reaching the deferred indexers.
-	recoveryPartialRetryFloor = 2 * time.Hour
+	// budget was exhausted, without ever reaching the deferred indexers. A
+	// two-hour floor still produced about 3,500 continuation runs a day that
+	// mostly reused saved answers and were deferred again; these titles have
+	// already used a whole round, rescan daily anyway, and the newest-uploads
+	// reader brings a rescan forward as soon as a fitting upload appears.
+	recoveryPartialRetryFloor = 12 * time.Hour
 )
 
 // recoveryPartialRetryAt schedules an incomplete recovery rescan at the

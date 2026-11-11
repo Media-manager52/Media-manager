@@ -208,7 +208,7 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 	attentionCode, attentionDetail := "", ""
 	if exhausted {
 		attentionCode = workflows.AttentionRoundExhaustedWaitingNewIdentity
-		attentionDetail = fmt.Sprintf("All %d acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; another round is opened by the owner, or for a new upload that fits this title when automatic rounds are on.", attemptLimit)
+		attentionDetail = fmt.Sprintf("All %d acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; when automatic rounds are on another round opens once one is found, otherwise the owner opens it.", attemptLimit)
 		var cutoff int64
 		if err := transaction.QueryRow(ctx, `SELECT COALESCE(max(first_seen_sequence),0) FROM release_candidates WHERE workflow_id=$1`, job.Workflow.ID.String()).Scan(&cutoff); err != nil {
 			return acquisitionFailureResult{}, err

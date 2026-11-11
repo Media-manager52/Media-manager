@@ -33,7 +33,9 @@ import (
 // a match brings the paced discovery forward and, with OpenRounds, opens the
 // next round once that discovery holds a newly observed eligible release: the
 // owner's "start next round" under the same guards, at most once a day per
-// title. The round's own search then selects under the unchanged rules.
+// title. The round's own search then selects under the unchanged rules. With
+// OpenRounds the watcher also opens that round when the title's own scheduled
+// rescan found such a release, under the same guards and the same daily limit.
 const (
 	feedTick = time.Minute
 	// One indexer is read at most every feedMinInterval and at least every
@@ -159,6 +161,16 @@ func (watcher *FeedWatcher) RunOnce(ctx context.Context) error {
 	}
 	if result.RoundsOpened > 0 {
 		slog.Info("Newest-uploads watching: new rounds opened for titles with a new eligible release", "rounds", result.RoundsOpened)
+	}
+	if !watcher.OpenRounds {
+		return nil
+	}
+	rescan, err := store.OpenRescanFoundRounds(ctx, watcher.now(), feedAdvanceLimit)
+	if err != nil {
+		return err
+	}
+	if rescan.RoundsOpened > 0 {
+		slog.Info("Automatic rounds: new rounds opened for titles whose rescan found a new eligible release", "rounds", rescan.RoundsOpened)
 	}
 	return nil
 }

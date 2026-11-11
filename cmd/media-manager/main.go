@@ -381,8 +381,11 @@ func run() error {
 	if !strings.EqualFold(strings.TrimSpace(os.Getenv("FEED_WATCH")), "off") {
 		// Reads each indexer's newest uploads and brings the search of
 		// matching waiting titles forward. FEED_WATCH=off leaves only the
-		// scheduled searches. FEED_OPEN_ROUNDS=off keeps a new round of
-		// attempts the owner's action.
+		// scheduled searches. With FEED_OPEN_ROUNDS on (the default) the
+		// watcher also opens the next round of a used-up title once a new
+		// upload or its own rescan found an eligible release, at most once a
+		// day per title; FEED_OPEN_ROUNDS=off keeps every new round the
+		// owner's action.
 		openRounds := !strings.EqualFold(strings.TrimSpace(os.Getenv("FEED_OPEN_ROUNDS")), "off")
 		go (&acquisition.FeedWatcher{Search: searchService, OpenRounds: openRounds}).Run(workerContext)
 	}

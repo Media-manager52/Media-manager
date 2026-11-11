@@ -22,14 +22,14 @@ describe("explainWorkflow", () => {
     const watching = explainWorkflow(workflow({ ...usedUp, next_rescan_at: later }), [], now)
     expect(watching.now).toContain("Den holder øje med nye udgivelser og kigger igen")
     expect(watching.now).not.toContain("spærret")
-    expect(watching.you).toBe("Ikke lige nu. En ny runde kan starte af sig selv, når en ny upload passer til titlen. Ellers starter du den, når en ny udgivelse er fundet.")
+    expect(watching.you).toBe("Ikke lige nu. En ny runde kan starte af sig selv, når der findes en ny udgivelse, der passer til titlen. Ellers starter du den selv.")
     expect(explainWorkflow(workflow({ ...usedUp }), [], now).now).toBe("Alle forsøg er brugt. Den holder øje med, om en ny egnet udgivelse dukker op.")
   })
 
   it("offers known releases only when that action is really available", () => {
     const withAction = (available: boolean) => workflow({ ...usedUp, available_actions: [{ action: "open_round_from_known", available }] as APIWorkflow["available_actions"] })
     expect(explainWorkflow(withAction(true), [], now).you).toBe("Ikke nødvendigt. Du kan prøve en kendt udgivelse nu. Ellers venter den på en ny.")
-    expect(explainWorkflow(withAction(false), [], now).you).toBe("Ikke lige nu. En ny runde kan starte af sig selv, når en ny upload passer til titlen. Ellers starter du den, når en ny udgivelse er fundet.")
+    expect(explainWorkflow(withAction(false), [], now).you).toBe("Ikke lige nu. En ny runde kan starte af sig selv, når der findes en ny udgivelse, der passer til titlen. Ellers starter du den selv.")
   })
 
   it("still says searching is blocked when it is blocked for another reason", () => {

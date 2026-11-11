@@ -65,11 +65,15 @@ func TestRecentReleaseUsesThisAndLastYear(t *testing.T) {
 func TestRecoveryPartialRetryWaitsForFloor(t *testing.T) {
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	// A pacing slot seconds away must not trigger a rescan every few minutes.
-	if got := recoveryPartialRetryAt(now.Add(3*time.Second), now); !got.Equal(now.Add(2 * time.Hour)) {
+	if got := recoveryPartialRetryAt(now.Add(3*time.Second), now); !got.Equal(now.Add(12 * time.Hour)) {
 		t.Fatalf("pacing retry=%s", got)
 	}
+	// A budget reset within the floor waits for the floor too.
+	if got := recoveryPartialRetryAt(now.Add(9*time.Hour), now); !got.Equal(now.Add(12 * time.Hour)) {
+		t.Fatalf("budget retry within the floor=%s", got)
+	}
 	// A later budget reset is respected as is.
-	if got := recoveryPartialRetryAt(now.Add(9*time.Hour), now); !got.Equal(now.Add(9 * time.Hour)) {
+	if got := recoveryPartialRetryAt(now.Add(15*time.Hour), now); !got.Equal(now.Add(15 * time.Hour)) {
 		t.Fatalf("budget retry=%s", got)
 	}
 }

@@ -36,6 +36,15 @@ const feedRoundInterval = 24 * time.Hour
 // feedRoundReason is the transition reason of a round opened for a new upload.
 const feedRoundReason = "a new upload matched this title; a new bounded acquisition round was opened after new eligible discovery"
 
+// rescanRoundReason is the transition reason of a round opened because the
+// title's own scheduled rescan found a newly observed eligible release.
+const rescanRoundReason = "the scheduled rescan found a newly observed eligible release; a new bounded acquisition round was opened"
+
+// automaticRoundReasons are every reason the worker opens a round with. A
+// title gets at most one such round per feedRoundInterval, whichever path
+// opened it.
+var automaticRoundReasons = []string{feedRoundReason, rescanRoundReason}
+
 // FeedWorkflow is one waiting title the newest uploads are compared with.
 // Media carries the saved titles and identities only.
 type FeedWorkflow struct {
@@ -362,9 +371,15 @@ func advanceFeedSearch(ctx context.Context, transaction pgx.Tx, workflowID uuid.
 // the indexers and applies the profile's rules as every search does. It
 // returns "round_opened", or "not_applicable" when the action is refused.
 func (store *Store) openFeedRound(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID, now time.Time) (string, error) {
+	return store.openAutomaticRound(ctx, transaction, workflowID, now, feedRoundReason, "feed_match")
+}
+
+// openAutomaticRound is openFeedRound for either path: reason is recorded on
+// the transition and source on the audit event.
+func (store *Store) openAutomaticRound(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID, now time.Time, reason, source string) (string, error) {
 	var recent bool
-	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_transitions WHERE workflow_id=$1 AND actor='worker' AND reason=$2 AND occurred_at>$3)`,
-		workflowID.String(), feedRoundReason, now.Add(-feedRoundInterval)).Scan(&recent); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_transitions WHERE workflow_id=$1 AND actor='worker' AND reason=ANY($2) AND occurred_at>$3)`,
+		workflowID.String(), automaticRoundReasons, now.Add(-feedRoundInterval)).Scan(&recent); err != nil {
 		return "", err
 	}
 	if recent {
@@ -377,7 +392,7 @@ func (store *Store) openFeedRound(ctx context.Context, transaction pgx.Tx, workf
 		return "", err
 	}
 	defer attempt.Rollback(ctx)
-	err = store.openNextAcquisitionRound(ctx, attempt, workflowID, now, "worker", feedRoundReason)
+	err = store.openNextAcquisitionRound(ctx, attempt, workflowID, now, "worker", reason)
 	var refusal ActionRefusal
 	if errors.As(err, &refusal) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConcurrentModification) {
 		if rollbackErr := attempt.Rollback(ctx); rollbackErr != nil {
@@ -388,7 +403,7 @@ func (store *Store) openFeedRound(ctx context.Context, transaction pgx.Tx, workf
 	if err != nil {
 		return "", err
 	}
-	detail, _ := json.Marshal(map[string]any{"reason": "feed_match"})
+	detail, _ := json.Marshal(map[string]any{"reason": source})
 	if _, err := attempt.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at)
 		VALUES($1,'worker','workflow.acquisition_round_opened','workflow',$2,$3,$4)`, uuid.NewV7().String(), workflowID.String(), detail, now); err != nil {
 		return "", err
@@ -440,6 +455,84 @@ func (store *Store) openFoundFeedRound(ctx context.Context, workflowID uuid.UUID
 	if _, err := transaction.Exec(ctx, `UPDATE indexer_feed_matches SET outcome=$2,settled_at=$3 WHERE workflow_id=$1 AND outcome='discovery_advanced' AND settled_at>$4`,
 		workflowID.String(), outcome, now, now.Add(-feedMatchLifetime)); err != nil {
 		return "", err
+	}
+	return outcome, transaction.Commit(ctx)
+}
+
+// RescanRoundResult counts what OpenRescanFoundRounds did.
+type RescanRoundResult struct {
+	RoundsOpened int
+	Refused      int
+}
+
+// OpenRescanFoundRounds opens the next round for titles whose round is used up
+// and whose own scheduled rescan found a newly observed eligible release
+// (discovery `ready`), at most limit titles per call. It is the owner's "start
+// next round" under every one of its guards, and shares the limit of one
+// automatic round per title per feedRoundInterval with the newest-uploads
+// path. A refusal writes nothing but a note on the discovery, so the same
+// discovery is not asked again; a later discovery is.
+func (store *Store) OpenRescanFoundRounds(ctx context.Context, now time.Time, limit int) (RescanRoundResult, error) {
+	var result RescanRoundResult
+	now = now.UTC()
+	rows, err := store.Pool.Query(ctx, `SELECT discovery.workflow_id::text FROM workflow_retry_discovery discovery
+		JOIN workflows workflow ON workflow.id=discovery.workflow_id
+		WHERE discovery.state='ready' AND workflow.state='waiting' AND workflow.terminal_at IS NULL
+		  AND discovery.automatic_round_refused_generation IS DISTINCT FROM discovery.rescan_generation
+		  AND NOT EXISTS(SELECT 1 FROM workflow_transitions transition WHERE transition.workflow_id=discovery.workflow_id
+		    AND transition.actor='worker' AND transition.reason=ANY($1) AND transition.occurred_at>$2)
+		ORDER BY discovery.updated_at,discovery.workflow_id LIMIT $3`, automaticRoundReasons, now.Add(-feedRoundInterval), limit)
+	if err != nil {
+		return result, err
+	}
+	var ready []uuid.UUID
+	for rows.Next() {
+		var idText string
+		if err := rows.Scan(&idText); err != nil {
+			rows.Close()
+			return result, err
+		}
+		if id, parseErr := uuid.Parse(idText); parseErr == nil {
+			ready = append(ready, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return result, err
+	}
+	for _, workflowID := range ready {
+		outcome, err := store.openRescanRound(ctx, workflowID, now)
+		if err != nil {
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			// A concurrent change: the next call decides again.
+			continue
+		}
+		switch outcome {
+		case "round_opened":
+			result.RoundsOpened++
+		case "not_applicable":
+			result.Refused++
+		}
+	}
+	return result, nil
+}
+
+func (store *Store) openRescanRound(ctx context.Context, workflowID uuid.UUID, now time.Time) (string, error) {
+	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return "", err
+	}
+	defer transaction.Rollback(ctx)
+	outcome, err := store.openAutomaticRound(ctx, transaction, workflowID, now, rescanRoundReason, "rescan_found")
+	if err != nil {
+		return "", err
+	}
+	if outcome == "not_applicable" {
+		if _, err := transaction.Exec(ctx, `UPDATE workflow_retry_discovery SET automatic_round_refused_generation=rescan_generation WHERE workflow_id=$1 AND state='ready'`, workflowID.String()); err != nil {
+			return "", err
+		}
 	}
 	return outcome, transaction.Commit(ctx)
 }
