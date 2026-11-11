@@ -44,9 +44,13 @@ const (
 	feedMinInterval   = 5 * time.Minute
 	feedStartInterval = 10 * time.Minute
 	feedMaxInterval   = 20 * time.Minute
-	// feedMaxPages bounds one read. Further pages are only asked for when the
-	// first page holds nothing seen before, so uploads may have been missed.
-	feedMaxPages = 3
+	// feedMaxPages bounds one read. Further pages are only asked for while a
+	// whole page holds nothing seen before, so uploads may lie further down;
+	// a read that still sees nothing known after feedMaxPages counts as a
+	// gap. Most reads take one page; feedBudgetPages is what the interval
+	// floor counts per read.
+	feedMaxPages    = 10
+	feedBudgetPages = 3
 	// feedBudgetShare is the part of an indexer's query allowance the reads
 	// may use, counting every page of every read: one tenth.
 	feedBudgetShare = 10
@@ -62,8 +66,10 @@ const (
 	feedAdvanceLimit = 10
 	// feedTitlesMaxAge is how long the list of waiting titles is reused.
 	feedTitlesMaxAge = 3 * time.Minute
-	// feedSeenLimit bounds the remembered upload IDs per indexer.
+	// feedSeenLimit bounds the remembered upload IDs per indexer;
+	// feedSavedSeen of them (the newest) are saved with the reader's state.
 	feedSeenLimit = 5000
+	feedSavedSeen = 1000
 )
 
 // feedCategories are the standard Newznab root categories for movies and TV,
@@ -213,6 +219,12 @@ func (watcher *FeedWatcher) read(ctx context.Context, integration postgres.Integ
 	}
 	request := newznab.SearchRequest{Mode: "search", Categories: feedRequestCategories(config), Limit: searchPageLimit(config), Extended: true}
 	seen := watcher.seenFor(integration.ID)
+	if seen.empty() {
+		// After a restart: go on from the uploads the last read saw.
+		for _, id := range state.RecentGUIDs {
+			seen.add(id)
+		}
+	}
 	firstRead := seen.empty()
 	pages, err := readFeedPages(request, seen, func(next newznab.SearchRequest) (newznab.SearchPage, error) {
 		return client.FeedPage(ctx, next)
@@ -234,9 +246,20 @@ func (watcher *FeedWatcher) read(ctx context.Context, integration postgres.Integ
 	}
 	now := watcher.now()
 	interval = nextFeedInterval(interval, pages.firstPageFresh, pages.firstPageSize, firstRead, budget)
+	if pages.gap {
+		// Uploads may have been missed: read again as soon as allowed.
+		interval = feedInterval(feedMinInterval, budget)
+		slog.Warn("Newest-uploads watching: a read did not reach the uploads seen before; some may have been missed", "indexer", integration.Name, "uploads", pages.items)
+	}
 	next := now.Add(interval)
 	state.LastReadAt, state.NextReadAt, state.LastOutcome, state.ConsecutiveFailures = &now, &next, "ok", 0
 	state.IntervalSeconds, state.LastItemCount, state.LastNewCount = int(interval/time.Second), pages.items, len(pages.fresh)
+	state.RecentGUIDs = seen.newest(feedSavedSeen)
+	state.ReadsTotal++
+	state.LastReadComplete = !pages.gap
+	if pages.gap {
+		state.GapReadsTotal++
+	}
 	return state, titles.match(pages.fresh, now)
 }
 
@@ -247,6 +270,11 @@ type feedPages struct {
 	fresh []releases.Observation
 	// firstPageFresh of the firstPageSize uploads on the first page were new.
 	firstPageFresh, firstPageSize int
+	// gap is true when the read stopped (page limit or a failed later page)
+	// while its last page still held only new uploads: it never reached an
+	// upload seen before, so some between this read and the last may have
+	// been missed.
+	gap bool
 }
 
 // readFeedPages reads the first page and, while a whole page holds nothing
@@ -259,12 +287,17 @@ type feedPages struct {
 func readFeedPages(request newznab.SearchRequest, seen *feedSeen, fetch func(newznab.SearchRequest) (newznab.SearchPage, error)) (feedPages, error) {
 	var pages feedPages
 	firstRead := seen.empty()
-	for page := 0; page < feedMaxPages; page++ {
+	for page := 0; ; page++ {
+		if page == feedMaxPages {
+			pages.gap = true
+			break
+		}
 		result, err := fetch(request)
 		if err != nil {
 			if page == 0 {
 				return pages, err
 			}
+			pages.gap = true
 			break
 		}
 		pageFresh := 0
@@ -327,7 +360,7 @@ func feedInterval(saved time.Duration, budget indexers.Budget) time.Duration {
 	if budget.QueryLimit > 0 && budget.LimitWindow > 0 {
 		// A read may take feedMaxPages requests, so every read is counted as
 		// that many against the share.
-		byBudget := budget.LimitWindow * feedMaxPages * feedBudgetShare / time.Duration(budget.QueryLimit)
+		byBudget := budget.LimitWindow * feedBudgetPages * feedBudgetShare / time.Duration(budget.QueryLimit)
 		if byBudget > floor {
 			floor = byBudget
 		}
@@ -375,6 +408,15 @@ type feedSeen struct {
 }
 
 func (seen *feedSeen) empty() bool { return len(seen.known) == 0 }
+
+// newest returns at most limit of the most recently added IDs, oldest first.
+func (seen *feedSeen) newest(limit int) []string {
+	start := 0
+	if len(seen.order) > limit {
+		start = len(seen.order) - limit
+	}
+	return append([]string(nil), seen.order[start:]...)
+}
 
 // add reports whether id was new.
 func (seen *feedSeen) add(id string) bool {

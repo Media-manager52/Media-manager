@@ -1088,6 +1088,9 @@
       },
       "Postgres_IndexerFeedSummary": {
         "properties": {
+          "gap_reads": {
+            "type": "integer"
+          },
           "last_outcome": {
             "type": "string"
           },
@@ -1101,6 +1104,9 @@
           "next_read_at": {
             "format": "date-time",
             "type": "string"
+          },
+          "reads": {
+            "type": "integer"
           }
         },
         "type": "object"

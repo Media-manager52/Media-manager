@@ -52,14 +52,18 @@ func TestReadFeedPagesReadsOnOnlyWhileAWholePageIsNew(t *testing.T) {
 	// known upload appears.
 	offsets, answers = nil, []newznab.SearchPage{feedUploads("c", 3), {Observations: append(feedUploads("d", 2).Observations, feedUploads("b", 1).Observations...)}}
 	pages, err = readFeedPages(request, seen, fetch)
-	if err != nil || len(offsets) != 2 || offsets[1] != 3 || pages.items != 6 || len(pages.fresh) != 5 || pages.firstPageFresh != 3 {
+	if err != nil || len(offsets) != 2 || offsets[1] != 3 || pages.items != 6 || len(pages.fresh) != 5 || pages.firstPageFresh != 3 || pages.gap {
 		t.Fatalf("catch-up read pages=%+v offsets=%v err=%v", pages, offsets, err)
 	}
 
-	// The catch-up is bounded.
-	offsets, answers = nil, []newznab.SearchPage{feedUploads("e", 3), feedUploads("f", 3), feedUploads("g", 3), feedUploads("h", 3)}
+	// The catch-up is bounded, and a read that never reached a known upload
+	// is a gap.
+	offsets, answers = nil, nil
+	for page := 0; page <= feedMaxPages; page++ {
+		answers = append(answers, feedUploads(fmt.Sprintf("p%d", page), 3))
+	}
 	pages, err = readFeedPages(request, seen, fetch)
-	if err != nil || len(offsets) != feedMaxPages || len(pages.fresh) != 3*feedMaxPages {
+	if err != nil || len(offsets) != feedMaxPages || len(pages.fresh) != 3*feedMaxPages || !pages.gap {
 		t.Fatalf("bounded read pages=%+v offsets=%v err=%v", pages, offsets, err)
 	}
 }
@@ -74,7 +78,7 @@ func TestReadFeedPagesKeepsTheFirstPageWhenALaterPageFails(t *testing.T) {
 		}
 		return feedUploads("new", 2), nil
 	})
-	if err != nil || calls != 2 || len(pages.fresh) != 2 {
+	if err != nil || calls != 2 || len(pages.fresh) != 2 || !pages.gap {
 		t.Fatalf("pages=%+v calls=%d err=%v", pages, calls, err)
 	}
 
@@ -148,7 +152,7 @@ func TestFeedIntervalFollowsUploadRateWithinBoundsAndBudget(t *testing.T) {
 	// 33 reads of up to three pages, one every 43 m 12 s, even above the usual
 	// upper bound.
 	tight := indexers.NewznabBudget(3000, 1000, 0, 86400)
-	tightFloor := 86400 * time.Second * feedMaxPages * feedBudgetShare / 1000
+	tightFloor := 86400 * time.Second * feedBudgetPages * feedBudgetShare / 1000
 	if got := feedInterval(time.Minute, tight); got != tightFloor || got != 43*time.Minute+12*time.Second {
 		t.Fatalf("budget floor=%s", got)
 	}
@@ -161,7 +165,7 @@ func TestFeedIntervalFollowsUploadRateWithinBoundsAndBudget(t *testing.T) {
 		budget := indexers.NewznabBudget(3000, limit, 0, 86400)
 		interval := feedInterval(time.Second, budget)
 		reads := int(budget.LimitWindow / interval)
-		if requests := reads * feedMaxPages; requests*feedBudgetShare > limit {
+		if requests := reads * feedBudgetPages; requests*feedBudgetShare > limit {
 			t.Fatalf("limit %d: %d requests a window exceed a tenth", limit, requests)
 		}
 		if interval < feedMinInterval {
@@ -289,5 +293,18 @@ func TestFeedRequestCategoriesFollowTheIndexerThenTheOwnerThenTheStandardRoots(t
 		if got := feedRequestCategories(test.config); fmt.Sprint(got) != fmt.Sprint(test.want) {
 			t.Fatalf("%s: categories=%v want %v", test.name, got, test.want)
 		}
+	}
+}
+
+func TestFeedSeenKeepsTheNewestIDsInOrder(t *testing.T) {
+	seen := &feedSeen{known: map[string]bool{}}
+	for index := 0; index < 5; index++ {
+		seen.add(fmt.Sprintf("id-%d", index))
+	}
+	if got := seen.newest(3); len(got) != 3 || got[0] != "id-2" || got[2] != "id-4" {
+		t.Fatalf("newest=%v", got)
+	}
+	if got := seen.newest(10); len(got) != 5 || got[0] != "id-0" {
+		t.Fatalf("newest of a short list=%v", got)
 	}
 }

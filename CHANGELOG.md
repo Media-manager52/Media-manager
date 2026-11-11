@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **The newest-uploads list misses less.** It remembers the uploads it saw last across restarts, so a read after a restart goes on from where the last one stopped instead of starting over. A busy indexer is read up to ten pages back instead of three until the reader reaches uploads it has seen, and a read that still does not reach them is counted as a gap and followed by a quick re-read; **Kilder** shows how many reads had a gap. New episodes waiting for their first scheduled search are now matched too, so an episode uploaded before its search is found at once (one such episode on this server waited two hours). Schema 63.
+
 ## [0.1.0-beta.9] - 2026-11-11
 
 ### Changed

@@ -171,7 +171,7 @@ non-obvious.
 | `indexer_commissioning_runs`, `indexer_commissioning_steps` | v1/v2 commissioning lifecycle + steps. |
 | `indexer_budget_state` | Rolling query/grab windows per indexer. |
 | `indexer_request_reservations` | Durable per-call reservations (schema 30). |
-| `indexer_feed_state` | Newest-uploads reader per indexer: last and next read, current interval, last outcome, consecutive failures (schema 58). |
+| `indexer_feed_state` | Newest-uploads reader per indexer: last and next read, current interval, last outcome, consecutive failures (schema 58); the newest 1,000 upload IDs seen (`recent_guids`), successful reads and reads that did not reach an upload seen before (`reads_total`, `gap_reads_total`, `last_read_complete`, schema 63). |
 | `indexer_feed_matches` | Uploads from the newest-uploads lists that matched a waiting workflow, with what was done about each (`pending`, `search_advanced`, `search_due`, `discovery_advanced`, `round_opened` (schema 59), `not_applicable`, `expired`). A note for the reader, not release evidence; rows older than 30 days are removed (schema 58). |
 | `indexer_operation_status` | Latest persisted operation outcome/cooldown/failures. |
 
