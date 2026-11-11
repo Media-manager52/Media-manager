@@ -271,6 +271,14 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   a workflow created after it, after a newest-uploads match for that workflow,
   or after an owner search; an incomplete answer (more results than the page
   bound) is never shared and the episodes search on their own (invariant S21).
+- Date-named episodes (`episode_numbering.go`): an episode of a series
+  numbered by broadcast year whose air date is more than 180 days old rotates
+  through three requests, one per complete search: the Newznab daily-episode
+  search (series IDs, `season` = air year, `ep` = `MM/DD`, no name), the air
+  date as text under the shortest saved Latin-script name
+  (`shortSearchTitle`), and the scoped catalogue request. A daily-episode
+  request is never widened to a season answer. Recent episodes alternate
+  between the scoped request and the ID-only request as before.
 - Danish group record (`danish_groups.go`, `postgres/danish_groups.go`): each
   release group's measured Danish outcomes (`output_verified` versus
   `subtitle_requirements_unverified`, 90 days, profiles requiring Danish,

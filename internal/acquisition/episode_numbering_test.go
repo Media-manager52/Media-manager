@@ -39,29 +39,78 @@ func TestAnnualSearchAlternatesWithoutAdditionalProviderCalls(t *testing.T) {
 func TestAnnualSearchAsksForAirDateOnOldTargets(t *testing.T) {
 	s := numberingSearch()
 	s.Variant = "season:33:episode:29"
-	s.Media.Title = "Raw"
+	s.Media.Title = "WWE Monday Night Raw"
+	s.Media.Metadata = &catalog.MediaMetadata{Aliases: []catalog.MetadataAlias{{Name: "WWE Raw", Source: "tmdb"}, {Name: "レッスルマニア", Source: "tmdb"}}}
 	s.EpisodeNumbering = packs.AnnualEpisodeNumbering(33, []packs.ExpectedEpisode{{Key: packs.EpisodeKey{Season: 33, Episode: 29}, AirDate: "2025-07-21"}, {Key: packs.EpisodeKey{Season: 33, Episode: 30}, AirDate: "2025-07-28"}})
-	req := newznab.SearchRequest{Mode: "tvsearch", Limit: 100, Extended: true, Categories: []int{5000}, Params: []newznab.Param{{Name: "q", Value: "Raw"}, {Name: "tvdbid", Value: "76779"}, {Name: "season", Value: "33"}, {Name: "ep", Value: "29"}}}
+	req := newznab.SearchRequest{Mode: "tvsearch", Limit: 100, Extended: true, Categories: []int{5000}, Params: []newznab.Param{{Name: "q", Value: "WWE Monday Night Raw"}, {Name: "tvdbid", Value: "76779"}, {Name: "season", Value: "33"}, {Name: "ep", Value: "29"}}}
 	now := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
-	if got := numberedSearchRequest(s, req, now); len(got.Params) != 4 {
-		t.Fatalf("primary scan changed: %+v", got.Params)
-	}
-	s.CompleteSearches = 1
+
+	// First: the provider's daily-episode search, by series ID and air date.
 	got := numberedSearchRequest(s, req, now)
-	if len(got.Params) != 1 || got.Params[0].Name != "q" || got.Params[0].Value != "Raw 2025 07 21" {
-		t.Fatalf("old episode alternate=%+v", got.Params)
+	if len(got.Params) != 3 || got.Params[0] != (newznab.Param{Name: "tvdbid", Value: "76779"}) || got.Params[1] != (newznab.Param{Name: "season", Value: "2025"}) || got.Params[2] != (newznab.Param{Name: "ep", Value: "07/21"}) {
+		t.Fatalf("daily episode search=%+v", got.Params)
 	}
 	if got.Mode != "tvsearch" || got.Limit != 100 || !got.Extended || got.Categories[0] != 5000 {
 		t.Fatalf("request shape changed: %+v", got)
 	}
-	s.Variant = "season:33"
+	if _, shared := seasonRequest(got, "WWE Raw"); shared {
+		t.Fatal("a daily episode search was widened to a whole year")
+	}
+
+	// Next: the air date by text under the shortest name.
+	s.CompleteSearches = 1
+	got = numberedSearchRequest(s, req, now)
+	if len(got.Params) != 1 || got.Params[0].Name != "q" || got.Params[0].Value != "WWE Raw 2025 07 21" {
+		t.Fatalf("old episode text search=%+v", got.Params)
+	}
+
+	// Then the scoped catalogue search, unchanged.
+	s.CompleteSearches = 2
 	if got = numberedSearchRequest(s, req, now); len(got.Params) != 4 {
-		t.Fatalf("a whole season has no single date: %+v", got.Params)
+		t.Fatalf("scoped search changed: %+v", got.Params)
+	}
+	s.CompleteSearches = 3
+	if got = numberedSearchRequest(s, req, now); len(got.Params) != 3 || got.Params[2].Value != "07/21" {
+		t.Fatalf("rotation did not return to the daily search: %+v", got.Params)
+	}
+
+	for _, variant := range []string{"season:33"} {
+		s.Variant = variant
+		for _, phase := range []uint64{0, 1} {
+			s.CompleteSearches = phase
+			if got = numberedSearchRequest(s, req, now); len(got.Params) != 4 {
+				t.Fatalf("a whole season has no single date (phase %d): %+v", phase, got.Params)
+			}
+		}
 	}
 	s.Variant = "season:33:episode:29"
 	noText := newznab.SearchRequest{Mode: "tvsearch", Params: []newznab.Param{{Name: "tvdbid", Value: "76779"}, {Name: "season", Value: "33"}}}
-	if got = numberedSearchRequest(s, noText, now); len(got.Params) != 2 {
-		t.Fatalf("indexer without text search changed: %+v", got.Params)
+	for _, phase := range []uint64{0, 1} {
+		s.CompleteSearches = phase
+		if got = numberedSearchRequest(s, noText, now); len(got.Params) != 2 {
+			t.Fatalf("indexer without text or episode search changed (phase %d): %+v", phase, got.Params)
+		}
+	}
+	textOnly := newznab.SearchRequest{Mode: "tvsearch", Params: []newznab.Param{{Name: "q", Value: "WWE Monday Night Raw"}, {Name: "season", Value: "33"}, {Name: "ep", Value: "29"}}}
+	s.CompleteSearches = 0
+	if got = numberedSearchRequest(s, textOnly, now); len(got.Params) != 3 || got.Params[2].Value != "29" {
+		t.Fatalf("a daily search without a series ID: %+v", got.Params)
+	}
+}
+
+func TestShortSearchTitleRotatesAmongTheShortestLatinNames(t *testing.T) {
+	s := numberingSearch()
+	s.Media.Title = "WWE Friday Night SmackDown"
+	s.Media.Metadata = &catalog.MediaMetadata{Aliases: []catalog.MetadataAlias{{Name: "WWE SmackDown", Source: "tmdb"}, {Name: "SmackDown Live", Source: "tmdb"}, {Name: "スマックダウン", Source: "tmdb"}}}
+	if got := shortSearchTitle(s, 0); got != "WWE SmackDown" {
+		t.Fatalf("phase 0=%q", got)
+	}
+	if got := shortSearchTitle(s, 1); got != "SmackDown Live" {
+		t.Fatalf("phase 1=%q", got)
+	}
+	s.Media.Metadata = nil
+	if got := shortSearchTitle(s, 5); got != "WWE Friday Night SmackDown" {
+		t.Fatalf("only name=%q", got)
 	}
 }
 
