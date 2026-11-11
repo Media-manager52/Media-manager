@@ -28,21 +28,16 @@ func TestNoSelectionRetryDelayBacksOffToCap(t *testing.T) {
 	for runs, want := range map[int]time.Duration{
 		0:  30 * time.Minute,
 		1:  30 * time.Minute,
-		2:  time.Hour,
-		3:  2 * time.Hour,
-		4:  4 * time.Hour,
-		5:  8 * time.Hour,
-		6:  16 * time.Hour,
-		7:  32 * time.Hour,
-		9:  128 * time.Hour,
-		10: 7 * 24 * time.Hour,
-		48: 7 * 24 * time.Hour,
+		2:  6 * time.Hour,
+		3:  24 * time.Hour,
+		4:  30 * 24 * time.Hour,
+		48: 30 * 24 * time.Hour,
 	} {
 		if got := noSelectionRetryDelay(runs, false); got != want {
 			t.Fatalf("noSelectionRetryDelay(%d)=%s, want %s", runs, got, want)
 		}
 	}
-	for runs, want := range map[int]time.Duration{1: 30 * time.Minute, 6: 16 * time.Hour, 7: 24 * time.Hour, 48: 24 * time.Hour} {
+	for runs, want := range map[int]time.Duration{1: 30 * time.Minute, 2: 6 * time.Hour, 3: 24 * time.Hour, 4: 7 * 24 * time.Hour, 48: 7 * 24 * time.Hour} {
 		if got := noSelectionRetryDelay(runs, true); got != want {
 			t.Fatalf("recent noSelectionRetryDelay(%d)=%s, want %s", runs, got, want)
 		}

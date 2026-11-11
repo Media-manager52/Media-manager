@@ -12,8 +12,8 @@ import (
 )
 
 // TestEmptySearchesBackOff proves repeated searches that select nothing are
-// paced with a growing delay instead of re-querying every indexer every 30
-// minutes.
+// paced by the schedule (30 minutes, then 6 hours) instead of re-querying
+// every indexer every 30 minutes.
 func TestEmptySearchesBackOff(t *testing.T) {
 	store := openMovieSearchTestStore(t)
 	ctx := context.Background()
@@ -62,8 +62,8 @@ func TestEmptySearchesBackOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(revision)
-	if _, delay = nextSearch(); delay < 59*time.Minute || delay > 61*time.Minute {
-		t.Fatalf("second empty search retry in %s, want 1h", delay)
+	if _, delay = nextSearch(); delay < 5*time.Hour+59*time.Minute || delay > 6*time.Hour+time.Minute {
+		t.Fatalf("second empty search retry in %s, want 6h", delay)
 	}
 	if requests := captured(); len(requests) != 2 {
 		t.Fatalf("provider requests=%d, want 2", len(requests))

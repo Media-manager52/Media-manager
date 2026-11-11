@@ -19,14 +19,16 @@ func TestRetryDiscoveryScheduleIsStableBoundedAndBacksOff(t *testing.T) {
 		t.Fatalf("24-hour schedule escaped ±20%% jitter: %s", delay)
 	}
 
-	eightDays := retryDiscoveryAt(workflowID, 2, 42, now).Sub(now)
-	if eightDays < 6*24*time.Hour+9*time.Hour+36*time.Minute || eightDays > 9*24*time.Hour+14*time.Hour+24*time.Minute {
-		t.Fatalf("backed-off schedule escaped ±20%% of eight days: %s", eightDays)
+	week := retryDiscoveryAt(workflowID, 2, 1, now).Sub(now)
+	if week < 5*24*time.Hour+14*time.Hour+24*time.Minute || week > 8*24*time.Hour+9*time.Hour+36*time.Minute {
+		t.Fatalf("second rescan escaped ±20%% of a week: %s", week)
 	}
 
-	capped := retryDiscoveryAt(workflowID, 3, 500, now).Sub(now)
-	if capped < 11*24*time.Hour+4*time.Hour+48*time.Minute || capped > 16*24*time.Hour+19*time.Hour+12*time.Minute {
-		t.Fatalf("14-day capped schedule escaped ±20%% jitter: %s", capped)
+	for _, scans := range []int{2, 500} {
+		monthly := retryDiscoveryAt(workflowID, 3, scans, now).Sub(now)
+		if monthly < 24*24*time.Hour || monthly > 36*24*time.Hour {
+			t.Fatalf("monthly safety rescan after %d scans escaped ±20%% jitter: %s", scans, monthly)
+		}
 	}
 }
 

@@ -4,13 +4,17 @@ import "time"
 
 const (
 	noSelectionRetryBase = 30 * time.Minute
-	// A title that keeps finding nothing is searched at most weekly. Episode
-	// workflows are created only after their air date, so a new episode
-	// always starts again at the 30-minute base.
-	noSelectionRetryCap = 7 * 24 * time.Hour
+	// After the first searches a title that keeps finding nothing is
+	// searched monthly as a safety net: a release uploaded later is seen by
+	// the newest-uploads reader, which brings the title's search forward at
+	// once. Of the titles that were found at all, about 97 % were found
+	// within the first three searches. Episode workflows are created only
+	// after their air date, so a new episode always starts again at the
+	// beginning of the schedule.
+	noSelectionRetryCap = 30 * 24 * time.Hour
 	// Recent titles (a movie requested before its digital release) keep a
-	// daily search so a new release is found within a day.
-	noSelectionRecentRetryCap = 24 * time.Hour
+	// weekly safety search.
+	noSelectionRecentRetryCap = 7 * 24 * time.Hour
 	// Recovery rescans whose coverage was cut short by pacing or exhausted
 	// budgets wait at least this long. Retrying at the next pacing slot made
 	// every waiting title rescan every few minutes while the background
@@ -61,22 +65,25 @@ func incompleteSearchRetryAt(outcomes []SearchIndexerOutcome, now time.Time) tim
 	return floor
 }
 
+// noSelectionSchedule is the wait after the first, second and third targeted
+// search in a round that selected nothing.
+var noSelectionSchedule = [...]time.Duration{noSelectionRetryBase, 6 * time.Hour, 24 * time.Hour}
+
 // noSelectionRetryDelay paces the next targeted search after runs in the
-// current round that selected nothing: 30 minutes after the first, doubling
-// per run up to a week (a day for recent titles). Every search queries every
-// indexer; the former 12-hour cap searched about 2,000 waiting titles twice a
-// day forever, about 3,000 queries per indexer per day, almost all empty.
+// current round that selected nothing: 30 minutes, 6 hours and a day after the
+// first three, then a monthly safety search (weekly for recent titles). Every
+// search queries every indexer; the former doubling schedule searched each new
+// title about six times on its first day and every waiting title weekly, most
+// of the daily queries, almost all empty.
 func noSelectionRetryDelay(roundRuns int, recent bool) time.Duration {
-	limit := noSelectionRetryCap
+	if roundRuns < 1 {
+		roundRuns = 1
+	}
+	if roundRuns <= len(noSelectionSchedule) {
+		return noSelectionSchedule[roundRuns-1]
+	}
 	if recent {
-		limit = noSelectionRecentRetryCap
+		return noSelectionRecentRetryCap
 	}
-	delay := noSelectionRetryBase
-	for run := 1; run < roundRuns && delay < limit; run++ {
-		delay *= 2
-	}
-	if delay > limit {
-		delay = limit
-	}
-	return delay
+	return noSelectionRetryCap
 }

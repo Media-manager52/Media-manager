@@ -346,12 +346,14 @@ observations, candidates, decisions, and a selection. Then:
 
 - **Selected** → workflow `candidate_selected`, queues
   `release.retrieve_requested`.
-- **Nothing eligible** → `waiting`/`held`, with a retry after 30 minutes that
-  doubles for each further complete targeted run in the current round that selects
-  nothing (1h, 2h, 4h, 8h, capped at 12h) when there are no prior submissions,
-  otherwise the deterministic discovery delay (24h ±20%, see §5). Every search
-  queries every indexer, so a flat 30-minute retry spent the rolling query
-  budgets on repeat empty searches.
+- **Nothing eligible** → `waiting`/`held`, with the next search 30 minutes,
+  6 hours and 24 hours after the first, second and third complete targeted run
+  in the current round that selects nothing, then a monthly safety search
+  (weekly for titles from this or last year) when there are no prior
+  submissions, otherwise the deterministic discovery delay (see §5). A later
+  upload is seen by the newest-uploads reader, which brings the title's search
+  forward at once; every search queries every indexer, so repeat empty
+  searches spent most of the rolling query budgets.
 - **Incomplete coverage without a selection** → stays `waiting`/`held` with an
   explicit incomplete-search reason, including historical partial runs in the
   request summary. It does not advance the empty-search backoff. The automatic
@@ -407,10 +409,10 @@ Source: `internal/postgres/acquisition_rounds.go`, `search.go`,
   (highest `first_seen_sequence` seen), subtitles `retry_state=exhausted`, and a
   `workflow_retry_discovery` row in `waiting` with a `workflow.discovery_rescan_requested`
   event at a deterministic time:
-  - base interval 24 hours;
+  - 24 hours after the round closed, 7 days after the first **complete** scan
+    with no new eligible identity, then 30 days (a monthly safety scan; the
+    newest-uploads reader brings a scan forward when a fitting upload appears);
   - stable ±20% jitter derived from `sha256(workflowID:generation)`;
-  - interval doubles after each 14 consecutive **complete** scans with no new
-    eligible identity, capped at 14 days;
   - an incomplete scan (any indexer not succeeded) reschedules at the earliest
     indexer retry time instead of counting as complete.
 - Discovery can flip the row to `ready` when a newly first-seen eligible

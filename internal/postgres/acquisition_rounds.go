@@ -15,7 +15,10 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-const retryDiscoveryBaseInterval = 24 * time.Hour
+const (
+	retryDiscoveryBaseInterval   = 24 * time.Hour
+	retryDiscoverySafetyInterval = 30 * 24 * time.Hour
+)
 
 type AcquisitionRound struct {
 	ID                    uuid.UUID
@@ -51,13 +54,18 @@ func (store *Store) insertInitialAcquisitionRound(ctx context.Context, transacti
 	return nil
 }
 
+// retryDiscoveryAt schedules the rescan of a title whose round is used up: a
+// day after the round closed, a week after the first complete rescan without a
+// new release, then monthly. A new upload of the title is seen by the
+// newest-uploads reader, which brings the rescan forward at once; these rescans
+// are the safety net for what the reader cannot see.
 func retryDiscoveryAt(workflowID uuid.UUID, generation int64, completeNoNewScans int, now time.Time) time.Time {
 	interval := retryDiscoveryBaseInterval
-	for completed := 14; completed <= completeNoNewScans && interval < 14*24*time.Hour; completed += 14 {
-		interval *= 2
-		if interval > 14*24*time.Hour {
-			interval = 14 * 24 * time.Hour
-		}
+	switch {
+	case completeNoNewScans >= 2:
+		interval = retryDiscoverySafetyInterval
+	case completeNoNewScans == 1:
+		interval = 7 * 24 * time.Hour
 	}
 	digest := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", workflowID.String(), generation)))
 	// Stable range [-0.20,+0.20] in one-basis-point increments.
