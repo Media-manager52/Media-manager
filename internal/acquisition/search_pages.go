@@ -42,9 +42,18 @@ func searchPageLimit(config indexerConfig) int {
 // keeps the pages already read: the search then behaves exactly as a one-page
 // search.
 func searchFollowUpPages(ctx context.Context, request newznab.SearchRequest, first newznab.SearchPage, waitBudget *time.Duration, run func(newznab.SearchRequest) (newznab.SearchPage, error)) []releases.Observation {
-	result := first.Observations
+	result, _ := searchAllPages(ctx, request, first, waitBudget, run)
+	return result
+}
+
+// searchAllPages is searchFollowUpPages that also reports whether everything
+// the provider had was read: complete is false when paging stopped at the
+// page or result bound, on a failure or deferral, or when the provider's
+// stated total says more remain.
+func searchAllPages(ctx context.Context, request newznab.SearchRequest, first newznab.SearchPage, waitBudget *time.Duration, run func(newznab.SearchRequest) (newznab.SearchPage, error)) (result []releases.Observation, complete bool) {
+	result = first.Observations
 	if request.Limit <= 0 || request.Offset != 0 {
-		return result
+		return result, false
 	}
 	// Providers drop a few items from a full page (parser or provider side).
 	full := request.Limit - request.Limit/10
@@ -61,7 +70,7 @@ func searchFollowUpPages(ctx context.Context, request newznab.SearchRequest, fir
 			// the asked size, so continue exactly where this page ended.
 			offset += pageSize
 		} else {
-			return result
+			return result, true
 		}
 		next := request
 		next.Offset = offset
@@ -70,7 +79,7 @@ func searchFollowUpPages(ctx context.Context, request newznab.SearchRequest, fir
 		if errors.As(err, &deferred) {
 			wait := time.Until(deferred.RetryAt()) + 50*time.Millisecond
 			if wait > *waitBudget {
-				return result
+				return result, false
 			}
 			if wait > 0 {
 				*waitBudget -= wait
@@ -78,14 +87,14 @@ func searchFollowUpPages(ctx context.Context, request newznab.SearchRequest, fir
 				select {
 				case <-ctx.Done():
 					timer.Stop()
-					return result
+					return result, false
 				case <-timer.C:
 				}
 			}
 			more, err = run(next)
 		}
 		if err != nil {
-			return result
+			return result, false
 		}
 		pageSize = len(more.Observations)
 		if more.Total > 0 {
@@ -101,10 +110,10 @@ func searchFollowUpPages(ctx context.Context, request newznab.SearchRequest, fir
 		}
 		if added == 0 {
 			// The provider ignored the offset or has nothing further.
-			return result
+			return result, true
 		}
 	}
-	return result
+	return result, pageSize < full && !moreStated(total, offset+pageSize)
 }
 
 // moreStated reports whether a provider's stated total is clearly larger than

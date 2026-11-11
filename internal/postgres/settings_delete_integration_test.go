@@ -115,6 +115,7 @@ func TestSettingsDeleteKnowsEveryCascade(t *testing.T) {
 		"integration_instances <- indexer_request_reservations c",  // checked
 		"integration_instances <- integration_connection_checks c", // belongs to the integration
 		"integration_instances <- integration_secrets c",           // belongs to the integration
+		"integration_instances <- season_search_responses c",       // short-lived search answers of the indexer
 		"integration_instances <- seerr_library_routes c",          // checked
 		"integration_instances <- streaming_choices c",             // checked while unexpired
 		"library_roots <- seerr_library_routes c",                  // checked

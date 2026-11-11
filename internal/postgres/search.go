@@ -119,6 +119,13 @@ type EvaluatedObservation struct {
 	// in the same partial-retry chain. Reused evidence must not move the
 	// candidate's observation pointer or inflate its observation count.
 	Reused bool
+	// Stored is true when Observation.ID already names a stored
+	// release_observations row: a shared season answer stored the provider's
+	// result once for every episode of the season.
+	Stored bool
+	// LocatorRef is the download locator reference the provider returned with
+	// a Stored observation (stored observations do not carry the download URL).
+	LocatorRef string
 }
 
 func (store *Store) LoadSearchContext(ctx context.Context, workflowID uuid.UUID) (SearchContext, error) {
@@ -525,6 +532,8 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		}
 		if reused {
 			persistedObservationID = reusedID
+		} else if entry.Stored {
+			persistedObservationID = observation.ID
 		} else {
 			persistedObservationID, err = insertReleaseObservation(ctx, transaction, observation, bodyHash, rawFields, facts, problems)
 			if err != nil {
@@ -535,6 +544,9 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		var returned string
 		var firstSeenSequence int64
 		locatorReference := newznab.DownloadLocatorReference(observation.DownloadURL, observation.NativeGUID)
+		if entry.Stored && entry.LocatorRef != "" {
+			locatorReference = entry.LocatorRef
+		}
 		err = transaction.QueryRow(ctx, `INSERT INTO release_candidates(id,workflow_id,search_run_id,observation_id,indexer_instance_id,native_key,title,download_locator_ref,created_at,first_observed_at,last_observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)
 			ON CONFLICT(workflow_id,indexer_instance_id,native_key) DO UPDATE SET
 				search_run_id=CASE WHEN $10 THEN release_candidates.search_run_id ELSE EXCLUDED.search_run_id END,
