@@ -115,7 +115,7 @@ func (store *Store) RecordPreSubmissionRejection(ctx context.Context, retrieval 
 	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_transitions(workflow_id,to_revision,from_state,to_state,reason,actor,occurred_at) VALUES($1,$2,$3,'waiting',$4,'worker',$5)`, retrieval.Workflow.ID.String(), newRevision, state, detail, now.UTC()); err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]string{"workflow_id": retrieval.Workflow.ID.String(), "reason": "release package rejected before submission; exact release excluded without spending a round slot"})
+	payload, _ := json.Marshal(map[string]any{"workflow_id": retrieval.Workflow.ID.String(), "reason": "release package rejected before submission; exact release excluded without spending a round slot", "reuse_recent_answer": true})
 	if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$5)`, uuid.NewV7().String(), retrieval.Workflow.ID.String(), newRevision, string(payload), now.UTC()); err != nil {
 		return err

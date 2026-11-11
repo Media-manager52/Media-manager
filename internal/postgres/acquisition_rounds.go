@@ -254,7 +254,7 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 		return acquisitionFailureResult{}, err
 	}
 	if !exhausted {
-		payload, _ := json.Marshal(map[string]string{"workflow_id": job.Workflow.ID.String(), "reason": "release-attributable verification failure; exact release and package excluded"})
+		payload, _ := json.Marshal(map[string]any{"workflow_id": job.Workflow.ID.String(), "reason": "release-attributable verification failure; exact release and package excluded", "reuse_recent_answer": true})
 		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 			VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$5)`, uuid.NewV7().String(), job.Workflow.ID.String(), newRevision, payload, now.UTC()); err != nil {
 			return acquisitionFailureResult{}, err

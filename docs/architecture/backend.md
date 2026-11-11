@@ -280,6 +280,16 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   (`RankOptions.DanishGroupShare`); `holdUnlikelyDanishGroups` holds an
   eligible release without a clue from a group with ≥ 20 downloads and ≤ 5 %
   Danish (invariant S22).
+- Retry after a failed release (`search_recent_answer.go`): a complete
+  targeted search that selects a release keeps its per-indexer candidate
+  evidence in `search_recent_answers`. The search event written after a
+  release-attributable failure or a pre-submission package rejection carries
+  `reuse_recent_answer`; it reuses that evidence for every indexer (detail
+  `reused recent search answer`) when the answer is at most two hours old, in
+  the same round and indexer set, and no newest-uploads match or owner search
+  came after it. The evidence is validated like partial retry evidence and
+  re-evaluated under current rules and exclusions; otherwise every indexer is
+  asked as before (invariant S23).
 - `FeedWatcher` (`feed_watch.go`): every minute it reads the newest uploads
   (`t=search` without a query, movie and TV categories) of each enabled,
   commissioned Newznab indexer whose read is due, through the paced client as

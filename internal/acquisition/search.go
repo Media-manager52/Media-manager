@@ -182,11 +182,18 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 		return err
 	}
 	partialRetry, carriedObservations, reusedIndexers := postgres.SearchPartialRetry{}, []releases.Observation(nil), map[uuid.UUID]bool{}
+	reusedDetail := "reused partial search evidence"
 	if partialRetryEvent(event) {
 		partialRetry, carriedObservations, reusedIndexers, err = service.loadPartialSearch(ctx, search, planned, mode, intentFingerprint, searchNow)
 		if err != nil {
 			return err
 		}
+	} else if !recovery && recentAnswerEvent(event) {
+		partialRetry, carriedObservations, reusedIndexers, err = service.loadRecentAnswer(ctx, search, planned, intentFingerprint, searchNow)
+		if err != nil {
+			return err
+		}
+		reusedDetail = "reused recent search answer"
 	}
 	rules, err := parseRules(search.Policy)
 	if err != nil {
@@ -247,7 +254,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	for _, plan := range planned {
 		integration := plan.Integration
 		if reusedIndexers[integration.ID] {
-			outcomes = append(outcomes, postgres.SearchIndexerOutcome{IndexerInstanceID: integration.ID, State: "succeeded", Detail: "reused partial search evidence"})
+			outcomes = append(outcomes, postgres.SearchIndexerOutcome{IndexerInstanceID: integration.ID, State: "succeeded", Detail: reusedDetail})
 			continue
 		}
 		outcome := postgres.SearchIndexerOutcome{IndexerInstanceID: integration.ID, State: "failed", Detail: "indexer_configuration_unavailable"}
