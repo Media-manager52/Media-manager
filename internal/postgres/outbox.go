@@ -21,6 +21,10 @@ type OutboxEvent struct {
 	LastError         string
 }
 
+// outboxFailingAttempts is the attempt count from which a lifecycle event
+// counts as repeatedly failing for claim order.
+const outboxFailingAttempts = 5
+
 // OutboxLane limits which event types a worker may claim. Long, self-contained
 // jobs get their own lane so they cannot hold up everything else.
 type OutboxLane struct {
@@ -40,7 +44,10 @@ func (store *Store) ClaimOutboxLane(ctx context.Context, owner string, limit int
 	if lease <= 0 {
 		lease = time.Minute
 	}
-	// Lifecycle work always precedes indexer work. The worker alternates the
+	// Lifecycle work always precedes indexer work. Lifecycle work that has
+	// already failed outboxFailingAttempts times goes after healthy lifecycle
+	// work (still before indexer work), so events that keep failing because
+	// a service hangs can never hold up everything else. The worker alternates the
 	// preferred indexer class after each claim, including deferred attempts,
 	// so a steady search backlog cannot starve evidence-only discovery (or
 	// vice versa). Selection still respects due times, leases and row locks.
@@ -49,14 +56,14 @@ func (store *Store) ClaimOutboxLane(ctx context.Context, owner string, limit int
   WHERE completed_at IS NULL AND available_at <= now() AND (lease_until IS NULL OR lease_until < now())
     AND ($5::text[] IS NULL OR event_type = ANY($5)) AND ($6::text[] IS NULL OR NOT event_type = ANY($6))
   ORDER BY CASE event_type
-    WHEN 'workflow.discovery_rescan_requested' THEN CASE WHEN $4 THEN 1 ELSE 2 END
-    WHEN 'workflow.search_requested' THEN CASE WHEN $4 THEN 2 ELSE 1 END
-    ELSE 0 END,occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1
+    WHEN 'workflow.discovery_rescan_requested' THEN CASE WHEN $4 THEN 2 ELSE 3 END
+    WHEN 'workflow.search_requested' THEN CASE WHEN $4 THEN 3 ELSE 2 END
+    ELSE CASE WHEN attempts >= $7 THEN 1 ELSE 0 END END,occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1
 )
 UPDATE outbox_events AS event
 SET lease_owner=$2,lease_until=now()+($3 * interval '1 second'),attempts=attempts+1
 FROM picked WHERE event.id=picked.id
-RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at,COALESCE(event.last_error,'')`, limit, owner, lease.Seconds(), preferDiscovery, lane.Only, lane.Except)
+RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at,COALESCE(event.last_error,'')`, limit, owner, lease.Seconds(), preferDiscovery, lane.Only, lane.Except, outboxFailingAttempts)
 	if err != nil {
 		return nil, err
 	}
