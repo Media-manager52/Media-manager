@@ -107,3 +107,18 @@ func TestFillSeasonEpisodesSkipsSeasonsTMDBDoesNotList(t *testing.T) {
 		t.Fatal("lookup failure without a season list must be returned")
 	}
 }
+
+func TestASeriesRequestWithoutSeasonsIsNotAlreadyAvailable(t *testing.T) {
+	if _, outcome, _ := actionableSeasons(nil); outcome != "needs_attention" {
+		t.Fatalf("no seasons outcome=%q, want needs_attention", outcome)
+	}
+	available := []postgres.SeerrSeason{{Number: 1, Availability: 5}}
+	if _, outcome, _ := actionableSeasons(available); outcome != "already_available" {
+		t.Fatalf("all available outcome=%q, want already_available", outcome)
+	}
+	mixed := []postgres.SeerrSeason{{Number: 1, Availability: 5}, {Number: 2, Availability: 1}}
+	actionable, outcome, _ := actionableSeasons(mixed)
+	if outcome != "" || len(actionable) != 1 || actionable[0].Number != 2 {
+		t.Fatalf("mixed actionable=%+v outcome=%q, want season 2", actionable, outcome)
+	}
+}

@@ -30,12 +30,20 @@ func (store *Store) RelocateWorkflowLinks(ctx context.Context, workflowID, targe
 	} else if err != nil {
 		return 0, err
 	}
-	switch state {
-	case "searching", "candidate_selected", "submitting", "processing", "streaming_ready", "import_complete", "publishing", "plex_scanning":
+	if inFlightStates[state] {
 		return 0, refuse("workflow_in_flight", "workflow has an in-flight acquisition or publication; relocate after it settles", "Wait until the workflow is not acquiring or publishing, then retry.")
 	}
 	if oldRootID == targetRootID.String() {
 		return 0, nil
+	}
+	// Only current links are moved; a link Plex has not confirmed would be
+	// left behind in the old root while the workflow points at the new one.
+	var awaitingPlex int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM library_link_versions WHERE workflow_id=$1 AND state IN ('verified','publishing')`, workflowID.String()).Scan(&awaitingPlex); err != nil {
+		return 0, err
+	}
+	if awaitingPlex > 0 {
+		return 0, refuse("link_awaiting_plex", "a link of this workflow is in the library but Plex has not confirmed it yet; relocate after Plex confirms", "Wait until Plex confirms the workflow, then retry.")
 	}
 	var targetKind, toRoot, targetEdition, oldEdition string
 	var enabled bool

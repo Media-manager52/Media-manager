@@ -4,6 +4,17 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **Deleting a title also moves its subtitle links to the recycle bin.** A deleted title's Danish `.srt` link stayed in the Plex folder; it now leaves with the video and comes back with it on restore. Restoring an adopted file also removes the replacement's subtitle links.
+- **Archive and move wait until Plex has confirmed a title.** A link already in the library but not yet confirmed by Plex was left behind by archive and by a move. Both are now refused until Plex confirms (Slet still recycles such a link).
+- **A move to a library of the wrong kind is refused at once** instead of leaving an unfinished move that blocked every later move of the title. A move also waits for an AltMount submission whose outcome is still unknown.
+- **The import scan never offers files in the recycle bin**, and a second video in the same folder is no longer treated as a companion of the first.
+- **An indexer whose API key was saved on the website can be commissioned** (schema 68); its endpoint fingerprint was empty before.
+- **Recommended setup never makes a 4K-only Plex folder the standard default library.**
+- **A Seerr series request that names no seasons asks the owner** instead of being shown as already available.
+- **IMDb CSV files saved with a byte order mark import normally.**
+
 ## [0.1.0-beta.19] - 2026-11-12
 
 ### Fixed

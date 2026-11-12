@@ -848,3 +848,54 @@ func activatableCapabilityProfileDocumentWithContract(t *testing.T, contract new
 	}
 	return body
 }
+
+// TestEndpointDigestAcceptsAWebsiteSavedKey proves an indexer whose API key
+// was saved on the website (sealed:integration:<id>) gets an endpoint digest,
+// so commissioning can start and activate a capability profile for it, while
+// an environment-variable reference hashes exactly as before and malformed
+// references are still refused.
+func TestEndpointDigestAcceptsAWebsiteSavedKey(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	store := openIndexerCapabilityTestStore(t, ctx, databaseURL)
+	defer store.Close()
+	config := `{"base_url":"https://indexer.invalid/api"}`
+	digest := func(reference string) []byte {
+		t.Helper()
+		var value []byte
+		if err := store.Pool.QueryRow(ctx, `SELECT media_manager_newznab_endpoint_config_sha256($1::jsonb,$2::text)`, config, reference).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	sealed := "sealed:integration:" + uuid.NewV7().String()
+	if got := digest(sealed); len(got) != 32 {
+		t.Fatalf("website-saved key digest length=%d, want 32", len(got))
+	}
+	if bytes.Equal(digest(sealed), digest("NEWZNAB_X_API_KEY")) {
+		t.Fatal("a sealed reference and an environment reference share a digest")
+	}
+	if got := digest("NEWZNAB_X_API_KEY"); len(got) != 32 {
+		t.Fatalf("environment reference digest length=%d, want 32", len(got))
+	}
+	for _, reference := range []string{"sealed:integration:not-a-uuid", "sealed:other:" + uuid.NewV7().String(), "has space", "sealed:integration:" + strings.ToUpper(uuid.NewV7().String())} {
+		if got := digest(reference); got != nil {
+			t.Fatalf("malformed reference %q got a digest", reference)
+		}
+	}
+	integration, err := store.CreateIntegration(ctx, Integration{Kind: "newznab", Name: "Website key", Config: json.RawMessage(`{"base_url":"https://indexer.invalid/api","movie_category_ids":[2000],"series_category_ids":[5000],"category_selection_review_required":false}`), SecretRef: "NEWZNAB_WEBSITE_KEY_TEST"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET secret_ref=$2 WHERE id=$1`, integration.ID.String(), "sealed:integration:"+integration.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	var stored []byte
+	if err := store.Pool.QueryRow(ctx, `SELECT media_manager_newznab_endpoint_config_sha256(config,secret_ref) FROM integration_instances WHERE id=$1`, integration.ID.String()).Scan(&stored); err != nil || len(stored) != 32 {
+		t.Fatalf("stored website-key indexer digest length=%d err=%v, want 32", len(stored), err)
+	}
+}

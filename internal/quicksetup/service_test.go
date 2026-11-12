@@ -324,3 +324,19 @@ func TestRecommendedSetupUsesTheStandardFolderOfASharedLibrary(t *testing.T) {
 		t.Fatalf("movie root = %+v (root %+v)", step, step.Root)
 	}
 }
+
+// TestRecommendedSetupNeverMakesA4KOnlyFolderTheDefault proves a Plex movie
+// library whose only folder is a 2160p folder is not turned into the standard
+// default root (standard copies would land in the 4K folder).
+func TestRecommendedSetupNeverMakesA4KOnlyFolderTheDefault(t *testing.T) {
+	fx := newFixture(t)
+	fx.plex.sections[1].Locations = []string{"/data/movies/2160p"}
+	report, err := fx.service.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := stepByID(t, report, "movie_root")
+	if step.State != StateBlocked || step.Reason != ReasonNoPlexLibrary || step.Root != nil {
+		t.Fatalf("movie root = %+v (root %+v), want blocked with no Plex library", step, step.Root)
+	}
+}

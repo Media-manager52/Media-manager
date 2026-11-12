@@ -377,6 +377,11 @@ func (store *Store) CompleteAdoptedRestore(ctx context.Context, entryID uuid.UUI
 		if _, err := transaction.Exec(ctx, `UPDATE library_link_versions SET state='displaced',displaced_at=$2 WHERE id=$1`, link.versionID, now.UTC()); err != nil {
 			return err
 		}
+		// The replacement's subtitle links leave with its video; the displaced
+		// removal only removes companions marked displaced.
+		if _, err := transaction.Exec(ctx, `UPDATE library_link_companions SET state='displaced',displaced_at=$2 WHERE link_version_id=$1 AND state='current'`, link.versionID, now.UTC()); err != nil {
+			return err
+		}
 		if _, err := transaction.Exec(ctx, `UPDATE library_links SET current_version_id=NULL WHERE id=$1 AND current_version_id=$2`, link.linkID, link.versionID); err != nil {
 			return err
 		}

@@ -1,6 +1,7 @@
 package importlists
 
 import (
+	"bufio"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -23,7 +24,13 @@ type Item struct {
 }
 
 func ParseIMDbExport(reader io.Reader) ([]Item, error) {
-	csvReader := csv.NewReader(reader)
+	// Excel and some browsers save the CSV with a UTF-8 byte order mark;
+	// it is not part of the first column name.
+	buffered := bufio.NewReader(reader)
+	if mark, err := buffered.Peek(3); err == nil && string(mark) == "\ufeff" {
+		_, _ = buffered.Discard(3)
+	}
+	csvReader := csv.NewReader(buffered)
 	csvReader.FieldsPerRecord = -1
 	header, err := csvReader.Read()
 	if err != nil {

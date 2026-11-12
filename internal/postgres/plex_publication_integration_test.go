@@ -594,3 +594,56 @@ func TestDeletingATitleRecyclesALinkWhosePlexConfirmationNeverFinished(t *testin
 		t.Fatalf("recycle entries=%+v, want the unconfirmed link %s", entries, destination)
 	}
 }
+
+// TestArchiveRefusesATitleWhoseLinkAwaitsPlex proves archiving cannot strand
+// a link that is already in the library while Plex has not confirmed it.
+func TestArchiveRefusesATitleWhoseLinkAwaitsPlex(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	item, workflowID := fixture.movieWorkflow(t, "Unconfirmed Archive", "770014")
+	job, _, _ := fixture.seedVerifiedMovieOutput(t, workflowID, 1, "unconfirmed-archive")
+	source := filepath.Join(fixture.localRoot, "completed", "unconfirmed-archive", "Movie.mkv")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("movie"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	publicationContext, err := fixture.store.LoadPublicationContext(fixture.ctx, workflowID, job.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanID, _, _, _ := fixture.publishMoviePlans(t, workflowID, job.JobID, publicationContext)
+	scan, err := fixture.store.LoadPlexScan(fixture.ctx, scanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.MarkPlexRefreshRequested(fixture.ctx, scan, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if scan, err = fixture.store.LoadPlexScan(fixture.ctx, scanID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.TimeoutPlexScan(fixture.ctx, scan, "Plex did not confirm in time", scan.DeadlineAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.ArchiveMedia(fixture.ctx, item.ID, time.Now().UTC()); !errors.Is(err, ErrMediaHasPublishedFiles) {
+		t.Fatalf("archive of a title with an unconfirmed library link: %v, want ErrMediaHasPublishedFiles", err)
+	}
+	// Moving the title is refused too, before any move plan is stored, and
+	// the workflow keeps its root.
+	other, err := fixture.store.CreateLibraryRoot(fixture.ctx, LibraryRoot{MediaKind: catalog.KindMovie, Name: "Unconfirmed Other", DestinationRoot: t.TempDir(), PlexVisibleRoot: "/media/Unconfirmed Other", SourceVisibleRoot: fixture.sourceVisibleRoot, PlexInstanceID: &fixture.plex.ID, PlexLibraryID: "91", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refusal ActionRefusal
+	if _, err := fixture.store.RelocateMedia(fixture.ctx, item.ID, other.ID, time.Now().UTC()); !errors.As(err, &refusal) || refusal.Code != "link_awaiting_plex" {
+		t.Fatalf("move of a title with an unconfirmed library link: %v, want link_awaiting_plex", err)
+	}
+	if _, err := fixture.store.RelocateWorkflowLinks(fixture.ctx, workflowID, other.ID, time.Now().UTC()); !errors.As(err, &refusal) || refusal.Code != "link_awaiting_plex" {
+		t.Fatalf("workflow link move with an unconfirmed library link: %v, want link_awaiting_plex", err)
+	}
+	var running int
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT count(*) FROM media_relocations WHERE media_id=$1`, item.ID.String()).Scan(&running); err != nil || running != 0 {
+		t.Fatalf("move plans=%d err=%v, want none", running, err)
+	}
+}
