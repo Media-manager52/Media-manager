@@ -12,6 +12,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -165,7 +166,7 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 		detail = "completed AltMount output did not satisfy release requirements"
 	}
 	if len(detail) > 1000 {
-		detail = detail[:1000]
+		detail = dbcore.TruncateText(detail, 1000)
 	}
 	var workflowState workflows.State
 	var workflowRevision, jobRevision int64

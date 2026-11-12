@@ -146,8 +146,10 @@ func parseItems(body []byte) ([]Item, error) {
 		if entry.ID <= 0 || title == "" {
 			continue
 		}
-		if len(title) > 500 {
-			title = title[:500]
+		// Cut on a character boundary: a byte cut through æ, ø or å is
+		// invalid UTF-8, which PostgreSQL refuses.
+		if runes := []rune(strings.ToValidUTF8(title, "")); len(runes) > 500 {
+			title = string(runes[:500])
 		}
 		key := fmt.Sprintf("%s:%d", kind, entry.ID)
 		if seen[key] {

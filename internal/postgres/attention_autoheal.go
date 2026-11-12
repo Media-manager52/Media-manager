@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"uuid"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // InspectionFailedCode is the release failure recorded when media-info could
@@ -68,9 +70,10 @@ func (store *Store) ResumeInspectionFailures(ctx context.Context, now time.Time,
 
 // plexAutoReconfirmPauses is how long after a timed-out Plex confirmation the
 // next automatic confirmation is queued: 1 hour after the first timeout, 6
-// after the second, 24 after the third. RequestPlexReconfirmation's own limit
-// still applies; a workflow past it stays with the owner, because repeated
-// timeouts point at a Plex identity, path or mount problem.
+// after the second, 24 after the third (counting only these automatic
+// retries). After three the workflow stays with the owner, because repeated
+// timeouts point at a Plex identity, path or mount problem; the owner's own
+// retries have a separate limit.
 var plexAutoReconfirmPauses = []time.Duration{time.Hour, 6 * time.Hour, 24 * time.Hour}
 
 func plexAutoReconfirmPause(scans int) time.Duration {
@@ -89,12 +92,12 @@ func plexAutoReconfirmPause(scans int) time.Duration {
 // Only the existing verified links are confirmed; no library-wide scan.
 func (store *Store) AutoReconfirmTimedOutPlex(ctx context.Context, now time.Time, limit int) (int, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT workflow.id::text,latest.completed_at,
-		(SELECT count(*) FROM plex_scan_requests scan WHERE scan.workflow_id=workflow.id AND scan.altmount_job_id=workflow.grab_attempt_id)
+		1+(SELECT count(*) FROM audit_events audit WHERE audit.action='workflow.plex_reconfirm_requested' AND audit.aggregate_type='workflow' AND audit.aggregate_id=workflow.id AND audit.actor='worker' AND audit.detail->>'altmount_job_id'=workflow.grab_attempt_id::text)
 		FROM workflows workflow
 		JOIN LATERAL (SELECT scan.completed_at FROM plex_scan_requests scan WHERE scan.workflow_id=workflow.id AND scan.altmount_job_id=workflow.grab_attempt_id
 			ORDER BY scan.requested_at DESC,scan.id DESC LIMIT 1) latest ON true
 		WHERE workflow.state='needs_attention' AND workflow.terminal_at IS NULL AND workflow.attention_code='plex_timeout'
-		  AND (SELECT count(*) FROM plex_scan_requests scan WHERE scan.workflow_id=workflow.id AND scan.altmount_job_id=workflow.grab_attempt_id) <= $1
+		  AND (SELECT count(*) FROM audit_events audit WHERE audit.action='workflow.plex_reconfirm_requested' AND audit.aggregate_type='workflow' AND audit.aggregate_id=workflow.id AND audit.actor='worker' AND audit.detail->>'altmount_job_id'=workflow.grab_attempt_id::text) < $1
 		ORDER BY workflow.updated_at,workflow.id LIMIT $2`, maxPlexReconfirmations, limit)
 	if err != nil {
 		return 0, err
@@ -136,4 +139,23 @@ func (store *Store) AutoReconfirmTimedOutPlex(ctx context.Context, now time.Time
 		queued++
 	}
 	return queued, nil
+}
+
+// plexReconfirmationsUsed counts the Plex confirmations of one publication
+// (scans) and the retries already used by this actor's kind. Media Manager's
+// automatic retries and the owner's retries each have their own limit, so
+// the owner can still retry after fixing the Plex match when the automatic
+// ones have timed out.
+func plexReconfirmationsUsed(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID, jobID, actor string) (int, int, error) {
+	var scans, automatic int
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM plex_scan_requests WHERE workflow_id=$1 AND altmount_job_id=$2`, workflowID.String(), jobID).Scan(&scans); err != nil {
+		return 0, 0, err
+	}
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE action='workflow.plex_reconfirm_requested' AND aggregate_type='workflow' AND aggregate_id=$1 AND actor='worker' AND detail->>'altmount_job_id'=$2`, workflowID.String(), jobID).Scan(&automatic); err != nil {
+		return 0, 0, err
+	}
+	if actor == "worker" {
+		return scans, automatic, nil
+	}
+	return scans, scans - 1 - automatic, nil
 }

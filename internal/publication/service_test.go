@@ -3,15 +3,18 @@ package publication
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/packs"
 	"github.com/media-manager/media-manager/internal/postgres"
+	"github.com/media-manager/media-manager/internal/workflows"
 )
 
 func TestBuildSeasonPackPlansEveryVerifiedGroup(t *testing.T) {
@@ -283,5 +286,73 @@ func TestPlexTimeoutDetailNamesTheStallReason(t *testing.T) {
 		if detail := plexTimeoutDetail(test.err); !strings.Contains(detail, test.want) {
 			t.Fatalf("plexTimeoutDetail(%v)=%q, want it to mention %q", test.err, detail, test.want)
 		}
+	}
+}
+
+func TestBuildPlansPublishesOneOfTwoSubtitlesWithTheSamePlexName(t *testing.T) {
+	t.Parallel()
+	year := uint16(2026)
+	context := postgres.PublicationContext{
+		Media:                 catalog.MediaItem{Kind: catalog.KindMovie, Title: "Movie", Year: &year, Identities: []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "42", State: catalog.IdentityVerified}}},
+		Root:                  postgres.LibraryRoot{DestinationRoot: "/library/movies", SourceVisibleRoot: "/altmount", PlexVisibleRoot: "/movies"},
+		AltMount:              postgres.Integration{Config: json.RawMessage(`{"local_read_only_root":"/source"}`)},
+		InventoryRootRelative: "queue/17",
+		Assets: []postgres.PublicationAsset{{ID: uuid.NewV7(), RelativePath: "Movie.mkv", Companions: []postgres.PublicationCompanion{
+			{AssetID: uuid.NewV7(), RelativePath: "Movie.da.srt", Language: "da"},
+			{AssetID: uuid.NewV7(), RelativePath: "Movie.dan.srt", Language: "da"},
+		}}},
+	}
+	plans, links, err := buildPlans(context)
+	if err != nil {
+		t.Fatalf("two Danish subtitles failed the publication: %v", err)
+	}
+	if len(plans) != 1 || len(plans[0].Companions) != 1 || len(links) != 2 || plans[0].Companions[0].SourceRelative != "queue/17/Movie.da.srt" {
+		t.Fatalf("plans=%+v links=%d", plans, len(links))
+	}
+}
+
+func TestPublicationResumesOnlyItsOwnLaterRevision(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		event    uint64
+		workflow workflows.Workflow
+		want     bool
+	}{
+		{event: 7, workflow: workflows.Workflow{Revision: 9, State: workflows.StatePublishing}, want: true},
+		{event: 7, workflow: workflows.Workflow{Revision: 8, State: workflows.StateVerifying}, want: true},
+		{event: 7, workflow: workflows.Workflow{Revision: 9, State: workflows.StateNeedsAttention}, want: false},
+		{event: 7, workflow: workflows.Workflow{Revision: 9, State: workflows.StateCancelled}, want: false},
+		{event: 9, workflow: workflows.Workflow{Revision: 7, State: workflows.StatePublishing}, want: false},
+	} {
+		if got := resumablePublication(testCase.event, testCase.workflow); got != testCase.want {
+			t.Errorf("resumablePublication(%d, %+v) = %v, want %v", testCase.event, testCase.workflow, got, testCase.want)
+		}
+	}
+}
+
+func TestUnreadableStorageDefersPublicationInsteadOfFailingIt(t *testing.T) {
+	t.Parallel()
+	readable := t.TempDir()
+	library := t.TempDir() // an empty library folder is fine
+	if err := os.WriteFile(filepath.Join(readable, "queue"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	at := func(source, destination string) postgres.PublicationContext {
+		return postgres.PublicationContext{
+			AltMount: postgres.Integration{Config: json.RawMessage(`{"local_read_only_root":"` + source + `"}`)},
+			Root:     postgres.LibraryRoot{DestinationRoot: destination},
+		}
+	}
+	cause := errors.New("symlink: transport endpoint is not connected")
+	outage := storageOutage(at(filepath.Join(readable, "missing-mount"), library), cause)
+	var deferred interface{ RetryAt() time.Time }
+	if !errors.As(outage, &deferred) || !deferred.RetryAt().After(time.Now()) || !errors.Is(outage, cause) {
+		t.Fatalf("unreadable AltMount mount: %v, want a deferral wrapping the cause", outage)
+	}
+	if outage := storageOutage(at(readable, filepath.Join(library, "missing-library")), cause); !errors.As(outage, &deferred) {
+		t.Fatalf("unreadable library folder: %v, want a deferral", outage)
+	}
+	if outage := storageOutage(at(readable, library), cause); outage != nil {
+		t.Fatalf("readable storage deferred the failure: %v", outage)
 	}
 }

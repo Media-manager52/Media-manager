@@ -81,3 +81,19 @@ func TestEvaluationIsDeterministic(t *testing.T) {
 		t.Fatalf("evaluation is nondeterministic: %#v %#v", first, second)
 	}
 }
+
+func TestIsSampleMatchesOnlyRealSamples(t *testing.T) {
+	for path, want := range map[string]bool{
+		"Free.Samples.2017.1080p.mkv":                 false,
+		"Free.Samples.2017/Free.Samples.2017.mkv":     false,
+		"The.Sampler.2020.mkv":                        false,
+		"Movie.2020/Sample/movie-sample.mkv":          true,
+		"Movie.2020/movie.2020.sample.mkv":            true,
+		"Movie.2020/samples/clip.mkv":                 true,
+		"Movie.2020/Movie.2020.1080p.BluRay.x264.mkv": false,
+	} {
+		if got := IsSample(path); got != want {
+			t.Errorf("IsSample(%q) = %v, want %v", path, got, want)
+		}
+	}
+}

@@ -173,3 +173,43 @@ func seedQueuedAltMountJob(t *testing.T, store *postgres.Store, workflowID, inde
 	}
 	return jobID
 }
+
+// TestDeletedAltMountQueueItemMovesOnInsteadOfRetryingForever covers a queue
+// item that disappears from AltMount (deleted by hand) while the job is still
+// queued and has no stored failure: the reconcile used to retry forever.
+func TestDeletedAltMountQueueItemMovesOnInsteadOfRetryingForever(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	const queueID = 4343
+	fake := &fakeFailingAltMount{message: "unused"}
+	// The fake only knows another queue item, so this job's item answers 404.
+	server := httptest.NewServer(fake.handler(queueID + 1))
+	defer server.Close()
+
+	indexer := configureMovieSearchIndexer(t, store, "http://indexer.invalid", true)
+	workflow := createMovieSearchWorkflow(t, store)
+	config, _ := json.Marshal(map[string]any{"base_url": server.URL, "allow_http": true, "authentication": "anonymous_admin"})
+	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET config=$2 WHERE id=$1`, workflow.DownloadClientID.String(), config); err != nil {
+		t.Fatal(err)
+	}
+	jobID := seedQueuedAltMountJob(t, store, workflow.ID, indexer.ID, workflow.DownloadClientID, queueID)
+	service := &AltMountReconcileService{Store: store, CheckMount: func(string) error { return nil }}
+	job, err := store.LoadAltMountJob(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, postgres.OutboxEvent{AggregateID: jobID, AggregateRevision: job.JobRevision}); err != nil {
+		t.Fatalf("reconcile of a deleted queue item returned %v, want it settled", err)
+	}
+	got, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != workflows.StateWaiting {
+		t.Fatalf("state=%q, want waiting for the next release", got.State)
+	}
+	var kind string
+	if err := store.Pool.QueryRow(ctx, `SELECT failure_kind FROM workflow_release_exclusions WHERE workflow_id=$1`, workflow.ID.String()).Scan(&kind); err != nil || kind != postgres.ImportFailedCode {
+		t.Fatalf("exclusion kind=%q err=%v", kind, err)
+	}
+}

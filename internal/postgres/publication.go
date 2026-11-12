@@ -14,6 +14,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/packs"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
@@ -499,7 +500,7 @@ func (store *Store) CompletePublication(ctx context.Context, workflowID, jobID u
 
 func (store *Store) FailPublication(ctx context.Context, workflowID, jobID uuid.UUID, detail string, now time.Time) error {
 	if len(detail) > 1000 {
-		detail = detail[:1000]
+		detail = dbcore.TruncateText(detail, 1000)
 	}
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
@@ -713,7 +714,7 @@ func (store *Store) TimeoutPlexScan(ctx context.Context, scan PlexScanContext, d
 		detail = "Plex did not confirm every expected path before the deadline"
 	}
 	if len(detail) > 1000 {
-		detail = detail[:1000]
+		detail = dbcore.TruncateText(detail, 1000)
 	}
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
@@ -753,10 +754,9 @@ func (store *Store) TimeoutPlexScan(ctx context.Context, scan PlexScanContext, d
 	return transaction.Commit(ctx)
 }
 
-// maxPlexReconfirmations bounds owner retries of a timed-out Plex confirmation
-// for one publication. Each retry already waits a full confirmation window, so
-// repeated failure points at a Plex identity, path, or mount problem that the
-// owner must investigate rather than another retry.
+// maxPlexReconfirmations bounds the owner's and, separately, the automatic
+// retries of a timed-out Plex confirmation for one publication; repeated
+// failure points at a Plex identity, path or mount problem to investigate.
 const maxPlexReconfirmations = 3
 
 var (
@@ -820,11 +820,11 @@ func (store *Store) RequestPlexReconfirmation(ctx context.Context, workflowID uu
 	if versions == 0 || unverified != 0 {
 		return uuid.UUID{}, ErrPlexReconfirmationUnverified
 	}
-	var scans int
-	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM plex_scan_requests WHERE workflow_id=$1 AND altmount_job_id=$2`, workflowID.String(), *attemptText).Scan(&scans); err != nil {
+	scans, used, err := plexReconfirmationsUsed(ctx, transaction, workflowID, *attemptText, actor)
+	if err != nil {
 		return uuid.UUID{}, err
 	}
-	if scans-1 >= maxPlexReconfirmations {
+	if used >= maxPlexReconfirmations {
 		return uuid.UUID{}, ErrPlexReconfirmationLimit
 	}
 	newRevision := revision + 1

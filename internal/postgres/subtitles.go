@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
@@ -194,7 +195,7 @@ func (store *Store) RecordSubtitleVerification(ctx context.Context, job AltMount
 			detail = "required subtitle evidence could not be verified"
 		}
 		if len(detail) > 1000 {
-			detail = detail[:1000]
+			detail = dbcore.TruncateText(detail, 1000)
 		}
 		result, failureErr := store.recordAttributableAcquisitionFailure(ctx, transaction, job, &verificationID, "subtitle_verification", "subtitle_requirements_unverified", detail, now)
 		if failureErr != nil {

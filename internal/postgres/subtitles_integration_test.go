@@ -665,6 +665,22 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err != nil || retained.InventoryID != firstInventory || retained.MediaKind != catalog.KindMovie || len(retained.Assets) != 2 || len(retained.Policy.Required) != 1 || retained.Policy.Required[0] != "da" || len(retained.Policy.Preferred) != 0 {
 		t.Fatalf("retained output=%+v err=%v", retained, err)
 	}
+	// The re-check uses the full policy: a profile requiring Danish audio
+	// keeps requiring it, so subtitles alone can never pass the re-check.
+	var savedPolicy []byte
+	if err := store.Pool.QueryRow(ctx, `SELECT policy FROM quality_profiles WHERE id=(SELECT quality_profile_id FROM workflows WHERE id=$1)`, workflowID.String()).Scan(&savedPolicy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE quality_profiles SET policy=policy || '{"required_audio_languages":["da"]}'::jsonb WHERE id=(SELECT quality_profile_id FROM workflows WHERE id=$1)`, workflowID.String()); err != nil {
+		t.Fatal(err)
+	}
+	withAudio, err := store.LoadRetainedSubtitleOutput(ctx, workflowID, firstJob.JobID)
+	if err != nil || len(withAudio.Policy.RequiredAudio) != 1 || withAudio.Policy.RequiredAudio[0] != "da" || len(withAudio.Policy.Required) != 1 {
+		t.Fatalf("re-check policy=%+v err=%v, want Danish subtitles and Danish audio required", withAudio.Policy, err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE quality_profiles SET policy=$2 WHERE id=(SELECT quality_profile_id FROM workflows WHERE id=$1)`, workflowID.String(), savedPolicy); err != nil {
+		t.Fatal(err)
+	}
 	reverified := subtitles.Verification{
 		SchemaVersion: 1, Status: "verified", RequiredLanguages: []string{"da"}, PreferredLanguages: []string{}, ObservedLanguages: []string{"da"},
 		Videos:     []subtitles.VideoEvidence{{AssetID: firstAssets[0], RelativePath: "Movie.mkv", MediaInfo: mediainfo.Evidence{SchemaVersion: 1, ContainerNames: []string{"matroska"}, VideoTracks: []mediainfo.Track{{Index: 0, Codec: "hevc", Width: 1920, Height: 1080}}, AudioTracks: []mediainfo.Track{}, SubtitleTracks: []mediainfo.Track{{Index: 1, Codec: "subrip", Language: "dan", CanonicalLanguage: "da"}}, Facts: map[string]any{"subtitle_languages": []string{"da"}}}, ObservedLanguages: []string{"da"}}},

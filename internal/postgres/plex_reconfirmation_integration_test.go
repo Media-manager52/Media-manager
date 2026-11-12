@@ -137,6 +137,29 @@ func TestPlexReconfirmationRetriesTimedOutVerifiedLinks(t *testing.T) {
 	if _, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, limited, "owner", time.Now().UTC()); !errors.Is(err, ErrPlexReconfirmationLimit) {
 		t.Fatalf("retry beyond limit error=%v, want ErrPlexReconfirmationLimit", err)
 	}
+
+	// Media Manager's automatic retries have their own limit: once they have
+	// all timed out, the owner can still retry after fixing the Plex match.
+	shared, _, _, _ := publishTimedOutMovie(t, fixture, "Reconfirm Shared Movie", "560003", "reconfirm-shared")
+	for retry := 1; retry <= maxPlexReconfirmations; retry++ {
+		scan, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, shared, "worker", time.Now().UTC())
+		if err != nil {
+			t.Fatalf("automatic retry %d: %v", retry, err)
+		}
+		timeOutScan(t, fixture, scan)
+	}
+	if _, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, shared, "worker", time.Now().UTC()); !errors.Is(err, ErrPlexReconfirmationLimit) {
+		t.Fatalf("automatic retry beyond limit error=%v, want ErrPlexReconfirmationLimit", err)
+	}
+	if _, err := fixture.store.AutoReconfirmTimedOutPlex(fixture.ctx, time.Now().UTC().Add(48*time.Hour), 10); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := fixture.store.GetWorkflow(fixture.ctx, shared); err != nil || got.State != "needs_attention" {
+		t.Fatalf("automatic sweep retried past its limit: state=%v err=%v", got.State, err)
+	}
+	if _, err := fixture.store.RequestPlexReconfirmation(fixture.ctx, shared, "owner", time.Now().UTC()); err != nil {
+		t.Fatalf("owner retry after the automatic ones: %v", err)
+	}
 }
 
 // TestPlexReconfirmationRejectsUnverifiedLinksAndOtherStates proves a retry

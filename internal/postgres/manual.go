@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -456,7 +457,7 @@ func (store *Store) RequestWorkflowSearch(ctx context.Context, workflowID uuid.U
 				detail = "completed AltMount output did not satisfy release requirements"
 			}
 			if len(detail) > 1000 {
-				detail = detail[:1000]
+				detail = dbcore.TruncateText(detail, 1000)
 			}
 			outputFailure = &failedOutput{candidateID: candidateID, indexerID: indexerID, nativeKey: nativeKey, reason: detail}
 			if len(packageIdentity) == 32 {

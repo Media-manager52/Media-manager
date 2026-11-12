@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -177,7 +178,7 @@ func (store *Store) RecordIndexerFeedRead(ctx context.Context, state IndexerFeed
 	for _, match := range matches {
 		title := match.ReleaseTitle
 		if len(title) > 500 {
-			title = title[:500]
+			title = dbcore.TruncateText(title, 500)
 		}
 		// The workflow may have been removed since the titles were listed.
 		tag, err := transaction.Exec(ctx, `INSERT INTO indexer_feed_matches(id,indexer_instance_id,native_guid,workflow_id,release_title,seen_at)

@@ -261,11 +261,25 @@ func sortKeys(keys []EpisodeKey) {
 	})
 }
 
+// IsSample reports whether a path is a sample: a folder named "sample" or
+// "samples", or "sample" as a whole word in the file name. A film named
+// "Free Samples" or "The Sampler" is not a sample.
+func IsSample(path string) bool { return isSample(path) }
+
+var nameTokens = regexp.MustCompile(`[^a-z0-9]+`)
+
 func isSample(path string) bool {
-	for _, component := range strings.Split(strings.ToLower(filepath.ToSlash(path)), "/") {
+	components := strings.Split(strings.ToLower(filepath.ToSlash(path)), "/")
+	for index, component := range components {
+		if index < len(components)-1 {
+			if component == "sample" || component == "samples" {
+				return true
+			}
+			continue
+		}
 		stem := strings.TrimSuffix(component, filepath.Ext(component))
-		for _, token := range regexp.MustCompile(`[^a-z0-9]+`).Split(stem, -1) {
-			if token == "sample" || token == "samples" {
+		for _, token := range nameTokens.Split(stem, -1) {
+			if token == "sample" {
 				return true
 			}
 		}

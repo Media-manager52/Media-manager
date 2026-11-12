@@ -162,11 +162,15 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 	item, err := client.Queue(ctx, altmount.QueueID(*job.ExternalQueueID))
 	if err != nil {
 		var apiError altmount.APIError
-		if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound && strings.TrimSpace(job.ErrorDetail) != "" {
-			// AltMount already pruned the failed queue item, so the persisted
-			// failure detail is the only durable evidence. Route it exactly like
-			// a live failure instead of retrying the reconcile forever.
-			detail := job.ErrorDetail
+		if errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound {
+			// AltMount no longer has the queue item: it pruned a failed item,
+			// or someone deleted it. The persisted failure detail, if any, is
+			// the only durable evidence. Route it exactly like a live failure
+			// instead of retrying the reconcile forever.
+			detail := strings.TrimSpace(job.ErrorDetail)
+			if detail == "" {
+				detail = "AltMount no longer has this download in its queue (deleted or pruned before Media Manager saw it finish)"
+			}
 			if failureCode, releaseAttributable := releaseAttributableQueueFailure(detail); releaseAttributable {
 				return service.Store.CompleteReleaseFailure(ctx, job, failureCode, detail, time.Now().UTC())
 			}
@@ -348,7 +352,11 @@ func (service *AltMountReconcileService) HandleRetainedOutputReverification(ctx 
 			}
 			return deferral
 		}
-		return inspectionErr
+		// The file cannot be inspected now and will not be on a later try
+		// either (no video track, invalid or zero-filled output, unsafe
+		// root): stop instead of retrying forever, as after 24 hours of
+		// unresponsive reads.
+		return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", "the retained output could not be inspected again: "+inspectionErr.Error(), time.Now().UTC())
 	}
 	return service.Store.CompleteRetainedSubtitleReverification(ctx, job, event.AggregateRevision, retained.InventoryID, verification, time.Now().UTC())
 }
@@ -439,7 +447,7 @@ func releaseAttributableQueueFailure(detail string) (string, bool) {
 func selectedMovieAssets(assets []packs.ObservedAsset) []subtitles.Asset {
 	media := make([]packs.ObservedAsset, 0, len(assets))
 	for _, asset := range assets {
-		if playableOutputAsset(asset.RelativePath) && !strings.Contains(strings.ToLower(asset.RelativePath), "sample") && !movieBonusDirectory(asset.RelativePath) {
+		if playableOutputAsset(asset.RelativePath) && !packs.IsSample(asset.RelativePath) && !movieBonusDirectory(asset.RelativePath) {
 			media = append(media, asset)
 		}
 	}

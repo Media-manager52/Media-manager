@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -157,7 +158,7 @@ func (store *Store) RecordReleaseRetrievalFailure(ctx context.Context, retrieval
 		detail = "selected release NZB could not be retrieved"
 	}
 	if len(detail) > 1000 {
-		detail = detail[:1000]
+		detail = dbcore.TruncateText(detail, 1000)
 	}
 	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
