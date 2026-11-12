@@ -1,10 +1,10 @@
 # Versioning and image identity
 
 This document defines the contract every Media Manager release follows. The
-current release, `v0.1.0-beta.10`, was published on 2026-11-11; see
-[`v0.1.0-beta.10.md`](v0.1.0-beta.10.md) and its
-[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.10).
-Earlier releases: [`v0.1.0-beta.9`](v0.1.0-beta.9.md), [`v0.1.0-beta.8`](v0.1.0-beta.8.md), [`v0.1.0-beta.7`](v0.1.0-beta.7.md), [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
+current release, `v0.1.0-beta.11`, was published on 2026-11-12; see
+[`v0.1.0-beta.11.md`](v0.1.0-beta.11.md) and its
+[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.11).
+Earlier releases: [`v0.1.0-beta.10`](v0.1.0-beta.10.md), [`v0.1.0-beta.9`](v0.1.0-beta.9.md), [`v0.1.0-beta.8`](v0.1.0-beta.8.md), [`v0.1.0-beta.7`](v0.1.0-beta.7.md), [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
 [`v0.1.0-beta.1`](v0.1.0-beta.1.md).
 
 ## Versions
@@ -42,6 +42,15 @@ under `/usr/share/doc/media-manager/`, and carries the
 `org.opencontainers.image.licenses="AGPL-3.0-only"` label. The corresponding
 source is <https://github.com/Media-manager52/Media-manager>. Release checks must
 verify the label and both files in the published image.
+
+Released images (`v0.1.0-beta.11`, commit `b7a0c69b1886459c7c31c59c573bd48ebbb524a0`):
+
+```text
+api index         sha256:9d160b24d52a1be786dc6a910295423ef66a556f55eebc05d518e79e9fc483e5
+api linux/amd64   sha256:f6ff7014039d69c6e83854207bdab91917b90d8a182573c65ded163d35a5d03f
+ui  index         sha256:d632cc55a2a40b6dbd2135b53672c2c7fc75427bdbfdff4c1442b2985f67288a
+ui  linux/amd64   sha256:638be9be2e81e6c62557751472337851bd5de13e66cbe2fe2086798d70431b77
+```
 
 Released images (`v0.1.0-beta.10`, commit `03e1c1a4cfe59937a48312354c4eb3587a094b11`):
 
