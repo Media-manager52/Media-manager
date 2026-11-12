@@ -4,9 +4,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
-### Fixed
+## [0.1.0-beta.11] - 2026-11-12
 
-- **A Plex that hangs no longer stops everything else.** Plex stopped answering one night, and the half-hourly check for broken AltMount files, which asks Plex about some files, failed again and again. A new failing check was added every half hour, and because these were the oldest work in the queue the worker spent all its time on them: from early morning no search, download or publication ran for about three and a half hours. The check now runs in its own queue, a new one is not added while the last has not finished, and any work that has already failed five times waits behind healthy work.
+### Added
+
+- **Lister: follow MDBList lists, as in Radarr and Sonarr.** Paste the address of a public list from mdblist.com on the new **Lister** page (no account or key) and choose the film and series library and quality profile, or keep the defaults. Every new title on the list is added exactly as with **Tilføj** and searched at once: films with their TMDB identity, series with every season (specials left out), each season frozen from TMDB's episode list. The profile sets the language and quality requirements as for any other title. Titles you already have are skipped, titles you removed are never added again, and a title that leaves the list stays in the library. Lists are read every 6 hours or with **Læs nu**; the page shows what happened to each title. `POST/PATCH/DELETE /api/v1/import-lists`, `POST /api/v1/import-lists/{id}/sync` and `GET /api/v1/import-lists/{id}/entries`. Schema 64.
 
 ### Changed
 
@@ -15,11 +17,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **A Plex that hangs no longer stops everything else.** Plex stopped answering one night, and the half-hourly check for broken AltMount files, which asks Plex about some files, failed again and again. A new failing check was added every half hour, and because these were the oldest work in the queue the worker spent all its time on them: from early morning no search, download or publication ran for about three and a half hours. The check now runs in its own queue, a new one is not added while the last has not finished, and any work that has already failed five times waits behind healthy work.
 - **List addresses with æ, ø or å work.** A MDBList address such as `mdblist.com/lists/søren/julefilm-på-dansk` was refused because only plain letters were accepted. Any letters are now accepted, pasted as they are or percent-encoded (`%C3%A5`), and sent to MDBList encoded exactly once. Slashes, spaces, `?`, `#`, `%` and `.`/`..` are still refused, also by the database (schema 65).
-
-### Added
-
-- **Lister: follow MDBList lists, as in Radarr and Sonarr.** Paste the address of a public list from mdblist.com on the new **Lister** page (no account or key) and choose the film and series library and quality profile, or keep the defaults. Every new title on the list is added exactly as with **Tilføj** and searched at once: films with their TMDB identity, series with every season (specials left out), each season frozen from TMDB's episode list. The profile sets the language and quality requirements as for any other title. Titles you already have are skipped, titles you removed are never added again, and a title that leaves the list stays in the library. Lists are read every 6 hours or with **Læs nu**; the page shows what happened to each title. `POST/PATCH/DELETE /api/v1/import-lists`, `POST /api/v1/import-lists/{id}/sync` and `GET /api/v1/import-lists/{id}/entries`. Schema 64.
 
 ## [0.1.0-beta.10] - 2026-11-11
 
@@ -505,6 +504,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.11]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.8
