@@ -95,7 +95,7 @@ non-obvious.
 | `workflow_transitions` | Append-only `from`/`to`/reason/actor log. |
 | `acquisition_rounds` | Durable rounds with immutable bounded attempt limits, policy/upgrade snapshots, ordinal, state. |
 | `workflow_attempted_releases` | Lifetime attempt registry (monotonic). |
-| `workflow_release_exclusions` | Exact release exclusions after attributable failure; `import_failed` when AltMount could not import the release even after the automatic retries (schema 66). |
+| `workflow_release_exclusions` | Exact release exclusions after attributable failure; `import_failed` when AltMount could not import the release even after the automatic retries (schema 66); `inspection_failed` when media-info could not inspect the download (schema 67). |
 | `workflow_package_exclusions` | Canonical NZB package exclusions. |
 | `workflow_submitted_packages` | Package identity → submission dedup. |
 | `workflow_retry_discovery` | Low-priority discovery state, completeness, jitter, new-identity flags; `automatic_round_refused_generation` remembers a discovery for which an automatic round was refused (schema 60). |

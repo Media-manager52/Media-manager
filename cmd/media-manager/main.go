@@ -45,6 +45,16 @@ var commit = "unknown"
 // attention are handed to the automatic retry per five-minute sweep.
 const altMountResumeBatch = 10
 
+// resumeAttention hands work that stopped at owner attention for a reason
+// the worker can now resolve itself back to the automatic flow: rounds with
+// no untried release left wait for a new one, releases media-info could not
+// inspect are set aside, and timed-out Plex confirmations are asked again.
+func resumeAttention(ctx context.Context, store *postgres.Store) {
+	_, _ = store.ResumeRoundDeadEnds(ctx, time.Now().UTC(), altMountResumeBatch)
+	_, _ = store.ResumeInspectionFailures(ctx, time.Now().UTC(), altMountResumeBatch)
+	_, _ = store.AutoReconfirmTimedOutPlex(ctx, time.Now().UTC(), altMountResumeBatch)
+}
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("media manager stopped", "error", err)
@@ -422,6 +432,7 @@ func run() error {
 		_, _ = store.QueueAltMountRepairSweeps(workerContext, time.Now().UTC())
 		_, _ = store.QueueDueImportListSyncs(workerContext, time.Now().UTC())
 		_, _ = store.ResumeAltMountAttention(workerContext, time.Now().UTC(), altMountResumeBatch)
+		resumeAttention(workerContext, store)
 		if seerrEnabled {
 			_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)
 			_, _ = store.QueueConfirmedSeerrStatusSyncs(workerContext, seerrInstance, time.Now().UTC(), 25)
@@ -450,6 +461,7 @@ func run() error {
 				// Failed AltMount imports that stopped at owner attention are
 				// handed to the automatic retry, a few at a time.
 				_, _ = store.ResumeAltMountAttention(workerContext, time.Now().UTC(), altMountResumeBatch)
+				resumeAttention(workerContext, store)
 				_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 				if seerrEnabled {
 					_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)

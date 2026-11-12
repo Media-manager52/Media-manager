@@ -28,6 +28,8 @@ const explanations: Record<string, { what: string; next: string }> = {
   movie_primary_ambiguous: { what: "Udgivelsen har flere store videofiler, så filmen kan ikke udpeges sikkert.", next: tryNext },
   output_empty: { what: "AltMount gav ingen filer tilbage.", next: tryNext },
   altmount_job_attention: { what: "AltMount meldte fejl på jobbet.", next: tryNext },
+  import_failed: { what: "AltMount kunne ikke hente udgivelsen, heller ikke efter flere automatiske forsøg.", next: tryNext },
+  inspection_failed: { what: "Filen kunne ikke kontrolleres, så sproget kunne ikke bekræftes.", next: tryNext },
   altmount_identity_unresolved: { what: "AltMount-jobbet kunne ikke genkendes.", next: tryNext },
   newznab_transport_failed: { what: "Indexeren kunne ikke nås.", next: searchLater },
   newznab_http_429: { what: "Indexeren afviste søgningen, fordi der er sendt for mange.", next: searchLater },

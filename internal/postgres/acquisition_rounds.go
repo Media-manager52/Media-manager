@@ -217,29 +217,7 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 	if exhausted {
 		attentionCode = workflows.AttentionRoundExhaustedWaitingNewIdentity
 		attentionDetail = fmt.Sprintf("All %d acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; when automatic rounds are on another round opens once one is found, otherwise the owner opens it.", attemptLimit)
-		var cutoff int64
-		if err := transaction.QueryRow(ctx, `SELECT COALESCE(max(first_seen_sequence),0) FROM release_candidates WHERE workflow_id=$1`, job.Workflow.ID.String()).Scan(&cutoff); err != nil {
-			return acquisitionFailureResult{}, err
-		}
-		if _, err := transaction.Exec(ctx, `UPDATE acquisition_rounds SET state='exhausted',novelty_cutoff_sequence=$2,exhausted_at=$3,closed_at=$3,close_reason=$4 WHERE id=$1 AND state='open'`, roundText, cutoff, now.UTC(), failureCode); err != nil {
-			return acquisitionFailureResult{}, err
-		}
-		if _, err := transaction.Exec(ctx, `UPDATE subtitle_verifications SET retry_state='exhausted' WHERE workflow_id=$1 AND retry_state='queued'`, job.Workflow.ID.String()); err != nil {
-			return acquisitionFailureResult{}, err
-		}
-		var discoveryGeneration int64
-		if err := transaction.QueryRow(ctx, `SELECT COALESCE((SELECT rescan_generation FROM workflow_retry_discovery WHERE workflow_id=$1),0)+1`, job.Workflow.ID.String()).Scan(&discoveryGeneration); err != nil {
-			return acquisitionFailureResult{}, err
-		}
-		next := retryDiscoveryAt(job.Workflow.ID, discoveryGeneration, 0, now)
-		if _, err := transaction.Exec(ctx, `INSERT INTO workflow_retry_discovery(workflow_id,exhausted_round_id,state,rescan_generation,next_rescan_at,complete_no_new_scans,pending_indexer_ids,created_at,updated_at)
-			VALUES($1,$2,'waiting',$3,$4,0,NULL,$5,$5)
-			ON CONFLICT(workflow_id) DO UPDATE SET exhausted_round_id=EXCLUDED.exhausted_round_id,state='waiting',rescan_generation=EXCLUDED.rescan_generation,next_rescan_at=EXCLUDED.next_rescan_at,last_scan_at=NULL,last_scan_complete=NULL,complete_no_new_scans=0,pending_indexer_ids=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=EXCLUDED.updated_at`, job.Workflow.ID.String(), roundText, discoveryGeneration, next.UTC(), now.UTC()); err != nil {
-			return acquisitionFailureResult{}, err
-		}
-		payload, _ := json.Marshal(map[string]any{"workflow_id": job.Workflow.ID.String(), "rescan_generation": discoveryGeneration})
-		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
-			VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested',$4,$5,$6)`, uuid.NewV7().String(), job.Workflow.ID.String(), discoveryGeneration, payload, now.UTC(), next.UTC()); err != nil {
+		if err := exhaustOpenRound(ctx, transaction, job.Workflow.ID, roundText, failureCode, now); err != nil {
 			return acquisitionFailureResult{}, err
 		}
 	}
@@ -271,11 +249,41 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 	return acquisitionFailureResult{RetryQueued: !exhausted, RoundExhausted: exhausted}, nil
 }
 
+// exhaustOpenRound closes an open round as exhausted and starts paced retry
+// discovery: the workflow waits for a newly observed eligible release, and
+// an automatic (feed or rescan) round opens once one is found.
+func exhaustOpenRound(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID, roundText, closeReason string, now time.Time) error {
+	var cutoff int64
+	if err := transaction.QueryRow(ctx, `SELECT COALESCE(max(first_seen_sequence),0) FROM release_candidates WHERE workflow_id=$1`, workflowID.String()).Scan(&cutoff); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE acquisition_rounds SET state='exhausted',novelty_cutoff_sequence=$2,exhausted_at=$3,closed_at=$3,close_reason=$4 WHERE id=$1 AND state='open'`, roundText, cutoff, now.UTC(), closeReason); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE subtitle_verifications SET retry_state='exhausted' WHERE workflow_id=$1 AND retry_state='queued'`, workflowID.String()); err != nil {
+		return err
+	}
+	var discoveryGeneration int64
+	if err := transaction.QueryRow(ctx, `SELECT COALESCE((SELECT rescan_generation FROM workflow_retry_discovery WHERE workflow_id=$1),0)+1`, workflowID.String()).Scan(&discoveryGeneration); err != nil {
+		return err
+	}
+	next := retryDiscoveryAt(workflowID, discoveryGeneration, 0, now)
+	if _, err := transaction.Exec(ctx, `INSERT INTO workflow_retry_discovery(workflow_id,exhausted_round_id,state,rescan_generation,next_rescan_at,complete_no_new_scans,pending_indexer_ids,created_at,updated_at)
+		VALUES($1,$2,'waiting',$3,$4,0,NULL,$5,$5)
+		ON CONFLICT(workflow_id) DO UPDATE SET exhausted_round_id=EXCLUDED.exhausted_round_id,state='waiting',rescan_generation=EXCLUDED.rescan_generation,next_rescan_at=EXCLUDED.next_rescan_at,last_scan_at=NULL,last_scan_complete=NULL,complete_no_new_scans=0,pending_indexer_ids=NULL,ready_candidate_id=NULL,ready_first_seen_sequence=NULL,updated_at=EXCLUDED.updated_at`, workflowID.String(), roundText, discoveryGeneration, next.UTC(), now.UTC()); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]any{"workflow_id": workflowID.String(), "rescan_generation": discoveryGeneration})
+	_, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
+		VALUES($1,'workflow_retry_discovery',$2,$3,'workflow.discovery_rescan_requested',$4,$5,$6)`, uuid.NewV7().String(), workflowID.String(), discoveryGeneration, payload, now.UTC(), next.UTC())
+	return err
+}
+
 func (store *Store) CompleteReleaseFailure(ctx context.Context, job AltMountJobContext, failureCode, detail string, now time.Time) error {
 	failureKind := failureCode
 	switch failureCode {
 	case "season_pack_incomplete", "movie_primary_ambiguous", "output_empty", "media_identity_mismatch", "media_corrupt", "password_protected",
-		"archive_unsupported", "no_playable_media", "release_incomplete", "resolution_mismatch":
+		"archive_unsupported", "no_playable_media", "release_incomplete", "resolution_mismatch", InspectionFailedCode:
 	default:
 		return errors.New("failure is not safely classified as release-attributable")
 	}

@@ -153,18 +153,23 @@ func TestRetrievalFailureIsNotAnAttemptAndCreatesNoJob(t *testing.T) {
 		WHERE workflow.id=$1`, workflow.ID.String()).Scan(&state, &attention, &failureKind, &verificationID); err != nil {
 		t.Fatal(err)
 	}
-	if state != string(workflows.StateNeedsAttention) || attention != "release_retrieval_failed" || failureKind != "release_retrieval" || verificationID != nil {
+	// No other release is left, so the workflow waits for a new one on its
+	// own: the round is closed as exhausted and paced discovery is scheduled.
+	if state != string(workflows.StateWaiting) || attention != workflows.AttentionRoundExhaustedWaitingNewIdentity || failureKind != "release_retrieval" || verificationID != nil {
 		t.Fatalf("retrieval failure state=%q attention=%q kind=%q verification=%v", state, attention, failureKind, verificationID)
 	}
 
 	var roundState string
 	var roundJobs int
 	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT round.state,(SELECT count(*) FROM altmount_jobs job WHERE job.round_id=round.id)
-		FROM acquisition_rounds round WHERE round.workflow_id=$1 AND round.state='open'`, workflow.ID.String()).Scan(&roundState, &roundJobs); err != nil {
+		FROM acquisition_rounds round WHERE round.workflow_id=$1`, workflow.ID.String()).Scan(&roundState, &roundJobs); err != nil {
 		t.Fatal(err)
 	}
-	if roundState != "open" || roundJobs != 0 {
-		t.Fatalf("retrieval failure round=%q jobs=%d, want an untouched open round", roundState, roundJobs)
+	if roundState != "exhausted" || roundJobs != 0 {
+		t.Fatalf("retrieval failure round=%q jobs=%d, want an exhausted round without jobs", roundState, roundJobs)
+	}
+	if got := fixture.count(t, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.discovery_rescan_requested'`, workflow.ID.String()); got != 1 {
+		t.Fatalf("discovery rescans=%d, want 1", got)
 	}
 
 	for query, want := range map[string]int{

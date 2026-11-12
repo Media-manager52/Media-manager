@@ -80,7 +80,9 @@ func TestRetrievalFailureBeforeAltMountCreatesNoJob(t *testing.T) {
 	assertNoRetrievalAttempt(t, store, workflow.ID)
 
 	failed, err := store.GetWorkflow(ctx, workflow.ID)
-	if err != nil || failed.State != workflows.StateNeedsAttention {
+	// No other release is left: the workflow waits for a new one on its own
+	// instead of asking the owner.
+	if err != nil || failed.State != workflows.StateWaiting || failed.AttentionCode != workflows.AttentionRoundExhaustedWaitingNewIdentity {
 		t.Fatalf("workflow after retrieval failure=%+v err=%v", failed, err)
 	}
 	var kind string

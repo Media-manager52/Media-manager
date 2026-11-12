@@ -261,7 +261,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		if inspectionErr != nil {
 			if deferral := service.inspectionDeferral(config.LocalReadOnlyRoot, inspectionErr); deferral != nil {
 				if unresponsiveDeferral(deferral) && event.Attempts >= altMountUnresponsiveMaxAttempts {
-					return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", "output inspection timed out for 24 hours; the file is still unreadable and needs owner review", time.Now().UTC())
+					return service.Store.CompleteReleaseFailure(ctx, job, postgres.InspectionFailedCode, "output inspection timed out for 24 hours; the file is still unreadable", time.Now().UTC())
 				}
 				return deferral
 			}
@@ -271,7 +271,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			if errors.Is(inspectionErr, mediainfo.ErrZeroFilledOutput) {
 				return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureReleaseIncomplete, inspectionErr.Error(), time.Now().UTC())
 			}
-			return service.Store.CompleteImportWithCode(ctx, job, false, "output_inspection_failed", inspectionErr.Error(), time.Now().UTC())
+			// The file cannot be inspected, so it can never be verified:
+			// try the next release instead of waiting for the owner.
+			return service.Store.CompleteReleaseFailure(ctx, job, postgres.InspectionFailedCode, inspectionErr.Error(), time.Now().UTC())
 		}
 		if detail, tooShort := outputTooShortDetail(job, verification, service.expectedEpisodeRuntime(ctx, job)); tooShort {
 			return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureReleaseIncomplete, detail, time.Now().UTC())
