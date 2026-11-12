@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.21] - 2026-11-12
+
 ### Security
 
 - **A connection can no longer use one of the server's own secrets.** A connection that named the owner token, the database URL, a backup or encryption key, the Servarr key or the Seerr webhook secret as its secret reference would have that value sent to the connection's address by a connection check. Such references are now refused and never resolved; backups read their key directly.
@@ -611,6 +613,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.21]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.21
 [0.1.0-beta.20]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.20
 [0.1.0-beta.19]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.19
 [0.1.0-beta.18]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.18
