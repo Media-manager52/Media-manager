@@ -78,9 +78,13 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 	if adoptedProtected {
 		return nil, errors.New("adopted real files and their recycle retention must be resolved before deleting the media item")
 	}
+	// A verified version is a link already in the library whose Plex
+	// confirmation never finished (for example a timed-out confirmation the
+	// owner cancelled). Deleting the title recycles it like a current one, so no
+	// link Media Manager created is left behind in Plex.
 	rows, err := transaction.Query(ctx, `SELECT version.id::text,link.id::text,root.id::text,root.destination_root,link.destination_relative,version.plex_visible_target
 		FROM library_link_versions version JOIN library_links link ON link.id=version.library_link_id JOIN library_roots root ON root.id=link.root_id JOIN workflows workflow ON workflow.id=version.workflow_id
-		WHERE workflow.media_id=$1 AND version.state='current' FOR UPDATE OF version,link`, mediaID.String())
+		WHERE workflow.media_id=$1 AND version.state IN ('current','verified') FOR UPDATE OF version,link`, mediaID.String())
 	if err != nil {
 		return nil, err
 	}

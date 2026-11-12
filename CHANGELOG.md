@@ -8,6 +8,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ### Fixed
 
+- **A subtitle for a sample or trailer no longer counts as the film's subtitle.** A file such as `Movie.sample.da.srt` next to `Movie.mkv` satisfied a required Danish subtitle and was published as the film's subtitle. Subtitles that name themselves a sample, trailer, extra or bonus are now ignored.
+- **Deleting a title also recycles a link whose Plex confirmation never finished.** After a Plex confirmation timed out and the workflow was cancelled, deleting the title archived it as unpublished and left its link in the library. Such a link is now moved to the recycle folder like any published link.
+
+### Fixed
+
 - **A cancelled title stays cancelled.** If the owner cancelled a title while its download was still being checked, and the check then failed, the title was put back to waiting and searched again. A failure recorded after cancellation is now ignored.
 - **Reviving old archive rejections no longer leaves a gap in the round's download slots.** The remaining downloads are renumbered, so the next download in that round gets a free slot instead of failing after its NZB was already fetched, again on every retry.
 

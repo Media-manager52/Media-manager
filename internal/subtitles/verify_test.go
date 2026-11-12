@@ -276,3 +276,20 @@ func TestCanonicalizePolicyRefusesUnreliableLanguageRequirements(t *testing.T) {
 		})
 	}
 }
+
+// A subtitle named for the video's sample or trailer is not the feature's
+// subtitle: it neither satisfies a required language nor is published.
+func TestVerifyIgnoresSampleAndTrailerSidecars(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	video := fixtureAsset(t, root, "Movie.mkv", "video")
+	sample := fixtureAsset(t, root, "Movie.sample.da.srt", "sample subtitle")
+	trailer := fixtureAsset(t, root, "Movie.Trailer.da.srt", "trailer subtitle")
+	result, err := Verify(context.Background(), root, []Asset{video}, []Asset{video, sample, trailer}, Policy{Required: []string{"da"}}, fixtureProbe{evidence: map[string]mediainfo.Evidence{video.RelativePath: mediaEvidence()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "unverified" || len(result.Companions) != 0 {
+		t.Fatalf("sample/trailer subtitle was accepted: status=%s companions=%+v", result.Status, result.Companions)
+	}
+}
