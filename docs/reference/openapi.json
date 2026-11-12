@@ -2029,6 +2029,9 @@
           "quality_profile": {
             "type": "string"
           },
+          "quality_profile_id": {
+            "type": "string"
+          },
           "ready_candidate_id": {
             "format": "uuid",
             "type": "string"
@@ -2057,6 +2060,9 @@
           },
           "revision": {
             "type": "integer"
+          },
+          "root_id": {
+            "type": "string"
           },
           "round_attempt_limit": {
             "type": "integer"
