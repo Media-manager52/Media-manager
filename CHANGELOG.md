@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.13] - 2026-11-12
+
 ### Fixed
 
 Ten problems found by an automated code review of the language checks, publication and automatic recovery:
@@ -524,6 +526,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.13]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.10
