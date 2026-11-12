@@ -73,3 +73,42 @@ func TestEditionResolutionMismatchJudgesWidthAndHeight(t *testing.T) {
 		t.Fatal("the standard edition was held to 4K")
 	}
 }
+
+// TestRequiredResolutionIsCheckedOnTheMeasuredFile proves a required
+// resolution rule is enforced on the downloaded file, not only on the release
+// name: a release named 1080p that is really 720p fails, while widescreen and
+// 4:3 1080p, a higher resolution, and an unknown size pass.
+func TestRequiredResolutionIsCheckedOnTheMeasuredFile(t *testing.T) {
+	video := func(width, height int) subtitles.Verification {
+		return subtitles.Verification{Videos: []subtitles.VideoEvidence{{RelativePath: "Movie.mkv", MediaInfo: mediainfo.Evidence{VideoTracks: []mediainfo.Track{{Width: width, Height: height}}}}}}
+	}
+	required1080 := [][]string{{"1080p", "2160p"}}
+	cases := []struct {
+		name     string
+		required [][]string
+		width    int
+		height   int
+		mismatch bool
+	}{
+		{"720p file under a required 1080p", required1080, 1280, 720, true},
+		{"576p file under a required 720p", [][]string{{"720p"}}, 720, 576, true},
+		{"1080p file", required1080, 1920, 1080, false},
+		{"widescreen 1080p file", required1080, 1920, 800, false},
+		{"4:3 1080p file", required1080, 1440, 1080, false},
+		{"4K file under a required 1080p", [][]string{{"1080p"}}, 3840, 1600, false},
+		{"unknown size", required1080, 0, 0, false},
+		{"no required resolution", nil, 640, 360, false},
+		{"widescreen 720p under a required 720p", [][]string{{"720p"}}, 1280, 536, false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			detail, mismatch := requiredResolutionMismatch(testCase.required, video(testCase.width, testCase.height))
+			if mismatch != testCase.mismatch {
+				t.Fatalf("mismatch=%v detail=%q, want %v", mismatch, detail, testCase.mismatch)
+			}
+			if mismatch && !strings.Contains(detail, "Movie.mkv") {
+				t.Fatalf("detail does not name the file: %q", detail)
+			}
+		})
+	}
+}
