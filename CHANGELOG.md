@@ -573,6 +573,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.18]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.18
 [0.1.0-beta.17]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.17
 [0.1.0-beta.16]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.15
