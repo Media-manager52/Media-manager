@@ -107,3 +107,25 @@ func TestFetchSendsDanishLettersEncodedOnce(t *testing.T) {
 		t.Fatalf("request path = %q (%q)", rawPath, path)
 	}
 }
+
+// Malformed provider numbers must not become a different title's identity or release year.
+func TestParseItemsRejectsPartialNumericIdentitiesAndYears(t *testing.T) {
+	for _, value := range []string{`770001.5`, `"770001wrong"`, `"770001 42"`, `"770001/other"`} {
+		items, err := parseItems([]byte(`[{"id":880001,"title":"The Copper Moon","mediatype":"show","tvdbid":` + value + `}]`))
+		if err != nil || len(items) != 1 {
+			t.Fatalf("parse %s = %+v, %v", value, items, err)
+		}
+		if items[0].TVDBID != 0 {
+			t.Errorf("malformed TVDB identity %s became %d", value, items[0].TVDBID)
+		}
+	}
+	for _, value := range []string{`2024.5`, `"2024unknown"`, `"2024 2025"`} {
+		items, err := parseItems([]byte(`[{"id":880001,"title":"The Copper Moon","mediatype":"movie","release_year":` + value + `}]`))
+		if err != nil || len(items) != 1 {
+			t.Fatalf("parse %s = %+v, %v", value, items, err)
+		}
+		if items[0].Year != 0 {
+			t.Errorf("malformed release year %s became %d", value, items[0].Year)
+		}
+	}
+}
