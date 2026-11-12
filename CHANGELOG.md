@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.16] - 2026-11-12
+
 ### Fixed
 
 - **A repair no longer rides on a download for another library.** When a broken or audio-less file was repaired while the same film or episode was already being downloaded for a different library (or, for a missing-audio upgrade, with a profile that does not require that audio), the repair joined that download. Its confirmation could then remove the old file's link from its own library, for example a children's library, with the replacement placed elsewhere. Such a repair now waits until that download has finished and then opens its own.
@@ -559,6 +561,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.16]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.13
