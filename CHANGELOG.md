@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.15] - 2026-11-12
+
 ### Fixed
 
 - **A malformed number from MDBList is no longer read as an id or year.** A TVDB id such as `770001wrong` or a year such as `2024.5` became `770001` and `2024`, which could make a list title look like an unrelated series that is already in the library. Anything but a whole positive number is now ignored.
@@ -552,6 +554,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.15]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.12
