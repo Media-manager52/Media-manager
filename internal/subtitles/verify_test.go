@@ -293,3 +293,34 @@ func TestVerifyIgnoresSampleAndTrailerSidecars(t *testing.T) {
 		t.Fatalf("sample/trailer subtitle was accepted: status=%s companions=%+v", result.Status, result.Companions)
 	}
 }
+
+// A Danish commentary or audio-description track is not the film in Danish:
+// it satisfies neither a required Danish subtitle nor required Danish audio.
+func TestVerifyIgnoresCommentaryTracksAsLanguageEvidence(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	video := fixtureAsset(t, root, "Movie.mkv", "video")
+	sidecar := fixtureAsset(t, root, "Movie.da.commentary.srt", "commentary subtitle")
+	evidence := mediaEvidence(mediainfo.Track{Index: 2, Codec: "subrip", Language: "dan", CanonicalLanguage: "da", Title: "Dansk (Kommentar)"})
+	evidence.AudioTracks = []mediainfo.Track{{Index: 1, Codec: "aac", Language: "eng", CanonicalLanguage: "en"}, {Index: 3, Codec: "aac", Language: "dan", CanonicalLanguage: "da", Title: "Danish Commentary"}}
+	result, err := Verify(context.Background(), root, []Asset{video}, []Asset{video, sidecar}, Policy{Required: []string{"da"}, RequiredAudio: []string{"da"}, OriginalLanguage: "en"}, fixtureProbe{evidence: map[string]mediainfo.Evidence{video.RelativePath: evidence}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "unverified" || len(result.Companions) != 0 || len(result.Videos) != 1 || len(result.Videos[0].MissingRequired) != 2 {
+		t.Fatalf("commentary counted as Danish: status=%s missing=%v companions=%+v", result.Status, result.Videos[0].MissingRequired, result.Companions)
+	}
+	plain := mediaEvidence(mediainfo.Track{Index: 2, Codec: "subrip", Language: "dan", CanonicalLanguage: "da", Title: "Dansk"})
+	plain.AudioTracks = []mediainfo.Track{{Index: 1, Codec: "aac", Language: "dan", CanonicalLanguage: "da", Title: "Dansk 5.1"}}
+	result, err = Verify(context.Background(), root, []Asset{video}, []Asset{video}, Policy{Required: []string{"da"}, RequiredAudio: []string{"da"}, OriginalLanguage: "en"}, fixtureProbe{evidence: map[string]mediainfo.Evidence{video.RelativePath: plain}})
+	if err != nil || result.Status != "verified" {
+		t.Fatalf("ordinary Danish tracks: status=%s err=%v reasons=%v", result.Status, err, result.FailureReasons)
+	}
+}
+
+func TestCanonicalizePolicyRejectsNull(t *testing.T) {
+	t.Parallel()
+	if _, _, err := CanonicalizePolicy([]byte("null")); err == nil {
+		t.Fatal("a null policy was accepted")
+	}
+}

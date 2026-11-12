@@ -4,6 +4,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **A commentary or audio-description track no longer counts as the film's language.** A Danish subtitle titled "Commentary", a Danish commentary audio track or a `Movie.da.commentary.srt` sidecar satisfied a required Danish subtitle or Danish audio. Tracks and sidecars marked as commentary, audio description or synstolkning are now ignored as language evidence.
+- **A quality profile whose policy is `null` is refused** with a normal validation error instead of crashing the request.
+
 ## [0.1.0-beta.17] - 2026-11-12
 
 ### Fixed
