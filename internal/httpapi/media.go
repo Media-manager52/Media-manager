@@ -201,7 +201,16 @@ func (server *Server) getMediaDetail(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusInternalServerError, "database_error", "could not load media detail")
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: detail})
+	// The title page acts on these workflows, so each carries its available
+	// actions like GET /api/v1/workflows does.
+	views := make([]workflowView, 0, len(detail.Workflows))
+	for _, workflow := range detail.Workflows {
+		views = append(views, newWorkflowView(workflow))
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: struct {
+		postgres.MediaDetail
+		Workflows []workflowView `json:"workflows"`
+	}{MediaDetail: detail, Workflows: views}})
 }
 
 func (server *Server) getMedia(writer http.ResponseWriter, request *http.Request) {

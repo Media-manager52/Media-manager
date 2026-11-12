@@ -106,6 +106,37 @@ func TestCreateMovieAndSeriesThroughOwnerAPI(t *testing.T) {
 	if err := store.Pool.QueryRow(context.Background(), `SELECT quality_profile_id::text FROM workflows WHERE id=$1`, movieDetail.Workflows[0].ID.String()).Scan(&movieProfile); err != nil {
 		t.Fatal(err)
 	}
+	// The title page moves a title and adds work to the title's own library
+	// and profile, and offers the workflow's actions; the detail read carries
+	// all three.
+	var movieRoot string
+	if err := store.Pool.QueryRow(context.Background(), `SELECT root_id::text FROM workflows WHERE id=$1`, movieDetail.Workflows[0].ID.String()).Scan(&movieRoot); err != nil {
+		t.Fatal(err)
+	}
+	if movieDetail.Workflows[0].RootID != movieRoot || movieDetail.Workflows[0].QualityProfileID != movieProfile {
+		t.Fatalf("detail workflow root=%q profile=%q, want %s and %s", movieDetail.Workflows[0].RootID, movieDetail.Workflows[0].QualityProfileID, movieRoot, movieProfile)
+	}
+	rawDetail, err := http.NewRequest(http.MethodGet, testServer.URL+"/api/v1/media/"+movie.ID.String()+"/detail", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawDetail.Header.Set("Authorization", "Bearer "+testOwnerToken)
+	rawResponse, err := http.DefaultClient.Do(rawDetail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var withActions struct {
+		Data struct {
+			Workflows []struct {
+				AvailableActions *[]json.RawMessage `json:"available_actions"`
+			} `json:"workflows"`
+		} `json:"data"`
+	}
+	decodeErr := json.NewDecoder(rawResponse.Body).Decode(&withActions)
+	rawResponse.Body.Close()
+	if decodeErr != nil || len(withActions.Data.Workflows) != 1 || withActions.Data.Workflows[0].AvailableActions == nil || len(*withActions.Data.Workflows[0].AvailableActions) == 0 {
+		t.Fatalf("detail workflows carry no available actions: %+v err=%v", withActions, decodeErr)
+	}
 	applyPolicyPath := testServer.URL + "/api/v1/settings/quality-profiles/" + movieProfile + "/apply-policy"
 	for _, check := range []struct {
 		url, token string
