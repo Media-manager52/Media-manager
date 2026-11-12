@@ -15,6 +15,9 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 - **A handler that hangs again and again is moved behind healthy work** instead of being picked first every time.
 - **Backup downloads are no longer cut off after 60 seconds.**
 - **Work that is simply running is no longer shown as "retrying"** on the overview, the queue, the task list and the problem feed.
+- **The title page knows each workflow's library folder, profile and allowed actions again.** Flyt, Hent and the other buttons on a title now work from the real workflow instead of guessing.
+- **A cancelled duplicate season pack no longer hides the active one** on the title page, and the pack badge shows the same state as the rest of the app.
+- **The calendar asks only for the last week and what is coming**, so a long history no longer pushes upcoming episodes out of the list.
 
 ## [0.1.0-beta.20] - 2026-11-12
 
