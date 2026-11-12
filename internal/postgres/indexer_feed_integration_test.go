@@ -220,6 +220,32 @@ func TestFeedMatchWaitsOutRecentAndUnfinishedSearches(t *testing.T) {
 	}
 }
 
+// TestWaitingPartialRetriesDoNotStarveNewerFeedMatches proves that titles
+// whose unfinished search waits for its own retry do not hold the places of a
+// pass: with room for one title, the newer match is still brought forward.
+func TestWaitingPartialRetriesDoNotStarveNewerFeedMatches(t *testing.T) {
+	f := newFailureRecoveryFixture(t)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	partial := seedFeedWaiting(t, f, "Feed Partial Old", "903013", `{"reason":"retry","partial_retry":true}`)
+	fresh := seedFeedWaiting(t, f, "Feed Fresh", "903014", `{"reason":"retry"}`)
+	recordFeedMatch(t, f, partial.ID, "old-partial-guid", now.Add(-time.Hour))
+	recordFeedMatch(t, f, fresh.ID, "fresh-guid", now)
+
+	result, err := f.store.AdvanceFeedMatches(f.ctx, now, 30*time.Minute, 1, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SearchAdvanced != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if at := feedSearchAvailableAt(t, f, fresh); !at.Equal(now) {
+		t.Fatalf("fresh available_at=%s", at)
+	}
+	if got := feedOutcomes(t, f, partial.ID); got["pending"] != 1 || len(got) != 1 {
+		t.Fatalf("partial outcomes=%v", got)
+	}
+}
+
 // TestFeedMatchAdvancesDiscoveryOfAnExhaustedRoundAsTheWorker proves that a
 // title whose round is used up gets its paced discovery brought forward, by
 // the same guarded step the owner's button uses and audited as the worker,

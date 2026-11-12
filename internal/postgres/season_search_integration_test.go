@@ -20,7 +20,8 @@ func seasonTestObservations(indexerID uuid.UUID, count int, now time.Time) []rel
 // TestSharedSeasonResponseServesOnlyWhatAnEpisodeSearchWouldStillFind proves
 // when a stored season answer may stand in for an episode search: fresh,
 // complete, newer than the workflow, and older than no new upload matched to
-// it and no search the owner asked for. Anything else asks the indexer again.
+// it, no search the owner asked for and no search of its own. Anything else
+// asks the indexer again.
 func TestSharedSeasonResponseServesOnlyWhatAnEpisodeSearchWouldStillFind(t *testing.T) {
 	f := newFailureRecoveryFixture(t)
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -81,6 +82,18 @@ func TestSharedSeasonResponseServesOnlyWhatAnEpisodeSearchWouldStillFind(t *test
 		t.Fatal("an answer older than a matched new upload was served")
 	}
 	if _, err := f.store.Pool.Exec(f.ctx, `DELETE FROM indexer_feed_matches WHERE workflow_id=$1`, w.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+
+	// The workflow already searched (and evaluated) since the answer was
+	// fetched: its next search asks the indexer instead of repeating it.
+	if _, err := f.store.Pool.Exec(f.ctx, `INSERT INTO search_runs(id,workflow_id,mode,query_fingerprint,state,policy_version,started_at,completed_at) VALUES($1,$2,'targeted',$3,'complete',1,$4,$4)`, uuid.NewV7().String(), w.ID.String(), []byte{1}, now.Add(-50*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := lookup(now.Add(-12 * time.Hour)); found {
+		t.Fatal("an answer the workflow already searched past was served again")
+	}
+	if _, err := f.store.Pool.Exec(f.ctx, `DELETE FROM search_runs WHERE workflow_id=$1`, w.ID.String()); err != nil {
 		t.Fatal(err)
 	}
 

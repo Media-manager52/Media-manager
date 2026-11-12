@@ -220,10 +220,16 @@ func (store *Store) AdvanceFeedMatches(ctx context.Context, now time.Time, quiet
 	if _, err := store.Pool.Exec(ctx, `DELETE FROM indexer_feed_matches WHERE seen_at<$1`, now.Add(-feedMatchRetention)); err != nil {
 		return result, err
 	}
+	// A workflow whose unfinished search waits for its own short retry is
+	// skipped until that retry is due (advanceFeedSearch leaves it alone), so
+	// it cannot hold the oldest places in limit and starve newer matches.
 	rows, err := store.Pool.Query(ctx, `SELECT hit.workflow_id::text FROM indexer_feed_matches hit
 		WHERE hit.outcome='pending'
 		  AND NOT EXISTS(SELECT 1 FROM search_runs run WHERE run.workflow_id=hit.workflow_id AND run.started_at>$1)
-		GROUP BY hit.workflow_id ORDER BY min(hit.seen_at),hit.workflow_id LIMIT $2`, now.Add(-quiet), limit)
+		  AND NOT EXISTS(SELECT 1 FROM workflows workflow JOIN outbox_events event ON event.aggregate_type='workflow' AND event.aggregate_id=workflow.id AND event.aggregate_revision=workflow.revision
+			WHERE workflow.id=hit.workflow_id AND event.event_type='workflow.search_requested' AND event.completed_at IS NULL
+			  AND event.payload ? 'partial_retry' AND event.available_at>$3 AND (event.lease_until IS NULL OR event.lease_until<$3))
+		GROUP BY hit.workflow_id ORDER BY min(hit.seen_at),hit.workflow_id LIMIT $2`, now.Add(-quiet), limit, now)
 	if err != nil {
 		return result, err
 	}

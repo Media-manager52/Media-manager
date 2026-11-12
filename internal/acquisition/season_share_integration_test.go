@@ -195,6 +195,17 @@ func TestEpisodesOfOneSeasonShareOneSeasonSearch(t *testing.T) {
 	if locator == "" {
 		t.Fatal("a reused release lost its download locator")
 	}
+	// Every episode's candidate carries the facts its own evaluation derived
+	// from the title, as a fresh episode search would store them.
+	for _, episode := range episodes {
+		var derived bool
+		if err := store.Pool.QueryRow(ctx, `SELECT observation.normalized_facts @> '[{"name":"source","values":["webdl"]}]'::jsonb FROM release_candidates candidate JOIN release_observations observation ON observation.id=candidate.observation_id WHERE candidate.workflow_id=$1`, episode.ID.String()).Scan(&derived); err != nil {
+			t.Fatal(err)
+		}
+		if !derived {
+			t.Fatalf("%s candidate lost the facts its evaluation derived", episode.ID)
+		}
+	}
 }
 
 // TestSeasonSearchIsNotSharedWhenTooFewEpisodesAreMissing keeps the ordinary

@@ -1,6 +1,12 @@
 package postgres
 
-import "time"
+import (
+	"context"
+	"time"
+	"uuid"
+
+	"github.com/jackc/pgx/v5"
+)
 
 const (
 	noSelectionRetryBase = 30 * time.Minute
@@ -86,4 +92,26 @@ func noSelectionRetryDelay(roundRuns int, recent bool) time.Duration {
 		return noSelectionRecentRetryCap
 	}
 	return noSelectionRetryCap
+}
+
+// maxIncompleteRetriesInARow is how many incomplete searches in a row are
+// retried soon (about 30 minutes). An indexer that keeps failing (a revoked
+// key, a long outage) would otherwise make every waiting title search every
+// 30 minutes for good instead of following the normal schedule.
+const maxIncompleteRetriesInARow = 3
+
+// incompleteRetryAfterStreak returns when an incomplete search is retried:
+// soon (partialAt) for the first incomplete runs in a row, then no earlier
+// than the normal schedule (scheduledAt). The missing indexers are still
+// asked on that retry.
+func incompleteRetryAfterStreak(ctx context.Context, transaction pgx.Tx, workflowID uuid.UUID, partialAt, scheduledAt time.Time) (time.Time, error) {
+	var streak int
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM search_runs run WHERE run.workflow_id=$1 AND run.mode='targeted' AND run.state='partial'
+		AND run.started_at > COALESCE((SELECT max(complete.started_at) FROM search_runs complete WHERE complete.workflow_id=$1 AND complete.mode='targeted' AND complete.state='complete'),'-infinity'::timestamptz)`, workflowID.String()).Scan(&streak); err != nil {
+		return time.Time{}, err
+	}
+	if streak > maxIncompleteRetriesInARow && scheduledAt.After(partialAt) {
+		return scheduledAt, nil
+	}
+	return partialAt, nil
 }

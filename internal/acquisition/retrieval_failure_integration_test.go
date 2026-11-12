@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -102,6 +103,47 @@ func TestRetrievalFailureBeforeAltMountCreatesNoJob(t *testing.T) {
 	if getRequests != 2 {
 		t.Fatalf("NZB retrieval requests=%d, want the bounded two", getRequests)
 	}
+}
+
+// TestRetrievalWaitsForAltMountWithoutFetchingTheNZBAgain proves that a
+// retrieval whose last attempt could not reach AltMount reaches AltMount
+// first: while it is down the retrieval waits a few minutes and the indexer
+// is not asked for the NZB (one of its grabs) again.
+func TestRetrievalWaitsForAltMountWithoutFetchingTheNZBAgain(t *testing.T) {
+	store := openMovieSearchTestStore(t)
+	ctx := context.Background()
+	server, captured := newMovieSearchServer(t, func(query url.Values) string {
+		if query.Get("t") == "movie" {
+			return movieSearchReleaseXML("Klaus 2019 1080p WEB-DL")
+		}
+		return emptySearchXML()
+	})
+	defer server.Close()
+	configureMovieSearchIndexer(t, store, server.URL, false)
+	workflow := createMovieSearchWorkflow(t, store)
+	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	selected, err := store.GetWorkflow(ctx, workflow.ID)
+	if err != nil || selected.SelectedRelease == nil {
+		t.Fatalf("selected workflow=%+v err=%v", selected, err)
+	}
+	before := len(captured())
+	payload, _ := json.Marshal(map[string]string{"workflow_id": workflow.ID.String(), "candidate_id": selected.SelectedRelease.String()})
+	service := &RetrievalService{Store: store, Scheduler: indexers.NewScheduler(2, store), ResolveSecret: func(string) (string, error) { return "test-api-key", nil }, Transport: server.Client().Transport}
+	started := time.Now()
+	err = service.Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: selected.Revision, Type: "release.retrieve_requested", Payload: payload, Attempts: 2, LastError: downloadClientUnavailableCode})
+	var deferred interface {
+		RetryAt() time.Time
+		SafeCode() string
+	}
+	if !errors.As(err, &deferred) || deferred.SafeCode() != downloadClientUnavailableCode || deferred.RetryAt().Before(started.Add(4*time.Minute)) {
+		t.Fatalf("retrieval with AltMount still down returned %v, want a deferral of a few minutes", err)
+	}
+	if requests := captured()[before:]; len(requests) != 0 {
+		t.Fatalf("indexer was asked again while AltMount is down: %v", requests)
+	}
+	assertNoRetrievalAttempt(t, store, workflow.ID)
 }
 
 func retrievalTestNZBIdentity(seed byte) [sha256.Size]byte {

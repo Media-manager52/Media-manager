@@ -139,6 +139,37 @@ func TestRateLimitHonorsRetryAfter(t *testing.T) {
 	}
 }
 
+func TestRateLimitRetryAfterIsBoundedByTheMaximumBackoff(t *testing.T) {
+	now := time.Unix(200, 0).UTC()
+	budget := Budget{MinimumInterval: 3 * time.Second, FailureBackoff: time.Second, MaximumBackoff: time.Minute}
+	for _, test := range []struct {
+		name, retryAfter string
+		want             func(string) time.Time
+	}{
+		{"a year is capped", "31536000", func(string) time.Time { return now.Add(budget.MaximumBackoff) }},
+		{"zero uses the normal backoff", "0", func(id string) time.Time { return now.Add(backoff(id, 1, budget)) }},
+	} {
+		scheduler := NewScheduler(1, nil)
+		scheduler.now = func() time.Time { return now }
+		id := "bounded-" + test.retryAfter
+		if err := scheduler.Configure(id, budget); err != nil {
+			t.Fatal(err)
+		}
+		permit, err := scheduler.Acquire(context.Background(), id, WorkloadCommissioning)
+		if err != nil {
+			t.Fatal(err)
+		}
+		headers := make(http.Header)
+		headers.Set("Retry-After", test.retryAfter)
+		if err := permit.Record(context.Background(), OutcomeRateLimited, headers); err != nil {
+			t.Fatal(err)
+		}
+		if got := scheduler.Snapshot(id).CooldownUntil; !got.Equal(test.want(id)) {
+			t.Fatalf("%s: cooldown until %s, want %s", test.name, got, test.want(id))
+		}
+	}
+}
+
 func TestAuthenticationAndSystemFailuresBackOffInstance(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

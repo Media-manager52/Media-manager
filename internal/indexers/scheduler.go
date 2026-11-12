@@ -671,6 +671,16 @@ func computeOutcomeEffectLocked(start Snapshot, budget Budget, indexerID string,
 					deadline = parsed
 				}
 			}
+			// The provider's wait is bounded like the commissioning path: never
+			// past the maximum backoff (a year-long Retry-After would block the
+			// indexer until someone cleared it), and a wait that is already over
+			// (Retry-After: 0) falls back to the normal backoff.
+			if ceiling := now.Add(budget.MaximumBackoff); budget.MaximumBackoff > 0 && deadline.After(ceiling) {
+				deadline = ceiling
+			}
+			if !deadline.After(now) {
+				deadline = time.Time{}
+			}
 			if !deadline.IsZero() && deadline.After(snapshot.CooldownUntil) {
 				snapshot.CooldownUntil = deadline
 			} else {
