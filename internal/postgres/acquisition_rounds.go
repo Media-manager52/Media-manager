@@ -174,7 +174,8 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 	var candidateText, indexerText, nativeKey, roundText string
 	var roundSlot, attemptLimit int
 	var packageIdentity []byte
-	err := transaction.QueryRow(ctx, `SELECT workflow.state,workflow.revision,workflow.grab_attempt_id::text,
+	var terminal bool
+	err := transaction.QueryRow(ctx, `SELECT workflow.state,workflow.revision,workflow.grab_attempt_id::text,workflow.terminal_at IS NOT NULL,
 		job.revision,job.candidate_id::text,candidate.indexer_instance_id::text,candidate.native_key,
 		job.round_id::text,job.round_slot,round.attempt_limit_snapshot,job.nzb_package_sha256
 		FROM workflows workflow
@@ -182,13 +183,16 @@ func (store *Store) recordAttributableAcquisitionFailure(ctx context.Context, tr
 		JOIN release_candidates candidate ON candidate.workflow_id=workflow.id AND candidate.id=job.candidate_id
 		JOIN acquisition_rounds round ON round.workflow_id=workflow.id AND round.id=job.round_id
 		WHERE workflow.id=$1 AND job.id=$2 FOR UPDATE OF workflow,job,round`, job.Workflow.ID.String(), job.JobID.String()).Scan(
-		&workflowState, &workflowRevision, &currentJob, &jobRevision, &candidateText, &indexerText, &nativeKey,
+		&workflowState, &workflowRevision, &currentJob, &terminal, &jobRevision, &candidateText, &indexerText, &nativeKey,
 		&roundText, &roundSlot, &attemptLimit, &packageIdentity,
 	)
 	if err != nil {
 		return acquisitionFailureResult{}, err
 	}
-	if currentJob == nil || *currentJob != job.JobID.String() || uint64(jobRevision) != job.JobRevision || candidateText != job.CandidateID.String() {
+	// A workflow the owner cancelled (or one already confirmed) keeps its last
+	// grab attempt, so the attempt checks below alone would let a check that
+	// was still running at cancellation reopen it for another search.
+	if terminal || currentJob == nil || *currentJob != job.JobID.String() || uint64(jobRevision) != job.JobRevision || candidateText != job.CandidateID.String() {
 		return acquisitionFailureResult{}, ErrConcurrentModification
 	}
 	var verification any
