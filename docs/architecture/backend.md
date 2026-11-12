@@ -479,7 +479,14 @@ scanning never moves files.
   new title (and each one that failed before) is first matched against the
   catalogue by verified TMDB/IMDb (and, for series, TVDB) identity: a known
   title becomes `in_library`, one the owner removed `removed_earlier`, and
-  neither is touched. Otherwise it goes through the same path as **Tilføj**:
+  neither is touched. A title not in the catalogue is then looked up in the
+  owner's Plex (`PlexTitlesFromRoots`: every enabled standard-edition folder
+  of that kind with a Plex library, read once per sync with
+  `plex.Client.SectionTitles`, matched by `tmdb://`, `imdb://` and, for
+  series, `tvdb://` GUIDs); a title Plex already has becomes `in_library`
+  with detail `in_plex` and is not fetched again. When Plex cannot be read
+  the sync adds nothing, ends `failed`/`plex_unavailable` and is retried after
+  an hour. Otherwise it goes through the same path as **Tilføj**:
   `metadata.Service.Discover`, every season from TMDB's season list except
   specials (0), each frozen from TMDB's exact episode list (seasons with no
   episodes yet are skipped), the list's film or series folder and quality

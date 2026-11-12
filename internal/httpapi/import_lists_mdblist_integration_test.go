@@ -15,6 +15,7 @@ import (
 
 	"github.com/media-manager/media-manager/internal/adapters/mdblist"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
+	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/intake"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -348,5 +349,104 @@ func TestMDBListAddressesMayContainDanishLetters(t *testing.T) {
 		if _, err := store.Pool.Exec(ctx, `UPDATE import_lists SET source_slug=$2 WHERE id=$1`, created.Data.ID.String(), slug); err == nil {
 			t.Errorf("database accepted slug %q", slug)
 		}
+	}
+}
+
+func TestMDBListLeavesTitlesPlexAlreadyHas(t *testing.T) {
+	store := openHTTPTestStore(t)
+	ctx := context.Background()
+	server, err := New(Config{OwnerToken: testOwnerToken, Version: "test"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testServer := httptest.NewServer(server.Handler())
+	defer testServer.Close()
+	if _, err := store.CreateIntegration(ctx, postgres.Integration{Kind: "newznab", Name: "List indexer", SecretRef: "LIST_KEY", Config: json.RawMessage(`{"base_url":"https://indexer.example/api","mode_verified":true,"mode":"movie","minimum_interval_ms":1,"query_limit":100,"grab_limit":10,"extended":true,"search_dialects":{"movie":{"mode":"movie","params":["q","imdbid","year"]}}}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET enabled=true,config=config || '{"mode_verified":true,"mode":"movie","search_dialects":{"movie":{"mode":"movie","params":["q","imdbid","year"]}}}'::jsonb WHERE kind='newznab'`); err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(map[string]any{"provider": "mdblist", "url": "https://mdblist.com/lists/someone/test-list", "enabled": true})
+	request, _ := http.NewRequest(http.MethodPost, testServer.URL+"/api/v1/import-lists", bytes.NewReader(encoded))
+	request.Header.Set("Authorization", "Bearer "+testOwnerToken)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created struct{ Data postgres.ImportList }
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil || response.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d %v", response.StatusCode, err)
+	}
+	response.Body.Close()
+	listID := created.Data.ID
+
+	fetcher := &fakeListFetcher{items: []mdblist.Item{
+		{Rank: 1, Kind: "movie", TMDBID: 900003, IMDbID: "tt9000030", Title: "List Film", Year: 2021},
+		{Rank: 2, Kind: "series", TMDBID: 900004, TVDBID: 70004, Title: "List Series"},
+	}}
+	tmdb := &fakeTMDB{}
+	plexDown := errors.New("plex is not answering")
+	var plexErr error
+	plexTitles := map[string]bool{"imdb://tt9000030": true, "tvdb://99999": true}
+	service := &intake.ImportListService{Store: store, Lists: fetcher, MetadataEnricher: &metadataservice.Service{},
+		Discovery: func(context.Context) (metadataservice.DiscoveryProvider, bool) { return tmdb, true },
+		PlexTitles: func(_ context.Context, kind catalog.MediaKind) (map[string]bool, error) {
+			if plexErr != nil {
+				return nil, plexErr
+			}
+			if kind == catalog.KindMovie {
+				return plexTitles, nil
+			}
+			return map[string]bool{"tvdb://99999": true}, nil
+		}}
+	event := postgres.OutboxEvent{Type: "import_list.sync_requested", Payload: json.RawMessage(`{"import_list_id":"` + listID.String() + `"}`)}
+	mediaCount := func() int {
+		t.Helper()
+		var count int
+		if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM media_items`).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+
+	// Plex cannot be read: nothing is added, so nothing can become a duplicate.
+	plexErr = plexDown
+	if err := service.Handle(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if got := mediaCount(); got != 0 {
+		t.Fatalf("titles added while Plex was unreadable = %d", got)
+	}
+	list, err := store.ImportList(ctx, listID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.LastSyncState != "failed" || list.LastSyncDetail != "plex_unavailable" {
+		t.Fatalf("sync after Plex failure = %v %v", list.LastSyncState, list.LastSyncDetail)
+	}
+
+	// Plex answers: the film it has is left alone, the series it lacks is added.
+	plexErr = nil
+	if err := service.Handle(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	var state, detail string
+	var mediaID *string
+	if err := store.Pool.QueryRow(ctx, `SELECT state,coalesce(detail,''),media_id::text FROM import_list_entries WHERE import_list_id=$1 AND tmdb_id=900003`, listID.String()).Scan(&state, &detail, &mediaID); err != nil {
+		t.Fatal(err)
+	}
+	if state != "in_library" || detail != "in_plex" || mediaID != nil {
+		t.Fatalf("film Plex has = %s/%s/%v, want in_library/in_plex without a title", state, detail, mediaID)
+	}
+	if err := store.Pool.QueryRow(ctx, `SELECT state,coalesce(detail,''),media_id::text FROM import_list_entries WHERE import_list_id=$1 AND tmdb_id=900004`, listID.String()).Scan(&state, &detail, &mediaID); err != nil {
+		t.Fatal(err)
+	}
+	if state != "added" || mediaID == nil {
+		t.Fatalf("series Plex lacks = %s/%s/%v, want added", state, detail, mediaID)
+	}
+	if got := mediaCount(); got != 1 {
+		t.Fatalf("titles = %d, want only the series", got)
 	}
 }

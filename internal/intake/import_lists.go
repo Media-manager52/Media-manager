@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/adapters/mdblist"
+	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/catalog"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -33,7 +34,13 @@ type ImportListService struct {
 	Lists            ListFetcher
 	Discovery        func(context.Context) (metadataservice.DiscoveryProvider, bool)
 	MetadataEnricher *metadataservice.Service
-	Now              func() time.Time
+	// PlexTitles, when set, lists the provider GUIDs ("tmdb://603",
+	// "imdb://tt0133093", "tvdb://81189") of every title of one kind in the
+	// owner's Plex libraries. A list title Plex already has is then left
+	// alone instead of being fetched a second time. When Plex cannot be read,
+	// nothing is added and the list is read again later.
+	PlexTitles func(context.Context, catalog.MediaKind) (map[string]bool, error)
+	Now        func() time.Time
 }
 
 // Entry details are stable codes; the owner console turns them into words.
@@ -42,6 +49,8 @@ const (
 	listDetailTooLong             = "list_too_long"
 	listDetailUnavailable         = "mdblist_unavailable"
 	listDetailMetadataUnavailable = "metadata_unavailable"
+	listDetailPlexUnavailable     = "plex_unavailable"
+	entryDetailInPlex             = "in_plex"
 	entryDetailMetadataFailed     = "metadata_failed"
 	entryDetailIdentityMissing    = "identity_missing"
 	entryDetailNoEpisodes         = "no_episodes"
@@ -119,11 +128,26 @@ func (service *ImportListService) Handle(ctx context.Context, event postgres.Out
 		now := service.now()
 		return service.Store.FinishImportListSync(ctx, listID, "needs_configuration", listDetailMetadataUnavailable, true, now.Add(listRetryAfterFailure), now)
 	}
+	inPlex := map[string]map[string]bool{}
+	if len(open) > 0 && service.PlexTitles != nil {
+		for _, kind := range []catalog.MediaKind{catalog.KindMovie, catalog.KindSeries} {
+			titles, err := service.PlexTitles(ctx, kind)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				slog.Warn("import list could not read Plex", "list", list.ID, "error", err)
+				now := service.now()
+				return service.Store.FinishImportListSync(ctx, listID, "failed", listDetailPlexUnavailable, false, now.Add(listRetryAfterFailure), now)
+			}
+			inPlex[string(kind)] = titles
+		}
+	}
 	for _, entry := range open {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		state, detail, mediaID, err := service.addEntry(ctx, list, entry, provider)
+		state, detail, mediaID, err := service.addEntry(ctx, list, entry, provider, inPlex)
 		if err != nil {
 			return err
 		}
@@ -138,7 +162,7 @@ func (service *ImportListService) Handle(ctx context.Context, event postgres.Out
 // addEntry adds one title. It returns an error only when the whole read must
 // stop (the read was cancelled or the database failed); a title that cannot
 // be added now is reported as failed and tried again on the next read.
-func (service *ImportListService) addEntry(ctx context.Context, list postgres.ImportList, entry postgres.ImportListEntry, provider metadataservice.DiscoveryProvider) (string, string, *uuid.UUID, error) {
+func (service *ImportListService) addEntry(ctx context.Context, list postgres.ImportList, entry postgres.ImportListEntry, provider metadataservice.DiscoveryProvider, inPlex map[string]map[string]bool) (string, string, *uuid.UUID, error) {
 	identities := map[string]string{"tmdb": strconv.FormatInt(entry.TMDBID, 10), "imdb": entry.IMDbID}
 	if entry.MediaKind == "series" && entry.TVDBID > 0 {
 		// MDBList also gives films a TVDB number; only a series' one is used.
@@ -153,6 +177,9 @@ func (service *ImportListService) addEntry(ctx context.Context, list postgres.Im
 			return "removed_earlier", "", known, nil
 		}
 		return "in_library", "", known, nil
+	}
+	if plexHas(inPlex[entry.MediaKind], identities) {
+		return "in_library", entryDetailInPlex, nil, nil
 	}
 	now := service.now()
 	kind, mediaType, rootID, profileID := catalog.KindMovie, "movie", list.MovieRootID, list.MovieQualityProfileID
@@ -233,6 +260,62 @@ func (service *ImportListService) addEntry(ctx context.Context, list postgres.Im
 	default:
 		slog.Warn("import list could not add a title", "list", list.ID, "kind", entry.MediaKind, "tmdb", entry.TMDBID, "error", err)
 		return "failed", entryDetailAddFailed, nil, nil
+	}
+}
+
+// plexHas reports whether Plex already has a title under any of its
+// identities, so a list does not fetch it a second time.
+func plexHas(titles map[string]bool, identities map[string]string) bool {
+	for _, namespace := range []string{"tmdb", "imdb", "tvdb"} {
+		if value := identities[namespace]; value != "" && value != "0" && titles[namespace+"://"+value] {
+			return true
+		}
+	}
+	return false
+}
+
+// PlexTitlesFromRoots lists the provider GUIDs of every title in the Plex
+// libraries behind the enabled standard folders of one kind. A 4K folder is
+// left out: a title kept only in 4K still lacks its ordinary copy.
+func PlexTitlesFromRoots(store *postgres.Store, clientFor func(postgres.Integration) (*plex.Client, error)) func(context.Context, catalog.MediaKind) (map[string]bool, error) {
+	return func(ctx context.Context, kind catalog.MediaKind) (map[string]bool, error) {
+		roots, err := store.ListLibraryRoots(ctx)
+		if err != nil {
+			return nil, err
+		}
+		titles := map[string]bool{}
+		seen := map[string]bool{}
+		for _, root := range roots {
+			if root.MediaKind != kind || !root.Enabled || root.PlexInstanceID == nil || root.PlexLibraryID == "" || (root.Edition != "" && root.Edition != postgres.EditionStandard) {
+				continue
+			}
+			key := root.PlexInstanceID.String() + "/" + root.PlexLibraryID
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			integration, err := store.Integration(ctx, *root.PlexInstanceID)
+			if err != nil {
+				return nil, err
+			}
+			if integration.Kind != "plex" || !integration.Enabled {
+				continue
+			}
+			client, err := clientFor(integration)
+			if err != nil {
+				return nil, err
+			}
+			items, err := client.SectionTitles(ctx, root.PlexLibraryID)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				for _, guid := range item.GUIDs {
+					titles[guid.ID] = true
+				}
+			}
+		}
+		return titles, nil
 	}
 }
 

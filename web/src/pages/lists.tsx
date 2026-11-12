@@ -127,7 +127,7 @@ function ListTitles({ list }: { list: APIImportList }) {
           <span className="min-w-0 flex-1 break-words">
             {entry.media_id ? <Link to={titleHref(entry.media_id)} className="font-medium hover:underline">{entry.title}</Link> : <span className="font-medium">{entry.title}</span>}
             <span className="text-text-3">{entry.year ? ` (${entry.year})` : ""} · {entry.media_kind === "movie" ? "Film" : "Serie"}</span>
-            {entry.state === "failed" && entry.detail ? <span className="block text-xs text-text-3">{listEntryDetail(entry.detail)}</span> : null}
+            {(entry.state === "failed" || entry.detail === "in_plex") && entry.detail ? <span className="block text-xs text-text-3">{listEntryDetail(entry.detail)}</span> : null}
           </span>
           <Badge tone={listEntryTone(entry.state)}>{listEntryLabel(entry.state)}</Badge>
         </li>

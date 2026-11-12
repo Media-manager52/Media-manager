@@ -366,6 +366,26 @@ func (client *Client) ItemsWithoutAudioLanguage(ctx context.Context, libraryKey 
 	return document.Videos, nil
 }
 
+// SectionTitles lists every movie or show of a library section with its
+// provider GUIDs (imdb://, tmdb://, tvdb://).
+func (client *Client) SectionTitles(ctx context.Context, libraryKey string) ([]Item, error) {
+	if !numeric(libraryKey) {
+		return nil, ErrInvalidConfig
+	}
+	body, err := client.get(ctx, "/library/sections/"+libraryKey+"/all", url.Values{"includeGuids": {"1"}})
+	if err != nil {
+		return nil, err
+	}
+	var document struct {
+		Videos      []Item `xml:"Video"`
+		Directories []Item `xml:"Directory"`
+	}
+	if err := xml.Unmarshal(body, &document); err != nil {
+		return nil, err
+	}
+	return append(document.Videos, document.Directories...), nil
+}
+
 // Metadata returns one library item (movie, show or episode) with its
 // provider GUIDs.
 func (client *Client) Metadata(ctx context.Context, ratingKey string) (Item, error) {
