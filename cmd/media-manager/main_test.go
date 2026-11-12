@@ -138,3 +138,24 @@ func TestPlayerTokenIsOptionalLongAndDistinctFromOwner(t *testing.T) {
 		t.Fatalf("valid player token: %q %v", value, err)
 	}
 }
+
+// TestConnectionSecretsNeverResolveServerCredentials proves a connection
+// cannot name the owner token, a backup or encryption key or the database URL
+// as its secret: a connection check would send it to the connection's own
+// address. Ordinary connection references still resolve.
+func TestConnectionSecretsNeverResolveServerCredentials(t *testing.T) {
+	t.Setenv("OWNER_TOKEN", "owner-token-value")
+	t.Setenv("BACKUP_ENCRYPTION_KEY", "backup-key-value")
+	t.Setenv("SECRET_ENCRYPTION_KEY", "secret-key-value")
+	t.Setenv("DATABASE_URL", "postgres://user:password@db/media")
+	t.Setenv("PLEX_TOKEN", "plex-token-value")
+	resolve := connectionSecretResolver(nil)
+	for _, reference := range []string{"OWNER_TOKEN", "owner_token", "BACKUP_ENCRYPTION_KEY", "BACKUP_ENCRYPTION_KEY_FILE", "SECRET_ENCRYPTION_KEY", "DATABASE_URL", "PLAYER_TOKEN", "OLDBOYS_CREDENTIAL_ENCRYPTION_KEY"} {
+		if value, err := resolve(reference); err == nil || value != "" {
+			t.Fatalf("%s resolved to %q, want a refusal", reference, value)
+		}
+	}
+	if value, err := resolve("PLEX_TOKEN"); err != nil || value != "plex-token-value" {
+		t.Fatalf("PLEX_TOKEN=%q err=%v, want the connection secret", value, err)
+	}
+}

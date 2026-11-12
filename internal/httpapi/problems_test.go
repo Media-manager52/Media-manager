@@ -59,3 +59,15 @@ func TestHumanBytesValue(t *testing.T) {
 		t.Fatalf("10 GiB = %q", got)
 	}
 }
+
+// TestRedactSupportTextKeepsOffsetsWithUnicode proves a character whose
+// lowercase is longer in bytes (Ⱥ → ⱥ) before a marker can neither keep part
+// of the secret nor crash the error log.
+func TestRedactSupportTextKeepsOffsetsWithUnicode(t *testing.T) {
+	for _, prefix := range []string{"Ⱥ ", "ȺȺȺ ", strings.Repeat("Ⱥ", 20) + " "} {
+		got := redactSupportText(prefix + "api_key=SECRET")
+		if strings.Contains(got, "S [") || strings.Contains(got, "SEC") || !strings.HasSuffix(got, "api_key= [redacted]") {
+			t.Fatalf("redaction of %q = %q", prefix+"api_key=SECRET", got)
+		}
+	}
+}

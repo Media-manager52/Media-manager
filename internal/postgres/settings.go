@@ -80,6 +80,9 @@ func (store *Store) CreateIntegration(ctx context.Context, integration Integrati
 	if strings.HasPrefix(integration.SecretRef, "sealed:") {
 		return Integration{}, errors.New("invalid integration: save the secret with PUT /api/v1/settings/integrations/{id}/secret")
 	}
+	if ServerOnlySecretReference(integration.SecretRef) {
+		return Integration{}, errors.New(serverOnlySecretMessage)
+	}
 	var newznabURL string
 	if integration.Kind == "newznab" {
 		canonical, endpoint, err := canonicalNewznabConfig(integration.Config, false)

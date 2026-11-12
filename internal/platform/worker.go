@@ -54,6 +54,11 @@ func (err handlerStuckError) Error() string {
 func (err handlerStuckError) SafeCode() string   { return "handler_stuck" }
 func (err handlerStuckError) RetryAt() time.Time { return err.until }
 
+// PreserveDeferralAttempts keeps the claim's attempt: a handler that hangs
+// again and again is then demoted below healthy work after a few hangs
+// instead of being claimed first, and blocking the worker, forever.
+func (err handlerStuckError) PreserveDeferralAttempts() bool { return true }
+
 type handlerPanicError struct{}
 
 func (handlerPanicError) Error() string    { return "handler panicked" }

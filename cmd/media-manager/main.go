@@ -154,14 +154,7 @@ func run() error {
 			return err
 		}
 	}
-	resolveSecret := func(reference string) (string, error) {
-		if integrationsecrets.IsReference(reference) {
-			resolveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			return integrationSecrets.Resolve(resolveCtx, reference)
-		}
-		return requiredSecret(reference)
-	}
+	resolveSecret := connectionSecretResolver(integrationSecrets)
 	seerrURL, seerrKey := strings.TrimSpace(os.Getenv("SEERR_BASE_URL")), optionalSecret("SEERR_API_KEY")
 	seerrInstance, seerrWebhookSecret := strings.TrimSpace(os.Getenv("SEERR_INSTANCE_ID")), optionalSecret("SEERR_WEBHOOK_SECRET")
 	seerrValues := []string{seerrURL, seerrKey, seerrInstance, seerrWebhookSecret}
@@ -366,7 +359,7 @@ func run() error {
 	handlers["workflow.transitioned"] = func(context.Context, postgres.OutboxEvent) error { return nil }
 	notificationService := &notifications.Service{Store: store, ResolveSecret: resolveSecret}
 	handlers["notification.deliver_requested"] = notificationService.Handle
-	backupService := &backups.Service{Store: store, Directory: backupDirectory, ResolveSecret: resolveSecret, Offsite: offsite, OffsitePrefix: offsitePrefix}
+	backupService := &backups.Service{Store: store, Directory: backupDirectory, ResolveSecret: requiredSecret, Offsite: offsite, OffsitePrefix: offsitePrefix}
 	handlers["backup.create_requested"] = backupService.Handle
 	handlers["backup.offsite_requested"] = backupService.HandleOffsite
 	// Followed MDBList lists are read on their own lane: a read only calls
@@ -497,6 +490,24 @@ func run() error {
 		return nil
 	}
 	return err
+}
+
+// connectionSecretResolver resolves a connection's secret reference: a key
+// saved on the website, or an environment variable. A connection's secret is
+// sent to the connection's own address, so the server's own credentials are
+// never resolved for one.
+func connectionSecretResolver(integrationSecrets *integrationsecrets.Service) func(string) (string, error) {
+	return func(reference string) (string, error) {
+		if integrationsecrets.IsReference(reference) {
+			resolveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return integrationSecrets.Resolve(resolveCtx, reference)
+		}
+		if postgres.ServerOnlySecretReference(reference) {
+			return "", fmt.Errorf("%s is a server credential and cannot be a connection secret", reference)
+		}
+		return requiredSecret(reference)
+	}
 }
 
 func requiredSecret(name string) (string, error) {

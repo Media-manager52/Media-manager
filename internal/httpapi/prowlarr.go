@@ -29,24 +29,19 @@ func (server *Server) createProwlarrImport(writer http.ResponseWriter, request *
 		writeError(writer, http.StatusInternalServerError, "import_failed", "could not persist the Prowlarr review")
 		return
 	}
-	type candidateResponse struct {
-		postgres.ProwlarrIndexerCandidate
-		APIKey string `json:"api_key,omitempty"`
-	}
-	keys := make(map[string]string, len(parsed.Candidates))
-	for _, candidate := range parsed.Candidates {
-		keys[candidate.Name+"\x00"+candidate.BaseURL] = candidate.APIKey
+	// The extracted API keys never leave the server (S18): the owner gives
+	// each approved indexer its own secret reference.
+	candidates := created.Candidates
+	if candidates == nil {
+		candidates = []postgres.ProwlarrIndexerCandidate{}
 	}
 	response := struct {
-		ID            uuid.UUID           `json:"id"`
-		State         string              `json:"state"`
-		ParserVersion string              `json:"parser_version"`
-		CreatedAt     time.Time           `json:"created_at"`
-		Candidates    []candidateResponse `json:"candidates"`
-	}{ID: created.ID, State: created.State, ParserVersion: created.ParserVersion, CreatedAt: created.CreatedAt, Candidates: make([]candidateResponse, 0, len(created.Candidates))}
-	for _, candidate := range created.Candidates {
-		response.Candidates = append(response.Candidates, candidateResponse{ProwlarrIndexerCandidate: candidate, APIKey: keys[candidate.Name+"\x00"+candidate.BaseURL]})
-	}
+		ID            uuid.UUID                           `json:"id"`
+		State         string                              `json:"state"`
+		ParserVersion string                              `json:"parser_version"`
+		CreatedAt     time.Time                           `json:"created_at"`
+		Candidates    []postgres.ProwlarrIndexerCandidate `json:"candidates"`
+	}{ID: created.ID, State: created.State, ParserVersion: created.ParserVersion, CreatedAt: created.CreatedAt, Candidates: candidates}
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("Location", "/api/v1/imports/prowlarr/"+created.ID.String())
 	writeJSON(writer, http.StatusCreated, dataEnvelope{Data: response})
