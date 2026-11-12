@@ -285,6 +285,13 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		if detail, mismatch := editionResolutionMismatch(job, verification); mismatch {
 			return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureResolutionMismatch, detail, time.Now().UTC())
 		}
+		requiredResolutions, resolutionErr := service.Store.RequiredResolutionsForJob(ctx, job.JobID)
+		if resolutionErr != nil {
+			return resolutionErr
+		}
+		if detail, mismatch := requiredResolutionMismatch(requiredResolutions, verification); mismatch {
+			return service.Store.CompleteReleaseFailure(ctx, job, releases.PackageFailureResolutionMismatch, detail, time.Now().UTC())
+		}
 		recorded, recordErr := service.Store.RecordSubtitleVerification(ctx, job, inventoryID, verification, time.Now().UTC())
 		if recordErr != nil {
 			return recordErr

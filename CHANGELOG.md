@@ -18,6 +18,7 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 - **The title page knows each workflow's library folder, profile and allowed actions again.** Flyt, Hent and the other buttons on a title now work from the real workflow instead of guessing.
 - **A cancelled duplicate season pack no longer hides the active one** on the title page, and the pack badge shows the same state as the rest of the app.
 - **The calendar asks only for the last week and what is coming**, so a long history no longer pushes upcoming episodes out of the list.
+- **A required resolution is now checked on the downloaded file, not only on the release name.** A release named 1080p whose picture really measures 720p fails under a profile that requires 1080p, and another release is tried. Preferred resolutions and unknown measurements are unchanged.
 
 ## [0.1.0-beta.20] - 2026-11-12
 
