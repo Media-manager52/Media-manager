@@ -356,3 +356,24 @@ func TestUnreadableStorageDefersPublicationInsteadOfFailingIt(t *testing.T) {
 		t.Fatalf("readable storage deferred the failure: %v", outage)
 	}
 }
+
+// Plex confirmation may use only verified supported identities, never unverified aliases.
+func TestPlexConfirmationUsesOnlyVerifiedSupportedIdentities(t *testing.T) {
+	item := catalog.MediaItem{Identities: []catalog.ExternalIdentity{
+		{Namespace: "tmdb", Value: "880001", State: catalog.IdentityUnverified},
+		{Namespace: " TMDB ", Value: " 880002 ", State: catalog.IdentityVerified},
+		{Namespace: "tmdb", Value: "880002", State: catalog.IdentityVerified},
+		{Namespace: "imdb", Value: "tt8800001", State: catalog.IdentityVerified},
+		{Namespace: "tvdb", Value: "770001", State: catalog.IdentityVerified},
+		{Namespace: "simkl", Value: "660001", State: catalog.IdentityVerified},
+		{Namespace: "tmdb", Value: " ", State: catalog.IdentityVerified},
+	}}
+	guids := plexGUIDs(item)
+	if got := strings.Join(guids, ","); got != "tmdb://880002,imdb://tt8800001,tvdb://770001" {
+		t.Fatalf("Plex confirmation identities = %q", got)
+	}
+	item.Identities = []catalog.ExternalIdentity{{Namespace: "tmdb", Value: "880001", State: catalog.IdentityUnverified}}
+	if guids := plexGUIDs(item); len(guids) != 0 {
+		t.Fatalf("unverified identity could confirm publication: %v", guids)
+	}
+}

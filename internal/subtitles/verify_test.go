@@ -2,8 +2,10 @@ package subtitles
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"uuid"
 
@@ -173,5 +175,104 @@ func TestVerifyRequiredAudioIgnoresSubtitles(t *testing.T) {
 	parsed, err := ParsePolicy([]byte(`{"rules":[],"required_audio_languages":["Danish"]}`))
 	if err != nil || len(parsed.RequiredAudio) != 1 || parsed.RequiredAudio[0] != "da" {
 		t.Fatalf("parsed policy=%+v err=%v", parsed, err)
+	}
+}
+
+type countingInventoryProbe struct {
+	fixtureProbe
+	calls int
+}
+
+func (probe *countingInventoryProbe) InspectWithin(ctx context.Context, root, relative string) (mediainfo.Evidence, error) {
+	probe.calls++
+	return probe.fixtureProbe.InspectWithin(ctx, root, relative)
+}
+
+// A changed frozen inventory must fail before probing or claiming any verified output.
+func TestVerifyRejectsChangedInventoryBeforeInspectingAnyVideo(t *testing.T) {
+	for _, change := range []string{"removed-sidecar", "resized-sidecar", "selected-path", "selected-size", "unknown-asset"} {
+		t.Run(change, func(t *testing.T) {
+			root := t.TempDir()
+			video := fixtureAsset(t, root, "Lantern.S01E01.mkv", "video")
+			sidecar := fixtureAsset(t, root, "Lantern.S01E01.da.srt", "subtitle")
+			selected := video
+			switch change {
+			case "removed-sidecar":
+				if err := os.Remove(filepath.Join(root, sidecar.RelativePath)); err != nil {
+					t.Fatal(err)
+				}
+			case "resized-sidecar":
+				if err := os.WriteFile(filepath.Join(root, sidecar.RelativePath), []byte("changed subtitle"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "selected-path":
+				selected.RelativePath = "Lantern.S01E02.mkv"
+			case "selected-size":
+				selected.Size++
+			case "unknown-asset":
+				selected.ID = uuid.NewV7()
+			}
+			probe := &countingInventoryProbe{fixtureProbe: fixtureProbe{evidence: map[string]mediainfo.Evidence{video.RelativePath: mediaEvidence(mediainfo.Track{CanonicalLanguage: "da"})}}}
+			result, err := Verify(t.Context(), root, []Asset{selected}, []Asset{video, sidecar}, Policy{Required: []string{"da"}}, probe)
+			if err == nil || result.Status == "verified" || probe.calls != 0 {
+				t.Fatalf("changed inventory = %+v, %v; probe calls=%d", result, err, probe.calls)
+			}
+		})
+	}
+}
+
+// Language normalization preserves every hard quality rule and unrelated profile setting.
+func TestCanonicalizePolicyPreservesQualityRulesWhileNormalizingLanguages(t *testing.T) {
+	original := json.RawMessage(`{"rules":[{"name":"Required resolution","fact":"resolution","kind":"required","allowed_values":["1080p"],"unknown":"hold"}],"upgrades_enabled":false,"custom":{"weight":7},"required_subtitle_languages":["Danish","da-DK","eng"],"preferred_subtitle_languages":["sv","swe"],"required_audio_languages":["dan","da"]}`)
+	canonical, policy, err := CanonicalizePolicy(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(policy.Required, []string{"da", "en"}) || !reflect.DeepEqual(policy.Preferred, []string{"sv"}) || !reflect.DeepEqual(policy.RequiredAudio, []string{"da"}) {
+		t.Fatalf("canonical policy = %+v", policy)
+	}
+	var before, after map[string]any
+	if err := json.Unmarshal(original, &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(canonical, &after); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"rules", "upgrades_enabled", "custom"} {
+		if !reflect.DeepEqual(before[key], after[key]) {
+			t.Fatalf("canonicalization changed %s: %v -> %v", key, before[key], after[key])
+		}
+	}
+	reparsed, err := ParsePolicy(canonical)
+	if err != nil || !reflect.DeepEqual(reparsed, policy) {
+		t.Fatalf("stored policy did not retain language requirements: %+v, %v", reparsed, err)
+	}
+	// Older array-only rule documents must also retain their hard rules.
+	legacy, _, err := CanonicalizePolicy(json.RawMessage(`[{"fact":"resolution","kind":"required","allowed_values":["1080p"],"unknown":"hold"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wrapped map[string]json.RawMessage
+	if err := json.Unmarshal(legacy, &wrapped); err != nil {
+		t.Fatal(err)
+	}
+	if string(wrapped["rules"]) != `[{"fact":"resolution","kind":"required","allowed_values":["1080p"],"unknown":"hold"}]` {
+		t.Fatalf("legacy rules changed: %s", legacy)
+	}
+}
+
+// An unreliable language in any policy field is refused rather than silently dropping a goal.
+func TestCanonicalizePolicyRefusesUnreliableLanguageRequirements(t *testing.T) {
+	for _, field := range []string{"required_subtitle_languages", "preferred_subtitle_languages", "required_audio_languages"} {
+		t.Run(field, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{"rules": []any{}, field: []string{"da", "not-a-language"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			canonical, _, err := CanonicalizePolicy(body)
+			if err == nil || canonical != nil {
+				t.Fatalf("unreliable language produced a usable policy: %s, %v", canonical, err)
+			}
+		})
 	}
 }

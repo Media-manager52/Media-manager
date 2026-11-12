@@ -4,6 +4,14 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **A malformed number from MDBList is no longer read as an id or year.** A TVDB id such as `770001wrong` or a year such as `2024.5` became `770001` and `2024`, which could make a list title look like an unrelated series that is already in the library. Anything but a whole positive number is now ignored.
+
+### Tests
+
+- Fourteen new automated tests (written with OpenAI Codex, reviewed before merging) for list intake failures, AltMount upload retries and uncertain answers, indexer pacing after cancellations and budget errors, Plex identities used for confirmation, and subtitle/language policy checks.
+
 ## [0.1.0-beta.14] - 2026-11-12
 
 ### Fixed

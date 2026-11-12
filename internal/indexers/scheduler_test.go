@@ -618,3 +618,94 @@ func TestBrowseHasItsOwnInFlightSlots(t *testing.T) {
 		t.Fatalf("global pool=%d after release", len(scheduler.global))
 	}
 }
+
+// Cancelling a pacing wait releases its lane and spends no additional query budget.
+func TestCancelledPacingWaitReleasesCapacityWithoutReservingARequest(t *testing.T) {
+	for _, workload := range []Workload{WorkloadBrowse, WorkloadFeed} {
+		t.Run(string(workload), func(t *testing.T) {
+			now := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
+			store := &reservationMemory{reservations: map[string][]time.Time{}}
+			scheduler := NewScheduler(1, store)
+			scheduler.now = func() time.Time { return now }
+			if err := scheduler.Configure("example-indexer", Budget{MinimumInterval: 3 * time.Second, FailureBackoff: time.Second, MaximumBackoff: time.Minute, QueryLimit: 10, LimitWindow: time.Hour}); err != nil {
+				t.Fatal(err)
+			}
+			first, err := scheduler.Acquire(t.Context(), "example-indexer", workload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := first.Record(t.Context(), OutcomeSuccess, nil); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			waits := 0
+			scheduler.wait = func(ctx context.Context, delay time.Duration) error {
+				waits++
+				if delay != 3*time.Second || len(scheduler.slots(workload)) != 0 || len(scheduler.getLane("example-indexer").gate) != 1 {
+					t.Fatalf("wait did not free shared capacity while retaining the lane: delay=%s", delay)
+				}
+				cancel()
+				return ctx.Err()
+			}
+			if permit, err := scheduler.Acquire(ctx, "example-indexer", workload); !errors.Is(err, context.Canceled) || permit != nil {
+				t.Fatalf("cancelled pacing = %v, %v", permit, err)
+			}
+			if waits != 1 || len(store.reservations["example-indexer:query"]) != 1 || len(scheduler.slots(workload)) != 0 || len(scheduler.getLane("example-indexer").gate) != 0 {
+				t.Fatal("cancelled wait leaked capacity or consumed another reservation")
+			}
+			now = now.Add(3 * time.Second)
+			bounded, done := context.WithTimeout(t.Context(), time.Second)
+			defer done()
+			next, err := scheduler.Acquire(bounded, "example-indexer", workload)
+			if err != nil {
+				t.Fatalf("cancelled waiter blocked later work: %v", err)
+			}
+			defer next.Close()
+			if len(store.reservations["example-indexer:query"]) != 2 {
+				t.Fatal("later request was not reserved exactly once")
+			}
+		})
+	}
+}
+
+type failingReservationStore struct {
+	reservationMemory
+	err error
+}
+
+func (store *failingReservationStore) ReserveIndexerRequest(ctx context.Context, id, family string, limit int, window time.Duration, now time.Time) (time.Time, error) {
+	if store.err != nil {
+		return time.Time{}, store.err
+	}
+	return store.reservationMemory.ReserveIndexerRequest(ctx, id, family, limit, window, now)
+}
+
+// Budget storage failures block transmission but do not leave the indexer permanently locked.
+func TestReservationFailureBlocksTransmissionAndReleasesCapacity(t *testing.T) {
+	now := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
+	unavailable := errors.New("budget storage unavailable")
+	store := &failingReservationStore{reservationMemory: reservationMemory{reservations: map[string][]time.Time{}}, err: unavailable}
+	scheduler := NewScheduler(1, store)
+	scheduler.now = func() time.Time { return now }
+	if err := scheduler.Configure("example-indexer", Budget{FailureBackoff: time.Second, MaximumBackoff: time.Minute, GrabLimit: 1, LimitWindow: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if permit, err := scheduler.Acquire(t.Context(), "example-indexer", WorkloadRetrieval); permit != nil || !errors.Is(err, unavailable) {
+		t.Fatalf("reservation failure granted a permit or lost its cause: %v, %v", permit, err)
+	}
+	if len(scheduler.global) != 0 || len(scheduler.getLane("example-indexer").gate) != 0 || len(store.reservations) != 0 {
+		t.Fatal("failed reservation leaked capacity or consumed a grab")
+	}
+	store.err = nil
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	permit, err := scheduler.Acquire(ctx, "example-indexer", WorkloadRetrieval)
+	if err != nil {
+		t.Fatalf("recovered storage left the lane locked: %v", err)
+	}
+	defer permit.Close()
+	if len(store.reservations["example-indexer:grab"]) != 1 {
+		t.Fatal("recovered request did not reserve its grab")
+	}
+}

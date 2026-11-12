@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -176,8 +177,10 @@ func parseItems(body []byte) ([]Item, error) {
 // string or not at all; anything but a positive whole number is 0.
 func positiveNumber(raw json.RawMessage) int64 {
 	text := strings.Trim(strings.TrimSpace(string(raw)), `"`)
-	var value int64
-	if _, err := fmt.Sscan(text, &value); err != nil || value <= 0 {
+	// ParseInt reads the whole text: "2024.5" or "770001wrong" are not
+	// numbers, where a scan would keep their leading digits.
+	value, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || value <= 0 {
 		return 0
 	}
 	return value
