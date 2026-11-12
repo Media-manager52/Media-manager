@@ -9,12 +9,14 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 - **A commentary or audio-description track no longer counts as the film's language.** A Danish subtitle titled "Commentary", a Danish commentary audio track or a `Movie.da.commentary.srt` sidecar satisfied a required Danish subtitle or Danish audio. Tracks and sidecars marked as commentary, audio description or synstolkning are now ignored as language evidence.
 - **A quality profile whose policy is `null` is refused** with a normal validation error instead of crashing the request.
 
-## [0.1.0-beta.17] - 2026-11-12
+## [0.1.0-beta.18] - 2026-11-12
 
 ### Fixed
 
 - **A subtitle for a sample or trailer no longer counts as the film's subtitle.** A file such as `Movie.sample.da.srt` next to `Movie.mkv` satisfied a required Danish subtitle and was published as the film's subtitle. Subtitles that name themselves a sample, trailer, extra or bonus are now ignored.
 - **Deleting a title also recycles a link whose Plex confirmation never finished.** After a Plex confirmation timed out and the workflow was cancelled, deleting the title archived it as unpublished and left its link in the library. Such a link is now moved to the recycle folder like any published link.
+
+## [0.1.0-beta.17] - 2026-11-12
 
 ### Fixed
 
