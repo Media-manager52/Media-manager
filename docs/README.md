@@ -42,6 +42,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.17.md](releases/v0.1.0-beta.17.md) | Seventeenth public beta (2026-11-12): cancelled titles stay cancelled; revived archive rejections leave no slot gap. |
 | [releases/v0.1.0-beta.16.md](releases/v0.1.0-beta.16.md) | Sixteenth public beta (2026-11-12): repairs stay in their own library; films titled "Samples" publish. |
 | [releases/v0.1.0-beta.15.md](releases/v0.1.0-beta.15.md) | Fifteenth public beta (2026-11-12): fourteen new tests and whole-number MDBList ids and years. |
 | [releases/v0.1.0-beta.14.md](releases/v0.1.0-beta.14.md) | Fourteenth public beta (2026-11-12): ten fixes from a code review of search, indexer pacing and downloading. |
