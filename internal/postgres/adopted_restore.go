@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 )
 
 const AdoptedRestoreConfirmationPhrase = "RESTORE RETAINED ADOPTED FILE AFTER PLEX VERIFICATION"
@@ -265,7 +266,7 @@ func (store *Store) rescheduleAdoptedRestore(ctx context.Context, entryID uuid.U
 
 func (store *Store) FailAdoptedRestore(ctx context.Context, entryID uuid.UUID, detail string, now time.Time) error {
 	if len(detail) > 500 {
-		detail = detail[:500]
+		detail = dbcore.TruncateText(detail, 500)
 	}
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {

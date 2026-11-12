@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/indexers"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
@@ -79,7 +80,7 @@ func (store *Store) RecordPreSubmissionRejection(ctx context.Context, retrieval 
 		detail = "release package rejected before AltMount submission"
 	}
 	if len(detail) > 1000 {
-		detail = detail[:1000]
+		detail = dbcore.TruncateText(detail, 1000)
 	}
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {

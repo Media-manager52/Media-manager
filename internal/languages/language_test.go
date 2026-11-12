@@ -13,3 +13,11 @@ func TestCanonicalDanishVariants(t *testing.T) {
 		t.Fatalf("unreliable language accepted as %q", canonical)
 	}
 }
+
+func TestCanonicalMapsThreeLetterTrackCodes(t *testing.T) {
+	for raw, want := range map[string]string{"eng": "en", "ENG": "en", "swe": "sv", "nor": "no", "nob": "no", "ger": "de", "deu": "de", "fre": "fr", "en": "en", "sv": "sv", "dan": "da"} {
+		if got, ok := Canonical(raw); !ok || got != want {
+			t.Errorf("Canonical(%q) = %q, %v; want %q", raw, got, ok, want)
+		}
+	}
+}

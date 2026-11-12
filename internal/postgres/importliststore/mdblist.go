@@ -420,7 +420,7 @@ func (store *ImportLists) SetImportListEntry(ctx context.Context, id uuid.UUID, 
 		return errors.New("invalid import-list entry state")
 	}
 	if len(detail) > 500 {
-		detail = detail[:500]
+		detail = dbcore.TruncateText(detail, 500)
 	}
 	_, err := store.Pool.Exec(ctx, `UPDATE import_list_entries SET state=$4,detail=NULLIF($5,''),media_id=COALESCE($6,media_id),attempts=attempts+CASE WHEN $4='failed' THEN 1 ELSE 0 END,updated_at=$7
 		WHERE import_list_id=$1 AND media_kind=$2 AND tmdb_id=$3`, id.String(), kind, tmdbID, state, detail, optionalUUID(mediaID), now.UTC())
@@ -430,7 +430,7 @@ func (store *ImportLists) SetImportListEntry(ctx context.Context, id uuid.UUID, 
 // FinishImportListSync records how a read went and when the next is due.
 func (store *ImportLists) FinishImportListSync(ctx context.Context, id uuid.UUID, state, detail string, synced bool, next time.Time, now time.Time) error {
 	if len(detail) > 500 {
-		detail = detail[:500]
+		detail = dbcore.TruncateText(detail, 500)
 	}
 	_, err := store.Pool.Exec(ctx, `UPDATE import_lists SET last_sync_state=$2,last_sync_detail=NULLIF($3,''),last_synced_at=CASE WHEN $4 THEN $5 ELSE last_synced_at END,next_sync_at=$6 WHERE id=$1`, id.String(), state, detail, synced, now.UTC(), next.UTC())
 	return err

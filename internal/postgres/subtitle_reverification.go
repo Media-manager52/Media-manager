@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/packs"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
@@ -127,7 +128,17 @@ func (store *Store) LoadRetainedSubtitleOutput(ctx context.Context, workflowID, 
 	if err != nil {
 		return RetainedSubtitleOutput{}, err
 	}
-	result.Policy = subtitles.Policy{Required: append([]string(nil), required...), Preferred: append([]string(nil), preferred...)}
+	// The re-check applies the same policy as the first inspection: the
+	// round's snapshot with every language the profile now requires, required
+	// audio and the title's original language included, plus anything the
+	// stored verification required. A release that failed for missing Danish
+	// audio can therefore never pass a re-check on subtitles alone.
+	policy, err := store.SubtitlePolicyForJob(ctx, jobID)
+	if err != nil {
+		return RetainedSubtitleOutput{}, err
+	}
+	stored := subtitles.Policy{Required: append([]string(nil), required...), Preferred: append([]string(nil), preferred...)}
+	result.Policy = mergeRequiredSubtitles(stored, policy).WithOriginalLanguage(policy.OriginalLanguage)
 
 	rows, err := store.Pool.Query(ctx, `SELECT id::text,relative_path,size_bytes FROM altmount_output_assets WHERE inventory_id=$1 ORDER BY relative_path`, result.InventoryID.String())
 	if err != nil {
@@ -292,7 +303,7 @@ func (store *Store) CompleteRetainedSubtitleReverification(ctx context.Context, 
 			detail = "required subtitle evidence could not be verified"
 		}
 		if len(detail) > 1000 {
-			detail = detail[:1000]
+			detail = dbcore.TruncateText(detail, 1000)
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE subtitle_verifications SET retry_state='exhausted' WHERE workflow_id=$1 AND retry_state='queued'`, job.Workflow.ID.String()); err != nil {
 			return err

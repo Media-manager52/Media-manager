@@ -4,6 +4,20 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+Ten problems found by an automated code review of the language checks, publication and automatic recovery:
+
+- **A re-check of a kept download applies the full language rules.** Re-checking a download kept for review used only its subtitle requirement, so a release that had failed for missing Danish audio could pass on subtitles alone and be published. It now uses the same policy as the first inspection, Danish audio included.
+- **A publication interrupted after its first step finishes.** Preparing and starting a publication each move the workflow on, so a retry after a later step failed was ignored and the title stayed in "verifying" or "publishing" for good. The retry now continues the same publication; every step is safe to repeat.
+- **A briefly unreadable AltMount mount or library folder no longer fails a publication.** It is tried again after 5 minutes instead of being marked failed for good.
+- **No more endless retries.** Re-checking a kept download that can no longer be inspected (no video track, invalid or zero-filled file) now stops with a clear reason, and a download deleted from AltMount's queue while still queued moves on to the next release instead of being read again forever.
+- **Languages other than Danish match their usual track tags.** A profile requiring `en`, `sv` or `no` now matches tracks tagged `eng`, `swe` or `nor` (and the other common three-letter codes).
+- **A film with "Samples" in its name is no longer treated as a sample.** Only a folder named Sample(s) or "sample" as a word in the file name marks a sample, so a title like Free Samples can be verified.
+- **Two subtitle files with the same language no longer fail a publication.** When a release has, for example, `Movie.da.srt` and `Movie.dan.srt`, one of them is published instead of the whole publication failing on the shared Plex name.
+- **Long error texts with æ, ø or å are stored.** Texts were cut to their limit by bytes, which could split a Danish letter so the database refused the write on every retry; they are now cut on whole characters.
+- **The owner can still retry Plex confirmation after the automatic retries.** The three automatic retries no longer use up the owner's own three.
+
 ## [0.1.0-beta.12] - 2026-11-12
 
 ### Changed

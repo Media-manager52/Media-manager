@@ -5,15 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 	"uuid"
 
+	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/library"
 	"github.com/media-manager/media-manager/internal/postgres"
+	"github.com/media-manager/media-manager/internal/workflows"
 )
 
 type Service struct {
@@ -42,7 +46,12 @@ func (service *Service) Handle(ctx context.Context, event postgres.OutboxEvent) 
 		}
 		return err
 	}
-	if event.AggregateRevision != publicationContext.Workflow.Revision {
+	// Preparing and starting publication each advance the workflow
+	// revision. A retry of this same event after a later step failed must
+	// still finish the job: every step is idempotent and the context loader
+	// already checked that this job is the workflow's current, imported
+	// attempt. Any other revision mismatch is a stale event.
+	if event.AggregateRevision != publicationContext.Workflow.Revision && !resumablePublication(event.AggregateRevision, publicationContext.Workflow) {
 		return nil
 	}
 	if publicationContext.Workflow.State == "plex_scanning" || publicationContext.Workflow.State == "plex_confirmed" {
@@ -56,6 +65,9 @@ func (service *Service) Handle(ctx context.Context, event postgres.OutboxEvent) 
 		return nil
 	}
 	if _, err := library.PreflightBatch(linkPlans); err != nil {
+		if outage := storageOutage(publicationContext, err); outage != nil {
+			return outage
+		}
 		if attentionErr := service.Store.FailPublication(ctx, publicationContext.Workflow.ID, jobID, "publication preflight failed: "+err.Error(), time.Now().UTC()); attentionErr != nil {
 			return attentionErr
 		}
@@ -68,6 +80,9 @@ func (service *Service) Handle(ctx context.Context, event postgres.OutboxEvent) 
 		return err
 	}
 	if err := library.PublishBatch(linkPlans); err != nil {
+		if outage := storageOutage(publicationContext, err); outage != nil {
+			return outage
+		}
 		if attentionErr := service.Store.FailPublication(ctx, publicationContext.Workflow.ID, jobID, "symlink publication failed: "+err.Error(), time.Now().UTC()); attentionErr != nil {
 			return attentionErr
 		}
@@ -75,6 +90,59 @@ func (service *Service) Handle(ctx context.Context, event postgres.OutboxEvent) 
 	}
 	_, err = service.Store.CompletePublication(ctx, publicationContext.Workflow.ID, jobID, time.Now().UTC())
 	return err
+}
+
+// resumablePublication reports whether an event from an earlier revision of
+// this publication may continue it: the workflow is still preparing or
+// publishing this job, and only the publication's own steps moved it on.
+func resumablePublication(eventRevision uint64, workflow workflows.Workflow) bool {
+	return eventRevision < workflow.Revision && (workflow.State == workflows.StateVerifying || workflow.State == workflows.StatePublishing)
+}
+
+// storageRetryInterval is how soon a publication blocked by an unreadable
+// AltMount mount or library folder is tried again.
+const storageRetryInterval = 5 * time.Minute
+
+type storageUnavailableError struct {
+	until time.Time
+	cause error
+}
+
+func (err storageUnavailableError) Error() string      { return err.cause.Error() }
+func (err storageUnavailableError) Unwrap() error      { return err.cause }
+func (err storageUnavailableError) RetryAt() time.Time { return err.until.UTC() }
+
+// storageOutage returns a deferral when a publication step failed while the
+// AltMount mount or the library folder cannot be read (for example a FUSE
+// mount that is briefly disconnected). That says nothing about the release,
+// so the same event is retried later instead of failing the publication.
+func storageOutage(publicationContext postgres.PublicationContext, cause error) error {
+	var config altMountConfig
+	if json.Unmarshal(publicationContext.AltMount.Config, &config) == nil && filepath.IsAbs(config.LocalReadOnlyRoot) {
+		if err := altmount.CheckMount(config.LocalReadOnlyRoot); err != nil {
+			return storageUnavailableError{until: time.Now().Add(storageRetryInterval), cause: fmt.Errorf("%w (publication waits: %v)", cause, err)}
+		}
+	}
+	if root := publicationContext.Root.DestinationRoot; filepath.IsAbs(root) {
+		// A library folder may be empty, so only a folder that cannot be
+		// opened or listed counts as unavailable.
+		if err := readableFolder(root); err != nil {
+			return storageUnavailableError{until: time.Now().Add(storageRetryInterval), cause: fmt.Errorf("%w (publication waits: %v)", cause, err)}
+		}
+	}
+	return nil
+}
+
+func readableFolder(root string) error {
+	folder, err := os.Open(root)
+	if err != nil {
+		return err
+	}
+	defer folder.Close()
+	if _, err := folder.Readdirnames(1); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
 }
 
 func buildPlans(publicationContext postgres.PublicationContext) ([]postgres.PublicationPlan, []library.LinkPlan, error) {
@@ -163,6 +231,7 @@ func buildPlans(publicationContext postgres.PublicationContext) ([]postgres.Publ
 		}
 		plan := postgres.PublicationPlan{AssetID: asset.ID, DestinationRelative: destinationRelative, SourceRelative: persistedSource, PlexVisibleTarget: validated.PlexVisibleTarget}
 		links = append(links, validated)
+		usedCompanions := map[string]bool{}
 		for _, companion := range asset.Companions {
 			containedCompanion, companionErr := library.ValidateRelative(companion.RelativePath)
 			if companionErr != nil {
@@ -180,6 +249,13 @@ func buildPlans(publicationContext postgres.PublicationContext) ([]postgres.Publ
 			if destinationErr != nil {
 				return nil, nil, destinationErr
 			}
+			// Two subtitle files with the same language and flags (Movie.da.srt
+			// and Movie.dan.srt) would get the same Plex name. The first one is
+			// published; the other adds nothing Plex could show separately.
+			if usedCompanions[companionDestination] {
+				continue
+			}
+			usedCompanions[companionDestination] = true
 			companionLink, validateErr := library.ValidatePlan(library.LinkPlan{SourceRoot: jobSourceRoot, SourceRelative: containedCompanion, DestinationRoot: filepath.Clean(publicationContext.Root.DestinationRoot), DestinationRel: companionDestination, PlexVisibleSourceRoot: jobPlexSourceRoot})
 			if validateErr != nil {
 				return nil, nil, validateErr

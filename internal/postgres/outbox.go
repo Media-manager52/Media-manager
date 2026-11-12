@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 	"uuid"
+
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 )
 
 type OutboxEvent struct {
@@ -105,7 +107,7 @@ func (store *Store) CompleteOutbox(ctx context.Context, id uuid.UUID, owner stri
 
 func (store *Store) FailOutbox(ctx context.Context, id uuid.UUID, owner, detail string, retryAt time.Time) error {
 	if len(detail) > 1000 {
-		detail = detail[:1000]
+		detail = dbcore.TruncateText(detail, 1000)
 	}
 	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,lease_owner=NULL,lease_until=NULL,last_error=$4 WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail)
 	if err != nil {
@@ -131,7 +133,7 @@ func (store *Store) DeferOutboxPreservingAttempts(ctx context.Context, id uuid.U
 
 func (store *Store) deferOutbox(ctx context.Context, id uuid.UUID, owner, detail string, retryAt time.Time, preserveAttempts bool) error {
 	if len(detail) > 1000 {
-		detail = detail[:1000]
+		detail = dbcore.TruncateText(detail, 1000)
 	}
 	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,attempts=CASE WHEN $5 THEN attempts ELSE GREATEST(attempts-1,0) END,lease_owner=NULL,lease_until=NULL,last_error=$4 WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail, preserveAttempts)
 	if err != nil {
