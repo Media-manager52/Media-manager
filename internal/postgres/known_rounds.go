@@ -189,8 +189,30 @@ func (store *Store) RevivePreSubmissionRejections(ctx context.Context, workflowI
 	if _, err := transaction.Exec(ctx, `DELETE FROM workflow_release_exclusions WHERE workflow_id=$1 AND candidate_id IN (SELECT candidate_id FROM altmount_jobs WHERE id::text = ANY($2))`, workflowID.String(), jobIDs); err != nil {
 		return 0, err
 	}
+	var rounds []string
+	roundRows, err := transaction.Query(ctx, `SELECT DISTINCT round_id::text FROM altmount_jobs WHERE id::text = ANY($1) AND round_id IS NOT NULL`, jobIDs)
+	if err != nil {
+		return 0, err
+	}
+	for roundRows.Next() {
+		var round string
+		if err := roundRows.Scan(&round); err != nil {
+			roundRows.Close()
+			return 0, err
+		}
+		rounds = append(rounds, round)
+	}
+	roundRows.Close()
+	if err := roundRows.Err(); err != nil {
+		return 0, err
+	}
 	if _, err := transaction.Exec(ctx, `DELETE FROM altmount_jobs WHERE id::text = ANY($1)`, jobIDs); err != nil {
 		return 0, err
+	}
+	for _, round := range rounds {
+		if err := compactRoundSlots(ctx, transaction, round); err != nil {
+			return 0, err
+		}
 	}
 	detail, _ := json.Marshal(map[string]any{"workflow_id": workflowID.String(), "revived_jobs": len(jobIDs)})
 	if _, err := transaction.Exec(ctx, `INSERT INTO audit_events(id,actor,action,aggregate_type,aggregate_id,detail,occurred_at) VALUES($1,'owner','workflow.archive_rejections_revived','workflow',$2,$3,$4)`, uuid.NewV7().String(), workflowID.String(), string(detail), now.UTC()); err != nil {
@@ -200,6 +222,45 @@ func (store *Store) RevivePreSubmissionRejections(ctx context.Context, workflowI
 		return 0, err
 	}
 	return len(jobIDs), nil
+}
+
+// compactRoundSlots renumbers a round's remaining jobs 1..n in their order.
+// Round slots are counted, not searched: the next submission takes slot
+// count+1 and failures compare a job's slot with the round's limit. A gap left
+// by a deleted job would make the next submission collide with a remaining
+// slot, failing after its NZB was already fetched, again on every retry.
+// Jobs move one at a time in ascending order, each to a slot already freed.
+func compactRoundSlots(ctx context.Context, transaction pgx.Tx, roundID string) error {
+	rows, err := transaction.Query(ctx, `SELECT id::text,round_slot FROM altmount_jobs WHERE round_id=$1 ORDER BY round_slot`, roundID)
+	if err != nil {
+		return err
+	}
+	type slot struct {
+		id   string
+		slot int
+	}
+	var jobs []slot
+	for rows.Next() {
+		var item slot
+		if err := rows.Scan(&item.id, &item.slot); err != nil {
+			rows.Close()
+			return err
+		}
+		jobs = append(jobs, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for index, item := range jobs {
+		if item.slot == index+1 {
+			continue
+		}
+		if _, err := transaction.Exec(ctx, `UPDATE altmount_jobs SET round_slot=$2 WHERE id=$1`, item.id, index+1); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // seasonLastEpisode is the highest episode in the workflow's latest frozen

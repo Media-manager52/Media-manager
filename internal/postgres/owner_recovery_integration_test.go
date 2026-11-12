@@ -1,8 +1,10 @@
 package postgres
 
 import (
+	"errors"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/media-manager/media-manager/internal/workflows"
 )
@@ -138,5 +140,86 @@ func TestRevivePreSubmissionRejectionsFreesSlotAndRelease(t *testing.T) {
 	}
 	if audit := fixture.count(t, `SELECT count(*) FROM audit_events WHERE action='workflow.archive_rejections_revived' AND aggregate_id=$1`, workflow.ID.String()); audit != 1 {
 		t.Fatalf("revival audit events=%d, want 1", audit)
+	}
+}
+
+// TestReviveCompactsRoundSlotsSoTheNextSubmissionFits proves that reviving a
+// pre-submission rejection below a remaining job renumbers that job, so the
+// next submission takes a free slot instead of colliding with it after its NZB
+// was fetched.
+func TestReviveCompactsRoundSlotsSoTheNextSubmissionFits(t *testing.T) {
+	fixture := newFailureRecoveryFixture(t)
+	if err := fixture.store.ConfigureAcquisitionLimits(AcquisitionLimits{AttemptsPerRound: 4, RetainedFailedOutputs: fixture.store.AcquisitionLimits().RetainedFailedOutputs}); err != nil {
+		t.Fatal(err)
+	}
+	workflow := fixture.newMovieWorkflow(t, "Revive Slot Gap", "900904")
+	submitAndFail := func(nativeKey string, identity byte, code string) uuid.UUID {
+		t.Helper()
+		retrieval := seedRetrievalCandidate(t, fixture.ctx, fixture.store, workflow.ID, fixture.indexer.ID, nativeKey)
+		intent, err := fixture.store.BeginAltMountSubmission(fixture.ctx, retrieval, testNZBPackageIdentity(identity), time.Now().UTC())
+		if err != nil {
+			t.Fatalf("submit %s: %v", nativeKey, err)
+		}
+		job, err := fixture.store.LoadAltMountJob(fixture.ctx, intent.JobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code != "" {
+			if err := fixture.store.CompleteReleaseFailure(fixture.ctx, job, code, "release failed in the test", time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return intent.JobID
+	}
+	submitAndFail("slot-gap-archive", 61, "archive_unsupported")
+	real := submitAndFail("slot-gap-real", 62, "")
+	if revived, err := fixture.store.RevivePreSubmissionRejections(fixture.ctx, workflow.ID, time.Now().UTC()); err != nil || revived != 1 {
+		t.Fatalf("revived=%d err=%v, want 1", revived, err)
+	}
+	if slot := fixture.count(t, `SELECT round_slot FROM altmount_jobs WHERE id=$1`, real.String()); slot != 1 {
+		t.Fatalf("remaining job slot=%d, want 1 after compaction", slot)
+	}
+	job, err := fixture.store.LoadAltMountJob(fixture.ctx, real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.CompleteReleaseFailure(fixture.ctx, job, "output_empty", "release failed in the test", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	next := submitAndFail("slot-gap-next", 63, "")
+	if slot := fixture.count(t, `SELECT round_slot FROM altmount_jobs WHERE id=$1`, next.String()); slot != 2 {
+		t.Fatalf("next submission slot=%d, want 2", slot)
+	}
+}
+
+// TestReleaseFailureDoesNotReopenACancelledWorkflow proves that a release
+// failure recorded after the owner cancelled the workflow (a check that was
+// still running) leaves it cancelled and queues no new search.
+func TestReleaseFailureDoesNotReopenACancelledWorkflow(t *testing.T) {
+	fixture := newFailureRecoveryFixture(t)
+	workflow := fixture.newMovieWorkflow(t, "Cancelled During Check", "900905")
+	retrieval := seedRetrievalCandidate(t, fixture.ctx, fixture.store, workflow.ID, fixture.indexer.ID, "cancelled-during-check")
+	intent, err := fixture.store.BeginAltMountSubmission(fixture.ctx, retrieval, testNZBPackageIdentity(64), time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := fixture.store.LoadAltMountJob(fixture.ctx, intent.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := fixture.count(t, `SELECT revision FROM workflows WHERE id=$1`, workflow.ID.String())
+	if _, err := fixture.store.TransitionWorkflow(fixture.ctx, workflow.ID, uint64(revision), workflows.StateCancelled, "owner cancelled", "owner", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	searches := fixture.count(t, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.search_requested'`, workflow.ID.String())
+	if err := fixture.store.CompleteReleaseFailure(fixture.ctx, job, "output_empty", "release failed in the test", time.Now().UTC()); !errors.Is(err, ErrConcurrentModification) {
+		t.Fatalf("failure after cancel err=%v, want concurrent modification", err)
+	}
+	var state string
+	if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT state FROM workflows WHERE id=$1`, workflow.ID.String()).Scan(&state); err != nil || state != string(workflows.StateCancelled) {
+		t.Fatalf("state=%q err=%v, want cancelled", state, err)
+	}
+	if after := fixture.count(t, `SELECT count(*) FROM outbox_events WHERE aggregate_id=$1 AND event_type='workflow.search_requested'`, workflow.ID.String()); after != searches {
+		t.Fatalf("search events %d -> %d, want no new search", searches, after)
 	}
 }
