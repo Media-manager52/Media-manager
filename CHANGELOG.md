@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.12] - 2026-11-12
+
 ### Changed
 
 - **A list no longer fetches titles that are already in Plex.** Titles in Plex that Media Manager did not know (for example from before it was installed) were added again from a followed MDBList list and fetched a second time. Before a title from a list is added, Media Manager now looks it up in your Plex libraries by its TMDB, IMDb or TVDB id; a title Plex already has is left alone and shown as **Fandtes allerede** with "Ligger allerede i Plex". 4K libraries are not counted, so a title kept only in 4K still gets its ordinary copy. If Plex cannot be read, nothing is added and the list is read again an hour later.
@@ -508,6 +510,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.12]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.9

@@ -2,7 +2,7 @@
 
 This is the normal installation path for a release. It starts the published API
 and UI images without compiling source. The current release is
-[`v0.1.0-beta.11`](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.11);
+[`v0.1.0-beta.12`](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.12);
 its release page lists the exact image digests to use below.
 
 ## Prerequisites
@@ -32,7 +32,7 @@ its release page lists the exact image digests to use below.
    ```sh
    MEDIA_MANAGER_API_IMAGE=ghcr.io/media-manager52/media-manager-api@sha256:<index-digest>
    MEDIA_MANAGER_UI_IMAGE=ghcr.io/media-manager52/media-manager-ui@sha256:<index-digest>
-   MEDIA_MANAGER_VERSION=0.1.0-beta.11
+   MEDIA_MANAGER_VERSION=0.1.0-beta.12
    MEDIA_MANAGER_COMMIT=<full-git-commit>
    ```
 

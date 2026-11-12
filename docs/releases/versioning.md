@@ -1,10 +1,10 @@
 # Versioning and image identity
 
 This document defines the contract every Media Manager release follows. The
-current release, `v0.1.0-beta.11`, was published on 2026-11-12; see
-[`v0.1.0-beta.11.md`](v0.1.0-beta.11.md) and its
-[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.11).
-Earlier releases: [`v0.1.0-beta.10`](v0.1.0-beta.10.md), [`v0.1.0-beta.9`](v0.1.0-beta.9.md), [`v0.1.0-beta.8`](v0.1.0-beta.8.md), [`v0.1.0-beta.7`](v0.1.0-beta.7.md), [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
+current release, `v0.1.0-beta.12`, was published on 2026-11-12; see
+[`v0.1.0-beta.12.md`](v0.1.0-beta.12.md) and its
+[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.12).
+Earlier releases: [`v0.1.0-beta.11`](v0.1.0-beta.11.md), [`v0.1.0-beta.10`](v0.1.0-beta.10.md), [`v0.1.0-beta.9`](v0.1.0-beta.9.md), [`v0.1.0-beta.8`](v0.1.0-beta.8.md), [`v0.1.0-beta.7`](v0.1.0-beta.7.md), [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
 [`v0.1.0-beta.1`](v0.1.0-beta.1.md).
 
 ## Versions
@@ -42,6 +42,15 @@ under `/usr/share/doc/media-manager/`, and carries the
 `org.opencontainers.image.licenses="AGPL-3.0-only"` label. The corresponding
 source is <https://github.com/Media-manager52/Media-manager>. Release checks must
 verify the label and both files in the published image.
+
+Released images (`v0.1.0-beta.12`, commit `9aa1ea72f687a007373ec8a87eb4a3fad40f26e8`):
+
+```text
+api index         sha256:f5ce93b7ec2d609b5ddeb4ce49fc3a237a6a45748735598df3ec2d7e9e9e3d97
+api linux/amd64   sha256:46fd463bfd7f27b829e75624632ffd5d8a2bc2bd136e9d1d1f9c722848b630ba
+ui  index         sha256:d7a7b2749f6b6ffad4f560ef17efe2d0fb343ddd12ae8cfcee7bf775d38e09ba
+ui  linux/amd64   sha256:38279d257b1ef6a9109c5f1c056f02cbc48aa0a630c21967534f9e23c0a8c389
+```
 
 Released images (`v0.1.0-beta.11`, commit `b7a0c69b1886459c7c31c59c573bd48ebbb524a0`):
 
