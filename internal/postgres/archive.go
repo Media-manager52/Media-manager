@@ -63,8 +63,11 @@ func (store *Store) ArchiveMedia(ctx context.Context, mediaID uuid.UUID, now tim
 		return result, transaction.Commit(ctx)
 	}
 
+	// A verified or publishing version is a link already written into the
+	// library whose Plex confirmation has not finished; archiving would leave
+	// it behind, so it counts as published (Slet recycles it instead).
 	var published int
-	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id WHERE workflow.media_id=$1 AND version.state='current'`, mediaID.String()).Scan(&published); err != nil {
+	if err := transaction.QueryRow(ctx, `SELECT count(*) FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id WHERE workflow.media_id=$1 AND version.state IN ('current','verified','publishing')`, mediaID.String()).Scan(&published); err != nil {
 		return MediaArchiveResult{}, err
 	}
 	if published > 0 {

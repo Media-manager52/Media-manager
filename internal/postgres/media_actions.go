@@ -22,9 +22,9 @@ type MediaRelocation struct {
 }
 
 // inFlightStates are acquiring or publishing: links must not move under them
-// and they cannot be cancelled.
+// and they cannot be cancelled. RelocateWorkflowLinks uses the same set.
 var inFlightStates = map[string]bool{
-	"searching": true, "candidate_selected": true, "submitting": true, "queued": true, "processing": true,
+	"searching": true, "candidate_selected": true, "submitting": true, "transport_unknown": true, "queued": true, "processing": true,
 	"streaming_ready": true, "import_complete": true, "verifying": true, "publishing": true, "plex_scanning": true,
 }
 
@@ -71,7 +71,8 @@ func (store *Store) mediaWorkflowRows(ctx context.Context, mediaID uuid.UUID) ([
 func (store *Store) RelocateMedia(ctx context.Context, mediaID, targetRootID uuid.UUID, now time.Time) (MediaRelocation, error) {
 	result := MediaRelocation{MediaID: mediaID, RootID: targetRootID}
 	var deleted bool
-	if err := store.Pool.QueryRow(ctx, `SELECT deleted_at IS NOT NULL FROM media_items WHERE id=$1`, mediaID.String()).Scan(&deleted); errors.Is(err, pgx.ErrNoRows) {
+	var mediaKind string
+	if err := store.Pool.QueryRow(ctx, `SELECT deleted_at IS NOT NULL,kind FROM media_items WHERE id=$1`, mediaID.String()).Scan(&deleted, &mediaKind); errors.Is(err, pgx.ErrNoRows) {
 		return result, ErrNotFound
 	} else if err != nil {
 		return result, err
@@ -79,15 +80,20 @@ func (store *Store) RelocateMedia(ctx context.Context, mediaID, targetRootID uui
 	if deleted {
 		return result, refuse("media_removed", "this title was removed from the library", "Restore it from the recycle bin first.")
 	}
-	var targetEdition string
+	var targetEdition, targetKind string
 	var enabled bool
-	if err := store.Pool.QueryRow(ctx, `SELECT edition,enabled FROM library_roots WHERE id=$1`, targetRootID.String()).Scan(&targetEdition, &enabled); errors.Is(err, pgx.ErrNoRows) {
+	if err := store.Pool.QueryRow(ctx, `SELECT edition,enabled,media_kind FROM library_roots WHERE id=$1`, targetRootID.String()).Scan(&targetEdition, &enabled, &targetKind); errors.Is(err, pgx.ErrNoRows) {
 		return result, ErrNotFound
 	} else if err != nil {
 		return result, err
 	}
 	if !enabled {
 		return result, refuse("library_root_disabled", "target library root is disabled", "Choose an enabled root from GET /api/v1/settings/library-roots.")
+	}
+	// Refused before a move plan is stored: a plan whose every step is refused
+	// would stay running and block every later move of the title.
+	if targetKind != mediaKind {
+		return result, refuse("library_root_wrong_kind", "target library root does not serve this media kind", "Choose a root with the same media_kind from GET /api/v1/settings/library-roots.")
 	}
 	// A move that was interrupted is finished first; it cannot be redirected,
 	// or the title would end up in three places.
@@ -121,6 +127,15 @@ func (store *Store) RelocateMedia(ctx context.Context, mediaID, targetRootID uui
 			return result, refuse("workflow_in_flight", "part of this title is downloading or being published; move it after that settles", "Wait until no workflow of the media is acquiring or publishing, then retry.")
 		}
 		move = append(move, row)
+	}
+	// A link already in the library that Plex has not confirmed yet cannot be
+	// moved safely; refused before a move plan is stored.
+	var awaitingPlex int
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM library_link_versions version JOIN workflows workflow ON workflow.id=version.workflow_id WHERE workflow.media_id=$1 AND version.state IN ('verified','publishing')`, mediaID.String()).Scan(&awaitingPlex); err != nil {
+		return result, err
+	}
+	if awaitingPlex > 0 {
+		return result, refuse("link_awaiting_plex", "part of this title is in the library but Plex has not confirmed it yet; move it after Plex confirms", "Wait until Plex confirms the title, then retry.")
 	}
 	if len(move) == 0 {
 		return result, refuse("nothing_to_move", "nothing of this title is in another library root of the same edition", "Choose another root, or check the media's workflows.")

@@ -29,6 +29,11 @@ func Scan(ctx context.Context, root string, maximumFiles int) ([]Entry, error) {
 	if !filepath.IsAbs(root) || maximumFiles < 1 {
 		return nil, ErrUnsafeRoot
 	}
+	for _, component := range strings.Split(filepath.ToSlash(root), "/") {
+		if component == ".media-manager-recycle" {
+			return nil, ErrUnsafeRoot
+		}
+	}
 	info, err := os.Lstat(root)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, ErrUnsafeRoot
@@ -52,7 +57,15 @@ func Scan(ctx context.Context, root string, maximumFiles int) ([]Entry, error) {
 			}
 			return nil
 		}
-		if entry.IsDir() || !entry.Type().IsRegular() {
+		if entry.IsDir() {
+			// The recycle bin holds files Media Manager is retaining; they are
+			// never offered for adoption again.
+			if entry.Name() == ".media-manager-recycle" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entry.Type().IsRegular() {
 			return nil
 		}
 		seen++
@@ -81,7 +94,8 @@ func Scan(ctx context.Context, root string, maximumFiles int) ([]Entry, error) {
 		base := strings.TrimSuffix(filepath.Base(video), filepath.Ext(video))
 		item := Entry{Relative: video, RecognizedCompanions: []string{}, UnknownCompanions: []string{}}
 		for _, candidate := range filesByDirectory[directory] {
-			if candidate == video {
+			// Another video is its own entry, never a companion of this one.
+			if candidate == video || videoExtensions[strings.ToLower(filepath.Ext(candidate))] {
 				continue
 			}
 			name := filepath.Base(candidate)

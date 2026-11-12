@@ -167,7 +167,7 @@ non-obvious.
 | `integration_instances` | Plex/Seerr/AltMount/Newznab config (sanitized) + `secret_ref`. |
 | `library_roots` | Movie/TV roots with Plex/source visible mappings and defaults. `edition` is `standard` or `4k` (schema 54); a 4K root is never a default. |
 | `quality_profiles` | Policy JSON, version, upgrades/default/enabled flags. |
-| `indexer_capability_profiles` | Immutable commissioned capability profile (versioned). |
+| `indexer_capability_profiles` | Immutable commissioned capability profile (versioned). Its endpoint digest also accepts a key saved on the website (`sealed:integration:<id>`), schema 68. |
 | `indexer_commissioning_runs`, `indexer_commissioning_steps` | v1/v2 commissioning lifecycle + steps. |
 | `indexer_budget_state` | Rolling query/grab windows per indexer. |
 | `indexer_request_reservations` | Durable per-call reservations (schema 30). |

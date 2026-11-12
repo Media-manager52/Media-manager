@@ -63,6 +63,18 @@ func TestMoveDeleteAndRestoreWholeTitle(t *testing.T) {
 	if _, err := fixture.store.Pool.Exec(ctx, `UPDATE workflows SET state=$2 WHERE id=$1`, openWorkflow.String(), state); err != nil {
 		t.Fatal(err)
 	}
+	// A root of the wrong kind is refused before any move plan is stored, so
+	// it cannot block the real move below.
+	seriesRoot, err := fixture.store.CreateLibraryRoot(ctx, LibraryRoot{MediaKind: catalog.KindSeries, Name: "Whole Series", DestinationRoot: t.TempDir(), PlexVisibleRoot: "/media/Whole Series", SourceVisibleRoot: "/mnt/altmount", PlexInstanceID: &fixture.plex.ID, PlexLibraryID: "82", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.RelocateMedia(ctx, item.ID, seriesRoot.ID, time.Now().UTC()); !errors.As(err, &refusal) || refusal.Code != "library_root_wrong_kind" {
+		t.Fatalf("relocate to a series root: %v, want library_root_wrong_kind", err)
+	}
+	if running := fixture.count(t, `SELECT count(*) FROM media_relocations WHERE media_id=$1 AND state='running'`, item.ID.String()); running != 0 {
+		t.Fatalf("a refused move left %d running move plans", running)
+	}
 
 	moved, err := fixture.store.RelocateMedia(ctx, item.ID, rootB.ID, time.Now().UTC())
 	if err != nil {

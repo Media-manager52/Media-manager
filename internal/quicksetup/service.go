@@ -355,6 +355,7 @@ func defaultIntegration(integrations []postgres.Integration, kind string) *postg
 // standardLocation picks the library folder for standard copies: a Plex
 // library can list a 1080p and a 2160p folder that Plex merges into versions
 // of one title, and the 2160p one belongs to a 4K root, never the default.
+// A library whose only folders are 4K folders has no standard location ("").
 func standardLocation(section PlexSection) string {
 	for _, location := range section.Locations {
 		lower := strings.ToLower(location)
@@ -362,15 +363,15 @@ func standardLocation(section PlexSection) string {
 			return location
 		}
 	}
-	return section.Locations[0]
+	return ""
 }
 
-// chooseSection picks the first ordinary (non-4K) library of the type; a
-// 4K library is never made the default.
+// chooseSection picks the first ordinary (non-4K) library of the type that
+// has a standard (non-4K) folder; a 4K library is never made the default.
 func chooseSection(sections []PlexSection, plexType string) *PlexSection {
 	for index := range sections {
 		section := &sections[index]
-		if section.Type != plexType || len(section.Locations) == 0 || !strings.HasPrefix(section.Locations[0], "/") || strings.Contains(strings.ToLower(section.Title), "4k") {
+		if section.Type != plexType || standardLocation(*section) == "" || strings.Contains(strings.ToLower(section.Title), "4k") {
 			continue
 		}
 		return section

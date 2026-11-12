@@ -176,16 +176,11 @@ func (service *SeerrService) Handle(ctx context.Context, event postgres.OutboxEv
 		return service.Store.MarkSeerrDelivery(ctx, deliveryID, "already_available", "")
 	}
 	if intake.Kind == catalog.KindSeries {
-		actionable := intake.Seasons[:0]
-		for _, season := range intake.Seasons {
-			if season.Availability != 5 {
-				actionable = append(actionable, season)
-			}
+		actionable, outcome, detail := actionableSeasons(intake.Seasons)
+		if outcome != "" {
+			return service.Store.MarkSeerrDelivery(ctx, deliveryID, outcome, detail)
 		}
 		intake.Seasons = actionable
-		if len(intake.Seasons) == 0 {
-			return service.Store.MarkSeerrDelivery(ctx, deliveryID, "already_available", "all requested seasons are available")
-		}
 		missing := []string{}
 		for _, season := range intake.Seasons {
 			if len(season.Episodes) == 0 {
@@ -349,4 +344,24 @@ func knownSeasons(metadata seerradapter.Metadata) map[int]bool {
 		known[season.SeasonNumber] = true
 	}
 	return known
+}
+
+// actionableSeasons keeps the requested seasons that are not yet available.
+// A series request that names no seasons at all is not "already available":
+// nothing proves it is in Plex, so the owner is asked instead of the title
+// being shown as complete.
+func actionableSeasons(seasons []postgres.SeerrSeason) ([]postgres.SeerrSeason, string, string) {
+	if len(seasons) == 0 {
+		return nil, "needs_attention", "the series request names no seasons"
+	}
+	actionable := make([]postgres.SeerrSeason, 0, len(seasons))
+	for _, season := range seasons {
+		if season.Availability != 5 {
+			actionable = append(actionable, season)
+		}
+	}
+	if len(actionable) == 0 {
+		return nil, "already_available", "all requested seasons are available"
+	}
+	return actionable, "", ""
 }

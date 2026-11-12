@@ -138,6 +138,11 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 			return nil, err
 		}
 		entries = append(entries, RecycleEntry{ID: entryID, CycleID: cycleID, MediaID: mediaID, LinkVersionID: &versionID, RootID: rootID, EntryKind: "link", Purpose: "media_delete", DestinationRoot: link.destinationRoot, OriginalRelative: link.relative, RecycleRelative: recycleRelative, ExpectedTarget: link.target, AltMountSourceRetained: true, PurgeAfter: purgeAfter, State: "planned", CreatedAt: now.UTC()})
+		companions, err := recycleCompanionEntries(ctx, transaction, cycleID, mediaID, versionID, rootID, link.destinationRoot, purgeAfter, now)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, companions...)
 	}
 	if _, err := transaction.Exec(ctx, `UPDATE media_items SET deleted_at=$2,revision=revision+1,updated_at=$2 WHERE id=$1`, mediaID.String(), now.UTC()); err != nil {
 		return nil, err
@@ -147,6 +152,49 @@ func (store *Store) PlanMediaRecycle(ctx context.Context, mediaID uuid.UUID, now
 		return nil, err
 	}
 	return entries, transaction.Commit(ctx)
+}
+
+// recycleCompanionEntries moves a deleted title's subtitle links into the
+// recycle bin beside its video, so no .srt symlink is left in the Plex folder.
+// Each companion becomes its own link entry on the same library version; the
+// whole cycle is restored or purged together, exactly like the video.
+func recycleCompanionEntries(ctx context.Context, transaction pgx.Tx, cycleID, mediaID, versionID, rootID uuid.UUID, destinationRoot string, purgeAfter, now time.Time) ([]RecycleEntry, error) {
+	rows, err := transaction.Query(ctx, `SELECT destination_relative,plex_visible_target FROM library_link_companions WHERE link_version_id=$1 AND state IN ('current','verified') ORDER BY destination_relative FOR UPDATE`, versionID.String())
+	if err != nil {
+		return nil, err
+	}
+	type companion struct{ relative, target string }
+	var companions []companion
+	for rows.Next() {
+		var item companion
+		if err := rows.Scan(&item.relative, &item.target); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		companions = append(companions, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	entries := make([]RecycleEntry, 0, len(companions))
+	for _, item := range companions {
+		entryID := uuid.NewV7()
+		recycleRelative := filepath.Join(".media-manager-recycle", entryID.String(), item.relative)
+		if _, err := transaction.Exec(ctx, `INSERT INTO recycle_entries(id,cycle_id,library_link_version_id,media_id,root_id,entry_kind,original_path,recycled_path,expected_target,altmount_source_retained,purge_after,state,confirmation_required,created_at) VALUES($1,$2,$3,$4,$5,'link',$6,$7,$8,true,$9,'planned',false,$10)`, entryID.String(), cycleID.String(), versionID.String(), mediaID.String(), rootID.String(), item.relative, recycleRelative, item.target, purgeAfter, now.UTC()); err != nil {
+			return nil, err
+		}
+		payload, _ := json.Marshal(map[string]string{"recycle_entry_id": entryID.String()})
+		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'recycle_entry',$2,1,'recycle.move_requested',$3,$4,$4)`, uuid.NewV7().String(), entryID.String(), string(payload), now.UTC()); err != nil {
+			return nil, err
+		}
+		entries = append(entries, RecycleEntry{ID: entryID, CycleID: cycleID, MediaID: mediaID, LinkVersionID: &versionID, RootID: rootID, EntryKind: "link", Purpose: "media_delete", DestinationRoot: destinationRoot, OriginalRelative: item.relative, RecycleRelative: recycleRelative, ExpectedTarget: item.target, AltMountSourceRetained: true, PurgeAfter: purgeAfter, State: "planned", CreatedAt: now.UTC()})
+	}
+	if _, err := transaction.Exec(ctx, `UPDATE library_link_companions SET state='displaced',displaced_at=$2 WHERE link_version_id=$1 AND state IN ('current','verified')`, versionID.String(), now.UTC()); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 const recycleEntrySelect = `SELECT entry.id::text,entry.cycle_id::text,entry.media_id::text,media.title,entry.library_link_version_id::text,entry.adopted_file_id::text,entry.replacement_workflow_id::text,entry.root_id::text,entry.entry_kind,entry.purpose,root.destination_root,entry.original_path,COALESCE(entry.recycled_path,''),COALESCE(entry.expected_target,''),entry.expected_size,entry.expected_modtime_ns,entry.altmount_source_retained,entry.purge_after,entry.state,entry.confirmation_required,entry.restore_revision,entry.restore_attempts,entry.restore_requested_at,entry.restore_deadline_at,entry.restore_refresh_at,entry.created_at FROM recycle_entries entry JOIN media_items media ON media.id=entry.media_id JOIN library_roots root ON root.id=entry.root_id`
@@ -340,6 +388,11 @@ func (store *Store) MarkRecycleRestored(ctx context.Context, entry RecycleEntry,
 			return err
 		}
 		if _, err := transaction.Exec(ctx, `UPDATE library_links SET current_version_id=$1 WHERE id=(SELECT library_link_id FROM library_link_versions WHERE id=$1)`, entry.LinkVersionID.String()); err != nil {
+			return err
+		}
+		// A subtitle entry shares its video's version; putting the subtitle back
+		// makes that companion current again.
+		if _, err := transaction.Exec(ctx, `UPDATE library_link_companions SET state='current',displaced_at=NULL WHERE link_version_id=$1 AND destination_relative=$2 AND state='displaced'`, entry.LinkVersionID.String(), entry.OriginalRelative); err != nil {
 			return err
 		}
 	}

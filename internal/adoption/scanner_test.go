@@ -35,3 +35,38 @@ func TestScanIsBoundedAndDoesNotFollowSymlinks(t *testing.T) {
 		t.Fatalf("scan limit error=%v", err)
 	}
 }
+
+func TestScanSkipsTheRecycleBinAndKeepsSiblingVideosApart(t *testing.T) {
+	root := t.TempDir()
+	write := func(relative string) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("test"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".media-manager-recycle/entry/Old Movie (2020)/Old Movie (2020).mkv")
+	write("Movie/Movie.mkv")
+	write("Movie/Movie.extra.mkv")
+	write("Movie/Movie.da.srt")
+	items, err := Scan(context.Background(), root, 10)
+	if err != nil || len(items) != 2 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	for _, item := range items {
+		if item.Relative != "Movie/Movie.extra.mkv" && item.Relative != "Movie/Movie.mkv" {
+			t.Fatalf("a retained recycle-bin file was offered for adoption: %+v", item)
+		}
+		for _, companion := range append(append([]string{}, item.RecognizedCompanions...), item.UnknownCompanions...) {
+			if filepath.Ext(companion) == ".mkv" {
+				t.Fatalf("a second video was treated as a companion: %+v", item)
+			}
+		}
+	}
+	if _, err := Scan(context.Background(), filepath.Join(root, ".media-manager-recycle"), 10); err != ErrUnsafeRoot {
+		t.Fatalf("scanning inside the recycle bin error=%v", err)
+	}
+}

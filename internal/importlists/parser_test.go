@@ -21,3 +21,12 @@ func TestParseIMDbExportRejectsDuplicateIdentity(t *testing.T) {
 		t.Fatal("expected duplicate identity error")
 	}
 }
+
+func TestParseIMDbExportAcceptsAByteOrderMark(t *testing.T) {
+	for _, body := range []string{"\ufeffConst,Title,Title Type,Year\ntt1234567,Example Movie,movie,2024\n", "\ufeff\"Const\",\"Title\",\"Title Type\",\"Year\"\ntt1234567,Example Movie,movie,2024\n"} {
+		items, err := ParseIMDbExport(strings.NewReader(body))
+		if err != nil || len(items) != 1 {
+			t.Fatalf("items=%+v err=%v", items, err)
+		}
+	}
+}

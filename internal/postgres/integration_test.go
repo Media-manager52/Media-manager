@@ -585,6 +585,13 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	if err := store.RescheduleAdoptedRestoreConfirmation(ctx, recycleEntry.ID, 2, displacementAt.Add(5*time.Minute), displacementAt.Add(5*time.Minute+5*time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	// The replacement published a Danish subtitle; restoring the adopted file
+	// must remove that subtitle link together with the replacement video.
+	replacementSubtitleRelative := "Integration Movie (2026) {tmdb-123456}/Integration Movie (2026) {tmdb-123456} - [1080p].da.srt"
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO library_link_companions(id,link_version_id,source_asset_id,language,source_relative,destination_relative,plex_visible_target,state,verified_at)
+		VALUES($1,$2,$3,'da','replacement/Movie.da.srt',$4,'/mnt/altmount/replacement/Movie.da.srt','current',$5)`, uuid.NewV7().String(), replacementVersionID.String(), replacementAssetID.String(), replacementSubtitleRelative, displacementAt); err != nil {
+		t.Fatal(err)
+	}
 	restoredPath := "/libraries/movies/Integration Movie (2026)/Integration Movie (2026).mkv"
 	if err := store.CompleteAdoptedRestore(ctx, recycleEntry.ID, []AdoptedRestoreConfirmation{{RecycleEntryID: recycleEntry.ID, ObservedPath: restoredPath, RatingKey: "789", ProviderGUID: "tmdb://123456", ConfirmedAt: displacementAt.Add(6 * time.Minute)}}, displacementAt.Add(6*time.Minute)); err != nil {
 		t.Fatal(err)
@@ -612,6 +619,9 @@ func TestManualMovieAndSeasonPackPersistence(t *testing.T) {
 	displacedLink, err := store.LoadDisplacedLink(ctx, replacementVersionID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(displacedLink.Companions) != 1 {
+		t.Fatalf("restored replacement companions to remove=%+v, want its subtitle", displacedLink.Companions)
 	}
 	if err := store.RecordDisplacedLinkRemoved(ctx, displacedLink, displacementAt.Add(7*time.Minute)); err != nil {
 		t.Fatal(err)
