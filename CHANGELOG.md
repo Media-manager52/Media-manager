@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.19] - 2026-11-12
+
 ### Fixed
 
 - **A commentary or audio-description track no longer counts as the film's language.** A Danish subtitle titled "Commentary", a Danish commentary audio track or a `Movie.da.commentary.srt` sidecar satisfied a required Danish subtitle or Danish audio. Tracks and sidecars marked as commentary, audio description or synstolkning are now ignored as language evidence.
@@ -580,6 +582,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.19]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.19
 [0.1.0-beta.18]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.18
 [0.1.0-beta.17]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.17
 [0.1.0-beta.16]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.16
