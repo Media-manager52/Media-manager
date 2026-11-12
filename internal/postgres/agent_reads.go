@@ -235,7 +235,7 @@ func (store *Store) QueueSnapshot(ctx context.Context, now time.Time) (QueueSnap
 		count(*) FILTER (WHERE available_at<=$1 AND (lease_until IS NULL OR lease_until<$1)),
 		count(*) FILTER (WHERE available_at>$1),
 		count(*) FILTER (WHERE lease_until>=$1),
-		count(*) FILTER (WHERE attempts>0),
+		count(*) FILTER (WHERE attempts>0 AND (lease_until IS NULL OR lease_until<$1)),
 		min(available_at) FILTER (WHERE available_at<=$1),
 		min(available_at) FILTER (WHERE available_at>$1)
 		FROM outbox_events WHERE completed_at IS NULL GROUP BY 1 ORDER BY 2 DESC,1`, now.UTC())

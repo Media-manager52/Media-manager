@@ -214,3 +214,68 @@ func TestClaimOutboxAlternatesIndexerPriorityWithoutDelayingLifecycle(t *testing
 		t.Fatalf("fallback=%+v err=%v", got, err)
 	}
 }
+
+// TestWorkInProgressIsNotReportedAsRetrying proves an event that is simply
+// being handled (claimed once, still leased) is not counted as retrying in
+// the queue, task, health or problem views; one that failed and waits for its
+// next try still is.
+func TestWorkInProgressIsNotReportedAsRetrying(t *testing.T) {
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	store := subtitleIntegrationStore(t, ctx, databaseURL)
+	defer store.Close()
+	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'test',$2,1,'backup.create_requested','{}',now(),now())`, uuid.NewV7().String(), uuid.NewV7().String()); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Hour, false)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claimed=%+v err=%v", claimed, err)
+	}
+	retrying := func() (int64, int64, int64, int) {
+		t.Helper()
+		queue, err := store.QueueSnapshot(ctx, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var queueRetrying int64
+		for _, item := range queue.ByType {
+			queueRetrying += item.Retrying
+		}
+		tasks, err := store.ListTaskStatuses(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var taskRetrying int64
+		for _, task := range tasks {
+			taskRetrying += task.Retrying
+		}
+		health, err := store.SystemHealth(ctx, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		problems, err := store.Problems(ctx, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		workerProblems := 0
+		for _, problem := range problems.Problems {
+			if problem.Code == "worker.retrying" {
+				workerProblems++
+			}
+		}
+		return queueRetrying, taskRetrying, health.Outbox.Retrying, workerProblems
+	}
+	if queue, tasks, health, problems := retrying(); queue != 0 || tasks != 0 || health != 0 || problems != 0 {
+		t.Fatalf("work in progress counted as retrying: queue=%d tasks=%d health=%d problems=%d", queue, tasks, health, problems)
+	}
+	if err := store.FailOutbox(ctx, claimed[0].ID, "test-owner", "boom", time.Now().UTC().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if queue, tasks, health, problems := retrying(); queue != 1 || tasks != 1 || health != 1 || problems != 1 {
+		t.Fatalf("a failed event waiting for its retry: queue=%d tasks=%d health=%d problems=%d, want 1 each", queue, tasks, health, problems)
+	}
+}

@@ -78,7 +78,13 @@ func (server *Server) createBackup(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: item})
 }
 
+// backupDownloadWindow bounds a backup download. The server-wide write
+// timeout (60 s) is far too short for a full encrypted database copy, and an
+// off-site copy is fetched and checksummed before the first byte is sent.
+const backupDownloadWindow = 2 * time.Hour
+
 func (server *Server) downloadBackup(writer http.ResponseWriter, request *http.Request) {
+	_ = http.NewResponseController(writer).SetWriteDeadline(time.Now().Add(backupDownloadWindow))
 	id, err := uuid.Parse(request.PathValue("id"))
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_id", "backup ID is invalid")

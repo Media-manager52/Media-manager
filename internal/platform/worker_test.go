@@ -66,6 +66,10 @@ func TestRunHandlerAbandonsAHandlerThatNeverReturns(t *testing.T) {
 	if retry := nextRetryAt(err, 1, time.Now()); retry.Before(time.Now().Add(stuckHandlerRetry - time.Minute)) {
 		t.Fatalf("a stuck handler must not be retried immediately: %v", retry)
 	}
+	var preserve interface{ PreserveDeferralAttempts() bool }
+	if !errors.As(err, &preserve) || !preserve.PreserveDeferralAttempts() {
+		t.Fatal("an abandoned handler must keep its attempt so repeated hangs are demoted")
+	}
 }
 
 func TestRunHandlerCancelsASlowHandlerThatHonorsItsContext(t *testing.T) {

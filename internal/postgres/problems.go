@@ -90,7 +90,7 @@ func (store *Store) Problems(ctx context.Context, now time.Time) (ProblemFeed, e
 
 	outboxRows, err := store.Pool.Query(ctx, `SELECT event_type,count(*),min(available_at),max(occurred_at),
 		(array_agg(COALESCE(NULLIF(last_error,''),'') ORDER BY occurred_at DESC))[1]
-		FROM outbox_events WHERE completed_at IS NULL AND attempts>0
+		FROM outbox_events WHERE completed_at IS NULL AND attempts>0 AND (lease_until IS NULL OR lease_until<now())
 		GROUP BY 1 ORDER BY 2 DESC LIMIT 20`)
 	if err != nil {
 		return ProblemFeed{}, err

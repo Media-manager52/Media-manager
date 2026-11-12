@@ -4,6 +4,18 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Security
+
+- **A connection can no longer use one of the server's own secrets.** A connection that named the owner token, the database URL, a backup or encryption key, the Servarr key or the Seerr webhook secret as its secret reference would have that value sent to the connection's address by a connection check. Such references are now refused and never resolved; backups read their key directly.
+- **A Prowlarr backup upload no longer returns the indexer API keys it found** (invariant S18).
+- **Hiding a credential in a support text is safe with any characters.** A non-ASCII character before a marker such as `api_key=` could keep the start of the secret or crash the error log.
+
+### Fixed
+
+- **A handler that hangs again and again is moved behind healthy work** instead of being picked first every time.
+- **Backup downloads are no longer cut off after 60 seconds.**
+- **Work that is simply running is no longer shown as "retrying"** on the overview, the queue, the task list and the problem feed.
+
 ## [0.1.0-beta.20] - 2026-11-12
 
 ### Fixed

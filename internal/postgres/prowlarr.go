@@ -172,7 +172,7 @@ func (store *Store) ApproveProwlarrImport(ctx context.Context, importID uuid.UUI
 			}
 			continue
 		}
-		if !secretReference.MatchString(secretRef) || candidate.baseURL == "" || !json.Valid(candidate.config) {
+		if !secretReference.MatchString(secretRef) || ServerOnlySecretReference(secretRef) || candidate.baseURL == "" || !json.Valid(candidate.config) {
 			return ProwlarrBackupImport{}, errors.New("approved Prowlarr candidate has invalid configuration")
 		}
 		canonicalConfig, canonicalURL, err := canonicalNewznabConfig(candidate.config, false)

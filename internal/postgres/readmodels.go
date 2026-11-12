@@ -593,7 +593,7 @@ func (store *Store) ListTaskStatuses(ctx context.Context) ([]TaskStatus, error) 
 	rows, err := store.Pool.Query(ctx, `SELECT event_type,
 		count(*) FILTER (WHERE completed_at IS NULL),
 		count(*) FILTER (WHERE completed_at IS NULL AND available_at<=now()),
-		count(*) FILTER (WHERE completed_at IS NULL AND attempts>0),
+		count(*) FILTER (WHERE completed_at IS NULL AND attempts>0 AND (lease_until IS NULL OR lease_until<now())),
 		count(*) FILTER (WHERE completed_at IS NOT NULL),
 		COALESCE(max(attempts),0),
 		min(available_at) FILTER (WHERE completed_at IS NULL AND available_at<=now()),
@@ -812,7 +812,7 @@ func (store *Store) SystemHealth(ctx context.Context, now time.Time) (SystemHeal
 		ExpectedSchema:    CurrentSchemaVersion,
 		CheckedAt:         now.UTC(),
 	}
-	err = store.Pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE available_at<=now()),count(*) FILTER (WHERE attempts>0),min(available_at) FILTER (WHERE available_at<=now())
+	err = store.Pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE available_at<=now()),count(*) FILTER (WHERE attempts>0 AND (lease_until IS NULL OR lease_until<now())),min(available_at) FILTER (WHERE available_at<=now())
 		FROM outbox_events WHERE completed_at IS NULL`).Scan(&result.Outbox.Pending, &result.Outbox.Due, &result.Outbox.Retrying, &result.Outbox.OldestDueAt)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return SystemHealthSnapshot{}, err

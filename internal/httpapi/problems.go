@@ -175,12 +175,25 @@ func valueOrNone(value string) string {
 	return value
 }
 
+func asciiLower(value string) string {
+	lowered := []byte(value)
+	for index, character := range lowered {
+		if character >= 'A' && character <= 'Z' {
+			lowered[index] = character + 'a' - 'A'
+		}
+	}
+	return string(lowered)
+}
+
 var supportURLCredentials = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
 
 func redactSupportText(value string) string {
 	lines := strings.Split(supportURLCredentials.ReplaceAllString(value, "://[redacted]@"), "\n")
 	for index, line := range lines {
-		lower := strings.ToLower(line)
+		// Lower ASCII only: the markers are ASCII, and a byte-for-byte copy
+		// keeps every offset valid in the original line (strings.ToLower can
+		// change byte lengths and cut too far, leaking part of the secret).
+		lower := asciiLower(line)
 		for _, marker := range []string{"authorization:", "cookie:", "x-plex-token:", "x-plex-token=", "x-api-key:", "api-key:", "api_key=", "apikey=", "apikey:", "token=", "token:", "secret=", "secret:", "password=", "password:", "passphrase=", "bearer "} {
 			if position := strings.Index(lower, marker); position >= 0 {
 				lines[index] = line[:position+len(marker)] + " [redacted]"
