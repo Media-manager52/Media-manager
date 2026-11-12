@@ -242,10 +242,17 @@ func (store *Store) planManagedRepairForFile(ctx context.Context, altMountID uui
 		}
 		return RepairNeedsAttention, tx.Commit(ctx)
 	}
-	var activeWorkflow string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND edition=$3 AND terminal_at IS NULL`, mediaID, scopeVariant, edition).Scan(&activeWorkflow)
+	var activeWorkflow, activeRoot, activeProfile string
+	err = tx.QueryRow(ctx, `SELECT id::text,root_id::text,quality_profile_id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND edition=$3 AND terminal_at IS NULL`, mediaID, scopeVariant, edition).Scan(&activeWorkflow, &activeRoot, &activeProfile)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
+	}
+	wantProfile := ""
+	if upgrade != nil {
+		wantProfile = upgrade.ProfileID.String()
+	}
+	if activeWorkflow != "" && !repairMayAttach(activeRoot, activeProfile, rootID, wantProfile) {
+		return RepairBusy, nil
 	}
 	outcome := RepairAttached
 	if activeWorkflow == "" {
@@ -304,6 +311,19 @@ func (store *Store) planManagedRepairForFile(ctx context.Context, altMountID uui
 		return "", err
 	}
 	return outcome, tx.Commit(ctx)
+}
+
+// repairMayAttach reports whether a repair may ride on a workflow that is
+// already acquiring the same title. That workflow publishes into its own
+// library with its own quality profile, and its confirmation retires the
+// broken file, so it must be for the broken file's library and, for an audio
+// upgrade, use the profile that requires the missing audio. Otherwise the
+// repair waits (RepairBusy) until that workflow ends.
+func repairMayAttach(activeRoot, activeProfile, wantRoot, wantProfile string) bool {
+	if activeRoot != wantRoot {
+		return false
+	}
+	return wantProfile == "" || activeProfile == wantProfile
 }
 
 // repairScope returns the variant a replacement is acquired for, or "" and a
@@ -568,10 +588,17 @@ func (store *Store) PlanUnmanagedRepair(ctx context.Context, repair UnmanagedRep
 		repair.MediaID = repair.NewMedia.ID
 	}
 	variant := unmanagedVariant(repair)
-	var activeWorkflow string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL AND edition=(SELECT edition FROM library_roots WHERE id=$3)`, repair.MediaID.String(), variant, repair.RootID.String()).Scan(&activeWorkflow)
+	var activeWorkflow, activeRoot, activeProfile string
+	err = tx.QueryRow(ctx, `SELECT id::text,root_id::text,quality_profile_id::text FROM workflows WHERE media_id=$1 AND variant=$2 AND terminal_at IS NULL AND edition=(SELECT edition FROM library_roots WHERE id=$3)`, repair.MediaID.String(), variant, repair.RootID.String()).Scan(&activeWorkflow, &activeRoot, &activeProfile)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
+	}
+	wantProfile := ""
+	if repair.AudioLanguage != "" {
+		wantProfile = repair.ProfileID.String()
+	}
+	if activeWorkflow != "" && !repairMayAttach(activeRoot, activeProfile, repair.RootID.String(), wantProfile) {
+		return RepairBusy, nil
 	}
 	outcome := RepairAttached
 	createdWorkflow := false

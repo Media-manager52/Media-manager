@@ -512,3 +512,47 @@ func TestOwnerRequestedReplacementReplacesMovie(t *testing.T) {
 		t.Fatalf("unpublished path outcome=%q err=%v, want unmanaged", unknown, err)
 	}
 }
+
+// TestRepairWaitsForAnOpenWorkflowInAnotherLibrary proves that a repair never
+// rides on a workflow acquiring the same title for a different library, or,
+// for an audio upgrade, with a profile that does not require the missing
+// audio. That workflow's confirmation would retire the broken file's link in
+// the other library (removing a playable title there) with a replacement
+// published elsewhere or without the required audio.
+func TestRepairWaitsForAnOpenWorkflowInAnotherLibrary(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	item, _ := fixture.movieWorkflow(t, "Shared Repair Movie", "770011")
+	kidsRoot, err := fixture.store.CreateLibraryRoot(fixture.ctx, LibraryRoot{MediaKind: catalog.KindMovie, Name: "Publication Kids Movies", DestinationRoot: t.TempDir(), PlexVisibleRoot: t.TempDir(), SourceVisibleRoot: t.TempDir(), PlexInstanceID: &fixture.plex.ID, PlexLibraryID: "3", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kidsPolicy := []byte(`{"rules":[{"name":"Resolution","fact":"resolution","allowed_values":["1080p"],"kind":"preferred","weight":1}],"required_audio_languages":["da"]}`)
+	kids, err := fixture.store.CreateQualityProfile(fixture.ctx, QualityProfile{MediaKind: catalog.KindMovie, Name: "Shared Kids Danish Audio", PolicyVersion: 1, Policy: kidsPolicy, UpgradesEnabled: true, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	countRepairs := func() int {
+		var count int
+		if err := fixture.store.Pool.QueryRow(fixture.ctx, `SELECT count(*) FROM altmount_repairs WHERE media_id=$1`, item.ID.String()).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	repair := UnmanagedRepair{AltMountID: fixture.altMount.ID, HealthID: 71, FilePath: "movies/Kids.Release/Kids.Release.mkv", RootID: kidsRoot.ID,
+		Location: t.TempDir(), PlexLocation: "/media/Kids", Relative: "Shared (2026)/Shared.mkv", Target: "/mnt/altmount/movies/Kids.Release/Kids.Release.mkv",
+		MediaID: item.ID, Kind: catalog.KindMovie, ProfileID: kids.ID, ReleaseTitle: "Kids.Release"}
+	if outcome, err := fixture.store.PlanUnmanagedRepair(fixture.ctx, repair, time.Now().UTC()); err != nil || outcome != RepairBusy {
+		t.Fatalf("repair in another library=%q err=%v, want busy", outcome, err)
+	}
+	repair.RootID, repair.AudioLanguage, repair.HealthID = fixture.root.ID, "da", 0
+	if outcome, err := fixture.store.PlanUnmanagedRepair(fixture.ctx, repair, time.Now().UTC()); err != nil || outcome != RepairBusy {
+		t.Fatalf("audio upgrade on a workflow without the audio requirement=%q err=%v, want busy", outcome, err)
+	}
+	if count := countRepairs(); count != 0 {
+		t.Fatalf("waiting repairs recorded %d rows, want none", count)
+	}
+	repair.ProfileID = fixture.profile.ID
+	if outcome, err := fixture.store.PlanUnmanagedRepair(fixture.ctx, repair, time.Now().UTC()); err != nil || outcome != RepairAttached {
+		t.Fatalf("audio upgrade on a workflow with the required profile=%q err=%v, want attached", outcome, err)
+	}
+}
