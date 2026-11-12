@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.20] - 2026-11-12
+
 ### Fixed
 
 - **Deleting a title also moves its subtitle links to the recycle bin.** A deleted title's Danish `.srt` link stayed in the Plex folder; it now leaves with the video and comes back with it on restore. Restoring an adopted file also removes the replacement's subtitle links.
@@ -593,6 +595,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.20]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.20
 [0.1.0-beta.19]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.19
 [0.1.0-beta.18]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.18
 [0.1.0-beta.17]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.17

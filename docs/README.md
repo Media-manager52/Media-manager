@@ -42,6 +42,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.20.md](releases/v0.1.0-beta.20.md) | Twentieth public beta (2026-11-12): deleted titles take their subtitle links along; archive/move wait for Plex; website-saved indexer keys can be commissioned (schema 68). |
 | [releases/v0.1.0-beta.19.md](releases/v0.1.0-beta.19.md) | Nineteenth public beta (2026-11-12): commentary and audio-description tracks no longer count as language evidence; a null policy is refused. |
 | [releases/v0.1.0-beta.18.md](releases/v0.1.0-beta.18.md) | Eighteenth public beta (2026-11-12): sample/trailer subtitles no longer count; deleting a title recycles unconfirmed links. |
 | [releases/v0.1.0-beta.17.md](releases/v0.1.0-beta.17.md) | Seventeenth public beta (2026-11-12): cancelled titles stay cancelled; revived archive rejections leave no slot gap. |
