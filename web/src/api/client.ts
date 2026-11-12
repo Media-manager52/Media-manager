@@ -265,7 +265,11 @@ export const loadReleaseBlocks = async (signal?: AbortSignal) => await requestJS
 export const loadAdoptionBatches = async (signal?: AbortSignal) => await requestJSON<APIAdoptionBatch[] | null>("/api/v1/adoption?limit=100", { signal }) ?? []
 export const loadAdoptionBatch = (id: string, signal?: AbortSignal) => requestJSON<APIAdoptionBatch>(`/api/v1/adoption/${encodeURIComponent(id)}`, { signal })
 export const loadCollections = async (signal?: AbortSignal) => await requestJSON<APICollection[] | null>("/api/v1/collections?limit=100", { signal }) ?? []
-export const loadCalendar = async (signal?: AbortSignal) => await requestJSON<APICalendarEntry[] | null>("/api/v1/calendar?limit=500", { signal }) ?? []
+// The calendar shows the last week and what is coming. The range starts there
+// (not at the server's 30-day default), so 500 rows cannot be used up by old
+// episodes and push the upcoming ones out.
+export const calendarRangeStart = (now = new Date()) => new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+export const loadCalendar = async (signal?: AbortSignal) => await requestJSON<APICalendarEntry[] | null>(`/api/v1/calendar?from=${calendarRangeStart()}&limit=500`, { signal }) ?? []
 export const loadNotificationDestinations = async (signal?: AbortSignal) => await requestJSON<APINotificationDestination[] | null>("/api/v1/settings/notifications", { signal }) ?? []
 export const loadNotificationDeliveries = async (signal?: AbortSignal) => await requestJSON<APINotificationDelivery[] | null>("/api/v1/notifications/deliveries?limit=300", { signal }) ?? []
 export const loadImportLists = async (signal?: AbortSignal) => await requestJSON<APIImportList[] | null>("/api/v1/import-lists", { signal }) ?? []

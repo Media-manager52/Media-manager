@@ -219,3 +219,19 @@ test("adding a season from the title page is refused or needs confirmation when 
   assert.deepEqual(check(6, 10), { status: "ready" });
   assert.equal(check(7, 8).status, "confirm");
 });
+
+test("a newer cancelled season duplicate does not hide the live season workflow", async () => {
+  const { rollupSeriesSeasons } = await import("@/lib/series-variants");
+  const seasons = rollupSeriesSeasons([
+    workflow("season:01", "searching", { idSuffix: "live", updated_at: "2026-09-02T00:00:00Z" }),
+    workflow("season:01", "cancelled", { idSuffix: "duplicate", updated_at: "2026-09-03T00:00:00Z" }),
+  ]);
+
+  assert.equal(seasons.length, 1);
+  assert.equal(seasons[0].packWorkflow?.state, "searching");
+});
+
+test("the calendar asks for the last week onwards, not the server's 30-day default", async () => {
+  const { calendarRangeStart } = await import("@/api/client");
+  assert.equal(calendarRangeStart(new Date("2026-11-12T12:00:00Z")), "2026-11-04");
+});

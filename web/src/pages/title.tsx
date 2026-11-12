@@ -151,7 +151,7 @@ function SeasonRow({ season, rollup }: { season: APIMediaSeason; rollup?: Series
             <div className="mb-4 rounded-xl border border-line bg-surface px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-medium">Sæsonpakke</span>
-                <Badge tone={stateTone(pack.state)}>{stateLabel(pack.state)}</Badge>
+                <Badge tone={stateTone(workflowDisplayState(pack))}>{stateLabel(workflowDisplayState(pack))}</Badge>
                 {pack.attention_code ? <span className="text-warn">{attentionLabel(pack.attention_code)}</span> : null}
                 <Link to={workflowHref(pack)} className="ml-auto font-medium text-accent-strong hover:underline">Detaljer</Link>
               </div>

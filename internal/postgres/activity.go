@@ -82,6 +82,11 @@ type WorkflowSummary struct {
 	TerminalAt                             *time.Time `json:"terminal_at,omitempty"`
 	CreatedAt                              time.Time  `json:"created_at"`
 	UpdatedAt                              time.Time  `json:"updated_at"`
+	// RootID and QualityProfileID are the workflow's library root and
+	// profile, so the title page can move a title and add work to its own
+	// library and profile instead of the defaults.
+	RootID           string `json:"root_id"`
+	QualityProfileID string `json:"quality_profile_id"`
 }
 
 func (store *Store) GetMedia(ctx context.Context, id uuid.UUID) (catalog.MediaItem, error) {
@@ -183,7 +188,8 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		COALESCE(profile.name,''),access_retry.id,COALESCE(access_retry.title,''),COALESCE(access_retry.indexer_name,''),
 		EXISTS(SELECT 1 FROM altmount_jobs job WHERE job.workflow_id=workflow.id AND job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested')),
 		(workflow.state='waiting' AND `+seasonCoveredByEpisodesSQL+`),
-		COALESCE(metadata.data->>'poster_url',''),COALESCE(metadata.data->>'backdrop_url','')
+		COALESCE(metadata.data->>'poster_url',''),COALESCE(metadata.data->>'backdrop_url',''),
+		workflow.root_id::text,workflow.quality_profile_id::text
 		FROM workflows workflow JOIN media_items media ON media.id=workflow.media_id
 		LEFT JOIN media_metadata metadata ON metadata.media_id=workflow.media_id
 		LEFT JOIN altmount_jobs progress ON progress.id=workflow.grab_attempt_id AND workflow.state IN ('submitting','queued','downloading','streaming_ready')
@@ -210,7 +216,7 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		var revision int64
 		var publicationStarted, currentJobNeedsAttention bool
 		var downloadPercent *int16
-		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Edition, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob, &item.CoveredByEpisodes, &item.PosterURL, &item.BackdropURL); err != nil {
+		if err := rows.Scan(&idText, &mediaText, &item.MediaKind, &item.Title, &year, &item.Variant, &item.Edition, &item.State, &revision, &item.AttentionCode, &item.AttentionDetail, &item.AcquisitionAttempts, &item.RoundOrdinal, &item.RoundState, &item.RoundSlotsUsed, &item.RoundAttemptLimit, &item.RetryDiscoveryState, &item.NextRescanAt, &item.LastDiscoveryAt, &item.LastDiscoveryComplete, &item.CompleteNoNewScans, &item.NewReleaseReady, &readyCandidateText, &item.ReadyReleaseTitle, &item.ReadyIndexerName, &item.ReadyFirstObservedAt, &item.RetainedOutputCount, &item.RetainedOutputBytes, &item.ExcludedReleaseCount, &publicationStarted, &currentJobNeedsAttention, &item.AdoptedReplacementConfirmationRequired, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt, &downloadPercent, &item.DownloadStage, &item.DownloadObservedAt, &item.QualityProfile, &accessCandidateText, &item.AccessRejectedReleaseTitle, &item.AccessRejectedIndexerName, &item.ActiveAltMountJob, &item.CoveredByEpisodes, &item.PosterURL, &item.BackdropURL, &item.RootID, &item.QualityProfileID); err != nil {
 			return nil, err
 		}
 		item.ID, _ = uuid.Parse(idText)

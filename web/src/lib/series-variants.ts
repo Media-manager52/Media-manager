@@ -99,7 +99,7 @@ export function rollupSeriesSeasons(workflows: APIWorkflow[] = [], files: APIMan
     const parsed = parseSeriesVariant(workflow.variant)
     if (parsed.kind === "season") {
       const season = entry(parsed.season)
-      if (!season.packWorkflow || workflow.updated_at > season.packWorkflow.updated_at) season.packWorkflow = workflow
+      if (!season.packWorkflow || isPreferredPack(workflow, season.packWorkflow)) season.packWorkflow = workflow
       continue
     }
     if (parsed.kind === "episode") {
@@ -193,4 +193,15 @@ export function seasonAddCheck(season: number, workflows: APIWorkflow[], rollup:
   const activeEpisodes = (rollup?.episodeWorkflows ?? []).filter((workflow) => !finished(workflow)).length
   if (activeEpisodes > 0) return { status: "confirm", message: `Season ${season} already has ${activeEpisodes} episode workflow${activeEpisodes === 1 ? "" : "s"} in progress. Adding the season also searches for a season pack.` }
   return { status: "ready" }
+}
+
+/**
+ * A cancelled duplicate never hides the live season workflow, however recent
+ * it is (the server's season read does the same); otherwise the newest wins.
+ */
+function isPreferredPack(candidate: APIWorkflow, current: APIWorkflow): boolean {
+  const candidateCancelled = candidate.state === "cancelled"
+  const currentCancelled = current.state === "cancelled"
+  if (candidateCancelled !== currentCancelled) return currentCancelled
+  return candidate.updated_at > current.updated_at
 }
