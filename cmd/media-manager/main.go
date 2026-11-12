@@ -376,7 +376,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	importListService := &intake.ImportListService{Store: store, Lists: mdbListClient, MetadataEnricher: metadataService, Discovery: func(ctx context.Context) (metadataservice.DiscoveryProvider, bool) {
+	importListService := &intake.ImportListService{Store: store, Lists: mdbListClient, MetadataEnricher: metadataService, PlexTitles: intake.PlexTitlesFromRoots(store, plexService.ClientFor), Discovery: func(ctx context.Context) (metadataservice.DiscoveryProvider, bool) {
 		if seerrClient != nil {
 			return seerrClient, true
 		}

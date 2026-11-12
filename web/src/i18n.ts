@@ -459,6 +459,7 @@ const listSyncDetails: Record<string, string> = {
   list_not_found: "Listen findes ikke eller er ikke offentlig på MDBList. Tjek adressen, og at listen er offentlig.",
   list_too_long: "Listen har over 5.000 titler. Del den op i mindre lister på MDBList.",
   mdblist_unavailable: "MDBList kunne ikke nås. Media Manager prøver igen om en time.",
+  plex_unavailable: "Plex kunne ikke læses, så Media Manager kan ikke se, hvad du allerede har. Intet er tilføjet; listen læses igen om en time.",
   metadata_unavailable: "Titlerne kan ikke slås op, fordi der mangler forbindelse til TMDB eller Seerr. Tilføj den under Indstillinger → Forbindelser.",
 }
 
@@ -493,6 +494,7 @@ export function listEntryTone(state: string): Tone {
 }
 
 const listEntryDetails: Record<string, string> = {
+  in_plex: "Ligger allerede i Plex.",
   metadata_failed: "TMDB kunne ikke give oplysninger om titlen.",
   identity_missing: "TMDB mangler år eller id for titlen.",
   no_episodes: "TMDB har ingen afsnit for serien endnu.",

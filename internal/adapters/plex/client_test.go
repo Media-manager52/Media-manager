@@ -453,3 +453,28 @@ func TestConfirmSeriesAcceptsUnidentifiedShowOnlyWithEveryPath(t *testing.T) {
 		t.Fatalf("show identified as another series error=%v, want ErrIdentityMismatch", err)
 	}
 }
+
+func TestSectionTitlesReadsMoviesAndShowsWithTheirGUIDs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/library/sections/7/all" || request.URL.Query().Get("includeGuids") != "1" {
+			http.NotFound(writer, request)
+			return
+		}
+		_, _ = writer.Write([]byte(`<MediaContainer><Video ratingKey="1" type="movie" title="Film"><Guid id="imdb://tt0133093"/><Guid id="tmdb://603"/></Video><Directory ratingKey="2" type="show" title="Show"><Guid id="tvdb://81189"/></Directory></MediaContainer>`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, Token: "secret", AllowHTTP: true}, server.Client().Transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := client.SectionTitles(context.Background(), "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || len(items[0].GUIDs) != 2 || items[0].GUIDs[1].ID != "tmdb://603" || items[1].GUIDs[0].ID != "tvdb://81189" {
+		t.Fatalf("items = %+v", items)
+	}
+	if _, err := client.SectionTitles(context.Background(), "../7"); err == nil {
+		t.Fatal("a non-numeric section key was accepted")
+	}
+}

@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **A list no longer fetches titles that are already in Plex.** Titles in Plex that Media Manager did not know (for example from before it was installed) were added again from a followed MDBList list and fetched a second time. Before a title from a list is added, Media Manager now looks it up in your Plex libraries by its TMDB, IMDb or TVDB id; a title Plex already has is left alone and shown as **Fandtes allerede** with "Ligger allerede i Plex". 4K libraries are not counted, so a title kept only in 4K still gets its ordinary copy. If Plex cannot be read, nothing is added and the list is read again an hour later.
+
 ## [0.1.0-beta.11] - 2026-11-12
 
 ### Added
