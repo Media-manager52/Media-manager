@@ -311,7 +311,7 @@ func pairSidecars(videos, inventory []Asset) map[uuid.UUID][]Companion {
 		}
 		matches := make([]Asset, 0, 1)
 		for _, video := range videos {
-			if strictSidecarMatch(video.RelativePath, asset.RelativePath) {
+			if strictSidecarMatch(video.RelativePath, asset.RelativePath) && !extraSidecar(video.RelativePath, asset.RelativePath) {
 				matches = append(matches, video)
 			}
 		}
@@ -331,6 +331,22 @@ func strictSidecarMatch(videoPath, sidecarPath string) bool {
 	videoStem := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
 	sidecarStem := strings.TrimSuffix(filepath.Base(sidecarPath), filepath.Ext(sidecarPath))
 	return sidecarStem == videoStem || strings.HasPrefix(sidecarStem, videoStem+".")
+}
+
+// extraSidecar reports a subtitle that names itself as belonging to a sample
+// or trailer of the video ("Movie.sample.da.srt"). It shares the feature's
+// name prefix but not its dialogue, so it is neither evidence for the
+// feature's language nor a companion to publish.
+func extraSidecar(videoPath, sidecarPath string) bool {
+	videoStem := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	sidecarStem := strings.TrimSuffix(filepath.Base(sidecarPath), filepath.Ext(sidecarPath))
+	for _, token := range strings.Split(strings.TrimPrefix(sidecarStem, videoStem), ".") {
+		switch strings.ToLower(strings.TrimSpace(token)) {
+		case "sample", "samples", "trailer", "trailers", "extra", "extras", "bonus", "featurette":
+			return true
+		}
+	}
+	return false
 }
 
 func filenameMetadata(videoPath, sidecarPath string) (string, string, *bool, *bool) {

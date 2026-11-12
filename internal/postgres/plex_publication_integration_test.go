@@ -549,3 +549,48 @@ func TestPublicationKeepsAFilmWhoseTitleSaysSamples(t *testing.T) {
 		t.Fatalf("published assets=%+v, want the feature", publicationContext.Assets)
 	}
 }
+
+// TestDeletingATitleRecyclesALinkWhosePlexConfirmationNeverFinished proves
+// that a published link left unconfirmed (Plex timed out, the owner then
+// cancelled the workflow) is recycled when the title is deleted, instead of
+// the title being archived as unpublished with the link left in the library.
+func TestDeletingATitleRecyclesALinkWhosePlexConfirmationNeverFinished(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	item, workflowID := fixture.movieWorkflow(t, "Unconfirmed Delete", "770013")
+	job, _, _ := fixture.seedVerifiedMovieOutput(t, workflowID, 1, "unconfirmed-delete")
+	source := filepath.Join(fixture.localRoot, "completed", "unconfirmed-delete", "Movie.mkv")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("movie"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	publicationContext, err := fixture.store.LoadPublicationContext(fixture.ctx, workflowID, job.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanID, version, _, destination := fixture.publishMoviePlans(t, workflowID, job.JobID, publicationContext)
+	scan, err := fixture.store.LoadPlexScan(fixture.ctx, scanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.MarkPlexRefreshRequested(fixture.ctx, scan, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if scan, err = fixture.store.LoadPlexScan(fixture.ctx, scanID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.TimeoutPlexScan(fixture.ctx, scan, "Plex did not confirm in time", scan.DeadlineAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.CancelWorkflowForOwner(fixture.ctx, workflowID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fixture.store.PlanMediaRecycle(fixture.ctx, item.ID, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].LinkVersionID == nil || *entries[0].LinkVersionID != version.ID || entries[0].OriginalRelative != destination {
+		t.Fatalf("recycle entries=%+v, want the unconfirmed link %s", entries, destination)
+	}
+}
