@@ -4,6 +4,22 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+Ten problems found by an automated code review of search, indexer pacing and downloading:
+
+- **A download that could not reach AltMount no longer fetches the NZB again on every retry.** After AltMount could not be reached, the next attempt checks AltMount first and waits 5 minutes while it is down, so no extra indexer grabs are spent.
+- **An indexer's Retry-After is bounded.** A very long wait (for example a year) is capped at the indexer's maximum backoff, and `Retry-After: 0` uses the normal backoff instead of no pause.
+- **An indexer that keeps failing no longer makes titles search every 30 minutes for good.** After three quick retries of an incomplete search in a row, the next search follows the normal schedule; a complete search starts the count again.
+- **New uploads are not starved by titles waiting for their own retry.** Titles whose unfinished search waits for its short retry no longer take the places of each pass over matched new uploads.
+- **A search is only counted as complete when the indexer's stated total agrees.** A later page that repeats earlier results while the total says more remain now counts as incomplete, so a season answer is not shared from it.
+- **An episode's next search asks the indexer.** An episode no longer answers its own later searches from the season answer it already used.
+- **New uploads without an ID no longer stop the catch-up read early.** Only uploads with an ID decide whether a page reached uploads seen before.
+- **Episodes that reuse a season answer keep the facts derived from the title.** The candidate now points at an observation with the facts its own evaluation used (source, episode numbering), as a fresh episode search would.
+- **A held release returned again by a search is evaluated once.** It is no longer also re-scored from its stored copy in the same search.
+- **HDR is recognised from whole words only.** "HDRip" is no longer taken as HDR, and "DV" between dots is recognised as Dolby Vision.
+- **The remaining stored detail texts are cut on whole characters.**
+
 ## [0.1.0-beta.13] - 2026-11-12
 
 ### Fixed
