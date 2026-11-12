@@ -16,6 +16,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/packs"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -498,9 +499,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	}
 	for _, outcome := range options.IndexerOutcomes {
 		detail := strings.TrimSpace(outcome.Detail)
-		if len(detail) > 300 {
-			detail = detail[:300]
-		}
+		detail = dbcore.TruncateText(detail, 300)
 		var completedAt any
 		if outcome.State != "planned" {
 			completedAt = now.UTC()
