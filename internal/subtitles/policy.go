@@ -75,7 +75,7 @@ func CanonicalizePolicy(body json.RawMessage) (json.RawMessage, Policy, error) {
 	var document map[string]json.RawMessage
 	if len(body) > 0 && body[0] == '[' {
 		document = map[string]json.RawMessage{"rules": append(json.RawMessage(nil), body...)}
-	} else if err := json.Unmarshal(body, &document); err != nil {
+	} else if err := json.Unmarshal(body, &document); err != nil || document == nil {
 		return nil, Policy{}, errors.New("quality profile policy is invalid")
 	}
 	required, _ := json.Marshal(policy.Required)

@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -137,6 +138,11 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 		audio := map[string]bool{}
 		untaggedAudio := false
 		for _, track := range evidence.AudioTracks {
+			// A commentary or audio-description track is not the film's
+			// dialogue in that language, so it is no evidence either way.
+			if commentaryTrack(track.Title) {
+				continue
+			}
 			// "und" is the standard tag for an undetermined language.
 			if track.CanonicalLanguage != "" && track.CanonicalLanguage != "und" {
 				audio[track.CanonicalLanguage] = true
@@ -157,6 +163,10 @@ func Verify(ctx context.Context, authorizedRoot string, selectedVideos, inventor
 			hearing := explicitTrue(track.HearingImpaired, hasExactTag(track.Title, "sdh") || hasHearingImpairedTag(track.Title))
 			entry.Languages = append(entry.Languages, LanguageEvidence{Kind: "embedded", RawValue: track.Language, Canonical: track.CanonicalLanguage, Source: "stream_language", TrackIndex: &index, Forced: forced, HearingImpaired: hearing})
 			observed[track.CanonicalLanguage], observedAll[track.CanonicalLanguage] = true, true
+			if commentaryTrack(track.Title) {
+				// Commentary subtitles translate the commentary, not the film.
+				continue
+			}
 			if forced == nil || !*forced {
 				fullSubtitles[track.CanonicalLanguage] = true
 			} else if _, seen := flaggedForced[track.CanonicalLanguage]; !seen && !hasExactTag(track.Title, "forced") {
@@ -333,6 +343,14 @@ func strictSidecarMatch(videoPath, sidecarPath string) bool {
 	return sidecarStem == videoStem || strings.HasPrefix(sidecarStem, videoStem+".")
 }
 
+var commentaryTitle = regexp.MustCompile(`(?i)(^|[^\p{L}])(commentary|commentaries|kommentar\p{L}*|audio description|descriptive|visually impaired|synstolk\p{L}*)([^\p{L}]|$)`)
+
+// commentaryTrack reports a track whose title marks it as commentary or audio
+// description ("English (Commentary)", "Dansk kommentarspor", "Synstolkning").
+func commentaryTrack(title string) bool {
+	return commentaryTitle.MatchString(title)
+}
+
 // extraSidecar reports a subtitle that names itself as belonging to a sample
 // or trailer of the video ("Movie.sample.da.srt"). It shares the feature's
 // name prefix but not its dialogue, so it is neither evidence for the
@@ -342,7 +360,7 @@ func extraSidecar(videoPath, sidecarPath string) bool {
 	sidecarStem := strings.TrimSuffix(filepath.Base(sidecarPath), filepath.Ext(sidecarPath))
 	for _, token := range strings.Split(strings.TrimPrefix(sidecarStem, videoStem), ".") {
 		switch strings.ToLower(strings.TrimSpace(token)) {
-		case "sample", "samples", "trailer", "trailers", "extra", "extras", "bonus", "featurette":
+		case "sample", "samples", "trailer", "trailers", "extra", "extras", "bonus", "featurette", "commentary", "kommentar", "kommentarspor":
 			return true
 		}
 	}
