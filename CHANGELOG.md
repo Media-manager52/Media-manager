@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **A failed AltMount import no longer waits for you.** When AltMount could not import a download (most often "fast-fail validation inconclusive: context deadline exceeded" while it was busy), the title stopped at **Kræver handling** until you acted; on this server 56 titles waited like that. Media Manager now asks AltMount to import the same download again by itself after 10 minutes, then 1, 4 and 12 hours (twice for other errors), one retry every 90 seconds at most so AltMount is not flooded again. No new NZB is fetched from an indexer for a retry. If it still fails, that release is set aside and the next release is tried, as for any failed download. A message that clearly names a broken release still moves on at once. Titles already waiting are picked up automatically, 10 every 5 minutes. A title waiting for its next retry can still be cancelled or deleted as before. Schema 66.
+
 ### Fixed
 
 - **List addresses with æ, ø or å work.** A MDBList address such as `mdblist.com/lists/søren/julefilm-på-dansk` was refused because only plain letters were accepted. Any letters are now accepted, pasted as they are or percent-encoded (`%C3%A5`), and sent to MDBList encoded exactly once. Slashes, spaces, `?`, `#`, `%` and `.`/`..` are still refused, also by the database (schema 65).

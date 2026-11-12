@@ -170,11 +170,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			if failureCode, releaseAttributable := releaseAttributableQueueFailure(detail); releaseAttributable {
 				return service.Store.CompleteReleaseFailure(ctx, job, failureCode, detail, time.Now().UTC())
 			}
-			attentionCode := job.ErrorCode
-			if attentionCode == "" {
-				attentionCode = "altmount_job_attention"
-			}
-			return service.Store.CompleteImportWithCode(ctx, job, false, attentionCode, detail, time.Now().UTC())
+			// The item is gone, so AltMount cannot retry it: move on to the
+			// next release instead of waiting for the owner.
+			return service.Store.GiveUpAltMountImport(ctx, job, giveUpDetail(job.AutoRetryCount, detail), time.Now().UTC())
 		}
 		return err
 	}
@@ -217,7 +215,7 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		if failureCode, releaseAttributable := releaseAttributableQueueFailure(detail); releaseAttributable {
 			return service.Store.CompleteReleaseFailure(ctx, job, failureCode, detail, time.Now().UTC())
 		}
-		return service.Store.CompleteImportWithCode(ctx, job, false, "altmount_job_attention", detail, time.Now().UTC())
+		return service.retryOrMoveOn(ctx, client, job, altmount.QueueID(*job.ExternalQueueID), detail)
 	case altmount.PhaseImportComplete:
 		inventoryID, assets, persistErr := service.Store.PersistAltMountInventory(ctx, job, inventory, time.Now().UTC())
 		if persistErr != nil {

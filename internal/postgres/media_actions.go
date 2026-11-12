@@ -210,6 +210,9 @@ func (store *Store) PlexForFolderRefresh(ctx context.Context, payload []byte) (P
 // deleted: searches, waiting rounds and the monitoring of new episodes. It
 // cancels nothing when any of them is downloading or publishing.
 func (store *Store) CancelOpenWorkOfMedia(ctx context.Context, mediaID uuid.UUID, now time.Time) (int, error) {
+	if err := store.settleParkedAltMountJobs(ctx, `workflow.media_id=$1 AND workflow.terminal_at IS NULL`, mediaID.String(), now); err != nil {
+		return 0, err
+	}
 	rows, err := store.Pool.Query(ctx, `SELECT w.id::text,w.state,
 		EXISTS(SELECT 1 FROM altmount_jobs job WHERE job.workflow_id=w.id AND job.state IN ('intent','submitting','transport_unknown','queued','processing','streaming_ready','cancel_requested'))
 		FROM workflows w WHERE w.media_id=$1 AND w.terminal_at IS NULL ORDER BY w.created_at,w.id`, mediaID.String())

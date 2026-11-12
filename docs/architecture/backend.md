@@ -367,10 +367,23 @@ If you add a service handler, keep it idempotent: events are at-least-once.
     dominant file) or season pack; return a release-attributable failure for
     empty/incomplete/ambiguous output; otherwise probe subtitles and record
     verification. Only `verified` calls `CompleteImport`.
+  - On `failed` (`altmount_auto_retry.go`): a message that names a release
+    defect (`releaseAttributableQueueFailure`) excludes the release at once.
+    Any other failure never stops at owner attention: Media Manager asks
+    AltMount to retry the same queue item (`POST /api/queue/{id}/retry`, the
+    same NZB, no indexer request) after 10 minutes, 1, 4 and 12 hours, at most
+    4 times for timeouts/connection failures and 2 times otherwise. Retries
+    are paced to one per 90 seconds across all jobs, because AltMount runs a
+    retried item outside its worker pool. When the retries are used, or the
+    item is gone from AltMount, `GiveUpAltMountImport` excludes the release
+    (`import_failed`) and the round tries the next one.
+  - `ResumeAltMountAttention` (every 5 minutes, 10 at a time) hands failed
+    imports that stopped at `altmount_job_attention` before this to the same
+    retry, once per job.
   - `HandleRetainedOutputReverification`: reuses the frozen inventory, makes no
     AltMount request, re-runs inspection with the original policy.
 - Constants: `altMountSubmissionVisibilityWindow = 30m`,
-  `altMountCompletedOutputGrace = 5m`.
+  `altMountCompletedOutputGrace = 5m`, `altMountAutoRetrySpacing = 90s`.
 
 ## internal/publication — symlink publication and Plex
 
