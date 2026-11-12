@@ -399,11 +399,16 @@ func run() error {
 	// event stays on the single main worker, which keeps indexer pacing.
 	backupEvents := []string{"backup.create_requested", "backup.offsite_requested"}
 	listEvents := []string{"import_list.sync_requested"}
+	// The repair sweep reads AltMount's whole corrupted list and asks Plex
+	// about files outside Media Manager; a hanging Plex must not stop
+	// searches, downloads and publication, so it runs in its own lane.
+	repairSweepEvents := []string{"altmount.repair_sweep_requested"}
 	handlerLimits := map[string]time.Duration{"backup.create_requested": 3 * time.Hour, "backup.offsite_requested": 3 * time.Hour, "import_list.sync_requested": 3 * time.Hour}
 	lanes := []*platform.Worker{
-		{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: handlerLimits, Lane: postgres.OutboxLane{Except: append(append([]string{}, backupEvents...), listEvents...)}},
+		{Store: store, Owner: workerOwner(), Handlers: handlers, Limits: handlerLimits, Lane: postgres.OutboxLane{Except: append(append(append([]string{}, backupEvents...), listEvents...), repairSweepEvents...)}},
 		{Store: store, Owner: workerOwner() + "-backup", Handlers: handlers, Limits: handlerLimits, PollInterval: 10 * time.Second, Lane: postgres.OutboxLane{Only: backupEvents}},
 		{Store: store, Owner: workerOwner() + "-lists", Handlers: handlers, Limits: handlerLimits, PollInterval: 15 * time.Second, Lane: postgres.OutboxLane{Only: listEvents}},
+		{Store: store, Owner: workerOwner() + "-repairs", Handlers: handlers, Limits: handlerLimits, PollInterval: 15 * time.Second, Lane: postgres.OutboxLane{Only: repairSweepEvents}},
 	}
 	for _, worker := range lanes {
 		go func() {

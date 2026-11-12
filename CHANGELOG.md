@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **A Plex that hangs no longer stops everything else.** Plex stopped answering one night, and the half-hourly check for broken AltMount files, which asks Plex about some files, failed again and again. A new failing check was added every half hour, and because these were the oldest work in the queue the worker spent all its time on them: from early morning no search, download or publication ran for about three and a half hours. The check now runs in its own queue, a new one is not added while the last has not finished, and any work that has already failed five times waits behind healthy work.
+
 ### Changed
 
 - **A failed AltMount import no longer waits for you.** When AltMount could not import a download (most often "fast-fail validation inconclusive: context deadline exceeded" while it was busy), the title stopped at **Kræver handling** until you acted; on this server 56 titles waited like that. Media Manager now asks AltMount to import the same download again by itself after 10 minutes, then 1, 4 and 12 hours (twice for other errors), one retry every 90 seconds at most so AltMount is not flooded again. No new NZB is fetched from an indexer for a retry. If it still fails, that release is set aside and the next release is tried, as for any failed download. A message that clearly names a broken release still moves on at once. Titles already waiting are picked up automatically, 10 every 5 minutes. A title waiting for its next retry can still be cancelled or deleted as before. Schema 66.

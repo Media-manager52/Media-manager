@@ -37,12 +37,19 @@ func TestClaimOutboxPrefersLifecycleWorkOverSearchBacklog(t *testing.T) {
 	newSearch := insert("workflow.search_requested", time.Hour)
 	reconcile := insert("altmount.reconcile_requested", time.Minute)
 	confirm := insert("plex.confirm_requested", time.Second)
+	// Lifecycle work that keeps failing (here a repair sweep while Plex
+	// hangs) goes after healthy lifecycle work, though it is the oldest, and
+	// still before the search backlog.
+	failing := insert("altmount.repair_sweep_requested", 4*time.Hour)
+	if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET attempts=$2 WHERE id=$1`, failing.String(), outboxFailingAttempts); err != nil {
+		t.Fatal(err)
+	}
 	// Not yet due work is never claimed early, whatever its class.
 	if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'test',$2,1,'plex.confirm_requested','{}',now()-interval '1 day',now()+interval '1 hour')`, uuid.NewV7().String(), uuid.NewV7().String()); err != nil {
 		t.Fatal(err)
 	}
 
-	for _, want := range []uuid.UUID{reconcile, confirm, oldSearch, newSearch, discovery} {
+	for _, want := range []uuid.UUID{reconcile, confirm, failing, oldSearch, newSearch, discovery} {
 		claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute, false)
 		if err != nil || len(claimed) != 1 || claimed[0].ID != want {
 			t.Fatalf("claimed=%+v err=%v, want %s", claimed, err, want)
@@ -53,6 +60,47 @@ func TestClaimOutboxPrefersLifecycleWorkOverSearchBacklog(t *testing.T) {
 	}
 	if claimed, err := store.ClaimOutbox(ctx, "test-owner", 1, time.Minute, false); err != nil || len(claimed) != 0 {
 		t.Fatalf("not-yet-due event claimed=%+v err=%v", claimed, err)
+	}
+}
+
+// TestRepairSweepsDoNotPileUpWhileOneIsOpen proves a sweep that has not
+// finished (for example because Plex hangs) keeps later half-hours from
+// queueing more sweeps, and that a new one is queued once it finished.
+func TestRepairSweepsDoNotPileUpWhileOneIsOpen(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	ctx, store := fixture.ctx, fixture.store
+	count := func() int {
+		t.Helper()
+		var open int
+		if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE event_type='altmount.repair_sweep_requested' AND completed_at IS NULL`).Scan(&open); err != nil {
+			t.Fatal(err)
+		}
+		return open
+	}
+	now := time.Now().UTC()
+	if _, err := store.QueueAltMountRepairSweeps(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	first := count()
+	if first == 0 {
+		t.Fatal("no repair sweep queued")
+	}
+	for half := 1; half <= 3; half++ {
+		if _, err := store.QueueAltMountRepairSweeps(ctx, now.Add(time.Duration(half)*30*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := count(); got != first {
+		t.Fatalf("open sweeps=%d after three more half-hours, want %d (no pile-up)", got, first)
+	}
+	if _, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET completed_at=now() WHERE event_type='altmount.repair_sweep_requested'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.QueueAltMountRepairSweeps(ctx, now.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != first {
+		t.Fatalf("open sweeps after the earlier one finished=%d, want %d", got, first)
 	}
 }
 

@@ -63,7 +63,16 @@ func (worker *Worker) Run(ctx context.Context) error
   (`backup.create_requested`, `backup.offsite_requested`) run in a separate
   `OutboxLane`, also one at a time, because they take far longer than other
   handlers and touch only their own files and verification database. Do not
-  add a type to that lane unless it is equally self-contained.
+  add a type to that lane unless it is equally self-contained. Followed lists
+  (`import_list.sync_requested`) and the AltMount repair sweep
+  (`altmount.repair_sweep_requested`, which asks Plex about files outside
+  Media Manager) have their own lanes too, so a hanging Plex cannot stop
+  searches, downloads and publication. A new sweep is not queued while an
+  earlier one is unfinished.
+- Claim order: lifecycle work first, then lifecycle work that has already
+  failed 5 times (`outboxFailingAttempts`), then searches and discovery
+  (alternating). A repeatedly failing event therefore never holds up healthy
+  work, whatever its age.
 - Claims one event per iteration, renews the lease while the handler runs,
   completes/defer/fails as described in [overview.md](overview.md#3-the-durable-outbox-the-heart-of-the-system).
 - Unknown event type → failed with "no handler registered" and a 30-minute retry.

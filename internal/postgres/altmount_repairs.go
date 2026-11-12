@@ -342,12 +342,14 @@ func repairScope(ctx context.Context, tx pgx.Tx, kind, variant, assetID string) 
 
 // QueueAltMountRepairSweeps schedules one repair sweep per enabled AltMount
 // client for the current half-hour. Repeated calls in the same half-hour are
-// no-ops.
+// no-ops, and no sweep is added while an earlier one has not finished (for
+// example while Plex does not answer), so failing sweeps never pile up.
 func (store *Store) QueueAltMountRepairSweeps(ctx context.Context, now time.Time) (int64, error) {
 	bucket := now.UTC().Unix() / 1800
 	command, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at)
 		SELECT gen_random_uuid(),'integration',integration.id,$1,'altmount.repair_sweep_requested',json_build_object('integration_id',integration.id::text),$2,$2
 		FROM integration_instances integration WHERE integration.kind='altmount' AND integration.enabled
+		  AND NOT EXISTS(SELECT 1 FROM outbox_events open WHERE open.event_type='altmount.repair_sweep_requested' AND open.aggregate_id=integration.id AND open.completed_at IS NULL)
 		ON CONFLICT DO NOTHING`, bucket, now.UTC())
 	if err != nil {
 		return 0, err
