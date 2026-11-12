@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.17] - 2026-11-12
+
 ### Fixed
 
 - **A cancelled title stays cancelled.** If the owner cancelled a title while its download was still being checked, and the check then failed, the title was put back to waiting and searched again. A failure recorded after cancellation is now ignored.
@@ -566,6 +568,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.17]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.17
 [0.1.0-beta.16]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.14
