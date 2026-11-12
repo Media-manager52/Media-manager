@@ -42,6 +42,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.12.md](releases/v0.1.0-beta.12.md) | Twelfth public beta (2026-11-12): a followed list no longer fetches titles Plex already has. |
 | [releases/v0.1.0-beta.11.md](releases/v0.1.0-beta.11.md) | Eleventh public beta (2026-11-12): following MDBList lists, and Kræver handling resolving itself (automatic AltMount import retries, rounds that wait for new uploads, Plex reconfirmation) plus a queue a hanging Plex cannot stall. |
 | [releases/v0.1.0-beta.10.md](releases/v0.1.0-beta.10.md) | Tenth public beta (2026-11-11): a gap-free newest-uploads reader, date search for daily shows, and a search schedule of 30 minutes, 6 hours and a day, then monthly. |
 | [releases/v0.1.0-beta.9.md](releases/v0.1.0-beta.9.md) | Ninth public beta (2026-11-11): one search per season, the next release without a new search after a failed download, learned Danish records of release groups, Find manglende and the HolyArrs-style redesign. |
