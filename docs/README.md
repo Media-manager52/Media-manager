@@ -42,6 +42,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/owner-console-rollout.md](operations/owner-console-rollout.md) | Handoff for upgrading the production server to the owner console: pre-flight, backup, deploy, verification, what was and was not tested |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.14.md](releases/v0.1.0-beta.14.md) | Fourteenth public beta (2026-11-12): ten fixes from a code review of search, indexer pacing and downloading. |
 | [releases/v0.1.0-beta.13.md](releases/v0.1.0-beta.13.md) | Thirteenth public beta (2026-11-12): ten fixes from a code review of language checks, publication and recovery. |
 | [releases/v0.1.0-beta.12.md](releases/v0.1.0-beta.12.md) | Twelfth public beta (2026-11-12): a followed list no longer fetches titles Plex already has. |
 | [releases/v0.1.0-beta.11.md](releases/v0.1.0-beta.11.md) | Eleventh public beta (2026-11-12): following MDBList lists, and Kræver handling resolving itself (automatic AltMount import retries, rounds that wait for new uploads, Plex reconfirmation) plus a queue a hanging Plex cannot stall. |
