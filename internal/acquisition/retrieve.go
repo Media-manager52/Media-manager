@@ -107,6 +107,17 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 	if retrieval.DownloadClient.Kind != "altmount" {
 		return errors.New("selected download client adapter is not implemented")
 	}
+	// The last attempt fetched the NZB and then could not reach AltMount.
+	// Every fetch spends one of the indexer's grabs, so this attempt reaches
+	// AltMount first and, while it is still down, waits without fetching the
+	// same NZB again.
+	var altMountClient *altmount.HTTPClient
+	var config altMountConfig
+	if event.LastError == downloadClientUnavailableCode {
+		if altMountClient, config, err = service.downloadClient(ctx, retrieval); err != nil {
+			return err
+		}
+	}
 	var indexerConfiguration indexerConfig
 	if err := json.Unmarshal(retrieval.Indexer.Config, &indexerConfiguration); err != nil {
 		return err
@@ -193,16 +204,10 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 			return service.Store.RecordPreSubmissionRejection(ctx, retrieval, classification.Code, detail, time.Now().UTC())
 		}
 	}
-	var config altMountConfig
-	if err := json.Unmarshal(retrieval.DownloadClient.Config, &config); err != nil {
-		return err
-	}
-	client, err := newAltMountClient(config, retrieval.DownloadClient.SecretRef, service.ResolveSecret, service.Transport)
-	if err != nil {
-		return err
-	}
-	if _, err := client.Login(ctx); err != nil {
-		return err
+	if altMountClient == nil {
+		if altMountClient, config, err = service.downloadClient(ctx, retrieval); err != nil {
+			return err
+		}
 	}
 	intent, err := service.Store.BeginAltMountSubmission(ctx, retrieval, nzb.Identity, time.Now().UTC())
 	if err != nil {
@@ -215,7 +220,7 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 		return nil
 	}
 	upload := altmount.UploadRequest{Filename: intent.Filename, Size: int64(len(nzb.Body)), Category: config.Category, Priority: altmount.PriorityNormal, Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(nzb.Body)), nil }}
-	item, err := client.UploadNZB(ctx, upload)
+	item, err := altMountClient.UploadNZB(ctx, upload)
 	if err != nil {
 		var ambiguous altmount.AmbiguousSubmissionError
 		var apiError altmount.APIError
@@ -225,6 +230,49 @@ func (service *RetrievalService) Handle(ctx context.Context, event postgres.Outb
 		return service.Store.MarkAltMountFailed(ctx, workflowID, intent.JobID, time.Now().UTC())
 	}
 	return service.Store.MarkAltMountSubmitted(ctx, workflowID, intent.JobID, int64(item.ID), time.Now().UTC())
+}
+
+// downloadClientRetryInterval is how soon a retrieval that could not reach
+// AltMount is tried again; the retry reaches AltMount before the indexer.
+const downloadClientRetryInterval = 5 * time.Minute
+
+// downloadClientUnavailableCode is the outbox error a retrieval records when
+// it could not reach AltMount.
+const downloadClientUnavailableCode = "altmount_unavailable"
+
+// downloadClient reads the AltMount settings and logs in. Every failure is a
+// downloadClientUnavailableError: the retrieval waits and tries again.
+func (service *RetrievalService) downloadClient(ctx context.Context, retrieval postgres.RetrievalContext) (*altmount.HTTPClient, altMountConfig, error) {
+	var config altMountConfig
+	if err := json.Unmarshal(retrieval.DownloadClient.Config, &config); err != nil {
+		return nil, config, downloadClientUnavailable(err)
+	}
+	client, err := newAltMountClient(config, retrieval.DownloadClient.SecretRef, service.ResolveSecret, service.Transport)
+	if err != nil {
+		return nil, config, downloadClientUnavailable(err)
+	}
+	if _, err := client.Login(ctx); err != nil {
+		return nil, config, downloadClientUnavailable(err)
+	}
+	return client, config, nil
+}
+
+type downloadClientUnavailableError struct {
+	until time.Time
+	cause error
+}
+
+func (err downloadClientUnavailableError) Error() string {
+	return "AltMount is not reachable: " + err.cause.Error()
+}
+func (err downloadClientUnavailableError) Unwrap() error      { return err.cause }
+func (err downloadClientUnavailableError) RetryAt() time.Time { return err.until.UTC() }
+func (err downloadClientUnavailableError) SafeCode() string {
+	return downloadClientUnavailableCode
+}
+
+func downloadClientUnavailable(cause error) error {
+	return downloadClientUnavailableError{until: time.Now().Add(downloadClientRetryInterval), cause: cause}
 }
 
 func (service *RetrievalService) retryOrRecordRetrievalFailure(ctx context.Context, event postgres.OutboxEvent, retrieval postgres.RetrievalContext, cause error) error {

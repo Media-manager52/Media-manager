@@ -388,13 +388,19 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	// no provider call or new candidate row is needed. Without this, the first
 	// search after a mapping change would keep showing the historical held
 	// decision forever because indexers no longer return the old release.
+	returned := map[string]bool{}
+	for _, entry := range evaluated {
+		returned[entry.Observation.IndexerID.String()+"\x00"+entry.Observation.NativeGUID] = true
+	}
 	if !recovery && search.Media.Kind == catalog.KindSeries && search.EpisodeNumbering.Year != 0 {
 		held, heldErr := service.Store.HeldCandidateObservations(ctx, search.Workflow.ID)
 		if heldErr != nil {
 			return heldErr
 		}
 		for _, observation := range held {
-			if reusedObservationIDs[observation.ID] {
+			// A release the indexers returned again in this search was already
+			// evaluated from that fresh answer.
+			if reusedObservationIDs[observation.ID] || returned[observation.IndexerID.String()+"\x00"+observation.NativeGUID] {
 				continue
 			}
 			oldboys, planned := indexerKinds[observation.IndexerID]
@@ -406,6 +412,7 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 				return evaluateErr
 			}
 			evaluated = append(evaluated, postgres.EvaluatedObservation{Observation: observation, Evaluation: evaluation})
+			returned[observation.IndexerID.String()+"\x00"+observation.NativeGUID] = true
 		}
 	}
 	// Each scan searches one of the title's names, so the good releases found
@@ -413,10 +420,6 @@ func (service *SearchService) handle(ctx context.Context, event postgres.OutboxE
 	// alias. Re-evaluate recently seen eligible releases so the next slot of a
 	// round can try the next one; exclusions, blocks and attempts still apply.
 	if !recovery {
-		returned := map[string]bool{}
-		for _, entry := range evaluated {
-			returned[entry.Observation.IndexerID.String()+"\x00"+entry.Observation.NativeGUID] = true
-		}
 		remembered, rememberErr := service.Store.RememberedEligibleObservations(ctx, search.Workflow.ID, search.PolicyVersion, searchNow.Add(-rememberedEligibleWindow), rememberedEligibleLimit)
 		if rememberErr != nil {
 			return rememberErr

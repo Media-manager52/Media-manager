@@ -109,8 +109,10 @@ func searchAllPages(ctx context.Context, request newznab.SearchRequest, first ne
 			}
 		}
 		if added == 0 {
-			// The provider ignored the offset or has nothing further.
-			return result, true
+			// The provider ignored the offset or has nothing further. Paging
+			// stops either way; the answer is only complete when the stated
+			// total agrees that nothing remains.
+			return result, !moreStated(total, offset+pageSize)
 		}
 	}
 	return result, pageSize < full && !moreStated(total, offset+pageSize)

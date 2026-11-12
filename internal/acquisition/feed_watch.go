@@ -300,11 +300,12 @@ func readFeedPages(request newznab.SearchRequest, seen *feedSeen, fetch func(new
 			pages.gap = true
 			break
 		}
-		pageFresh := 0
+		pageFresh, identifiable := 0, 0
 		for _, observation := range result.Observations {
 			if observation.NativeGUID == "" || strings.HasPrefix(observation.NativeGUID, "weak:") {
 				continue
 			}
+			identifiable++
 			if seen.add(observation.NativeGUID) {
 				pageFresh++
 				pages.fresh = append(pages.fresh, observation)
@@ -314,7 +315,9 @@ func readFeedPages(request newznab.SearchRequest, seen *feedSeen, fetch func(new
 		if page == 0 {
 			pages.firstPageFresh, pages.firstPageSize = pageFresh, len(result.Observations)
 		}
-		if firstRead || len(result.Observations) == 0 || pageFresh < len(result.Observations) {
+		// Only uploads with their own ID say whether the page reached ones
+		// seen before; skipped ones count as neither.
+		if firstRead || identifiable == 0 || pageFresh < identifiable {
 			break
 		}
 		request.Offset += len(result.Observations)

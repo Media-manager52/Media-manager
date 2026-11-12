@@ -354,3 +354,31 @@ func TestTitleMatchesEscapedNames(t *testing.T) {
 		t.Error("unrelated title matched")
 	}
 }
+
+func TestDynamicRangeIsInferredFromWholeTokensOnly(t *testing.T) {
+	now := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	cases := map[string]string{
+		"Example.Movie.2020.HDRip.XviD-GRP":                 "",
+		"Example.Movie.2020.2160p.WEB-DL.DV.HEVC-GRP":       "dolby_vision",
+		"Example.Movie.2020.2160p.WEB-DL.DoVi.HEVC-GRP":     "dolby_vision",
+		"Example Movie 2020 2160p Dolby Vision WEB-DL":      "dolby_vision",
+		"Example.Movie.2020.2160p.UHD.BluRay.HDR10+.x265":   "hdr10plus",
+		"Example.Movie.2020.2160p.WEB-DL.HDR10Plus.HEVC":    "hdr10plus",
+		"Example.Movie.2020.2160p.UHD.BluRay.HDR10.x265":    "hdr",
+		"Example.Movie.2020.2160p.WEB-DL.HDR.HEVC-GRP":      "hdr",
+		"Example.Movie.2020.1080p.DVDRip.x264-GRP":          "",
+		"Example.Movie.2020.1080p.WEB-DL.DD5.1.H.264-DVSUX": "",
+	}
+	for title, want := range cases {
+		observation := InferTitleFacts(Observation{Title: title}, now)
+		got := ""
+		for _, fact := range observation.Facts {
+			if fact.Name == "dynamic_range" {
+				got = fact.Values[0]
+			}
+		}
+		if got != want {
+			t.Errorf("%s: dynamic_range=%q, want %q", title, got, want)
+		}
+	}
+}

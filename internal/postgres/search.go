@@ -16,6 +16,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/packs"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
 	"github.com/media-manager/media-manager/internal/workflows"
@@ -498,9 +499,7 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 	}
 	for _, outcome := range options.IndexerOutcomes {
 		detail := strings.TrimSpace(outcome.Detail)
-		if len(detail) > 300 {
-			detail = detail[:300]
-		}
+		detail = dbcore.TruncateText(detail, 300)
 		var completedAt any
 		if outcome.State != "planned" {
 			completedAt = now.UTC()
@@ -530,9 +529,15 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		if reuseErr != nil {
 			return workflows.Workflow{}, reuseErr
 		}
+		storedCurrent := false
+		if !reused && entry.Stored {
+			if storedCurrent, err = storedObservationCurrent(ctx, transaction, observation); err != nil {
+				return workflows.Workflow{}, err
+			}
+		}
 		if reused {
 			persistedObservationID = reusedID
-		} else if entry.Stored {
+		} else if storedCurrent {
 			persistedObservationID = observation.ID
 		} else {
 			persistedObservationID, err = insertReleaseObservation(ctx, transaction, observation, bodyHash, rawFields, facts, problems)
@@ -693,7 +698,11 @@ func (store *Store) PersistSearch(ctx context.Context, search SearchContext, que
 		}
 		if !searchRunComplete(options.IndexerOutcomes) {
 			retryReason = "Search incomplete: some indexers were deferred or failed; retrying."
-			nextSearchAt = incompleteSearchRetryAt(options.IndexerOutcomes, now)
+			partialAt, err := incompleteRetryAfterStreak(ctx, transaction, search.Workflow.ID, incompleteSearchRetryAt(options.IndexerOutcomes, now), nextSearchAt)
+			if err != nil {
+				return workflows.Workflow{}, err
+			}
+			nextSearchAt = partialAt
 			payload, _ = json.Marshal(map[string]any{"workflow_id": search.Workflow.ID.String(), "reason": retryReason, "partial_retry": true})
 		}
 		if _, err := transaction.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'workflow',$2,$3,'workflow.search_requested',$4,$5,$6) ON CONFLICT DO NOTHING`, uuid.NewV7().String(), search.Workflow.ID.String(), newRevision, string(payload), now.UTC(), nextSearchAt); err != nil {

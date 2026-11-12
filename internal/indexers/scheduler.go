@@ -668,6 +668,16 @@ func computeOutcomeEffectLocked(start Snapshot, budget Budget, indexerID string,
 			deadline := result.RetryAt.UTC()
 			if retryAfter != "" {
 				if parsed, ok := ParseRetryAfter(retryAfter, now); ok {
+					// The provider's wait is bounded: never past the maximum
+					// backoff (a year-long Retry-After would block the indexer
+					// until someone cleared it), and a wait that is already
+					// over (Retry-After: 0) falls back to the normal backoff.
+					if ceiling := now.Add(budget.MaximumBackoff); budget.MaximumBackoff > 0 && parsed.After(ceiling) {
+						parsed = ceiling
+					}
+					if !parsed.After(now) {
+						parsed = time.Time{}
+					}
 					deadline = parsed
 				}
 			}

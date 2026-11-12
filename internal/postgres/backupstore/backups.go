@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 	"regexp"
 	"strings"
 	"time"
 	"uuid"
+
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -172,9 +173,7 @@ func (store *Backups) SetBackupOffsite(ctx context.Context, id uuid.UUID, state,
 	if state == "uploaded" && key == "" {
 		return errors.New("uploaded off-site backup needs an object key")
 	}
-	if len(detail) > 200 {
-		detail = detail[:200]
-	}
+	detail = dbcore.TruncateText(detail, 200)
 	var uploaded any
 	if state == "uploaded" {
 		uploaded = now.UTC()
@@ -191,9 +190,7 @@ func (store *Backups) SetBackupOffsite(ctx context.Context, id uuid.UUID, state,
 
 func (store *Backups) FailBackup(ctx context.Context, id uuid.UUID, safeDetail string, now time.Time) error {
 	safeDetail = strings.TrimSpace(safeDetail)
-	if len(safeDetail) > 200 {
-		safeDetail = safeDetail[:200]
-	}
+	safeDetail = dbcore.TruncateText(safeDetail, 200)
 	_, err := store.Pool.Exec(ctx, `UPDATE backup_records SET state='failed',last_error=NULLIF($2,''),completed_at=$3 WHERE id=$1 AND state <> 'verified'`, id.String(), safeDetail, now.UTC())
 	return err
 }

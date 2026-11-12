@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/media-manager/media-manager/internal/catalog"
+	"github.com/media-manager/media-manager/internal/postgres/dbcore"
 )
 
 type AdoptionExecutionItem struct {
@@ -332,9 +333,7 @@ func (store *Store) MarkAdoptionOperation(ctx context.Context, id uuid.UUID, sta
 		return errors.New("invalid adoption operation state")
 	}
 	detail = strings.TrimSpace(detail)
-	if len(detail) > 200 {
-		detail = detail[:200]
-	}
+	detail = dbcore.TruncateText(detail, 200)
 	command, err := store.Pool.Exec(ctx, `UPDATE adoption_operations SET state=$2,last_error=NULLIF($3,''),applied_at=CASE WHEN $2='applied' THEN $4 ELSE applied_at END,verified_at=CASE WHEN $2='verified' THEN $4 ELSE verified_at END,rolled_back_at=CASE WHEN $2='rolled_back' THEN $4 ELSE rolled_back_at END WHERE id=$1`, id.String(), state, detail, now.UTC())
 	if err == nil && command.RowsAffected() == 0 {
 		return ErrNotFound
@@ -466,9 +465,7 @@ func (store *Store) RecordAdoptionPlexConfirmation(ctx context.Context, batchID 
 
 func (store *Store) FailAdoptionExecution(ctx context.Context, batchID uuid.UUID, detail string, now time.Time) error {
 	detail = strings.TrimSpace(detail)
-	if len(detail) > 200 {
-		detail = detail[:200]
-	}
+	detail = dbcore.TruncateText(detail, 200)
 	transaction, err := store.Pool.Begin(ctx)
 	if err != nil {
 		return err

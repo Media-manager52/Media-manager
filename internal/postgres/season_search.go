@@ -45,9 +45,11 @@ func (store *Store) OpenEpisodeWorkflows(ctx context.Context, mediaID uuid.UUID,
 // SharedSeasonResponse returns the stored answer of one indexer to one
 // season request when it may serve workflowID: fetched after notBefore,
 // after the workflow was created, after the newest upload the newest-uploads
-// reader matched to the workflow, and after the owner last asked for a search
-// of it. found is false otherwise, and also when an observation it named is
-// gone.
+// reader matched to the workflow, after the owner last asked for a search
+// of it, and after the workflow's own last recorded search (an answer it has
+// already evaluated would only repeat itself; its next search asks the
+// indexer). found is false otherwise, and also when an observation it named
+// is gone.
 func (store *Store) SharedSeasonResponse(ctx context.Context, indexerID uuid.UUID, fingerprint []byte, workflowID uuid.UUID, notBefore time.Time) (SeasonResponse, bool, error) {
 	var response SeasonResponse
 	var ids []string
@@ -56,7 +58,8 @@ func (store *Store) SharedSeasonResponse(ctx context.Context, indexerID uuid.UUI
 		WHERE response.indexer_instance_id=$1 AND response.request_fingerprint=$2 AND workflow.id=$3
 		  AND response.fetched_at>$4 AND response.fetched_at>workflow.created_at
 		  AND NOT EXISTS(SELECT 1 FROM indexer_feed_matches hit WHERE hit.workflow_id=workflow.id AND hit.seen_at>=response.fetched_at)
-		  AND NOT EXISTS(SELECT 1 FROM workflow_transitions transition WHERE transition.workflow_id=workflow.id AND transition.actor='owner' AND transition.to_state='searching' AND transition.occurred_at>=response.fetched_at)`,
+		  AND NOT EXISTS(SELECT 1 FROM workflow_transitions transition WHERE transition.workflow_id=workflow.id AND transition.actor='owner' AND transition.to_state='searching' AND transition.occurred_at>=response.fetched_at)
+		  AND NOT EXISTS(SELECT 1 FROM search_runs run WHERE run.workflow_id=workflow.id AND run.started_at>=response.fetched_at)`,
 		indexerID.String(), fingerprint, workflowID.String(), notBefore.UTC()).Scan(&response.FetchedAt, &response.Complete, &ids, &response.Locators)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SeasonResponse{}, false, nil

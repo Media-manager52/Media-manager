@@ -81,3 +81,25 @@ func factsEqualIgnoringObservedAt(previous, current []releases.Fact) bool {
 	}
 	return true
 }
+
+// storedObservationCurrent reports whether the stored observation a shared
+// season answer named still says exactly what this workflow's evaluation of
+// it says. Evaluation adds facts of its own (inferred title facts, the
+// episode numbering of this workflow); when they differ the candidate gets a
+// new observation version, exactly as a fresh episode search would, so later
+// steps (upgrade baseline, Danish ranking, airing season) read the same facts
+// the decision used.
+func storedObservationCurrent(ctx context.Context, transaction pgx.Tx, observation releases.Observation) (bool, error) {
+	var indexer, native, operation, title, parseVersion string
+	var rawFields, normalizedFacts, problems []byte
+	err := transaction.QueryRow(ctx, `SELECT indexer_instance_id::text,native_guid,operation_key,title,raw_fields,normalized_facts,parse_version,problems
+		FROM release_observations WHERE id=$1`, observation.ID.String()).Scan(&indexer, &native, &operation, &title, &rawFields, &normalizedFacts, &parseVersion, &problems)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return indexer == observation.IndexerID.String() && native == observation.NativeGUID &&
+		semanticObservationEqual(operation, title, parseVersion, rawFields, normalizedFacts, problems, observation), nil
+}

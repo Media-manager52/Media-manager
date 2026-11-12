@@ -12,28 +12,31 @@ import (
 // "S01 E02", "S07_E02"), which many uploads use; without it such a single
 // episode read as a season pack.
 var (
-	resolutionPixel = regexp.MustCompile(`(?i)(?:^|[ ._\-])(2160p|1080p|720p|576p|480p)(?:$|[ ._\-])`)
-	resolutionAlias = regexp.MustCompile(`(?i)(?:^|[ ._\-])(4k|uhd)(?:$|[ ._\-])`)
-	resolutionSize  = regexp.MustCompile(`(?i)^\s*(\d{3,4})\s*[x×]\s*(\d{3,4})(?:\s|$)`)
-	seasonToken     = regexp.MustCompile(`(?i)(?:^|[ ._\-])S(\d{1,3})(?:$|[ ._\-]|E)`)
-	episodeToken    = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E\d{1,3}`)
-	episodeRange    = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E\d{1,3}(?:-E?\d{1,3}|E\d{1,3})(?:$|[ ._\-])`)
-	episodeNumber   = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E(\d{1,3})`)
-	titleSeparator  = regexp.MustCompile(`[^\pL\pN]+`)
-	audioTrueHD     = regexp.MustCompile(`(?i)(?:^|[ ._\-])true[ ._\-]?hd(?:$|[ ._\-])`)
-	audioDTSHDMA    = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts[ ._\-]?hd[ ._\-]?(?:ma|master[ ._\-]?audio)(?:$|[ ._\-])`)
-	audioDTSHD      = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts[ ._\-]?hd(?:$|[ ._\-])`)
-	audioDTSX       = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts[ ._\-]?x(?:$|[ ._\-])`)
-	audioEAC3       = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:e[ ._\-]?ac[ ._\-]?3|ddp(?:\d|$|[ ._\-])|dd\+)(?:$|[ ._\-])`)
-	audioAC3        = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:ac[ ._\-]?3|dd(?:\d|$|[ ._\-]))(?:$|[ ._\-])`)
-	audioDTS        = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts(?:$|[ ._\-])`)
-	audioFLAC       = regexp.MustCompile(`(?i)(?:^|[ ._\-])flac(?:$|[ ._\-])`)
-	audioLPCM       = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:lpcm|pcm)(?:$|[ ._\-])`)
-	audioOpus       = regexp.MustCompile(`(?i)(?:^|[ ._\-])opus(?:$|[ ._\-])`)
-	audioAAC        = regexp.MustCompile(`(?i)(?:^|[ ._\-])aac(?:\d|$|[ ._\-])`)
-	audioMP3        = regexp.MustCompile(`(?i)(?:^|[ ._\-])mp3(?:$|[ ._\-])`)
-	audioAtmos      = regexp.MustCompile(`(?i)(?:^|[ ._\-])atmos(?:$|[ ._\-])`)
-	danishSubs      = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:da|dan|danish|dansk|dk)[ ._\-]?(?:subs?|subtitles?|undertekst(?:er)?)(?:$|[ ._\-])`)
+	dynamicRangeDolbyVision = regexp.MustCompile(`(?i)(?:^|[ ._\-\[(])(?:dolby[ ._\-]?vision|dovi|dv)(?:$|[ ._\-\])])`)
+	dynamicRangeHDR10Plus   = regexp.MustCompile(`(?i)(?:^|[ ._\-\[(])hdr10(?:\+|[ ._\-]?plus)(?:$|[ ._\-\])])`)
+	dynamicRangeHDR         = regexp.MustCompile(`(?i)(?:^|[ ._\-\[(])hdr(?:10)?(?:$|[ ._\-\])])`)
+	resolutionPixel         = regexp.MustCompile(`(?i)(?:^|[ ._\-])(2160p|1080p|720p|576p|480p)(?:$|[ ._\-])`)
+	resolutionAlias         = regexp.MustCompile(`(?i)(?:^|[ ._\-])(4k|uhd)(?:$|[ ._\-])`)
+	resolutionSize          = regexp.MustCompile(`(?i)^\s*(\d{3,4})\s*[x×]\s*(\d{3,4})(?:\s|$)`)
+	seasonToken             = regexp.MustCompile(`(?i)(?:^|[ ._\-])S(\d{1,3})(?:$|[ ._\-]|E)`)
+	episodeToken            = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E\d{1,3}`)
+	episodeRange            = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E\d{1,3}(?:-E?\d{1,3}|E\d{1,3})(?:$|[ ._\-])`)
+	episodeNumber           = regexp.MustCompile(`(?i)S\d{1,3}[ ._\-]?E(\d{1,3})`)
+	titleSeparator          = regexp.MustCompile(`[^\pL\pN]+`)
+	audioTrueHD             = regexp.MustCompile(`(?i)(?:^|[ ._\-])true[ ._\-]?hd(?:$|[ ._\-])`)
+	audioDTSHDMA            = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts[ ._\-]?hd[ ._\-]?(?:ma|master[ ._\-]?audio)(?:$|[ ._\-])`)
+	audioDTSHD              = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts[ ._\-]?hd(?:$|[ ._\-])`)
+	audioDTSX               = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts[ ._\-]?x(?:$|[ ._\-])`)
+	audioEAC3               = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:e[ ._\-]?ac[ ._\-]?3|ddp(?:\d|$|[ ._\-])|dd\+)(?:$|[ ._\-])`)
+	audioAC3                = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:ac[ ._\-]?3|dd(?:\d|$|[ ._\-]))(?:$|[ ._\-])`)
+	audioDTS                = regexp.MustCompile(`(?i)(?:^|[ ._\-])dts(?:$|[ ._\-])`)
+	audioFLAC               = regexp.MustCompile(`(?i)(?:^|[ ._\-])flac(?:$|[ ._\-])`)
+	audioLPCM               = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:lpcm|pcm)(?:$|[ ._\-])`)
+	audioOpus               = regexp.MustCompile(`(?i)(?:^|[ ._\-])opus(?:$|[ ._\-])`)
+	audioAAC                = regexp.MustCompile(`(?i)(?:^|[ ._\-])aac(?:\d|$|[ ._\-])`)
+	audioMP3                = regexp.MustCompile(`(?i)(?:^|[ ._\-])mp3(?:$|[ ._\-])`)
+	audioAtmos              = regexp.MustCompile(`(?i)(?:^|[ ._\-])atmos(?:$|[ ._\-])`)
+	danishSubs              = regexp.MustCompile(`(?i)(?:^|[ ._\-])(?:da|dan|danish|dansk|dk)[ ._\-]?(?:subs?|subtitles?|undertekst(?:er)?)(?:$|[ ._\-])`)
 	// Explicit Danish-audio markers only (DKaudio, DANISH.DUB, Dansk.Tale). A
 	// bare DANISH can describe the origin or a subtitle set and stays unknown.
 	// A bare DANISH/DANSK token conventionally names the audio language of a
@@ -300,11 +303,13 @@ func InferTitleFacts(observation Observation, observedAt time.Time) Observation 
 	} else if danishLanguageToken.MatchString(observation.Title) && !danishSubs.MatchString(observation.Title) && !subtitledToken.MatchString(observation.Title) {
 		inferred = append(inferred, Fact{Name: "audio_language_hints", Values: []string{"da"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	}
-	if strings.Contains(lower, "dolby vision") || strings.Contains(lower, "dovi") || strings.Contains(lower, " dv ") {
+	// Whole tokens only: "HDRip" is an SD rip, not HDR, and "DV" counts
+	// between dots as well as spaces.
+	if dynamicRangeDolbyVision.MatchString(observation.Title) {
 		inferred = append(inferred, Fact{Name: "dynamic_range", Values: []string{"dolby_vision"}, State: FactInferred, ObservedAt: observedAt.UTC()})
-	} else if strings.Contains(lower, "hdr10+") {
+	} else if dynamicRangeHDR10Plus.MatchString(observation.Title) {
 		inferred = append(inferred, Fact{Name: "dynamic_range", Values: []string{"hdr10plus"}, State: FactInferred, ObservedAt: observedAt.UTC()})
-	} else if strings.Contains(lower, "hdr") {
+	} else if dynamicRangeHDR.MatchString(observation.Title) {
 		inferred = append(inferred, Fact{Name: "dynamic_range", Values: []string{"hdr"}, State: FactInferred, ObservedAt: observedAt.UTC()})
 	}
 	if episodeRange.MatchString(observation.Title) {

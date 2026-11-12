@@ -163,3 +163,24 @@ func TestSearchPageLimitFollowsOwnerThenProviderWithinBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchAllPagesIsIncompleteWhenARepeatedPageLeavesTheStatedTotalUnread(t *testing.T) {
+	t.Parallel()
+	request := newznab.SearchRequest{Limit: 100}
+	// The provider ignores the offset: every page repeats the first, while
+	// its total says 300 results exist.
+	repeating := func(newznab.SearchRequest) (newznab.SearchPage, error) {
+		return newznab.SearchPage{Observations: observations("p0", 100), Total: 300}, nil
+	}
+	budget := searchPagingWait
+	first := newznab.SearchPage{Observations: observations("p0", 100), Total: 300}
+	got, complete := searchAllPages(context.Background(), request, first, &budget, repeating)
+	if len(got) != 100 || complete {
+		t.Fatalf("a repeated page with more stated must not count as complete: %d results, complete=%v", len(got), complete)
+	}
+	// Without a stated total the repeated page ends the answer as complete.
+	unstated := func(newznab.SearchRequest) (newznab.SearchPage, error) { return page("p0", 100), nil }
+	if got, complete := searchAllPages(context.Background(), request, page("p0", 100), &budget, unstated); len(got) != 100 || !complete {
+		t.Fatalf("a repeated page without a total: %d results, complete=%v", len(got), complete)
+	}
+}

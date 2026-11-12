@@ -97,6 +97,24 @@ func TestReadFeedPagesSkipsUploadsWithoutAProviderID(t *testing.T) {
 	}
 }
 
+func TestReadFeedPagesReadsOnWhenEveryIdentifiableUploadIsNew(t *testing.T) {
+	// Not the first read: one upload was seen before.
+	seen := &feedSeen{known: map[string]bool{"old": true}, order: []string{"old"}}
+	first := newznab.SearchPage{Observations: []releases.Observation{{NativeGUID: "new-1"}, {NativeGUID: "weak:x"}, {NativeGUID: "new-2"}}}
+	second := newznab.SearchPage{Observations: []releases.Observation{{NativeGUID: "new-3"}, {NativeGUID: "old"}}}
+	var offsets []int
+	pages, err := readFeedPages(newznab.SearchRequest{Limit: 3}, seen, func(next newznab.SearchRequest) (newznab.SearchPage, error) {
+		offsets = append(offsets, next.Offset)
+		if len(offsets) == 1 {
+			return first, nil
+		}
+		return second, nil
+	})
+	if err != nil || len(offsets) != 2 || offsets[1] != 3 || len(pages.fresh) != 3 || pages.gap {
+		t.Fatalf("a page whose only unknown items lack an ID must still be read on: pages=%+v offsets=%v err=%v", pages, offsets, err)
+	}
+}
+
 func TestFeedSeenForgetsTheOldestFirst(t *testing.T) {
 	seen := &feedSeen{known: map[string]bool{}}
 	for index := 0; index < feedSeenLimit+10; index++ {
