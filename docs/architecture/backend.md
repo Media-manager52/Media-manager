@@ -380,6 +380,16 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   - `ResumeAltMountAttention` (every 5 minutes, 10 at a time) hands failed
     imports that stopped at `altmount_job_attention` before this to the same
     retry, once per job.
+  - A download media-info cannot inspect (no deferral applies) is a release
+    failure (`inspection_failed`): excluded, next release tried.
+- Attention that needs no owner decision is resolved by sweeps in
+  `cmd/media-manager` (startup and every 5 minutes, 10 per kind):
+  `ResumeRoundDeadEnds` (duplicate-package and NZB-retrieval dead ends close
+  the round as exhausted and wait for a new release via paced discovery;
+  rounds with an indexer 401/403 stay with the owner),
+  `ResumeInspectionFailures`, and `AutoReconfirmTimedOutPlex` (1 h, 6 h,
+  24 h after a timeout, within `maxPlexReconfirmations`). New dead ends take
+  the same path at once (`roundDeadEndToWaiting`).
   - `HandleRetainedOutputReverification`: reuses the frozen inventory, makes no
     AltMount request, re-runs inspection with the original policy.
 - Constants: `altMountSubmissionVisibilityWindow = 30m`,

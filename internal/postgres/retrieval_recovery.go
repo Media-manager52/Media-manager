@@ -110,6 +110,14 @@ func (store *Store) inspectRetrievalAdmission(ctx context.Context, tx pgx.Tx, re
 }
 
 func recordRetrievalAttention(ctx context.Context, tx pgx.Tx, retrieval RetrievalContext, code, detail string, now time.Time) error {
+	// A round that only ran out of fetchable releases waits for a new one
+	// instead of the owner; an access rejection still stops here.
+	if roundDeadEndCode(code) {
+		waiting, err := roundDeadEndToWaiting(ctx, tx, retrieval.Workflow.ID, code, detail, now)
+		if err != nil || waiting {
+			return err
+		}
+	}
 	if _, err := tx.Exec(ctx, `UPDATE workflows SET state='needs_attention',revision=revision+1,updated_at=$2,attention_code=$3,attention_detail=$4 WHERE id=$1`, retrieval.Workflow.ID.String(), now.UTC(), code, detail); err != nil {
 		return err
 	}

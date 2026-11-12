@@ -323,6 +323,15 @@ func recordDuplicatePackage(ctx context.Context, transaction pgx.Tx, retrieval R
 		attentionCode = "duplicate_package_skip_limit"
 		attentionDetail = "The bounded exact-package duplicate skip limit was reached; owner review is required."
 	}
+	// No untried release is left: wait for a new one instead of the owner.
+	if waiting, deadEndErr := roundDeadEndToWaiting(ctx, transaction, retrieval.Workflow.ID, attentionCode, detail, now); deadEndErr != nil {
+		return SubmissionIntent{}, deadEndErr
+	} else if waiting {
+		if err := transaction.Commit(ctx); err != nil {
+			return SubmissionIntent{}, err
+		}
+		return SubmissionIntent{State: string(workflows.StateWaiting), ShouldSubmit: false, DuplicatePackage: true}, nil
+	}
 	newRevision := revision + 1
 	if _, err := transaction.Exec(ctx, `UPDATE workflows SET state='needs_attention',selected_release_id=NULL,grab_attempt_id=NULL,revision=$2,updated_at=$3,attention_code=$4,attention_detail=$5 WHERE id=$1 AND revision=$6`, retrieval.Workflow.ID.String(), newRevision, now.UTC(), attentionCode, attentionDetail, revision); err != nil {
 		return SubmissionIntent{}, err

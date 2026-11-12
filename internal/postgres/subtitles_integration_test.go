@@ -146,7 +146,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 		WHERE workflow.id=$1`, retrievalWorkflow.ID.String()).Scan(&retrievalState, &retrievalAttention, &failureKind, &verificationID); err != nil {
 		t.Fatal(err)
 	}
-	if retrievalState != "needs_attention" || retrievalAttention != "release_retrieval_failed" || failureKind != "release_retrieval" || verificationID != nil {
+	if retrievalState != "waiting" || retrievalAttention != workflows.AttentionRoundExhaustedWaitingNewIdentity || failureKind != "release_retrieval" || verificationID != nil {
 		t.Fatalf("retrieval failure state=%q attention=%q kind=%q verification=%v", retrievalState, retrievalAttention, failureKind, verificationID)
 	}
 	var retrievalJobs, retrievalAttempts int
@@ -802,7 +802,9 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FROM altmount_jobs WHERE workflow_id=$1`, boundedWorkflowID.String()).Scan(&jobCount); err != nil {
 		t.Fatal(err)
 	}
-	if boundedState != "needs_attention" || boundedAttention != "duplicate_package_skip_limit" || boundedSelected != nil || boundedRetry != "no_alternate" || jobCount != 1 {
+	// The duplicate skip limit leaves no untried release in the round: the
+	// workflow waits for a new release on its own instead of the owner.
+	if boundedState != "waiting" || boundedAttention != workflows.AttentionRoundExhaustedWaitingNewIdentity || boundedSelected != nil || boundedRetry != "exhausted" || jobCount != 1 {
 		t.Fatalf("bounded state=%q attention=%q selected=%v retry=%q jobs=%d", boundedState, boundedAttention, boundedSelected, boundedRetry, jobCount)
 	}
 
