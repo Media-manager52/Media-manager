@@ -244,6 +244,12 @@ func (client *HTTPClient) UploadNZB(ctx context.Context, upload UploadRequest) (
 	return item, nil
 }
 
+// RetryQueue asks AltMount to import a failed queue item again from the NZB
+// it already holds; no new NZB is downloaded from an indexer.
+func (client *HTTPClient) RetryQueue(ctx context.Context, id QueueID) error {
+	return client.json(ctx, http.MethodPost, "/api/queue/"+strconv.FormatInt(int64(id), 10)+"/retry", nil, nil)
+}
+
 func (client *HTTPClient) RequestCancel(ctx context.Context, id QueueID) error {
 	return client.json(ctx, http.MethodPost, "/api/queue/"+strconv.FormatInt(int64(id), 10)+"/cancel", nil, nil)
 }

@@ -41,6 +41,10 @@ import (
 var version = "development"
 var commit = "unknown"
 
+// altMountResumeBatch is how many failed AltMount imports waiting at owner
+// attention are handed to the automatic retry per five-minute sweep.
+const altMountResumeBatch = 10
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("media manager stopped", "error", err)
@@ -417,6 +421,7 @@ func run() error {
 		_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 		_, _ = store.QueueAltMountRepairSweeps(workerContext, time.Now().UTC())
 		_, _ = store.QueueDueImportListSyncs(workerContext, time.Now().UTC())
+		_, _ = store.ResumeAltMountAttention(workerContext, time.Now().UTC(), altMountResumeBatch)
 		if seerrEnabled {
 			_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)
 			_, _ = store.QueueConfirmedSeerrStatusSyncs(workerContext, seerrInstance, time.Now().UTC(), 25)
@@ -442,6 +447,9 @@ func run() error {
 				// Followed lists are due every few hours; checking which are
 				// due is a cheap database query.
 				_, _ = store.QueueDueImportListSyncs(workerContext, time.Now().UTC())
+				// Failed AltMount imports that stopped at owner attention are
+				// handed to the automatic retry, a few at a time.
+				_, _ = store.ResumeAltMountAttention(workerContext, time.Now().UTC(), altMountResumeBatch)
 				_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 				if seerrEnabled {
 					_, _ = store.QueueActiveSeerrPolls(workerContext, seerrInstance, time.Now().UTC(), 25)

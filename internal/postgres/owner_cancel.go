@@ -26,6 +26,9 @@ var (
 // owner-visible. Cancellation closes the open round and pauses retry
 // discovery exactly like every other cancellation.
 func (store *Store) CancelWorkflowForOwner(ctx context.Context, id uuid.UUID, now time.Time) (workflows.Workflow, error) {
+	if err := store.settleParkedAltMountJobs(ctx, `workflow.id=$1`, id.String(), now); err != nil {
+		return workflows.Workflow{}, err
+	}
 	var state string
 	var revision int64
 	var activeJob bool

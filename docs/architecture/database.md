@@ -95,7 +95,7 @@ non-obvious.
 | `workflow_transitions` | Append-only `from`/`to`/reason/actor log. |
 | `acquisition_rounds` | Durable rounds with immutable bounded attempt limits, policy/upgrade snapshots, ordinal, state. |
 | `workflow_attempted_releases` | Lifetime attempt registry (monotonic). |
-| `workflow_release_exclusions` | Exact release exclusions after attributable failure. |
+| `workflow_release_exclusions` | Exact release exclusions after attributable failure; `import_failed` when AltMount could not import the release even after the automatic retries (schema 66). |
 | `workflow_package_exclusions` | Canonical NZB package exclusions. |
 | `workflow_submitted_packages` | Package identity → submission dedup. |
 | `workflow_retry_discovery` | Low-priority discovery state, completeness, jitter, new-identity flags; `automatic_round_refused_generation` remembers a discovery for which an automatic round was refused (schema 60). |
@@ -120,7 +120,7 @@ non-obvious.
 | Table | Purpose |
 | --- | --- |
 | `streaming_choices` | Viewer release choices behind an addon stream list (indexer id, configuration fingerprint, native id, title, sanitized locator ref; no credential), kept for six hours so a list survives a restart. |
-| `altmount_jobs` | Submission intent, upload name, queue id, job revision/state, attempts, and the latest AltMount-reported progress (display only). |
+| `altmount_jobs` | Submission intent, upload name, queue id, job revision/state, attempts, and the latest AltMount-reported progress (display only). Automatic retry of a failed import: `auto_retry_count`, `auto_retry_due_at`, `auto_retry_requested_at` (paces retries across jobs) and `auto_resumed_at` (a job picked up from owner attention, once), schema 66. |
 | `altmount_job_observations` | Queue observations over time. |
 | `altmount_output_inventories` | Frozen inventory per job (local relative, completeness). |
 | `altmount_output_assets` | Files inside an inventory (path, size, kind). |
