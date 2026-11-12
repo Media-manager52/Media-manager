@@ -517,3 +517,35 @@ func assertPublicationState(t *testing.T, fixture *plexPublicationFixture, versi
 		t.Fatalf("version=%q workflow=%q, want version=%q workflow=%q", versionState, workflowState, wantVersionState, wantWorkflowState)
 	}
 }
+
+// TestPublicationKeepsAFilmWhoseTitleSaysSamples proves that publication uses
+// the same sample rule as verification: a film named "Free Samples" is the
+// feature, not a sample, so a verified release of it is publishable.
+func TestPublicationKeepsAFilmWhoseTitleSaysSamples(t *testing.T) {
+	fixture := newPlexPublicationFixture(t, catalog.KindMovie)
+	_, workflowID := fixture.movieWorkflow(t, "Free Samples", "770012")
+	job, inventoryID, assets := seedSubtitleAttempt(t, fixture.ctx, fixture.store, workflowID, fixture.altMount.ID, fixture.indexer.ID, 1, "free-samples")
+	const feature = "Free.Samples.2012.1080p.BluRay.x264.mkv"
+	if _, err := fixture.store.Pool.Exec(fixture.ctx, `UPDATE altmount_output_assets SET relative_path=$3 WHERE inventory_id=$1 AND id=$2`, inventoryID.String(), assets[0].String(), feature); err != nil {
+		t.Fatal(err)
+	}
+	evidence := mediainfo.Evidence{SchemaVersion: 1, ContainerNames: []string{"matroska"}, VideoTracks: []mediainfo.Track{{Index: 0, Codec: "h264", Width: 1920, Height: 1080}}, AudioTracks: []mediainfo.Track{}, SubtitleTracks: []mediainfo.Track{}, Facts: map[string]any{"resolution": "1080p"}}
+	verification := subtitles.Verification{
+		SchemaVersion: 1, Status: "verified", RequiredLanguages: []string{}, PreferredLanguages: []string{}, ObservedLanguages: []string{},
+		Videos:     []subtitles.VideoEvidence{{AssetID: assets[0], RelativePath: feature, MediaInfo: evidence}},
+		Companions: []subtitles.Companion{}, FailureReasons: []string{},
+	}
+	if _, err := fixture.store.RecordSubtitleVerification(fixture.ctx, job, inventoryID, verification, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.CompleteImport(fixture.ctx, job, true, "movie output verified for publication", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	publicationContext, err := fixture.store.LoadPublicationContext(fixture.ctx, workflowID, job.JobID)
+	if err != nil {
+		t.Fatalf("verified film named Samples was not publishable: %v", err)
+	}
+	if len(publicationContext.Assets) != 1 || publicationContext.Assets[0].RelativePath != feature {
+		t.Fatalf("published assets=%+v, want the feature", publicationContext.Assets)
+	}
+}

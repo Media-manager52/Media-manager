@@ -4,6 +4,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **A repair no longer rides on a download for another library.** When a broken or audio-less file was repaired while the same film or episode was already being downloaded for a different library (or, for a missing-audio upgrade, with a profile that does not require that audio), the repair joined that download. Its confirmation could then remove the old file's link from its own library, for example a children's library, with the replacement placed elsewhere. Such a repair now waits until that download has finished and then opens its own.
+- **A film whose title says "Samples" can be published.** Verification and publication now use the same sample rule, so a verified release of a film like *Free Samples* is no longer stuck as "not exactly one playable file".
+
 ## [0.1.0-beta.15] - 2026-11-12
 
 ### Fixed

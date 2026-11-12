@@ -199,7 +199,7 @@ func (store *Store) LoadPublicationContext(ctx context.Context, workflowID, jobI
 				return PublicationContext{}, err
 			}
 			asset.ID, _ = uuid.Parse(idText)
-			if playablePublicationAsset(asset.RelativePath) && !samplePublicationAsset(asset.RelativePath) {
+			if playablePublicationAsset(asset.RelativePath) && !packs.IsSample(asset.RelativePath) {
 				result.Assets = append(result.Assets, asset)
 			}
 		}
@@ -1131,15 +1131,6 @@ func playablePublicationAsset(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".mkv", ".mp4", ".m4v", ".avi", ".ts":
 		return true
-	}
-	return false
-}
-
-func samplePublicationAsset(path string) bool {
-	for _, token := range strings.FieldsFunc(strings.ToLower(filepath.Base(path)), func(value rune) bool { return value < 'a' || value > 'z' }) {
-		if token == "sample" || token == "samples" {
-			return true
-		}
 	}
 	return false
 }
