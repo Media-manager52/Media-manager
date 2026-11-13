@@ -41,6 +41,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.29.md](releases/v0.1.0-beta.29.md) | Twenty-ninth public beta (2026-11-13): "Ret Plex": Media Manager gives Plex AltMount's drive and its library folders through Cosmos, with a token that is never stored. |
 | [releases/v0.1.0-beta.28.md](releases/v0.1.0-beta.28.md) | Twenty-eighth public beta (2026-11-13): System → AltMount no longer reports missing playback info when nothing plays; the bundled AltMount mounts its drive on a fresh Cosmos install. |
 | [releases/v0.1.0-beta.27.md](releases/v0.1.0-beta.27.md) | Twenty-seventh public beta (2026-11-13): System → AltMount shows AltMount's drive, servers with quota and current streams; a warning when Plex cannot see AltMount's files. |
 | [releases/v0.1.0-beta.26.md](releases/v0.1.0-beta.26.md) | Twenty-sixth public beta (2026-11-13): AltMount is installed together with Media Manager from the Cosmos store (on by default) and connected on first start. |
