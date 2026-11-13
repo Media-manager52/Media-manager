@@ -128,7 +128,7 @@ func TestFixPlexAccessGivesPlexAltMountThroughCosmos(t *testing.T) {
 	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET config=$1 WHERE kind='plex'`, `{"base_url":"https://plex.example.test:32400"}`); err != nil {
 		t.Fatal(err)
 	}
-	status, plan, text = post(map[string]any{"cosmos_host": "media.example.test", "cosmos_api_key": pastedKey})
+	status, _, text = post(map[string]any{"cosmos_host": "media.example.test", "cosmos_api_key": pastedKey})
 	if status != http.StatusOK || !strings.Contains(text, `"problem":"choose_plex"`) || !strings.Contains(text, `"candidates":["plex","plex-test"]`) {
 		t.Fatalf("choose: %d %s", status, text)
 	}

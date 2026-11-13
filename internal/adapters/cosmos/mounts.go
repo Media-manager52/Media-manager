@@ -18,8 +18,6 @@ type Mount struct {
 	other       map[string]json.RawMessage
 }
 
-var knownMountFields = []string{"Type", "Source", "Target", "ReadOnly", "BindOptions"}
-
 // UnmarshalJSON keeps every field.
 func (mount *Mount) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
