@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.22] - 2026-11-13
+
 ### Removed
 
 - **Stale documentation and unused code are gone.** Old AI session prompts, superseded design proposals, dated status snapshots and a one-time handoff note were removed from `docs/` (they remain in the Git history), and an unused AltMount cancel-and-delete client path was dropped. No behaviour changes.
@@ -618,6 +620,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.22]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.22
 [0.1.0-beta.21]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.21
 [0.1.0-beta.20]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.20
 [0.1.0-beta.19]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.19
