@@ -103,7 +103,7 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   })],
   [/^\/api\/v1\/settings\/integrations\/[0-9a-f-]+\/seerr-routes$/, () => ({ routes: [{ id: "route-1", seerr_instance_id: ids.seerr, media_kind: "movie", root_folder: "/media/Movies", library_root_id: ids.root, enabled: true, created_at: now, updated_at: now }], observed_folders: [] })],
   [/^\/api\/v1\/settings\/notifications$/, () => []],
-  [/^\/api\/v1\/system\/altmount$/, () => ({ altmount: { id: "altmount-1", name: "AltMount" }, drive: { status: "running", healthy: true, path: "/mnt/altmount" }, download_speed_bytes_per_sec: 12_500_000, bytes_downloaded_24h: 412_000_000_000, unavailable: [], checked_at: now, servers: [
+  [/^\/api\/v1\/system\/altmount$/, () => ({ altmount: { id: "altmount-1", name: "AltMount" }, version: "v0.4.0", build: "standard", can_switch: true, drive: { status: "running", healthy: true, path: "/mnt/altmount" }, download_speed_bytes_per_sec: 12_500_000, bytes_downloaded_24h: 412_000_000_000, unavailable: [], checked_at: now, servers: [
     { id: "provider_1", name: "Hovedserver med et meget langt navn til mobil", host: "news.example-provider-with-a-long-hostname.test", enabled: true, is_backup_provider: false, quota_set: true, live: { id: "provider_1", host: "news.example.test", state: "active", used_connections: 21, max_connections: 50, error_count: 12, failure_reason: "", current_speed_bytes_per_sec: 9_000_000, ping_ms: 13, missing_warning: false, byte_count_24h: 322_000_000_000, quota_bytes: 1_000_000_000_000, quota_used: 820_000_000_000, quota_reset_at: "2026-12-01T00:00:00Z", quota_exceeded: false } },
     { id: "provider_2", host: "backup.example.test", enabled: true, is_backup_provider: true, quota_set: false, live: { id: "provider_2", host: "backup.example.test", state: "active", used_connections: 0, max_connections: 10, error_count: 0, failure_reason: "", current_speed_bytes_per_sec: 0, ping_ms: 20, missing_warning: true, byte_count_24h: 0, quota_bytes: 0, quota_used: 0, quota_exceeded: false } },
     { id: "provider_3", host: "old.example.test", enabled: false, is_backup_provider: false, quota_set: false },
@@ -155,6 +155,10 @@ export async function mockApi(page: Page): Promise<Recorded[]> {
           { kind: "add_library_path", purpose: "movies", path: "/libraries/movies", library: "Film" },
         ]
         return route.fulfill({ json: { data: { plex_container: "plex", changes, plex_paths: { altmount: "/mnt/altmount" }, restart: true, applied: apply } } })
+      }
+      if (url.pathname === "/api/v1/system/altmount/switch") {
+        const apply = Boolean((JSON.parse(request.postData() ?? "{}") as { apply?: boolean }).apply)
+        return route.fulfill({ json: { data: { container: "altmount", current_image: "ghcr.io/kipsilabs/altmount:latest", current_version: "v0.4.0", new_image: "ghcr.io/media-manager52/altmount:mm-stable", base_version: "0.4.0", already_media_manager: false, applied: apply, new_version: apply ? "v0.4.0-mm.3" : undefined } } })
       }
       if (url.pathname === "/api/v1/media") return route.fulfill({ status: 201, json: { data: { media: { ...media[0], id: ids.movie }, workflows: [] } } })
       return route.fulfill({ status: 202, json: { data: { status: "queued", id: ids.attention } } })

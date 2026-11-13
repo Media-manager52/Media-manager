@@ -3,6 +3,7 @@ import { CheckCircle2, Wrench } from "lucide-react"
 import { useState } from "react"
 
 import { ApiError, fixPlexAccess, type APIPlexAccessPlan } from "@/api/client"
+import { CosmosTokenField } from "@/components/cosmos-token"
 import { fieldClass } from "@/components/setup-forms"
 import { Button } from "@/components/ui"
 import { errorMessage } from "@/i18n"
@@ -64,14 +65,7 @@ export function PlexAccessFix({ onDone }: { onDone?: () => void }) {
       <p className="text-text-2">
         Media Manager kan give Plex de mapper, den mangler, gennem Cosmos: AltMounts filer (så Plex beholder dem, når AltMount genstarter) og Media Managers biblioteksmapper. Plex genstarter én gang, og alt andet i Plex bliver som før.
       </p>
-      <ol className="list-decimal pl-5 text-text-2">
-        <li>Åbn Cosmos → Settings → fanen "API", og tryk "New Token". Lad "Read Only" være slået fra, og vælg gerne udløb "7 days".</li>
-        <li>Indsæt nøglen her. Den bruges kun nu og bliver ikke gemt.</li>
-      </ol>
-      <label className="block">
-        <span className="font-medium">Cosmos API-nøgle</span>
-        <input type="password" autoComplete="off" value={token} onChange={(event) => { setToken(event.target.value); preview.reset() }} className={`${fieldClass} font-mono`} />
-      </label>
+      <CosmosTokenField value={token} onChange={(value) => { setToken(value); preview.reset() }} />
       {candidates.length > 0 ? (
         <label className="block">
           <span className="font-medium">Hvilken container er din Plex?</span>

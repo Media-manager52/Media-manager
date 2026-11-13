@@ -422,40 +422,9 @@ func findPlex(containers []cosmos.ContainerSummary, selfID, host, chosen string)
 	if ip := plexDirectAddress(host); ip != "" {
 		host = ip
 	}
-	var images []string
-	for _, container := range containers {
-		name := container.Name()
-		if name == "" || (selfID != "" && strings.HasPrefix(container.ID, selfID)) {
-			continue
-		}
-		if chosen != "" {
-			if name == chosen {
-				return name, nil
-			}
-			continue
-		}
-		if strings.EqualFold(name, host) {
-			return name, nil
-		}
-		for _, network := range container.NetworkSettings.Networks {
-			if host != "" && network.IPAddress == host {
-				return name, nil
-			}
-			for _, alias := range append(append([]string{}, network.Aliases...), network.DNSNames...) {
-				if strings.EqualFold(alias, host) {
-					return name, nil
-				}
-			}
-		}
-		image := strings.ToLower(container.Image)
-		if strings.Contains(image, "plex") && !strings.Contains(image, "meta-manager") && !strings.Contains(image, "kometa") {
-			images = append(images, name)
-		}
-	}
-	if chosen == "" && len(images) == 1 {
-		return images[0], nil
-	}
-	return "", images
+	return cosmos.FindContainer(containers, selfID, host, chosen, func(image string) bool {
+		return strings.Contains(image, "plex") && !strings.Contains(image, "meta-manager") && !strings.Contains(image, "kometa")
+	})
 }
 
 // plexDirectAddress reads the address out of a plex.direct name such as

@@ -2,8 +2,10 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
 
 import { loadAltMountStatus, type APIAltMountServerStatus, type APIAltMountStream } from "@/api/client"
+import { AltMountSwitch } from "@/components/altmount-switch"
 import { Badge, Card, CardHeader, Dot, Empty, ErrorBox, Progress, Stat } from "@/components/ui"
 import { formatBytes, formatDateTime, formatRelative } from "@/format"
+import { altMountBuildText } from "@/lib/altmount-switch"
 import { quotaPercent, serverState, streamProgress, streamStatusLabel } from "@/lib/altmount-status"
 import { scopeLabel, titleHref } from "@/lib/links"
 import { ListSkeleton } from "@/pages/overview"
@@ -25,6 +27,8 @@ export function AltMountStatusSection() {
           AltMount svarede ikke om {status.unavailable.map((part) => unavailableLabels[part] ?? part).join(" og ")}. Resten er vist.
         </div>
       ) : null}
+      <p className="text-sm text-text-2">Udgave: {altMountBuildText(status)}</p>
+      {status.can_switch ? <AltMountSwitch version={status.version} /> : null}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Stat label="Drev" tone={!drive ? "neutral" : drive.healthy ? "good" : "bad"} value={!drive ? "Ukendt" : drive.healthy ? "Kører" : "Fejler"} hint={drive?.path} />
         <Stat label="Hentet det seneste døgn" value={formatBytes(status.bytes_downloaded_24h)} hint={`${formatBytes(status.download_speed_bytes_per_sec)}/s lige nu`} />

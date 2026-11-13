@@ -233,6 +233,11 @@ AltMount over its existing login and never stores, logs or returns it. Servers
 are tried in the listed order; a backup server is used only when the others
 miss an article. The only enabled server cannot be turned off or deleted.
 
+With a normal AltMount (0.4.0 or older) in Cosmos, System → AltMount offers
+**Skift til Media Managers AltMount**: Cosmos swaps only the image for Media
+Manager's build, which copies the database and settings first and keeps every
+folder and volume; see [the Cosmos guide](../deploy/cosmos/README.md#switching-your-own-altmount-to-media-managers-build).
+
 The API mounts the **parent** of AltMount's FUSE mount at `/mnt` read-only with
 `rslave` propagation, so an AltMount restart or remount reaches the running API.
 Both the Compose file and the Cosmos market template declare this propagation;

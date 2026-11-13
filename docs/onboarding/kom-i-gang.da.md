@@ -98,6 +98,23 @@ ikke kan se AltMounts filer eller Media Managers biblioteksmapper, eller mangler
 et film- eller seriebibliotek. Så giver Media Manager Plex mapperne og lægger
 dem i dine Plex-biblioteker (eller opretter "Film" og "Serier").
 
+### Har du allerede den normale AltMount?
+
+Så kan du blive ved med at bruge den: Media Manager virker med den normale
+AltMount (0.4.0). Står der **Udgave: Den normale AltMount** på System →
+AltMount, kan du skifte til Media Managers udgave med **Skift til Media
+Managers AltMount**. Det er den samme AltMount med rettelser (en forkert del
+fra én server hentes fra den næste, gamle RAR-pakker følges bedre, og drevet
+tåler fejl bedre).
+
+Kun programmet bliver skiftet. Dine indstillinger, din database, dine filer,
+mapper og drevet bliver, hvor de er. Før den nye udgave starter første gang,
+kopierer den databasen og indstillingerne til mappen
+`before-media-manager-<tid>` i AltMounts config-mappe. Kommer den ikke op inden
+for to minutter, sætter Media Manager din gamle AltMount tilbage. Du bruger en
+API-nøgle fra Cosmos som ved **Ret Plex**, og den bliver ikke gemt. En AltMount,
+der er nyere end Media Managers udgave, bliver ikke skiftet.
+
 ## Backup og gendannelse
 
 **System → Backup** viser krypterede databasebackups. **Database kontrolleret**

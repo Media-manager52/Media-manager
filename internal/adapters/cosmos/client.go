@@ -177,10 +177,33 @@ func (client *Client) Container(ctx context.Context, name string) (Container, er
 // memory and CPU limits (Cosmos clears them when they are not sent). Cosmos
 // puts the old container back when the new one cannot be created.
 func (client *Client) UpdateMounts(ctx context.Context, name string, mounts []Mount, memory, nanoCPUs int64) error {
-	if !validName(name) || len(mounts) == 0 {
+	if len(mounts) == 0 {
 		return ErrInvalidConfig
 	}
-	form := map[string]any{"Volumes": mounts}
+	return client.update(ctx, name, map[string]any{"Volumes": mounts}, memory, nanoCPUs)
+}
+
+// UpdateImage recreates a container from another image with the given
+// mounts (MountList, so volumes the image created are kept by name instead
+// of being replaced by new empty ones), keeping its settings and limits.
+// Cosmos pulls the image when the server does not have it, and puts the old
+// container back when the new one cannot be created.
+func (client *Client) UpdateImage(ctx context.Context, name, image string, mounts []Mount, memory, nanoCPUs int64) error {
+	image = strings.TrimSpace(image)
+	if image == "" || strings.ContainsAny(image, " \t\n") {
+		return ErrInvalidConfig
+	}
+	form := map[string]any{"image": image}
+	if len(mounts) > 0 {
+		form["Volumes"] = mounts
+	}
+	return client.update(ctx, name, form, memory, nanoCPUs)
+}
+
+func (client *Client) update(ctx context.Context, name string, form map[string]any, memory, nanoCPUs int64) error {
+	if !validName(name) {
+		return ErrInvalidConfig
+	}
 	if memory > 0 {
 		form["memLimit"] = strconv.FormatInt(memory, 10)
 	}

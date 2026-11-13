@@ -152,6 +152,25 @@ Already running your own AltMount? Turn off **Install AltMount together with Med
 Manager**, choose the host folder that contains its FUSE mount, put Media Manager on
 a network AltMount is on, and add it under **Indstillinger → Forbindelser**.
 
+### Switching your own AltMount to Media Manager's build
+
+Media Manager works with the normal AltMount (0.4.0). System → AltMount shows which
+one runs (**Udgave**). For a normal AltMount no newer than the release Media
+Manager's build is based on, **Skift til Media Managers AltMount** swaps only the
+image through Cosmos (same Cosmos API token as **Ret Plex**, never stored):
+
+- Cosmos recreates AltMount's container from
+  `ghcr.io/media-manager52/altmount:mm-stable` with every folder, volume (also a
+  `/metadata` volume the image created itself, kept by name), setting, network
+  and limit unchanged. Nothing in `/config` is rewritten: both builds use the
+  same database.
+- On its first start, before AltMount runs, Media Manager's build copies the
+  database and `config.yaml` to `/config/before-media-manager-<time>/`.
+- When the new AltMount does not answer as Media Manager's build within two
+  minutes, the old image is put back. A newer AltMount, or one that reports no
+  version, is not switched. Going back later only means choosing the old image
+  in Cosmos.
+
 The owner token is in the install form (and in the API service environment). It is
 injected only by the Cosmos `/api` route; do not expose the API port.
 

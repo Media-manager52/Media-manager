@@ -47,6 +47,9 @@ func (server *Server) fixPlexAccess(writer http.ResponseWriter, request *http.Re
 		writeError(writer, http.StatusBadRequest, "invalid_request", "send cosmos_host and cosmos_api_key")
 		return
 	}
+	// Cosmos recreates a container and waits for it, which takes longer than
+	// the server's usual write limit; the answer must still reach the page.
+	_ = http.NewResponseController(writer).SetWriteDeadline(time.Now().Add(9 * time.Minute))
 	ctx, cancel := context.WithTimeout(request.Context(), 8*time.Minute)
 	defer cancel()
 	integrations, err := server.store.ListIntegrations(ctx)

@@ -242,8 +242,14 @@
             },
             "type": "object"
           },
+          "build": {
+            "type": "string"
+          },
           "bytes_downloaded_24h": {
             "type": "integer"
+          },
+          "can_switch": {
+            "type": "boolean"
           },
           "checked_at": {
             "format": "date-time",
@@ -272,6 +278,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "version": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -309,6 +318,38 @@
           }
         },
         "type": "object"
+      },
+      "AltMountSwitchInput": {
+        "properties": {
+          "altmount_container": {
+            "type": "string"
+          },
+          "apply": {
+            "type": "boolean"
+          },
+          "cosmos_api_key": {
+            "type": "string"
+          },
+          "cosmos_host": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AltMountSwitchResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Altmountswitch_Plan"
+          },
+          {
+            "properties": {
+              "problem": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ]
       },
       "Altmount_DriveStatus": {
         "properties": {
@@ -505,6 +546,41 @@
           },
           "used_connections": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Altmountswitch_Plan": {
+        "properties": {
+          "already_media_manager": {
+            "type": "boolean"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "base_version": {
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "container": {
+            "type": "string"
+          },
+          "current_image": {
+            "type": "string"
+          },
+          "current_version": {
+            "type": "string"
+          },
+          "new_image": {
+            "type": "string"
+          },
+          "new_version": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -8926,6 +9002,70 @@
           }
         },
         "summary": "AltMount's drive, news servers (connections, errors, quota) and current streams",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/system/altmount/switch": {
+      "post": {
+        "description": "Uses a Cosmos API token for this request only; it is never stored, logged or audited. Finds AltMount's container (by the AltMount connection's address, else the only AltMount image; problem choose_altmount lists candidates for altmount_container) and reads its version through the AltMount connection. Only a normal AltMount release no newer than base_version switches (altmount_version_newer, altmount_version_unknown otherwise); Media Manager's build is reported as already_media_manager. With apply true Cosmos recreates the container from new_image, keeping every folder, volume (also volumes the image created, by name), setting and limit; a folder Cosmos cannot keep (SELinux z/Z) is refused as altmount_folder_refused before anything changes; Media Manager's build copies AltMount's database and settings before its first start. When it does not answer as Media Manager's build within two minutes, the old image is put back (altmount_switch_rolled_back). Audited as altmount.image_switched.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "switchAltMount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AltMountSwitchInput"
+                  }
+                ],
+                "required": [
+                  "cosmos_host",
+                  "cosmos_api_key"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/AltMountSwitchResponse"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "\"Skift til Media Managers AltMount\": give an existing normal AltMount Media Manager's build through Cosmos",
         "tags": [
           "system"
         ],

@@ -76,8 +76,10 @@ func (fake *fakeUsenetAltMount) handler(t *testing.T) http.Handler {
 		}
 		path := request.URL.Path
 		switch {
-		case request.Method == http.MethodPost && path == "/api/auth/logout":
+		case request.Method == http.MethodPost && path == "/api/user/logout":
 			reply(nil)
+		case request.Method == http.MethodGet && path == "/api/system/stats":
+			reply(map[string]any{"system": map[string]any{"version": "v0.4.0-mm.3"}})
 		case request.Method == http.MethodGet && path == "/api/config":
 			list := []map[string]any{}
 			for _, provider := range fake.providers {
