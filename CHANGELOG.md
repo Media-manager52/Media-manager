@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.32] - 2026-11-14
+
 ### Changed
 
 - **The Cosmos install form is shorter and plainer.** It opens with what Media Manager does and needs, then the two choices (AltMount included; Also install Plex), four folders and the optional TMDB token; user and group ID, the Docker network (created when missing, not required to exist), the extra-libraries folder and the owner token are grouped under Advanced. After the install, Cosmos shows the four steps to get started, a note for an installed Plex or an own AltMount, and the key warning. The market listing text says what you need, what gets installed and how to start.
@@ -709,6 +711,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.32]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.32
 [0.1.0-beta.31]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.31
 [0.1.0-beta.30]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.30
 [0.1.0-beta.29]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.29
