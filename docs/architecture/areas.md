@@ -26,7 +26,7 @@ This is for working quickly. It starts a throwaway PostgreSQL in Docker unless
 | `language` | Proves language in the actual file | `internal/subtitles`, `internal/mediainfo`, `internal/languages` | Arbejde (sprogkontrol) | Sprog |
 | `repairs` | Replaces files AltMount reports broken or that lack required audio | `internal/acquisition/altmount_repair.go` | System → Reparationer | Reparation |
 | `library` | Titles, seasons, moving between libraries, manual add, airing dates | `internal/library`, `internal/metadata`, `internal/catalog` | Bibliotek, Tilføj, Kalender | Titler |
-| `commissioning` | Tests and approves an indexer before it may be used | `internal/commissioning`, `internal/commissioningv2`, `internal/adapters/newznab`, `internal/adapters/oldboys` | Kilder | Forbindelser |
+| `commissioning` | Tests and approves an indexer before it may be used | `internal/commissioning`, `internal/adapters/newznab`, `internal/adapters/oldboys` | Kilder | Forbindelser |
 | `seerr` | Requests from Seerr, routing, status sent back | `internal/intake`, `internal/adapters/seerr` | Anmodninger, Indstillinger → Seerr | Titler |
 | `adoption` | Takes over existing files | `internal/adoption`, `internal/adoptionexec` | Indstillinger → Overtag | Titler |
 | `recycle` | Deleted titles, restore, archive | `internal/recycle` | System → Papirkurv | Titler |

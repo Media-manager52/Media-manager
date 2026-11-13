@@ -296,10 +296,7 @@ These summarize [acquisition-safety.md](acquisition-safety.md), [../invariants.m
    sanitized out of every persisted/owner-visible field.
 10. **Owner-only writes.** Every `/api/v1/*` route calls `requireOwner` except
     the Seerr webhook, which authenticates with its own constant-time
-    `SEERR_WEBHOOK_SECRET` bearer. The
-    commissioning-v2 mutation routes additionally require a trusted `Origin`
-    matching `COMMISSIONING_V2_OWNER_ORIGIN`, reject cross-site Fetch Metadata,
-    and require `application/json`.
+    `SEERR_WEBHOOK_SECRET` bearer.
 
 ## 8. Where to start for common questions
 

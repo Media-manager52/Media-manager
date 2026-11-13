@@ -29,7 +29,6 @@ func newOldBoysClient(ctx context.Context, store *postgres.Store, scheduler *ind
 	if err != nil {
 		return nil, err
 	}
-	scheduler.SetCommissioningGateSource(integration.ID.String(), store)
 	return oldboys.New(integration.ID, credentials, scheduler, transport, func(ctx context.Context) error { return store.ValidateOldBoysSnapshot(ctx, integration, false) })
 }
 

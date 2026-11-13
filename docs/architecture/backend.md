@@ -529,34 +529,13 @@ MDBList lists are handled by `intake.ImportListService` (above).
 Newznab candidates, preserving query/grab ceilings. No runtime Prowlarr
 connection. Owner must place extracted keys into secret env names manually.
 
-## internal/commissioning — Newznab commissioning (v1 + v2 bridge)
+## internal/commissioning — Newznab commissioning
 
-`newznab.go`, `live_v2.go` + tests.
+`newznab.go`, `oldboys.go` + tests.
 
 - `NewznabService.Commission`: validates a staged Newznab instance: CAPS +
   one random negative query, ≥3s paced through the shared scheduler, then
   enables only on success.
-- `LiveCAPSService`: implements `httpapi.CommissioningV2Service` by bridging the
-  pure `commissioningv2` domain to the live executor (the only place a live
-  executor is constructed).
-
-## internal/commissioningv2 — owner-authorized commissioning (pure + live)
-
-30 files, ~9 562 lines, the most intricate package.
-
-- `types.go`: `RunState` (`awaiting_caps_authorization` → `caps_authorized` →
-  `awaiting_category_review` → `awaiting_search_authorization` →
-  `searches_authorized` → `ready_for_draft` → `completed`; plus owner_attention,
-  cancel, stale, safety_blocked), `ValidRunTransition`, `StepPhase`,
-  limits (`MaximumAPICalls = 5`, `MaximumSearchCalls = 4`).
-- Pure planning/evidence: `draft.go`, `probe_plan.go`, `search_proof.go`,
-  `evidence.go`, `fixture.go`, `digest.go`, `fingerprint.go`,
-  `secret_guard.go`, `live_classification.go`.
-- Live pieces: `live_execute.go`, `live_executor.go`, `live_search.go`
-  (bounded, explicitly owner-authorized CAPS/search steps).
-- The package is intentionally transport-free at the domain layer; HTTP access
-  goes through `httpapi/commissioning_v2.go` and the bridge in
-  `internal/commissioning/live_v2.go`. See [workflows.md](workflows.md#14-indexer-commissioning).
 
 ## internal/servarr — Radarr/Sonarr compatibility surface
 
@@ -570,7 +549,7 @@ routes Auto requests by metadata in `internal/postgres/seerr_routes.go`). No I/O
 
 ## internal/httpapi — HTTP transport
 
-`server.go` (1 979 lines), `commissioning_v2.go` + tests.
+`server.go` + tests.
 
 - `Config` carries owner token, Seerr flag/secret/instance, version/commit,
   metadata provider + enricher + states, commissioning functions, backup info.
@@ -579,8 +558,6 @@ routes Auto requests by metadata in `internal/postgres/seerr_routes.go`). No I/O
   `Cache-Control: no-store`, CSP `default-src 'none'`).
 - `requireOwner` hashes both sides with SHA-256 and uses
   `subtle.ConstantTimeCompare`.
-- `requireOwnerMutation` (commissioning v2) additionally requires configured
-  service + trusted `Origin`, same-origin Fetch Metadata, and JSON content type.
 - `requireServarr` guards `/radarr/api/v3/*` and `/sonarr/api/v3/*` (and the
   4K-edition `/radarr4k` and `/sonarr4k` twins) with the
   dedicated `SERVARR_API_KEY` (`X-Api-Key` header or `apikey` query parameter);
@@ -685,7 +662,7 @@ and shows with a TMDB number are kept.
   `MEDIA_MANAGER_TEST_DATABASE_URL` is set (guard in
   `internal/postgres/integration_test.go`).
 - The highest-risk packages have focused table tests (`releases`, `packs`,
-  `subtitles`, `library`, `indexers`, `newznab`, `altmount`, `commissioningv2`)
+  `subtitles`, `library`, `indexers`, `newznab`, `altmount`)
   plus PostgreSQL lifecycle tests (`*_integration_test.go`).
 - Run `-race`; CI runs `go test -count=1 -race ./cmd/... ./internal/...`
   against PostgreSQL 18.

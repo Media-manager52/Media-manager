@@ -173,18 +173,6 @@ type reinspectRetainedMovieInput struct {
 	JobID string `json:"job_id"`
 }
 
-type sealCommissioningV2SearchPlanInput struct {
-	ExpectedRevision              uint64 `json:"expected_revision"`
-	MovieCategoryIDs              []int  `json:"movie_category_ids"`
-	SeriesCategoryIDs             []int  `json:"series_category_ids"`
-	IncludeMovieFallback          bool   `json:"include_movie_fallback"`
-	IncludeCompleteSeasonFallback bool   `json:"include_complete_season_fallback"`
-}
-
-type expectedRevisionInput struct {
-	ExpectedRevision uint64 `json:"expected_revision"`
-}
-
 type saveSeerrRouteInput struct {
 	MediaKind        string `json:"media_kind"`
 	RootFolder       string `json:"root_folder"`

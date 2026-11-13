@@ -36,7 +36,7 @@ var rules = []struct {
 	why       string
 }{
 	{"internal/adapters/", []string{"internal/postgres", "internal/httpapi", "internal/acquisition", "internal/publication", "internal/intake", "internal/adoptionexec", "internal/commissioning", "internal/mcpserver", "internal/platform", "internal/backups", "internal/recycle", "internal/notifications", "internal/metadata"}, "an adapter talks to one external service; orchestration and storage call it, never the other way round"},
-	{"internal/postgres", []string{"internal/adapters/", "internal/commissioningv2", "internal/prowlarrbackup", "internal/acquisition", "internal/publication", "internal/httpapi", "internal/intake", "internal/adoptionexec", "internal/commissioning", "internal/mcpserver", "internal/platform"}, "storage persists domain types; it must not call providers or services"},
+	{"internal/postgres", []string{"internal/adapters/", "internal/prowlarrbackup", "internal/acquisition", "internal/publication", "internal/httpapi", "internal/intake", "internal/adoptionexec", "internal/commissioning", "internal/mcpserver", "internal/platform"}, "storage persists domain types; it must not call providers or services"},
 	{"internal/httpapi", []string{"internal/adapters/"}, "HTTP handlers call services, which own provider calls, pacing and credentials"},
 	{"internal/mcpserver", []string{"internal/"}, "the MCP server is an API client and must only use the public HTTP API"},
 }

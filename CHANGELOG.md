@@ -7,6 +7,7 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 ### Removed
 
 - **Stale documentation and unused code are gone.** Old AI session prompts, superseded design proposals, dated status snapshots and a one-time handoff note were removed from `docs/` (they remain in the Git history), and an unused AltMount cancel-and-delete client path was dropped. No behaviour changes.
+- **Indexer commissioning v2 is removed (schema 69).** The owner-authorized multi-step commissioning runs were never used: their nine `/commissioning-v2/` routes, the `COMMISSIONING_V2_OWNER_ORIGIN` setting, the run and step tables and the unresolved-attempt gate on indexer pacing are gone. The migration refuses to run if any v2 run or step was ever recorded. Adding an indexer still uses the normal commission check, indexer pacing and quotas are unchanged, and each search no longer makes an extra database read for the gate.
 
 ## [0.1.0-beta.21] - 2026-11-12
 

@@ -170,13 +170,6 @@ Open `https://<your-host>` and sign in with your Cosmos account. Media Manager
 should load, and its API calls should succeed because Cosmos injects the owner
 bearer.
 
-If you change the public hostname later, update
-`COMMISSIONING_V2_OWNER_ORIGIN` in `.env` and recreate the API:
-
-```sh
-docker compose up -d --force-recreate api
-```
-
 Verify the public edge:
 
 ```sh

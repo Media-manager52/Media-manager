@@ -35,7 +35,6 @@ func (service *OldBoysService) Commission(ctx context.Context) (postgres.Integra
 	if err != nil {
 		return postgres.Integration{}, err
 	}
-	service.Scheduler.SetCommissioningGateSource(integration.ID.String(), service.Store)
 	if err := service.Scheduler.Configure(integration.ID.String(), indexers.NewznabBudget(5000, 1000, 100, 86400)); err != nil {
 		return postgres.Integration{}, err
 	}

@@ -2,13 +2,15 @@ package commissioningstore
 
 import (
 	"context"
-	"encoding/json"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/media-manager/media-manager/internal/adapters/newznab"
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 )
 
 func openStore(ctx context.Context, databaseURL string) (*Commissioning, error) {
@@ -25,57 +27,44 @@ func openStore(ctx context.Context, databaseURL string) (*Commissioning, error) 
 
 func (store *Commissioning) Close() { store.Pool.Close() }
 
-func activatableCapabilityProfileDocument(t *testing.T) json.RawMessage {
+func isolatedCommissioningStore(t *testing.T) (*Commissioning, context.Context) {
 	t.Helper()
-	return activatableCapabilityProfileDocumentWithContract(t, newznab.ProviderContractRef{})
-}
-
-func activatableCapabilityProfileDocumentWithContract(t *testing.T, contract newznab.ProviderContractRef) json.RawMessage {
-	t.Helper()
-	const evidenceKey = "evidence.00000000000000000000000000000001"
-	profile := newznab.CapabilityProfile{
-		SchemaVersion: newznab.CapabilityProfileSchemaVersion,
-		SearchRecipes: []newznab.SearchRecipe{{
-			Key:   "movie-imdb",
-			Scope: newznab.SearchScopeMovie,
-			Mode:  newznab.SearchModeMovie,
-			Query: newznab.QuerySpec{Style: newznab.QueryTitle},
-			Bindings: []newznab.WireBinding{{
-				Parameter: newznab.WireIMDbID,
-				Source:    newznab.BindingIMDbNumeric,
-			}},
-			Extended:      true,
-			Categories:    newznab.CategorySpec{Set: newznab.CategorySelectedMovie},
-			VerifiedLimit: 50,
-			Role:          newznab.RecipePrimary,
-			Priority:      1,
-			Verification: newznab.RecipeVerification{
-				State:        newznab.VerificationVerified,
-				EvidenceKeys: []string{evidenceKey},
-			},
-		}},
-		Operations:  []newznab.OperationCapability{},
-		MappingRefs: []newznab.MappingRef{{Key: newznab.MappingNewznabSearchV1, Version: 1}},
-		Evidence: []newznab.CommissionEvidence{{
-			Key:                    evidenceKey,
-			Kind:                   newznab.EvidenceKindControlledProbe,
-			Target:                 newznab.EvidenceTarget{Kind: newznab.EvidenceTargetSearchRecipe, RecipeKey: "movie-imdb"},
-			ObservedAt:             time.Unix(1, 0).UTC(),
-			BodySHA256:             strings.Repeat("a", 64),
-			SafeOutcome:            newznab.EvidenceOutcomeSearchSuccess,
-			RawResultCount:         1,
-			PlausibleIdentityCount: 1,
-		}},
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
 	}
-	if contract.Key != "" {
-		profile.ProviderContract = &contract
-	}
-	if err := newznab.ValidateCapabilityProfileForActivation(profile); err != nil {
-		t.Fatalf("test profile: %v", err)
-	}
-	body, err := json.Marshal(profile)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	t.Cleanup(cancel)
+	schema := "mm_indexer_commissioning_repository_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	admin, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return body
+	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("search_path", schema)
+	parsed.RawQuery = query.Encode()
+	store, err := openStore(ctx, parsed.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.Migrate(ctx, store.Pool); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		store.Close()
+		cleanup, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := admin.Exec(cleanup, `DROP SCHEMA `+schema+` CASCADE`); err != nil {
+			t.Errorf("drop test schema: %v", err)
+		}
+		admin.Close()
+	})
+	return store, ctx
 }

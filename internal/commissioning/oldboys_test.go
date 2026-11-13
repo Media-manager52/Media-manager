@@ -15,7 +15,7 @@ type oldBoysTestTransport func(*http.Request) (*http.Response, error)
 
 func (f oldBoysTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func TestOldBoysNativeCommissionValidatesFivePacedRequests(t *testing.T) {
-	store, ctx := draftServiceStore(t)
+	store, ctx := testStore(t)
 	vault, err := oldboyscredentials.New(store, strings.Repeat("ab", 32))
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestOldBoysNativeCommissionValidatesFivePacedRequests(t *testing.T) {
 	}
 }
 func TestNativeCommissionRejectsFilteredNonemptyNegativeControl(t *testing.T) {
-	store, ctx := draftServiceStore(t)
+	store, ctx := testStore(t)
 	vault, _ := oldboyscredentials.New(store, strings.Repeat("ab", 32))
 	_, err := vault.Save(ctx, oldboyscredentials.Credentials{APIToken: "fixture-api", PassKey: "fixture-pid", RSSKey: "fixture-rid"})
 	if err != nil {

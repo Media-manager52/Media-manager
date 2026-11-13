@@ -43,7 +43,7 @@ func TestPlayerTokenOpensOnlyThePlaybackRoutes(t *testing.T) {
 			}
 			continue
 		}
-		if operation.Auth != authOwner && operation.Auth != authOwnerBrowser {
+		if operation.Auth != authOwner {
 			continue
 		}
 		path := strings.NewReplacer("{id}", "01a0551d-37ec-767c-9213-f56723dd6035", "{kind}", "movie", "{run}", "01a0551d-37ec-767c-9213-f56723dd6035", "{step}", "01a0551d-37ec-767c-9213-f56723dd6035").Replace(operation.Path)

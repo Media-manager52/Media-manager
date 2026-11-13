@@ -767,16 +767,12 @@ requires a usable movie/TV dialect, and performs one random negative search —
 all paced ≥3s through the shared scheduler. Only both-passing enables the
 indexer and persists capability state.
 
-### v2 (`internal/commissioningv2`, owner-authorized)
+### Capability profiles
 
-A multi-step, explicitly owner-authorized run: create run → authorize CAPS →
-review/seal categories → authorize searches → execute one step at a time →
-finalize draft → activate profile. The domain package is transport-free; live
-execution is constructed only in `internal/commissioning/live_v2.go` and exposed
-through `httpapi/commissioning_v2.go` with origin/CSRF protections. Limits:
-≤5 API calls / ≤4 search calls per run. Activation stores
-`indexer_capability_profiles`; runtime search prefers the active profile and
-falls back to the legacy dialect.
+`indexer_capability_profiles` holds versioned search profiles for an indexer.
+Runtime search uses the active profile when one exists and otherwise the
+dialect v1 commissioning stored. The owner-authorized v2 runs that created
+these profiles were removed in schema 69.
 
 The developer-only DRI lab evidence is recorded in
 `docs/status/indexer-conformance.md`; it is not a runtime dependency and raw evidence is

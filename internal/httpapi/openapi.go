@@ -21,8 +21,8 @@ Success bodies are {"data": ..., "meta": ...}; errors are {"error": {"code": "sn
 Request bodies are JSON (Content-Type: application/json) and unknown fields are rejected with 400.
 Every operation has x-mm-effect: "read" (no change), "write" (changes Media Manager state or queues local work),
 "provider" (contacts or queues requests to indexers, Seerr, Plex or metadata services and can spend provider budget)
-or "destructive" (removes or replaces data; ask the owner first). x-mm-auth "owner_browser" routes can only be used
-from the Media Manager settings page; "owner_or_player" routes also accept the player token. Workflow actions are guarded by state and revision. GET /api/v1/workflows/{id} lists available_actions (route, effect,
+or "destructive" (removes or replaces data; ask the owner first). x-mm-auth
+"owner_or_player" routes also accept the player token. Workflow actions are guarded by state and revision. GET /api/v1/workflows/{id} lists available_actions (route, effect,
 available or the reason why not, and a ready body). A 409 means the action does not apply right now; error.hint says what
 to do instead. Background work is paced: a 202 means queued, not finished.`
 

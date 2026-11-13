@@ -15,7 +15,6 @@ and `x-mm-auth`.
 | --- | --- |
 | `/health/live`, `/health/ready` | No bearer check inside the API. Publicly gated by Cosmos owner login; loopback-restricted in the deployment. |
 | Every `/api/v1/*` owner route except the Seerr webhook | `Authorization: Bearer <OWNER_TOKEN>`. Handlers call `requireOwner` (constant-time SHA-256 comparison). Missing/wrong token → `401` `{ "error": { "code": "unauthorized" } }`. |
-| Commissioning v2 mutation routes | `requireOwnerMutation`: owner token **plus** `Origin` exactly equal to `COMMISSIONING_V2_OWNER_ORIGIN`, `Sec-Fetch-Site` `same-origin`/`none` (when present), and `Content-Type: application/json`. Unconfigured → `503 not_configured`; bad origin → `403 origin_rejected`. |
 | `POST /api/v1/integrations/seerr/webhook` | `Authorization: Bearer <SEERR_WEBHOOK_SECRET>` (constant-time, ≥32 bytes). Seerr posts directly over the internal Docker network. |
 
 How the browser gets the owner token: it never does. Cosmos Cloud's `/api`
@@ -198,22 +197,6 @@ most once per title per 24 hours, see invariant S20).
 | GET | `/api/v1/settings/quality-profile-presets` | The four opt-in soft presets (Balanced, Maximum quality, Storage efficient, Compatibility first) and the rules each would write. Presets contain only preferred rules. |
 | POST | `/api/v1/settings/quality-profiles/{id}/preset` | Replace only the profile's preferred rules for the preset's managed facts. Body `preset` and the profile's current `policy_version` (both required). Required rules, language requirements and unrelated preferences are preserved. `409 quality_profile_changed` if the version is stale, `422 invalid_quality_preset` for an unknown preset. Existing rounds keep their snapshot until `apply-policy`. |
 | POST | `/api/v1/settings/quality-profiles/{id}/apply-policy` | Move the profile's non-terminal workflows onto the current policy version (new rounds; per-workflow outcomes). Idempotent; `409` asks for a retry if workflows changed concurrently. See [workflows §5a](workflows.md#5a-changing-a-quality-profiles-policy). |
-
-### Settings: commissioning v2 (owner-authorized)
-
-All mutation routes below require `requireOwnerMutation`.
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| POST | `/api/v1/settings/integrations/{id}/commissioning-v2/runs` | Create an inert run (fixtures optional). |
-| GET | `.../runs/{run}` | Read run state. |
-| POST | `.../runs/{run}/authorize-caps` | Owner authorizes the single CAPS call. |
-| POST | `.../runs/{run}/categories` | Seal category/fallback plan. |
-| POST | `.../runs/{run}/authorize-searches` | Owner authorizes bounded search calls. |
-| POST | `.../runs/{run}/steps/{step}/execute` | Execute exactly one authorized step. |
-| POST | `.../runs/{run}/draft` | Finalize capability-profile draft. |
-| GET | `.../runs/{run}/draft` | Read the draft profile. |
-| POST | `.../runs/{run}/activate` | Activate the profile for runtime search. |
 
 ### Notifications
 

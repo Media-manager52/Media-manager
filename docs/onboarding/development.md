@@ -214,6 +214,6 @@ From `AGENTS.md` plus observed practice:
 | Understand adoption | `internal/adoptionexec/service.go` |
 | Understand recycle | `internal/recycle/service.go`, `internal/postgres/recycle.go` |
 | Understand Seerr | `internal/intake/`, `internal/adapters/seerr/` |
-| Understand commissioning | `internal/commissioningv2/`, `internal/commissioning/` |
+| Understand commissioning | `internal/commissioning/` |
 | Understand the schema | `internal/postgres/migrations/` + [database.md](../architecture/database.md) |
 | Understand the UI | `web/src/routes.tsx` + [frontend.md](../architecture/frontend.md) |
