@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/media-manager/media-manager/internal/acquisition"
+	"github.com/media-manager/media-manager/internal/altmountswitch"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"uuid"
 )
@@ -21,6 +22,11 @@ type altMountStatus struct {
 		ID   uuid.UUID `json:"id"`
 		Name string    `json:"name"`
 	} `json:"altmount"`
+	// Version is what AltMount reports; Build is altmountswitch's kind of
+	// it, and CanSwitch says "Skift til Media Managers AltMount" applies.
+	Version                  string                     `json:"version,omitempty"`
+	Build                    string                     `json:"build"`
+	CanSwitch                bool                       `json:"can_switch"`
 	Drive                    *acquisition.AltMountDrive `json:"drive,omitempty"`
 	DownloadSpeedBytesPerSec float64                    `json:"download_speed_bytes_per_sec"`
 	BytesDownloaded24h       int64                      `json:"bytes_downloaded_24h"`
@@ -70,6 +76,10 @@ func (server *Server) getAltMountStatus(writer http.ResponseWriter, request *htt
 	status := altMountStatus{Servers: []altMountServerView{}, Streams: []altMountStreamView{}, Unavailable: []string{}, CheckedAt: time.Now().UTC()}
 	status.AltMount.ID, status.AltMount.Name = integration.ID, integration.Name
 
+	status.Build = altmountswitch.KindUnknown
+	if version, err := client.Version(ctx); err == nil {
+		status.Version, status.Build, status.CanSwitch = version, altmountswitch.Kind(version), altmountswitch.CanSwitch(version)
+	}
 	if drive, err := client.Drive(ctx); err == nil {
 		status.Drive = &drive
 	} else {

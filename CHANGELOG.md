@@ -4,6 +4,15 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Skift til Media Managers AltMount.** System → AltMount shows which AltMount runs (`version`, `build`: `media_manager`, `standard` or `unknown`, and `can_switch` in `GET /api/v1/system/altmount`). For a normal AltMount no newer than 0.4.0 in Cosmos, the owner pastes a Cosmos API token (used once, never stored), sees the change and confirms: Cosmos recreates AltMount from `ghcr.io/media-manager52/altmount:mm-stable` with every folder, volume (also volumes the image created, by name), setting and limit unchanged, and Media Manager's build copies AltMount's database and settings before its first start. When it does not answer as Media Manager's build within two minutes, the old image is put back. A newer AltMount, or one without a release version, is refused. `POST /api/v1/system/altmount/switch`, audited as `altmount.image_switched`.
+
+### Fixed
+
+- **Media Manager now logs out of AltMount.** It called `/api/auth/logout`, which AltMount does not have (its route is `/api/user/logout`), so AltMount kept every session until it expired.
+- **"Ret Plex" answers the page even when Plex takes long to restart.** The request could outlast the server's 60-second write limit, so the page got no answer although Plex was fixed.
+
 ## [0.1.0-beta.30] - 2026-11-13
 
 ### Added

@@ -3,6 +3,7 @@ package altmount
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -87,4 +88,19 @@ func (client *HTTPClient) Streams(ctx context.Context) ([]Stream, error) {
 		streams = []Stream{}
 	}
 	return streams, nil
+}
+
+// Version is the version AltMount reports, such as "v0.4.0", or
+// "v0.4.0-mm.3" for Media Manager's build. A build without a version says
+// "dev".
+func (client *HTTPClient) Version(ctx context.Context) (string, error) {
+	var stats struct {
+		System struct {
+			Version string `json:"version"`
+		} `json:"system"`
+	}
+	if err := client.json(ctx, http.MethodGet, "/api/system/stats", nil, &stats); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(stats.System.Version), nil
 }

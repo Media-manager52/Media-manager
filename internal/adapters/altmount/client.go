@@ -128,11 +128,12 @@ func (client *HTTPClient) Login(ctx context.Context) (Session, error) {
 	return Session{User: response.User, AuthenticatedAt: time.Now().UTC()}, nil
 }
 
+// Logout ends the session (AltMount's route is /api/user/logout).
 func (client *HTTPClient) Logout(ctx context.Context) error {
 	if client.config.AllowAnonymousAdmin {
 		return nil
 	}
-	return client.json(ctx, http.MethodPost, "/api/auth/logout", nil, nil)
+	return client.json(ctx, http.MethodPost, "/api/user/logout", nil, nil)
 }
 
 func (client *HTTPClient) Queue(ctx context.Context, id QueueID) (QueueItem, error) {
