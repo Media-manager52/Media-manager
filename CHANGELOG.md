@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **The Cosmos install form is shorter and plainer.** It opens with what Media Manager does and needs, then the two choices (AltMount included; Also install Plex), four folders and the optional TMDB token; user and group ID, the Docker network (created when missing, not required to exist), the extra-libraries folder and the owner token are grouped under Advanced. After the install, Cosmos shows the four steps to get started, a note for an installed Plex or an own AltMount, and the key warning. The market listing text says what you need, what gets installed and how to start.
+
 ## [0.1.0-beta.31] - 2026-11-13
 
 ### Added

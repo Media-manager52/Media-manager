@@ -12,12 +12,16 @@ In Cosmos Cloud open **Market → Sources**, add a source named **Media Manager*
 https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosmos/index.json
 ```
 
-Then open **Market → Media Manager → Install**. The installer asks for your movie and TV
-library folders, a folder for AltMount's files, the existing media network, and
-optionally a TMDB token. Plex, news-server and indexer logins are entered on the
-website afterwards. It creates the API, UI, PostgreSQL and AltMount services, plus the
-UI, `/api` and `/health` routes on one host. The `/api` route injects the owner token
-server-side.
+Then open **Market → Media Manager → Install**. The form starts with two choices
+(AltMount included, on; **Also install Plex**, off), then four folders (movies, TV
+shows, AltMount, backups; missing folders are created) and an optional TMDB token.
+The defaults work for most people. Everything under **Advanced** (user and group
+ID, the Docker network shared with Plex and Seerr, which is created when it does
+not exist, the folder for extra Plex libraries and the generated owner token) can
+stay as it is. Plex, news-server and indexer logins are entered on the website
+afterwards. The install creates the API, UI, PostgreSQL and AltMount services, plus
+the UI, `/api` and `/health` routes on one host. The `/api` route injects the owner
+token server-side. When it finishes, Cosmos shows the four steps to get started.
 
 If you want the built-in Cosmos market instead of a custom source, the same app is
 submitted to `azukaar/cosmos-servapps-official`: [PR #336](https://github.com/azukaar/cosmos-servapps-official/pull/336).
@@ -134,7 +138,7 @@ default the install adds it as the service `<name>-altmount`, built from
 
 ### No Plex yet?
 
-Turn on **Install Plex too** in the install form (off by default; leave it off
+Turn on **Also install Plex** in the install form (off by default; leave it off
 when you already have a Plex server). The install then adds the service
 `<name>-plex` (`lscr.io/linuxserver/plex`, port 32400) that sees AltMount's
 files at `/mnt` with `rslave` and Media Manager's library folders at the same
@@ -148,7 +152,7 @@ that already sees Media Manager's folder gets the library (Film, Serier;
 Danish) with that folder, and the default library root for it. Nothing in Plex
 needs to be edited by hand.
 
-Already running your own AltMount? Turn off **Install AltMount together with Media
+Already running your own AltMount? Turn off **Install AltMount with Media
 Manager**, choose the host folder that contains its FUSE mount, put Media Manager on
 a network AltMount is on, and add it under **Indstillinger → Forbindelser**.
 
