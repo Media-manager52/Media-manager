@@ -43,7 +43,7 @@ func TestFeedWatcherBringsAWaitingTitlesSearchForward(t *testing.T) {
 		return emptySearchXML()
 	})
 	defer server.Close()
-	indexer := configureMovieSearchIndexer(t, store, server.URL, true)
+	indexer := configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	service := movieSearchService(store, server)
 	watcher := &FeedWatcher{Search: service}
@@ -175,7 +175,7 @@ func TestFeedWatcherBacksOffWhenAnIndexerCannotListItsNewestUploads(t *testing.T
 		return emptySearchXML()
 	})
 	defer server.Close()
-	indexer := configureMovieSearchIndexer(t, store, server.URL, true)
+	indexer := configureMovieSearchIndexer(t, store, server.URL)
 	createMovieSearchWorkflow(t, store)
 	watcher := &FeedWatcher{Search: movieSearchService(store, server)}
 

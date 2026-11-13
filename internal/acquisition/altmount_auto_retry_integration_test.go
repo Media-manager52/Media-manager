@@ -68,7 +68,7 @@ func TestFailedAltMountImportRetriesThenMovesOnWithoutOwner(t *testing.T) {
 	server := httptest.NewServer(fake.handler(queueID))
 	defer server.Close()
 
-	indexer := configureMovieSearchIndexer(t, store, "http://indexer.invalid", true)
+	indexer := configureMovieSearchIndexer(t, store, "http://indexer.invalid")
 	workflow := createMovieSearchWorkflow(t, store)
 	config, _ := json.Marshal(map[string]any{"base_url": server.URL, "allow_http": true, "authentication": "anonymous_admin"})
 	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET config=$2 WHERE id=$1`, workflow.DownloadClientID.String(), config); err != nil {
@@ -186,7 +186,7 @@ func TestDeletedAltMountQueueItemMovesOnInsteadOfRetryingForever(t *testing.T) {
 	server := httptest.NewServer(fake.handler(queueID + 1))
 	defer server.Close()
 
-	indexer := configureMovieSearchIndexer(t, store, "http://indexer.invalid", true)
+	indexer := configureMovieSearchIndexer(t, store, "http://indexer.invalid")
 	workflow := createMovieSearchWorkflow(t, store)
 	config, _ := json.Marshal(map[string]any{"base_url": server.URL, "allow_http": true, "authentication": "anonymous_admin"})
 	if _, err := store.Pool.Exec(ctx, `UPDATE integration_instances SET config=$2 WHERE id=$1`, workflow.DownloadClientID.String(), config); err != nil {

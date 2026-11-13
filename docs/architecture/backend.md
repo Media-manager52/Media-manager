@@ -343,9 +343,6 @@ If you add a service handler, keep it idempotent: events are at-least-once.
   (`gap_reads_total`, logged, next read at the lower bound). The newest 1,000
   upload IDs are saved with the state (`recent_guids`), so a read after a
   restart goes on from the last one. `FEED_WATCH=off` disables it.
-- `SearchPlan`/`PlanSearch` (`search_plan.go`): pure translation of a validated
-  `newznab.CapabilityProfile` + verified identities into one primary request and
-  strictly bound fallbacks (`FallbackFor(trigger)`).
 - `RetrievalService.Handle` (`retrieve.go`): fetch NZB (strict validation,
   exact package identity), record submission intent, upload to AltMount,
   reconcile ambiguous results by filename.
@@ -595,19 +592,16 @@ dependency).
   `failed`, `cancelled`, `needs_attention`, `removed`, `unknown`).
 - `OutputMapping{ReportedRoot, LocalReadOnlyRoot}` + `Enumerate` produce an
   `Inventory` bounded under the read-only mount; `ErrOutputMapping` on escape.
-- `UploadRequest`, `Session`, `User`, `RemoveResult`, `AmbiguousSubmissionError`.
+- `UploadRequest`, `Session`, `User`, `AmbiguousSubmissionError`.
 
 ### newznab (Indexer protocol)
 
-19 files. Security-critical.
+10 files. Security-critical.
 
 - `Client` implements CAPS, search (movie/tvsearch/general + extended), and
   retrieval (`t=get`/locator) with scheduler integration.
-- `CapabilityProfile` (schema v1) records advertised search modes, allowed
-  params, categories, bindings (`imdb_numeric`, `tmdbid`, `tvdbid`, ...),
-  recipes and fallback triggers; `ValidateCapabilityProfileForActivation`.
-- `StrictCommissioningCAPS`, `CapsSnapshot`, `CAPSModeObservation`,
-  `CapabilityAssessment` drive commissioning.
+- `CapsSnapshot`, `CAPSModeObservation` and `SelectSearchDialects` drive
+  commissioning: the chosen movie and series dialects are what search uses.
 - `ParseSearch` → `[]releases.Observation`; `ProviderContractNZBFinderV1` and
   `ProviderContractAcceptsEndpoint` enforce verified download locators.
 - `PackageIdentity(body)` = SHA-256 of the exact NZB bytes.

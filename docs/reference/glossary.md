@@ -51,16 +51,11 @@ docs.
 
 - **Indexer** — a Newznab provider integration instance. Created disabled.
 - **Commissioning** — the paced process that verifies CAPS + a negative search
-  and enables an indexer. v2 adds owner-authorized CAPS/search steps and a
-  capability-profile draft/activation.
-- **Capability profile** — immutable, versioned record of what an indexer
-  advertises and which search recipes are allowed for it.
-- **Dialect** — the legacy per-indexer parameter vocabulary used when no
-  capability profile is active.
-- **Recipe** — a planned search shape (query style, identities, categories)
-  derived from a capability profile.
+  and enables an indexer.
+- **Dialect** — the per-indexer search mode and parameters the commission check
+  stored from the indexer's CAPS.
 - **Pacing floor** — the earliest time a lane may make its next call
-  (`PacingFloor`); at least 3 seconds between request starts.
+  (`next_allowed_at`); at least 3 seconds between request starts.
 - **Budget / reservation** — rolling per-indexer query/grab allowance. A
   reservation is durably recorded **before** network I/O.
 - **Cooldown / Retry-After** — provider-driven backoff; deferrals use

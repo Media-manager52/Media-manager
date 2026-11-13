@@ -38,7 +38,7 @@ func TestRetrievalFailureBeforeAltMountCreatesNoJob(t *testing.T) {
 	})
 	defer server.Close()
 
-	indexer := configureMovieSearchIndexer(t, store, server.URL, false)
+	indexer := configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
 		t.Fatalf("search: %v", err)
@@ -119,7 +119,7 @@ func TestRetrievalWaitsForAltMountWithoutFetchingTheNZBAgain(t *testing.T) {
 		return emptySearchXML()
 	})
 	defer server.Close()
-	configureMovieSearchIndexer(t, store, server.URL, false)
+	configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
 		t.Fatalf("search: %v", err)
@@ -185,7 +185,7 @@ func TestActiveSubmissionIsNotRetransmitted(t *testing.T) {
 	})
 	defer server.Close()
 
-	configureMovieSearchIndexer(t, store, server.URL, false)
+	configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
 		t.Fatalf("search: %v", err)
@@ -346,7 +346,7 @@ func TestRetrievalClosedRoundMakesNoProviderRequest(t *testing.T) {
 	ctx := context.Background()
 	server, _ := newMovieSearchServer(t, func(url.Values) string { return movieSearchReleaseXML("Klaus.2019.1080p.WEB-DL") })
 	defer server.Close()
-	configureMovieSearchIndexer(t, store, server.URL, false)
+	configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
 		t.Fatal(err)

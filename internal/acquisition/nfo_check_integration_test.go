@@ -55,7 +55,7 @@ func newNFOCheckFixtureWithRelease(t *testing.T, nfo string, release func(base, 
 	})
 	t.Cleanup(server.Close)
 	base = server.URL
-	indexer := configureMovieSearchIndexer(t, store, server.URL, false)
+	indexer := configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflowWithPolicy(t, store, map[string]any{"required_subtitle_languages": []string{"da"}})
 	if err := movieSearchService(store, server).Handle(ctx, postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
 		t.Fatalf("search: %v", err)

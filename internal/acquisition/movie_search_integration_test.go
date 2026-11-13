@@ -24,54 +24,42 @@ import (
 	"github.com/media-manager/media-manager/internal/workflows"
 )
 
-// TestMovieSearchUsesActiveCapabilityProfileAndPacesProvider proves the movie
-// search path is profile-backed: an active capability profile decides the
-// exact request parameters, the shared paced client enforces the scheduler
-// budget, and an eligible release advances the durable workflow.
-func TestMovieSearchUsesActiveCapabilityProfileAndPacesProvider(t *testing.T) {
+// TestMovieSearchUsesCommissionedDialectAndPacesProvider searches an enabled,
+// commissioned indexer with its commissioned dialect through the durable
+// scheduler, and persists the selected candidate and its retrieval.
+func TestMovieSearchUsesCommissionedDialectAndPacesProvider(t *testing.T) {
 	store := openMovieSearchTestStore(t)
 	server, captured := newMovieSearchServer(t, func(query url.Values) string {
-		if query.Get("imdbid") == "1234567" {
+		if query.Get("q") != "" || query.Get("imdbid") != "" {
 			return movieSearchReleaseXML("Klaus.2019.1080p.WEB-DL")
 		}
 		return emptySearchXML()
 	})
 	defer server.Close()
 
-	indexer := configureMovieSearchIndexer(t, store, server.URL, false)
+	indexer := configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	service := movieSearchService(store, server)
 
 	if err := service.Handle(context.Background(), postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
-		t.Fatalf("movie search: %v", err)
+		t.Fatalf("legacy movie search: %v", err)
 	}
-
 	requests := captured()
 	if len(requests) != 1 {
-		t.Fatalf("provider requests=%d, want exactly one primary search", len(requests))
-	}
-	if got := requests[0].Get("imdbid"); got != "1234567" {
-		t.Fatalf("profile primary binding imdbid=%q, want 1234567 (legacy dialect omits it)", got)
+		t.Fatalf("provider requests=%d, want one", len(requests))
 	}
 	if got := requests[0].Get("t"); got != "movie" {
 		t.Fatalf("search mode=%q, want movie", got)
 	}
-	if got := requests[0].Get("limit"); got != "50" {
-		t.Fatalf("verified limit=%q, want 50 from the active profile", got)
-	}
-	if got := requests[0].Get("cat"); got != "2000" {
-		t.Fatalf("category selection=%q, want 2000", got)
+	if got := requests[0].Get("year"); got != "2019" {
+		t.Fatalf("commissioned dialect year=%q, want 2019", got)
 	}
 	if requests[0].Get("apikey") != "test-api-key" {
 		t.Fatal("provider request did not carry the resolved secret")
 	}
-
 	selected, err := store.GetWorkflow(context.Background(), workflow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if selected.State != workflows.StateCandidateSelected || selected.SelectedRelease == nil {
-		t.Fatalf("workflow after profile search=%+v", selected)
+	if err != nil || selected.State != workflows.StateCandidateSelected || selected.SelectedRelease == nil {
+		t.Fatalf("search workflow=%+v err=%v", selected, err)
 	}
 	candidates, err := store.ListReleaseCandidates(context.Background(), 10)
 	if err != nil || len(candidates) != 1 || candidates[0].Verdict != string(releases.VerdictEligible) || !candidates[0].Selected {
@@ -98,42 +86,6 @@ func TestMovieSearchUsesActiveCapabilityProfileAndPacesProvider(t *testing.T) {
 	}
 }
 
-// TestMovieSearchFallsBackToLegacyDialectWithoutActiveProfile preserves the
-// pre-cutover behavior: an enabled, legacy-commissioned indexer with no active
-// capability profile is still searched with its commissioned dialect.
-func TestMovieSearchFallsBackToLegacyDialectWithoutActiveProfile(t *testing.T) {
-	store := openMovieSearchTestStore(t)
-	server, captured := newMovieSearchServer(t, func(query url.Values) string {
-		if query.Get("q") != "" || query.Get("imdbid") != "" {
-			return movieSearchReleaseXML("Klaus.2019.1080p.WEB-DL")
-		}
-		return emptySearchXML()
-	})
-	defer server.Close()
-
-	configureMovieSearchIndexer(t, store, server.URL, true)
-	workflow := createMovieSearchWorkflow(t, store)
-	service := movieSearchService(store, server)
-
-	if err := service.Handle(context.Background(), postgres.OutboxEvent{AggregateID: workflow.ID, AggregateRevision: workflow.Revision}); err != nil {
-		t.Fatalf("legacy movie search: %v", err)
-	}
-	requests := captured()
-	if len(requests) != 1 {
-		t.Fatalf("provider requests=%d, want one", len(requests))
-	}
-	if got := requests[0].Get("imdbid"); got != "" {
-		t.Fatalf("legacy dialect unexpectedly used profile imdbid=%q", got)
-	}
-	if got := requests[0].Get("year"); got != "2019" {
-		t.Fatalf("legacy dialect year=%q, want 2019", got)
-	}
-	selected, err := store.GetWorkflow(context.Background(), workflow.ID)
-	if err != nil || selected.State != workflows.StateCandidateSelected {
-		t.Fatalf("legacy search workflow=%+v err=%v", selected, err)
-	}
-}
-
 // TestMovieSearchProviderFailureStaysTruthful keeps a failing indexer from
 // fabricating a selection or durable completion: the handler returns the
 // operational error, the workflow remains searching, and no candidate or
@@ -145,7 +97,7 @@ func TestMovieSearchProviderFailureStaysTruthful(t *testing.T) {
 	server, _ := newMovieSearchServer(t, func(url.Values) string { return "" })
 	defer server.Close()
 
-	configureMovieSearchIndexer(t, store, server.URL, false)
+	configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	service := movieSearchService(store, server)
 
@@ -175,12 +127,12 @@ func movieSearchService(store *postgres.Store, server *httptest.Server) *SearchS
 	}
 }
 
-func configureMovieSearchIndexer(t *testing.T, store *postgres.Store, baseURL string, legacyOnly bool) postgres.Integration {
+func configureMovieSearchIndexer(t *testing.T, store *postgres.Store, baseURL string) postgres.Integration {
 	t.Helper()
-	return configureMovieSearchIndexerNamed(t, store, baseURL, "Profile indexer", legacyOnly)
+	return configureMovieSearchIndexerNamed(t, store, baseURL, "Movie search indexer")
 }
 
-func configureMovieSearchIndexerNamed(t *testing.T, store *postgres.Store, baseURL, name string, legacyOnly bool) postgres.Integration {
+func configureMovieSearchIndexerNamed(t *testing.T, store *postgres.Store, baseURL, name string) postgres.Integration {
 	t.Helper()
 	ctx := context.Background()
 	config, err := json.Marshal(map[string]any{
@@ -202,20 +154,6 @@ func configureMovieSearchIndexerNamed(t *testing.T, store *postgres.Store, baseU
 		Series: newznab.SearchDialect{Mode: "tvsearch", Params: []string{"q", "season"}},
 	}
 	if _, err := store.CompleteNewznabCommission(ctx, indexer.ID, newznab.CapsSnapshot{ServerVersion: "test", BodyHash: "caps-body", DefaultLimit: 50, MaximumLimit: 100}, dialects, time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	if legacyOnly {
-		return indexer
-	}
-	digest, err := store.IndexerEndpointConfigurationDigest(ctx, indexer.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	profile, err := store.CreateIndexerCapabilityProfile(ctx, indexer.ID, movieCapabilityProfileDocument(t), digest, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.ActivateIndexerCapabilityProfile(ctx, indexer.ID, profile.ID, "owner", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	return indexer
@@ -353,7 +291,7 @@ func TestMovieSearchLoadsSavedOriginalTitleAndMatchesOutput(t *testing.T) {
 		return emptySearchXML()
 	})
 	defer server.Close()
-	configureMovieSearchIndexer(t, store, server.URL, true)
+	configureMovieSearchIndexer(t, store, server.URL)
 	w := createMovieSearchWorkflow(t, store)
 	if _, err := store.RefreshMediaMetadata(context.Background(), w.MediaID, &catalog.MediaMetadata{OriginalTitle: "Julemanden", OriginalLanguage: "da"}, nil, "test", time.Now().UTC()); err != nil {
 		t.Fatal(err)
@@ -374,55 +312,4 @@ func TestMovieSearchLoadsSavedOriginalTitleAndMatchesOutput(t *testing.T) {
 
 func movieSearchReleaseXML(title string) string {
 	return fmt.Sprintf(`<?xml version="1.0"?><rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><item><title>%s</title><guid>native-movie-release</guid><newznab:attr name="resolution" value="1920x1080"/></item></channel></rss>`, title)
-}
-
-// movieCapabilityProfileDocument returns a valid activatable profile with one
-// verified movie primary recipe. The CAPS category tree contains the selected
-// movie category so the runtime planner can resolve it.
-func movieCapabilityProfileDocument(t *testing.T) json.RawMessage {
-	t.Helper()
-	const evidenceKey = "evidence.00000000000000000000000000000001"
-	profile := newznab.CapabilityProfile{
-		SchemaVersion: newznab.CapabilityProfileSchemaVersion,
-		CAPS: newznab.CAPSRecord{
-			BodySHA256:   strings.Repeat("a", 64),
-			ObservedAt:   time.Unix(1, 0).UTC(),
-			DefaultLimit: 50,
-			MaximumLimit: 100,
-			Categories:   []newznab.Category{{ID: 2000, Name: "Movies"}, {ID: 5000, Name: "TV"}},
-		},
-		SearchRecipes: []newznab.SearchRecipe{{
-			Key:           "movie-imdb",
-			Scope:         newznab.SearchScopeMovie,
-			Mode:          newznab.SearchModeMovie,
-			Query:         newznab.QuerySpec{Style: newznab.QueryTitle},
-			Bindings:      []newznab.WireBinding{{Parameter: newznab.WireIMDbID, Source: newznab.BindingIMDbNumeric}},
-			Extended:      true,
-			Categories:    newznab.CategorySpec{Set: newznab.CategorySelectedMovie},
-			VerifiedLimit: 50,
-			Role:          newznab.RecipePrimary,
-			Priority:      1,
-			Verification:  newznab.RecipeVerification{State: newznab.VerificationVerified, EvidenceKeys: []string{evidenceKey}},
-		}},
-		Operations:  []newznab.OperationCapability{},
-		MappingRefs: []newznab.MappingRef{{Key: newznab.MappingNewznabSearchV1, Version: 1}},
-		Evidence: []newznab.CommissionEvidence{{
-			Key:                    evidenceKey,
-			Kind:                   newznab.EvidenceKindControlledProbe,
-			Target:                 newznab.EvidenceTarget{Kind: newznab.EvidenceTargetSearchRecipe, RecipeKey: "movie-imdb"},
-			ObservedAt:             time.Unix(1, 0).UTC(),
-			BodySHA256:             strings.Repeat("b", 64),
-			SafeOutcome:            newznab.EvidenceOutcomeSearchSuccess,
-			RawResultCount:         1,
-			PlausibleIdentityCount: 1,
-		}},
-	}
-	if err := newznab.ValidateCapabilityProfileForActivation(profile); err != nil {
-		t.Fatalf("movie capability profile: %v", err)
-	}
-	body, err := json.Marshal(profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return body
 }

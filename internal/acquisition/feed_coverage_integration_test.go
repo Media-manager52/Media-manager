@@ -25,7 +25,7 @@ func TestFeedReaderGoesOnAfterARestart(t *testing.T) {
 		return feedXML("First.Upload.2019.1080p.WEB-DL", "Second.Upload.2019.1080p.WEB-DL")
 	})
 	defer server.Close()
-	indexer := configureMovieSearchIndexer(t, store, server.URL, true)
+	indexer := configureMovieSearchIndexer(t, store, server.URL)
 	if err := (&FeedWatcher{Search: movieSearchService(store, server)}).RunOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestFeedWatcherBringsANewEpisodesFirstSearchForward(t *testing.T) {
 		return emptySearchXML()
 	})
 	defer server.Close()
-	configureMovieSearchIndexer(t, store, server.URL, true)
+	configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	if _, err := store.Pool.Exec(ctx, `UPDATE workflows SET state='monitored' WHERE id=$1`, workflow.ID.String()); err != nil {
 		t.Fatal(err)

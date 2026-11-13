@@ -306,7 +306,7 @@ These summarize [acquisition-safety.md](acquisition-safety.md), [../invariants.m
 | What routes exist and how is auth done? | `internal/httpapi/api_catalog.go` (`routes()`), `internal/httpapi/server.go` (auth, errors), one file per area (`workflows.go`, `media.go`, `settings.go`, …) |
 | How does the worker work? | `internal/platform/worker.go`, `internal/postgres/outbox.go` |
 | What are the legal workflow transitions? | `internal/workflows/model.go` |
-| How are searches planned/executed? | `internal/acquisition/search.go`, `search_plan.go`, `internal/adapters/newznab/` |
+| How are searches planned/executed? | `internal/acquisition/search.go`, `internal/adapters/newznab/` |
 | How is a release evaluated? | `internal/releases/evidence.go` |
 | How is a pack verified? | `internal/packs/coverage.go` |
 | How are subtitles verified? | `internal/subtitles/verify.go`, `policy.go` |

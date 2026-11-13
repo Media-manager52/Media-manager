@@ -492,11 +492,6 @@ func (s *BrowseService) browseNewznab(ctx context.Context, client *newznab.Clien
 
 func (s *BrowseService) searchNewznab(ctx context.Context, client *newznab.Client, i postgres.Integration, c indexerConfig, search postgres.SearchContext) ([]releases.Observation, error) {
 	request := buildRequest(search, c)
-	if plan, pe := s.Search.searchProfilePlan(ctx, i.ID, search, c); pe == nil {
-		request = plan.Primary.Request
-	} else if !errors.Is(pe, errNoActiveSearchProfile) {
-		return nil, pe
-	}
 	request.Extended = true
 	// A viewer list reads one page while someone waits for it; larger pages
 	// are for acquisition searches only.

@@ -29,7 +29,7 @@ func TestNativeOldBoysSearchUsesDanishScopeAndRejectsRotatedResult(t *testing.T)
 			ctx := context.Background()
 			server, _ := newMovieSearchServer(t, func(_ url.Values) string { return emptySearchXML() })
 			defer server.Close()
-			existing := configureMovieSearchIndexer(t, store, server.URL, false)
+			existing := configureMovieSearchIndexer(t, store, server.URL)
 			workflow := createMovieSearchWorkflow(t, store)
 			vault, _ := oldboyscredentials.New(store, strings.Repeat("ab", 32))
 			credentials := oldboyscredentials.Credentials{APIToken: "native-api-fixture", PassKey: "native-pid-fixture", RSSKey: "native-rid-fixture"}

@@ -8,11 +8,12 @@ import (
 	"sort"
 	"time"
 
+	"uuid"
+
 	"github.com/media-manager/media-manager/internal/adapters/newznab"
 	"github.com/media-manager/media-manager/internal/adapters/oldboys"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
-	"uuid"
 )
 
 // plannedSearchIndexer freezes the exact request shape used for both the
@@ -26,8 +27,6 @@ type plannedSearchIndexer struct {
 	OldBoysPhase   uint64
 	OldBoysRequest oldboys.SearchRequest
 	PlanError      string
-	ProfileID      uuid.UUID
-	ProfileVersion uint64
 }
 
 func (service *SearchService) planSearchIndexers(ctx context.Context, search postgres.SearchContext, now time.Time) ([]plannedSearchIndexer, error) {
@@ -51,17 +50,6 @@ func (service *SearchService) planSearchIndexers(ctx context.Context, search pos
 			nativeSearch.CompleteSearches = phase
 			item.OldBoysRequest = oldBoysSearchRequest(nativeSearch)
 		case "newznab":
-			plan, profileID, profileVersion, planErr := service.searchProfilePlanWithIdentity(ctx, integration.ID, search, item.Config)
-			switch {
-			case planErr == nil:
-				item.Request = plan.Primary.Request
-				item.ProfileID = profileID
-				item.ProfileVersion = profileVersion
-			case errors.Is(planErr, errNoActiveSearchProfile):
-				// The legacy commissioned dialect remains the deliberate fallback.
-			default:
-				item.PlanError = safeIndexerOutcomeCode(planErr)
-			}
 			item.Request = numberedSearchRequest(search, item.Request, now)
 		}
 		planned = append(planned, item)
@@ -81,8 +69,11 @@ type searchIntentIndexer struct {
 	OldBoysPhase   uint64                `json:"oldboys_phase,omitempty"`
 	OldBoysRequest oldboys.SearchRequest `json:"oldboys_request,omitempty"`
 	PlanError      string                `json:"plan_error,omitempty"`
-	ProfileID      string                `json:"profile_id,omitempty"`
-	ProfileVersion uint64                `json:"profile_version,omitempty"`
+	// ProfileID and ProfileVersion are always the zero profile since search
+	// profiles were removed. They stay in the fingerprint so searches already
+	// waiting for a retry keep matching their stored intent.
+	ProfileID      string `json:"profile_id,omitempty"`
+	ProfileVersion uint64 `json:"profile_version,omitempty"`
 }
 
 type searchIntent struct {
@@ -127,8 +118,7 @@ func searchIntentFingerprint(search postgres.SearchContext, mode string, planned
 			OldBoysPhase:   item.OldBoysPhase,
 			OldBoysRequest: item.OldBoysRequest,
 			PlanError:      item.PlanError,
-			ProfileID:      item.ProfileID.String(),
-			ProfileVersion: item.ProfileVersion,
+			ProfileID:      uuid.UUID{}.String(),
 		})
 	}
 	sort.Slice(indexers, func(i, j int) bool { return indexers[i].ID < indexers[j].ID })

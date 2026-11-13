@@ -885,16 +885,6 @@ func parseRules(policy json.RawMessage) ([]releases.Rule, error) {
 	}
 	return rules, nil
 }
-func seasonNumber(variant string) int {
-	if !strings.HasPrefix(variant, "season:") {
-		return -1
-	}
-	value, err := strconv.Atoi(strings.TrimPrefix(variant, "season:"))
-	if err != nil || value < 0 {
-		return -1
-	}
-	return value
-}
 
 // workflowScopeRules returns the durable scope rules that are prepended to a
 // workflow's quality policy. A complete-season workflow still requires a season

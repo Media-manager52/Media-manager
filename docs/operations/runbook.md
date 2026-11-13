@@ -297,8 +297,8 @@ and writes results to `.sites-runtime/live-playwright-results/`.
   is the first place to look when something is missing.
 - Outbox diagnosis: `pending`/`due`/`retrying` counts in `/api/v1/system/health`.
   A single future non-due event is normal; a growing `retrying` count is not.
-- `indexer_operation_status` exposes the latest persisted indexer outcome per
-  source without making a live request.
+- `indexer_budget_state` holds the latest persisted outcome, cooldown and next
+  allowed request per indexer without making a live request.
 
 ## 8. Resource and safety expectations
 
@@ -319,7 +319,7 @@ and writes results to `.sites-runtime/live-playwright-results/`.
 | `401 unauthorized` on every UI call | Cosmos `/api` route is not injecting the owner bearer, or `OWNER_TOKEN` differs between the route and container. |
 | Seerr webhook returns `503 not_configured` | Seerr intake is off: either set all four env vars (instance row enabled), or save an enabled default Seerr connection with its API key on the website and restart the API. The API logs "Seerr intake is off" with the reason. |
 | Readiness fails with schema mismatch | Migrations didn't run (`AUTO_MIGRATE` off) or binary/DB mismatch. Run `media-manager migrate`; never edit a schema row manually. |
-| Newznab calls return `deferred`/cooldown | Pacing/budget working as intended. Inspect `indexer_operation_status` and `/sources`, not logs. |
+| Newznab calls return `deferred`/cooldown | Pacing/budget working as intended. Inspect `indexer_budget_state` and `/sources`, not logs. |
 | Workflow stuck in `waiting` with `owner_action_required` | Round exhausted; wait for discovery `ready`, then `POST .../acquisition-rounds`. |
 | Output retained and unpublished | This is the designed failure behavior. Inspect `/api/v1/acquisition-verifications`, fix the cause, use `reverify-retained-output` once, or open a new round after approval. |
 | Health shows the AltMount output mount `unavailable`; worker events retry with `altmount_mount_unavailable` | The API cannot read `/mnt/altmount` (FUSE gone, "socket not connected", or only the bare mount point is visible). Imports and output inspection wait and resume by themselves once the mount is readable; no workflow is failed or release excluded for it. Check AltMount and `ls /mnt/altmount` on the host. If the host mount is fine but the API still cannot read it, the API was started with a bind of the mount point itself instead of its parent (see §1 mounts); recreate it with the current `compose.yaml`. |

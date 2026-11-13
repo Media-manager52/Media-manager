@@ -352,7 +352,7 @@ reports `enabled`, never values. See [OldBoys operations](../operations/oldboys.
 
 `POST /api/v1/streaming/search` accepts `kind`, `imdb_id`, `title`, `year`, and
 (for series) positive `season` and `episode`. It browses commissioned enabled
-Newznab providers through the same adapters, immutable capability profiles and
+Newznab providers through the same adapters, commissioned dialects and
 durable query budgets as acquisition. Saved title/identity metadata takes
 precedence when available. It does not create workflows, retrieve NZBs or publish.
 
