@@ -41,6 +41,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.24.md](releases/v0.1.0-beta.24.md) | Twenty-fourth public beta (2026-11-13): untouched Blu-ray/DVD discs are skipped when searching; the work list no longer times out; a movie download without a video file is named as such. |
 | [releases/v0.1.0-beta.23.md](releases/v0.1.0-beta.23.md) | Twenty-third public beta (2026-11-13): cleanup: unused code, search capability profiles (schema 70) and dated status logs removed; a backup interrupted by a restart now recovers; old finished queue tasks are removed. |
 | [releases/v0.1.0-beta.22.md](releases/v0.1.0-beta.22.md) | Twenty-second public beta (2026-11-13): cleanup: stale docs and unused code removed; unused indexer commissioning v2 removed (schema 69). |
 | [releases/v0.1.0-beta.21.md](releases/v0.1.0-beta.21.md) | Twenty-first public beta (2026-11-12): server secrets never leave via a connection check; Prowlarr upload hides indexer keys; title page actions and calendar fixed; required resolution checked on the measured file. |
