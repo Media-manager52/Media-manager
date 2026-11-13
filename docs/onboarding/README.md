@@ -10,9 +10,9 @@ PostgreSQL 18. This includes the earlier bounded NZB retrieval and access-reject
 recovery, IPv4-only API egress, configurable acquisition budgets, and recorded
 request search schedules. Existing round snapshots remain immutable.
 Deployed source can lag this checkout: the authenticated
-`/api/v1/system/info` reports the running commit and schema. See
-[release status](../status/release.md) and the exact-commit GitHub Deploy result
-for dated evidence.
+`/api/v1/system/info` reports the running commit and schema. See the
+[changelog](../../CHANGELOG.md) and the exact-commit GitHub Deploy result for
+what changed.
 > Read `AGENTS.md` in the repository root for the short contributor contract,
 > then follow the read order below. The full documentation index, including
 > status/evidence and archived proposals, is in
@@ -71,8 +71,7 @@ evidence rather than current behavior. Prefer, in this order:
 4. `README.md` (product overview), then
    [`../architecture/acquisition-safety.md`](../architecture/acquisition-safety.md)
    (safety rules) and [`../invariants.md`](../invariants.md).
-5. `docs/status/implementation.md` and `docs/status/release.md` (dated audits;
-   may lag behind `main`).
+5. `CHANGELOG.md` and `docs/releases/` (what changed in each release).
 6. `docs/status/indexer-conformance.md` (developer-only lab evidence, not
    runtime).
 

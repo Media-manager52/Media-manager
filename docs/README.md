@@ -70,9 +70,7 @@ These are dated and may lag `main`. They are not behavioral truth.
 
 | Document | Contents |
 | --- | --- |
-| [status/implementation.md](status/implementation.md) | Feature-by-feature implementation audit |
 | [status/license-decision.md](status/license-decision.md) | AGPL-3.0-only owner decision, compatibility and verification record |
-| [status/release.md](status/release.md) | Release evidence and milestone closeouts |
 | [status/indexer-conformance.md](status/indexer-conformance.md) | Developer-only Newznab provider conformance evidence (not a runtime dependency) |
 
 ## Documentation rules

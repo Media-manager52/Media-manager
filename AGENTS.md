@@ -15,8 +15,7 @@ truthful, and safe for an owner-operated production media system.
 - Read `README.md` for the product overview, `docs/invariants.md` and
   `docs/architecture/acquisition-safety.md` for the guarantees, and
   `docs/operations/manual-install.md` for configuration and operations.
-- Read `docs/status/release.md` for release evidence and
-  `docs/status/implementation.md` before changing a partial feature.
+- Read `CHANGELOG.md` and `docs/releases/` for what changed and when.
 - Read `docs/status/indexer-conformance.md` before touching Newznab behavior.
 - Check `git status` before editing. Preserve unrelated local work and never add
   `.env*`, credentials, runtime data, media, or download output.
