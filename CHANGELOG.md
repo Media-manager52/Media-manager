@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **A backup interrupted by a restart no longer blocks every later attempt.** The restore check uses a test database named after the backup. A restart during that check left the database behind, so each retry made the whole backup again and then failed with "verification database creation failed" (37 attempts on 2026-11-13). A new attempt now removes that leftover test database first, and removes temporary backup files older than 3 hours (including a decrypted copy of the database) that a killed attempt left behind.
+
 ### Removed
 
 - **Code the program never runs is gone.** About twenty functions and one file that only tests still called were removed: old Newznab search and download shortcuts, an unused season-pack job state machine, unused naming, link and AltMount session helpers, two leftover commissioning helpers and an unused web helper. Their tests now exercise the functions Media Manager actually uses, so the same safety checks (download redirects, link containment, NZB validation, pack coverage) still run. The season workflow name is now built in one place. No behaviour changes.

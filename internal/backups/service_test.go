@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -51,7 +52,47 @@ func TestCreateAndVerifyUsesIsolatedRestoreLifecycle(t *testing.T) {
 	if info, err := os.Stat(filepath.Join(directory, filename)); err != nil || !info.Mode().IsRegular() {
 		t.Fatalf("verified encrypted file info=%v err=%v", info, err)
 	}
-	if !slices.Equal(runner.commands, []string{"pg_dump", "createdb", "pg_restore", "psql", "dropdb"}) {
+	if !slices.Equal(runner.commands, []string{"pg_dump", "dropdb", "createdb", "pg_restore", "psql", "dropdb"}) {
 		t.Fatalf("commands=%v", runner.commands)
+	}
+}
+
+// A restart during the restore check used to leave the fixed-name verification
+// database and the temporary dumps behind; every later attempt then failed at
+// createdb (2026-11-13: 37 attempts). A new attempt must drop the leftover
+// database first and remove temporary files older than the handler limit.
+func TestCreateAndVerifyRecoversFromKilledAttempt(t *testing.T) {
+	directory := t.TempDir()
+	old := time.Now().Add(-staleTemporaryAge - time.Minute)
+	stale := []string{".backup-1.dump", ".backup-2.encrypted", ".verify-3.dump"}
+	for _, name := range append(stale, ".verify-fresh.dump", "kept.mmbackup") {
+		path := filepath.Join(directory, name)
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(stale, name) || name == "kept.mmbackup" {
+			if err := os.Chtimes(path, old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	runner := &fakeCommandRunner{}
+	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	service := &Service{Directory: directory, ResolveSecret: func(string) (string, error) { return key, nil }, Runner: runner}
+	if _, _, _, _, err := service.createAndVerify(context.Background(), uuid.NewV7()); err != nil {
+		t.Fatal(err)
+	}
+	if index := slices.Index(runner.commands, "createdb"); index < 1 || runner.commands[index-1] != "dropdb" {
+		t.Fatalf("leftover verification database is not dropped before createdb: %v", runner.commands)
+	}
+	for _, name := range stale {
+		if _, err := os.Stat(filepath.Join(directory, name)); !os.IsNotExist(err) {
+			t.Fatalf("stale %s still exists: %v", name, err)
+		}
+	}
+	for _, name := range []string{".verify-fresh.dump", "kept.mmbackup"} {
+		if _, err := os.Stat(filepath.Join(directory, name)); err != nil {
+			t.Fatalf("%s must be kept: %v", name, err)
+		}
 	}
 }
