@@ -196,7 +196,6 @@
         "OWNER_TOKEN={Context.ownerToken}",
         "AUTO_MIGRATE=true",
         "LISTEN_ADDR=0.0.0.0:8080",
-        "COMMISSIONING_V2_OWNER_ORIGIN={RootProtocol}://{Hostnames.{ServiceName}.{ServiceName}.host}",
         "TMDB_ACCESS_TOKEN={Context.tmdbToken}",
         "SERVARR_API_KEY={Passwords.3}",
         "SECRET_ENCRYPTION_KEY_FILE=/var/lib/media-manager/state/secret-encryption.key",

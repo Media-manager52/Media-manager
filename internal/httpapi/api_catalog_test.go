@@ -83,7 +83,7 @@ func TestReleaseIntelligenceAPIRoutesHaveSafeEffects(t *testing.T) {
 // actually read, so the published schema cannot silently fall behind the code.
 func TestAPICatalogDeclaresWhatHandlersRead(t *testing.T) {
 	bodies, queries := handlerInputs(t)
-	if len(bodies) < 25 || len(queries) < 15 || !bodies["activateCommissioningV2Profile"] || len(queries["listCalendar"]) != 3 {
+	if len(bodies) < 25 || len(queries) < 15 || !bodies["applyQualityProfilePreset"] || len(queries["listCalendar"]) != 3 {
 		t.Fatalf("source scan found too little (%d bodies, %d query readers); the scanner is broken", len(bodies), len(queries))
 	}
 	server := catalogServer(t)

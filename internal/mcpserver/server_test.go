@@ -138,7 +138,7 @@ func TestMCPToolsUseTheLiveOperationsAndKeepGuards(t *testing.T) {
 		call(4, "call_operation", map[string]any{"operation_id": "confirmRealFilePurge", "path_params": map[string]string{"id": workflow}, "body": map[string]string{"confirmation": "x"}}),
 		call(5, "call_operation", map[string]any{"operation_id": "confirmRealFilePurge", "path_params": map[string]string{"id": workflow}, "body": map[string]string{"confirmation": "x"}, "confirm": true}),
 		call(6, "call_operation", map[string]any{"operation_id": "getWorkflow"}),
-		call(7, "call_operation", map[string]any{"operation_id": "createCommissioningV2Run", "path_params": map[string]string{"id": workflow}}),
+		call(7, "call_operation", map[string]any{"operation_id": "seerrWebhook", "body": map[string]any{}}),
 		call(8, "call_operation", map[string]any{"operation_id": "downloadBackup", "path_params": map[string]string{"id": workflow}}),
 		call(9, "call_operation", map[string]any{"operation_id": "openAcquisitionRound", "path_params": map[string]string{"id": workflow}}),
 		call(10, "call_operation", map[string]any{"operation_id": "listWorkflows", "query": map[string]any{"active": false, "limit": 5}}),
@@ -162,7 +162,7 @@ func TestMCPToolsUseTheLiveOperationsAndKeepGuards(t *testing.T) {
 	if isError || searched["status"].(float64) != 200 {
 		t.Fatal("search call failed", searched)
 	}
-	for index, reason := range map[int]string{3: "destructive", 5: "missing path_params", 6: "settings page", 7: "binary", 10: "no request body", 11: "unknown operation_id", 12: "invalid arguments"} {
+	for index, reason := range map[int]string{3: "destructive", 5: "missing path_params", 6: "called by Seerr", 7: "binary", 10: "no request body", 11: "unknown operation_id", 12: "invalid arguments"} {
 		payload, isError := toolPayload(t, replies[index])
 		if !isError || !strings.Contains(payload["error"].(string), reason) {
 			t.Fatalf("reply %d should refuse with %q: %v", index+1, reason, payload)

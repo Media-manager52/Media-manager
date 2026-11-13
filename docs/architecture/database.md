@@ -168,8 +168,7 @@ non-obvious.
 | `library_roots` | Movie/TV roots with Plex/source visible mappings and defaults. `edition` is `standard` or `4k` (schema 54); a 4K root is never a default. |
 | `quality_profiles` | Policy JSON, version, upgrades/default/enabled flags. |
 | `indexer_capability_profiles` | Immutable commissioned capability profile (versioned). Its endpoint digest also accepts a key saved on the website (`sealed:integration:<id>`), schema 68. |
-| `indexer_commissioning_runs`, `indexer_commissioning_steps` | v1/v2 commissioning lifecycle + steps. |
-| `indexer_budget_state` | Rolling query/grab windows per indexer. |
+| `indexer_budget_state` | Rolling query/grab windows and pacing per indexer. The commissioning v2 gate column and the v2 run and step tables were dropped in schema 69. |
 | `indexer_request_reservations` | Durable per-call reservations (schema 30). |
 | `indexer_feed_state` | Newest-uploads reader per indexer: last and next read, current interval, last outcome, consecutive failures (schema 58); the newest 1,000 upload IDs seen (`recent_guids`), successful reads and reads that did not reach an upload seen before (`reads_total`, `gap_reads_total`, `last_read_complete`, schema 63). |
 | `indexer_feed_matches` | Uploads from the newest-uploads lists that matched a waiting workflow, with what was done about each (`pending`, `search_advanced`, `search_due`, `discovery_advanced`, `round_opened` (schema 59), `not_applicable`, `expired`). A note for the reader, not release evidence; rows older than 30 days are removed (schema 58). |
@@ -221,9 +220,6 @@ methods at the snapshot. Group by file:
 | `subtitles.go`, `subtitle_reverification.go` | Verification records, retained-output reverification. |
 | `seerr_intake.go`, `seerr_status.go`, `seerr_requests.go` | Seerr dedup, status sync, request read models. |
 | `commissioningstore/indexer_capabilities.go` | Capability profile CRUD/activation (19). |
-| `commissioningstore/indexer_commissioning*.go` | v1 commissioning runs/steps (50). |
-| `commissioningstore/indexer_commissioning_live*.go` | v2 live gate + activation (29). |
-| `commissioningstore/indexer_commissioning_draft.go` | Draft persistence. |
 | `notificationstore/` | Destinations + deliveries (8). |
 | `importliststore/` | Lists/snapshots/items (9). |
 | `backupstore/` | Backup records + verified downloads (7). |

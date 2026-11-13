@@ -68,11 +68,6 @@ browser can neither supply nor read the token. A route pointed only at the UI
 container answers `/api/v1/*` with a bare 404 ("Media Manager returned HTTP
 404") — that is the symptom of a misrouted `/api` prefix.
 
-`COMMISSIONING_V2_OWNER_ORIGIN` must equal the browser origin that may call
-commissioning-v2 mutations (e.g. `https://media-manager.example.com`, or
-`http://127.0.0.1:28081` for loopback acceptance). If empty, those mutations are
-disabled with `503 not_configured`.
-
 ## 3. Environment variables
 
 Runtime variables in `.env` (Compose interpolation):
@@ -89,7 +84,6 @@ Runtime variables in `.env` (Compose interpolation):
 | `PLAYER_TOKEN` | no, ≥32 bytes, ≠ `OWNER_TOKEN` | Narrow bearer for a playback client such as the Nuvio/Stremio addon. Accepted only on the `owner_or_player` routes: library list, title detail, file detail, discovery search/metadata, adding a title or season, streaming search, the selected NZB and stream preparation. Refused everywhere else. |
 | `ALTMOUNT_API_KEY` | no | AltMount's API key, used only by `POST /api/v1/streaming/releases/{id}/prepare`, which submits the viewer-selected NZB to AltMount's stream endpoint (category `nuvio`) and returns just the file's path on the read-only mount. Without it that route answers 503. |
 | `MEDIA_MANAGER_API_PORT` | no (28081) | Loopback port for direct API. Never expose. |
-| `COMMISSIONING_V2_OWNER_ORIGIN` | for v2 UI | Trusted `Origin` for commissioning-v2 mutations. |
 | `MEDIA_NETWORK` | no (`media-manager`) | External integrations network name. |
 | `MEDIA_MANAGER_UID`, `MEDIA_MANAGER_GID` | recommended | API container user (library permissions). |
 | `ALTMOUNT_HOST_PARENT_PATH` | no (`/mnt`) | Host directory containing AltMount's FUSE mount point; mounted read-only at `/mnt` with `rslave` propagation. |
@@ -324,8 +318,6 @@ and writes results to `.sites-runtime/live-playwright-results/`.
 | UI shows "Media Manager returned HTTP 404" | `/api` prefix is routed to the UI container, not the API. Fix the Cosmos `/api` route (must target the API container). |
 | `401 unauthorized` on every UI call | Cosmos `/api` route is not injecting the owner bearer, or `OWNER_TOKEN` differs between the route and container. |
 | Seerr webhook returns `503 not_configured` | Seerr intake is off: either set all four env vars (instance row enabled), or save an enabled default Seerr connection with its API key on the website and restart the API. The API logs "Seerr intake is off" with the reason. |
-| Commissioning v2 returns `503 not_configured` | `COMMISSIONING_V2_OWNER_ORIGIN` unset (or no service). Set it to the browser origin. |
-| Commissioning v2 returns `403 origin_rejected` | Origin mismatch or cross-site request. Use the configured origin; don't strip Origin headers. |
 | Readiness fails with schema mismatch | Migrations didn't run (`AUTO_MIGRATE` off) or binary/DB mismatch. Run `media-manager migrate`; never edit a schema row manually. |
 | Newznab calls return `deferred`/cooldown | Pacing/budget working as intended. Inspect `indexer_operation_status` and `/sources`, not logs. |
 | Workflow stuck in `waiting` with `owner_action_required` | Round exhausted; wait for discovery `ready`, then `POST .../acquisition-rounds`. |

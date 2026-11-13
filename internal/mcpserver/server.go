@@ -279,8 +279,6 @@ var placeholder = regexp.MustCompile(`\{([A-Za-z]+)\}`)
 
 func (s *server) call(ctx context.Context, op operation, pathParams map[string]string, query map[string]any, body json.RawMessage, confirm bool) map[string]any {
 	switch {
-	case op.Auth == "owner_browser":
-		return toolError(op.ID + " can only be used from the Media Manager settings page.")
 	case op.Auth == "seerr_webhook":
 		return toolError(op.ID + " is called by Seerr, not by agents.")
 	case op.BinaryBody || op.BinaryReply:

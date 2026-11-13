@@ -6,7 +6,6 @@ import (
 	"github.com/media-manager/media-manager/internal/acquisition"
 
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
-	"github.com/media-manager/media-manager/internal/commissioningv2"
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/plexlogin"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -34,11 +33,8 @@ const (
 type apiAuth string
 
 const (
-	authNone  apiAuth = "none"
-	authOwner apiAuth = "owner"
-	// authOwnerBrowser additionally requires the trusted owner Origin, so it
-	// can only be driven from the Media Manager settings page.
-	authOwnerBrowser apiAuth = "owner_browser"
+	authNone         apiAuth = "none"
+	authOwner        apiAuth = "owner"
 	authSeerrWebhook apiAuth = "seerr_webhook"
 	// authOwnerOrPlayer also accepts the player token (PLAYER_TOKEN), which
 	// the Nuvio/Stremio addon uses instead of the owner token. Only the few
@@ -230,16 +226,6 @@ func (server *Server) apiOperations() []apiOperation {
 		{Method: "POST", Path: "/api/v1/imports/prowlarr", Handler: s.createProwlarrImport, Auth: owner, Effect: effectWrite, Tag: "settings", Summary: "Upload a Prowlarr backup to propose indexer imports", Body: rawBody{ContentType: "application/octet-stream", Description: "Prowlarr backup archive, at most 128 MiB."}},
 		{Method: "GET", Path: "/api/v1/imports/prowlarr/{id}", Handler: s.getProwlarrImport, Auth: owner, Effect: effectRead, Tag: "settings", Summary: "One Prowlarr import proposal"},
 		{Method: "POST", Path: "/api/v1/imports/prowlarr/{id}/approve", Handler: s.approveProwlarrImport, Auth: owner, Effect: effectWrite, Tag: "settings", Summary: "Approve selected Prowlarr indexer candidates as disabled integrations", Body: approveProwlarrImportInput{}, Required: []string{"candidates"}},
-
-		{Method: "POST", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs", Handler: s.createCommissioningV2Run, Auth: authOwnerBrowser, Effect: effectWrite, Tag: "commissioning", Summary: "Start a commissioning v2 run from fixtures", Body: commissioningv2.FixtureDocument{}},
-		{Method: "GET", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}", Handler: s.getCommissioningV2Run, Auth: owner, Effect: effectRead, Tag: "commissioning", Summary: "One commissioning v2 run"},
-		{Method: "POST", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-caps", Handler: s.authorizeCommissioningV2CAPS, Auth: authOwnerBrowser, Effect: effectProvider, Tag: "commissioning", Summary: "Authorize the CAPS probe for a run", Body: expectedRevisionInput{}, Required: []string{"expected_revision"}},
-		{Method: "POST", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/categories", Handler: s.sealCommissioningV2SearchPlan, Auth: authOwnerBrowser, Effect: effectWrite, Tag: "commissioning", Summary: "Seal the run's category search plan", Body: sealCommissioningV2SearchPlanInput{}, Required: []string{"expected_revision"}},
-		{Method: "POST", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/authorize-searches", Handler: s.authorizeCommissioningV2Searches, Auth: authOwnerBrowser, Effect: effectProvider, Tag: "commissioning", Summary: "Authorize the run's live searches", Body: expectedRevisionInput{}, Required: []string{"expected_revision"}},
-		{Method: "POST", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/steps/{step}/execute", Handler: s.executeCommissioningV2CAPS, Auth: authOwnerBrowser, Effect: effectProvider, Tag: "commissioning", Summary: "Execute one authorized live step"},
-		{Method: "POST", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/draft", Handler: s.finalizeCommissioningV2Draft, Auth: authOwnerBrowser, Effect: effectWrite, Tag: "commissioning", Summary: "Finalize the capability profile draft", Body: expectedRevisionInput{}, Required: []string{"expected_revision"}},
-		{Method: "GET", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/draft", Handler: s.getCommissioningV2Draft, Auth: owner, Effect: effectRead, Tag: "commissioning", Summary: "The run's capability profile draft"},
-		{Method: "POST", Path: "/api/v1/settings/integrations/{id}/commissioning-v2/runs/{run}/activate", Handler: s.activateCommissioningV2Profile, Auth: authOwnerBrowser, Effect: effectWrite, Tag: "commissioning", Summary: "Activate the finalized capability profile", Body: expectedRevisionInput{}, Required: []string{"expected_revision"}},
 	}
 }
 
@@ -254,8 +240,6 @@ func (server *Server) authorize(auth apiAuth, handler http.HandlerFunc) http.Han
 	switch auth {
 	case authOwner:
 		return server.requireOwner(handler)
-	case authOwnerBrowser:
-		return server.requireOwnerMutation(handler)
 	case authOwnerOrPlayer:
 		return server.requireOwnerOrPlayer(handler)
 	case authNone, authSeerrWebhook:

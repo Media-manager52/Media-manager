@@ -137,8 +137,6 @@ Each operation carries:
     description.
 - `x-mm-auth`:
   - `owner`: bearer token.
-  - `owner_browser`: only from the Media Manager settings page, so an agent
-    cannot call it.
   - `none`: health probes only.
   - `seerr_webhook`: Seerr only.
 

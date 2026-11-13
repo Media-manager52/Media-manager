@@ -123,15 +123,6 @@ type lane struct {
 	budget   Budget
 	snapshot Snapshot
 	loaded   bool
-	// cacheUnknown is the fail-closed stale-cache barrier. When true, every
-	// Acquire must reload authoritative durable state before another
-	// transmission can occur, even when a fresh durable-gate check returns
-	// NULL/clear. It is set while still owning the lane permit on uncertain
-	// finalization or failed cache refresh, before recovery reload or lane
-	// release. Normal cache operation is untouched: known-valid state does
-	// not trigger a database reload on every acquisition.
-	cacheUnknown bool
-	gateSource   CommissioningGateSource
 }
 
 type Permit struct {
@@ -142,39 +133,13 @@ type Permit struct {
 	global    chan struct{}
 	indexerID string
 	workload  Workload
-	// commissioningBudget is populated ONLY by AcquireCommissioningV2. It is
-	// zero for every permit from Acquire, so a legacy permit can never
-	// authorize a commissioning durable write.
-	commissioningBudget CommissioningBudgetSnapshot
-	once                sync.Once
-}
-
-// CommissioningBudgetSnapshot returns the provenance-carrying scheduler
-// configuration bound to this permit. Permits from Acquire yield the zero
-// snapshot, which is always invalid.
-func (permit *Permit) CommissioningBudgetSnapshot() CommissioningBudgetSnapshot {
-	if permit == nil {
-		return CommissioningBudgetSnapshot{}
-	}
-	return permit.commissioningBudget
+	once      sync.Once
 }
 
 var (
 	ErrIndexerIDRequired = errors.New("indexer ID is required")
 	ErrInvalidBudget     = errors.New("invalid indexer budget")
 	ErrInvalidResult     = errors.New("invalid indexer scheduling result")
-	// ErrInvalidCommissioningIdentity is returned by AcquireCommissioningV2
-	// for every identity failure (empty, whitespace-only, non-canonical
-	// spelling, malformed, either field), deterministically and
-	// indistinguishably. Fixed message; contains no raw identity,
-	// configuration value, provider text, or secret.
-	ErrInvalidCommissioningIdentity = errors.New("invalid commissioning identity")
-	// ErrCommissioningResultPath is returned when a commissioning permit is
-	// used through the legacy scheduler result path. Commissioning permits
-	// carry an admitted snapshot for the durable live path only; they must
-	// never persist via SaveIndexerBudget. Fixed message; contains no IDs,
-	// configuration values, provider text, or secrets.
-	ErrCommissioningResultPath = errors.New("commissioning permit cannot record through the legacy scheduler result path")
 )
 
 const (
@@ -199,20 +164,6 @@ func (err RequestBudgetError) Error() string {
 }
 func (err RequestBudgetError) SafeCode() string   { return "indexer_budget_deferred" }
 func (err RequestBudgetError) RetryAt() time.Time { return err.Until.UTC() }
-
-// CommissioningGateBlockedError is a closed fail-closed error: the durable
-// unresolved-attempt gate is unresolved, or the gate could not be read. It
-// carries no provider URL, header, or error text.
-type CommissioningGateBlockedError struct {
-	IndexerID string
-}
-
-func (err CommissioningGateBlockedError) Error() string {
-	return "indexer request is blocked by unresolved commissioning accounting"
-}
-func (err CommissioningGateBlockedError) SafeCode() string {
-	return "commissioning_accounting_unresolved"
-}
 
 func NewznabBudget(minimumIntervalMS int64, queryLimit, grabLimit int, windowSeconds int64) Budget {
 	minimum := time.Duration(minimumIntervalMS) * time.Millisecond
@@ -283,24 +234,6 @@ func ValidBudget(budget Budget) bool {
 	return !(budget.MinimumInterval < 0 || budget.FailureBackoff <= 0 || budget.MaximumBackoff < budget.FailureBackoff || budget.QueryLimit < 0 || budget.GrabLimit < 0 || (budget.QueryLimit > 0 || budget.GrabLimit > 0) && budget.LimitWindow <= 0)
 }
 
-// ValidCommissioningBudget adds what the commissioning workload requires: the
-// architecture section 14 minimum-interval floor plus a usable query budget.
-// The QueryLimit/LimitWindow requirements are what reject getLane's fabricated
-// fallback budget (2s interval, zero limits), so an indexer whose lane was
-// never Configure'd cannot obtain a commissioning permit.
-//
-// Note (N-3, documentation only, NOT a correctness dependency):
-// indexers.NewznabBudget currently returns constant FailureBackoff = 15s and
-// MaximumBackoff = 30m for every indexer; only MinimumInterval, QueryLimit,
-// GrabLimit and LimitWindow vary per owner configuration. That constancy is
-// why a cross-permit snapshot substitution could not have shortened a
-// production cooldown before the MatchesAttempt binding existed. MatchesAttempt
-// is what guarantees correctness and must hold if backoff values later become
-// owner-configurable; do not encode 15s/30m into this predicate.
-func ValidCommissioningBudget(budget Budget) bool {
-	return ValidBudget(budget) && budget.MinimumInterval >= 3*time.Second && budget.QueryLimit > 0 && budget.LimitWindow > 0
-}
-
 func (scheduler *Scheduler) Configure(indexerID string, budget Budget) error {
 	indexerID = strings.TrimSpace(indexerID)
 	if indexerID == "" {
@@ -322,25 +255,9 @@ func (scheduler *Scheduler) Configure(indexerID string, budget Budget) error {
 	return nil
 }
 
-// SetCommissioningGateSource injects the durable unresolved-attempt gate
-// source for one lane. Milestone A tests inject an in-memory source; the
-// migration 0035 implementation must back this with durable storage checked
-// on every acquisition (never a once-loaded cache). A nil source preserves
-// legacy behavior.
-func (scheduler *Scheduler) SetCommissioningGateSource(indexerID string, source CommissioningGateSource) {
-	lane := scheduler.getLane(indexerID)
-	lane.mu.Lock()
-	lane.gateSource = source
-	lane.mu.Unlock()
-}
-
 // Acquire is the only supported path to an indexer network request. The lane
 // token is held until Record or Close, enforcing one request at a time even in
-// commissioning and tests. When the lane cache is fail-closed unknown,
-// Acquire reloads authoritative durable state while holding the lane before
-// any transmission decision; reload failure or cancellation permits zero
-// transmissions. A NULL/clear durable gate alone never authorizes acquisition
-// while scheduling state is unknown.
+// commissioning and tests.
 func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workload Workload) (*Permit, error) {
 	indexerID = strings.TrimSpace(indexerID)
 	if indexerID == "" {
@@ -364,25 +281,6 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 		<-global
 		<-lane.gate
 		return nil, err
-	}
-	lane.mu.RLock()
-	unknown := lane.cacheUnknown
-	source := lane.gateSource
-	lane.mu.RUnlock()
-	if unknown {
-		if err := scheduler.ReloadLaneCache(ctx, indexerID); err != nil {
-			<-global
-			<-lane.gate
-			return nil, err
-		}
-		lane.mu.RLock()
-		source = lane.gateSource
-		lane.mu.RUnlock()
-	}
-	if !gateAllowsTransmission(ctx, source, indexerID) {
-		<-global
-		<-lane.gate
-		return nil, CommissioningGateBlockedError{IndexerID: indexerID}
 	}
 	now := scheduler.now().UTC()
 	lane.mu.RLock()
@@ -458,114 +356,6 @@ func (scheduler *Scheduler) Acquire(ctx context.Context, indexerID string, workl
 	return &Permit{scheduler: scheduler, lane: lane, global: global, indexerID: indexerID, workload: workload}, nil
 }
 
-// canonicalCommissioningID enforces the commissioning-v2 admission identity
-// contract. It applies the same strings.TrimSpace the scheduler already uses,
-// then requires the result to be ALREADY canonical lowercase UUID text:
-// exactly 36 characters; hyphens at indices 8, 13, 18, 23; lowercase
-// hexadecimal [0-9a-f] at every other index. It returns that string unchanged
-// on success. It deliberately does not parse or normalize: uppercase,
-// urn:uuid:-prefixed, brace-wrapped, 32-character unhyphenated, empty,
-// whitespace-only and malformed inputs are all REJECTED rather than converted.
-func canonicalCommissioningID(value string) (string, bool) {
-	value = strings.TrimSpace(value)
-	if len(value) != 36 {
-		return "", false
-	}
-	for index := 0; index < 36; index++ {
-		character := value[index]
-		switch index {
-		case 8, 13, 18, 23:
-			if character != '-' {
-				return "", false
-			}
-		default:
-			if character >= '0' && character <= '9' || character >= 'a' && character <= 'f' {
-				continue
-			}
-			return "", false
-		}
-	}
-	return value, true
-}
-
-// AcquireCommissioningV2 is the v2 executor's only acquisition path. It runs
-// the identical lane/global/gate/cooldown sequence as Acquire and takes NO
-// reservation of its own. An attempt is admitted, paced, reserved and
-// accounted under exactly one scheduler configuration - the one in effect
-// when its permit was acquired.
-func (scheduler *Scheduler) AcquireCommissioningV2(ctx context.Context, indexerID, stepID string) (*Permit, error) {
-	canonicalIndexerID, ok := canonicalCommissioningID(indexerID)
-	if !ok {
-		return nil, ErrInvalidCommissioningIdentity
-	}
-	canonicalStepID, ok := canonicalCommissioningID(stepID)
-	if !ok {
-		return nil, ErrInvalidCommissioningIdentity
-	}
-	lane := scheduler.getLane(canonicalIndexerID)
-	select {
-	case lane.gate <- struct{}{}:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	select {
-	case scheduler.global <- struct{}{}:
-	case <-ctx.Done():
-		<-lane.gate
-		return nil, ctx.Err()
-	}
-	if err := scheduler.load(ctx, canonicalIndexerID, lane); err != nil {
-		<-scheduler.global
-		<-lane.gate
-		return nil, err
-	}
-	lane.mu.RLock()
-	unknown := lane.cacheUnknown
-	source := lane.gateSource
-	lane.mu.RUnlock()
-	if unknown {
-		if err := scheduler.ReloadLaneCache(ctx, canonicalIndexerID); err != nil {
-			<-scheduler.global
-			<-lane.gate
-			return nil, err
-		}
-		lane.mu.RLock()
-		source = lane.gateSource
-		lane.mu.RUnlock()
-	}
-	if !gateAllowsTransmission(ctx, source, canonicalIndexerID) {
-		<-scheduler.global
-		<-lane.gate
-		return nil, CommissioningGateBlockedError{IndexerID: canonicalIndexerID}
-	}
-	now := scheduler.now().UTC()
-	lane.mu.RLock()
-	notBefore := lane.snapshot.NextAllowedAt
-	if lane.snapshot.CooldownUntil.After(notBefore) {
-		notBefore = lane.snapshot.CooldownUntil
-	}
-	budget := lane.budget
-	lane.mu.RUnlock()
-	if notBefore.After(now) {
-		<-scheduler.global
-		<-lane.gate
-		return nil, CooldownError{Until: notBefore}
-	}
-	if !ValidCommissioningBudget(budget) {
-		<-scheduler.global
-		<-lane.gate
-		return nil, ErrInvalidBudget
-	}
-	// Bind the SAME local budget value that passed ValidCommissioningBudget.
-	// No second lane read: Configure between validation and capture must not
-	// swap the bound configuration. The send cell is allocated exactly once
-	// here: it is the single attempt-scoped one-use cell for this admitted
-	// attempt, shared by every copy of the snapshot and every transmission
-	// capability minted from it.
-	snapshot := CommissioningBudgetSnapshot{budget: budget, indexerID: canonicalIndexerID, stepID: canonicalStepID, send: &commissioningSendCell{}}
-	return &Permit{scheduler: scheduler, lane: lane, indexerID: canonicalIndexerID, workload: WorkloadCommissioning, commissioningBudget: snapshot}, nil
-}
-
 // Record is the compatibility path for existing callers. Its behavior remains
 // instance-scoped for every failure and continues to understand Retry-After.
 func (permit *Permit) Record(ctx context.Context, outcome Outcome, headers http.Header) error {
@@ -580,13 +370,6 @@ func (permit *Permit) Record(ctx context.Context, outcome Outcome, headers http.
 // request and advances minimum pacing, but only an instance-scoped failure may
 // change the shared failure count or cooldown.
 func (permit *Permit) RecordResult(ctx context.Context, result RecordResult) error {
-	// A commissioning permit must never reach the legacy persistence path,
-	// even with an invalid RecordResult: route through the same guard so the
-	// sentinel is returned and no SaveIndexerBudget occurs. Legacy permits
-	// keep the existing invalid-result behavior below.
-	if permit != nil && permit.commissioningBudget.Valid() {
-		return permit.recordResult(ctx, result, "")
-	}
 	if !validRecordResult(result) {
 		recordErr := permit.recordResult(ctx, RecordResult{Outcome: OutcomeSystemFailure, Scope: FailureScopeInstance}, "")
 		return errors.Join(ErrInvalidResult, recordErr)
@@ -611,19 +394,6 @@ func validRecordResult(result RecordResult) bool {
 
 func (permit *Permit) recordResult(ctx context.Context, result RecordResult, retryAfter string) error {
 	var recordErr error
-	// Commissioning permits are structurally barred from the legacy result
-	// path: they must never persist via SaveIndexerBudget. The lane/global
-	// ownership is still released exactly once through permit.once, and the
-	// caller receives a fixed sanitized sentinel. ReleaseWithoutOutcome
-	// remains the correct commissioning release mechanism; this guard only
-	// covers callers that mistakenly use Record/RecordResult/Close.
-	if permit != nil && permit.commissioningBudget.Valid() {
-		permit.once.Do(func() {
-			<-permit.slots()
-			<-permit.lane.gate
-		})
-		return ErrCommissioningResultPath
-	}
 	permit.once.Do(func() {
 		now := permit.scheduler.now().UTC()
 		permit.lane.mu.Lock()
@@ -639,15 +409,10 @@ func (permit *Permit) recordResult(ctx context.Context, result RecordResult, ret
 	return recordErr
 }
 
-// ComputeOutcomeEffect is the single pure implementation of the pacing /
-// backoff / cooldown rules shared by legacy Permit.recordResult and the
-// commissioning completion path. It performs no I/O and mutates no scheduler
+// computeOutcomeEffectLocked is the single pure implementation of the pacing /
+// backoff / cooldown rules. It performs no I/O and mutates no scheduler
 // state. backoff() is FNV-deterministic over (indexerID, failures), so the
 // function is exactly reproducible.
-func ComputeOutcomeEffect(start Snapshot, budget Budget, indexerID string, result RecordResult, retryAfter string, now time.Time) Snapshot {
-	return computeOutcomeEffectLocked(start, budget, indexerID, result, retryAfter, now.UTC())
-}
-
 func computeOutcomeEffectLocked(start Snapshot, budget Budget, indexerID string, result RecordResult, retryAfter string, now time.Time) Snapshot {
 	now = now.UTC()
 	snapshot := start
@@ -703,33 +468,6 @@ func computeOutcomeEffectLocked(start Snapshot, budget Budget, indexerID string,
 	return snapshot
 }
 
-// ComputeCommissioningOutcomeEffect applies the scheduler's outcome rules
-// using the configuration captured by an admitted commissioning permit. It
-// delegates to ComputeOutcomeEffect with the snapshot's PRIVATE budget, so
-// there is exactly one implementation of the rules and *postgres.Store never
-// names indexers.Budget on this path. The classified result already carries
-// the parsed bounded RetryAt, so provider header text cannot reach this path.
-//
-// Commissioning-only RetryAt ceiling (not legacy semantics): an unbounded
-// classified RetryAt is clamped to now + snapshot.MaximumBackoff() before
-// delegation. Classification stays independent of BudgetSnapshot (it is not
-// an input to ClassifyLiveAttempt), ComputeOutcomeEffect itself is
-// unchanged, and the durable GREATEST merge still preserves any stronger
-// existing cooldown.
-func ComputeCommissioningOutcomeEffect(start Snapshot, snapshot CommissioningBudgetSnapshot, result RecordResult, now time.Time) (Snapshot, error) {
-	if !snapshot.Valid() {
-		return Snapshot{}, ErrInvalidBudget
-	}
-	now = now.UTC()
-	if !result.RetryAt.IsZero() {
-		ceiling := now.Add(snapshot.MaximumBackoff())
-		if result.RetryAt.After(ceiling) {
-			result.RetryAt = ceiling
-		}
-	}
-	return ComputeOutcomeEffect(start, snapshot.budget, start.IndexerID, result, "", now), nil
-}
-
 func failureOutcome(outcome Outcome) bool {
 	switch outcome {
 	case OutcomeRateLimited, OutcomeAuthFailed, OutcomeSystemFailure:
@@ -772,18 +510,6 @@ func (permit *Permit) slots() chan struct{} {
 }
 
 func (permit *Permit) Close() { _ = permit.Record(context.Background(), OutcomeCancelled, nil) }
-
-// ReleaseWithoutOutcome releases the lane and global slot without an
-// outcome-recording Record/RecordResult write that could overwrite already
-// committed state. It is used on the uncertain-finalization path after the
-// complete lane cache has been invalidated: the committed cooldown/pacing
-// floor must survive, and the next Acquire must reload authoritative state.
-func (permit *Permit) ReleaseWithoutOutcome() {
-	permit.once.Do(func() {
-		<-permit.slots()
-		<-permit.lane.gate
-	})
-}
 
 func (scheduler *Scheduler) Snapshot(indexerID string) Snapshot {
 	lane := scheduler.getLane(indexerID)

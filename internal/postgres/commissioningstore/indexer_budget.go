@@ -93,3 +93,16 @@ func (store *Commissioning) ReserveIndexerRequest(ctx context.Context, indexerID
 	}
 	return time.Time{}, transaction.Commit(ctx)
 }
+
+// ReservationLockKey is the advisory-lock key that serializes request budget
+// reservations for one indexer.
+func ReservationLockKey(indexerID string) string {
+	if parsed, err := uuid.Parse(indexerID); err == nil {
+		return "indexer-request-budget:" + parsed.String()
+	}
+	return "indexer-request-budget:" + indexerID
+}
+
+// ReservationLockKeyForTest exposes the shared lock-key derivation for
+// focused unit coverage without a database.
+func ReservationLockKeyForTest(indexerID string) string { return ReservationLockKey(indexerID) }

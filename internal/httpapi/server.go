@@ -50,8 +50,6 @@ type Config struct {
 	MetadataEnricher       *metadataservice.Service
 	MetadataProviderStates map[string]string
 	CommissionNewznab      func(context.Context, uuid.UUID) (postgres.Integration, error)
-	CommissioningV2        CommissioningV2Service
-	CommissioningV2Origin  string
 	BackupConfigured       bool
 	// BackupKeyFile is where the backup key is kept when it is a file (shown
 	// to the owner so a copy can be saved; the key itself is never returned).
