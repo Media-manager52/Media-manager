@@ -74,7 +74,8 @@ export type APIReleaseCandidate = { id: string; workflow_id: string; media_id: s
 export type APISourceStatus = APIIntegration & { configuration_state: "configured" | "disabled" | "awaiting_commission"; minimum_interval_ms?: number; next_allowed_at?: string; cooldown_until?: string; consecutive_failure: number; last_outcome?: string; budget_updated_at?: string; last_check_ok?: boolean; last_check_at?: string }
 /** Live probe of one AltMount read-only output mount inside the API container. */
 export type APIMountHealth = { integration_id: string; name: string; path: string; state: "available" | "unavailable"; detail?: string }
-export type APISystemHealth = { database_state: string; database_latency_ms: number; schema_version: number; expected_schema: number; outbox: { pending: number; due: number; retrying: number; oldest_due_at?: string }; components: APISourceStatus[]; mounts?: APIMountHealth[]; checked_at: string }
+export type APIPlexAltMountView = { plex_id: string; plex_name: string; path: string; state: "ok" | "missing" | "unreadable" | "empty" | "unknown"; missing?: string[] }
+export type APISystemHealth = { database_state: string; database_latency_ms: number; schema_version: number; expected_schema: number; outbox: { pending: number; due: number; retrying: number; oldest_due_at?: string }; components: APISourceStatus[]; mounts?: APIMountHealth[]; plex_altmount?: APIPlexAltMountView[] | null; plex_altmount_checked_at?: string; checked_at: string }
 export type APIMediaSeason = { number: number; monitored: boolean; prefer_season_pack: boolean; search_immediately: boolean; state: string; expected_episodes: number; released_episodes?: number; future_episodes?: number; undated_episodes?: number; workflow_id?: string; workflow_state?: string; waiting_reason?: string; last_search_at?: string; next_search_at?: string; updated_at: string; episodes?: APIMediaEpisode[] }
 export type APIMediaEpisode = { number: number; title?: string; air_date?: string }
 export type APIMediaDetail = { media: APIMedia; workflows: APIWorkflow[]; seasons: APIMediaSeason[]; files: APIManagedFile[] }
@@ -371,6 +372,11 @@ export type APIUsenetServerInput = {
   enabled?: boolean; is_backup_provider?: boolean; quota_bytes?: number; quota_period_hours?: number; account_expiration_date?: string
 }
 export type APIUsenetServerTest = { ok: boolean; detail?: string; rtt_ms?: number }
+export type APIAltMountServerLive = { id: string; host: string; state: string; used_connections: number; max_connections: number; error_count: number; failure_reason: string; current_speed_bytes_per_sec: number; ping_ms: number; missing_warning: boolean; byte_count_24h: number; quota_bytes: number; quota_used: number; quota_reset_at?: string; quota_exceeded: boolean }
+export type APIAltMountServerStatus = { id: string; name?: string; host: string; enabled: boolean; is_backup_provider: boolean; live?: APIAltMountServerLive; quota_set: boolean }
+export type APIAltMountStream = { file: string; title?: { media_id: string; kind: string; title: string; year?: number; variant?: string }; source: string; status: string; started_at: string; last_activity: string; total_size: number; current_offset: number; bytes_per_second: number }
+export type APIAltMountStatus = { altmount: { id: string; name: string }; drive?: { status: string; healthy: boolean; path: string }; download_speed_bytes_per_sec: number; bytes_downloaded_24h: number; servers: APIAltMountServerStatus[]; streams: APIAltMountStream[]; unavailable: string[]; checked_at: string }
+export const loadAltMountStatus = (signal?: AbortSignal) => requestJSON<APIAltMountStatus>("/api/v1/system/altmount", { signal })
 export const loadUsenetServers = (signal?: AbortSignal) => requestJSON<APIUsenetServers>("/api/v1/settings/usenet-servers", { signal })
 export const createUsenetServer = (input: APIUsenetServerInput) => requestJSON<APIUsenetServer>("/api/v1/settings/usenet-servers", { method: "POST", body: JSON.stringify(input) })
 export const updateUsenetServer = (id: string, input: APIUsenetServerInput) => requestJSON<APIUsenetServer>(`/api/v1/settings/usenet-servers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })

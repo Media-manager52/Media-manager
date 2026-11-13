@@ -202,6 +202,128 @@
         },
         "type": "object"
       },
+      "AltMountServerView": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_backup_provider": {
+            "type": "boolean"
+          },
+          "live": {
+            "$ref": "#/components/schemas/Altmount_ServerStatus"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quota_set": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "AltMountStatus": {
+        "properties": {
+          "altmount": {
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "bytes_downloaded_24h": {
+            "type": "integer"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "download_speed_bytes_per_sec": {
+            "type": "number"
+          },
+          "drive": {
+            "$ref": "#/components/schemas/Altmount_DriveStatus"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/AltMountServerView"
+            },
+            "type": "array"
+          },
+          "streams": {
+            "items": {
+              "$ref": "#/components/schemas/AltMountStreamView"
+            },
+            "type": "array"
+          },
+          "unavailable": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "AltMountStreamView": {
+        "properties": {
+          "bytes_per_second": {
+            "type": "integer"
+          },
+          "current_offset": {
+            "type": "integer"
+          },
+          "file": {
+            "type": "string"
+          },
+          "last_activity": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "$ref": "#/components/schemas/Postgres_AltMountJobTitle"
+          },
+          "total_size": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Altmount_DriveStatus": {
+        "properties": {
+          "healthy": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Altmount_PreparedStream": {
         "properties": {
           "cached": {
@@ -332,6 +454,57 @@
           },
           "username": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Altmount_ServerStatus": {
+        "properties": {
+          "byte_count_24h": {
+            "type": "integer"
+          },
+          "current_speed_bytes_per_sec": {
+            "type": "number"
+          },
+          "error_count": {
+            "type": "integer"
+          },
+          "failure_reason": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "max_connections": {
+            "type": "integer"
+          },
+          "missing_warning": {
+            "type": "boolean"
+          },
+          "ping_ms": {
+            "type": "integer"
+          },
+          "quota_bytes": {
+            "type": "integer"
+          },
+          "quota_exceeded": {
+            "type": "boolean"
+          },
+          "quota_reset_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "quota_used": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "used_connections": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -1033,6 +1206,27 @@
           },
           "state": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_AltMountJobTitle": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "media_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "variant": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -8542,6 +8736,52 @@
           "streaming"
         ],
         "x-mm-auth": "owner_or_player",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/system/altmount": {
+      "get": {
+        "description": "Reads AltMount's live status with the AltMount connection's login and changes nothing. Streams carry the title when Media Manager made the upload. A part AltMount does not answer for is named in unavailable; the rest is still returned. 409 altmount_not_configured without one enabled AltMount connection, 502 altmount_unavailable when AltMount does not accept the login.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "getAltMountStatus",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/AltMountStatus"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "AltMount's drive, news servers (connections, errors, quota) and current streams",
+        "tags": [
+          "system"
+        ],
+        "x-mm-auth": "owner",
         "x-mm-effect": "provider"
       }
     },

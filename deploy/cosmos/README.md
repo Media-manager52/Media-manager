@@ -110,6 +110,8 @@ default the install adds it as the service `<name>-altmount`, built from
   restarted. Cosmos' container screens cannot set propagation, so make the change
   in Plex's compose or Cosmos JSON. Putting AltMount's drive inside a folder Plex
   already has does not avoid this; the same rule applies.
+  Media Manager checks this every few minutes: **Plex ser AltMount** turns red on
+  the overview and System → Status when Plex lists none of AltMount's files.
 
 Already running your own AltMount? Turn off **Install AltMount together with Media
 Manager**, choose the host folder that contains its FUSE mount, put Media Manager on

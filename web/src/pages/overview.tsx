@@ -8,6 +8,7 @@ import { OverviewHero } from "@/components/overview-hero"
 import { Badge, Card, CardHeader, Dot, Empty, ErrorBox, PageHeader, Skeleton } from "@/components/ui"
 import { formatDateTime, formatNumber, formatRelative, formatWeekday } from "@/format"
 import { attentionLabel, stateLabel, stateTone, workflowDisplayState } from "@/i18n"
+import { plexAltMountSummary } from "@/lib/altmount-status"
 import { describeVariant, titleHref, workflowHref } from "@/lib/links"
 import { greeting } from "@/lib/overview-tiles"
 
@@ -160,6 +161,7 @@ function HealthCard() {
   const failing = (health?.components ?? []).filter((component) => component.enabled && component.consecutive_failure > 0)
   const mountsDown = (health?.mounts ?? []).filter((mount) => mount.state !== "available")
   const databaseOk = health ? health.database_state === "ready" && health.schema_version === health.expected_schema : undefined
+  const plexView = plexAltMountSummary(health?.plex_altmount)
   return (
     <Card>
       <CardHeader title="Systemstatus" action={<Link to="/system" className="text-sm font-medium text-accent-strong hover:underline">Detaljer</Link>} />
@@ -170,6 +172,7 @@ function HealthCard() {
           <>
             <HealthRow ok={databaseOk ?? false} label="Database" detail={databaseOk ? `Klar · ${health.database_latency_ms} ms` : `Skema ${health.schema_version} af ${health.expected_schema}`} />
             <HealthRow ok={mountsDown.length === 0} label="AltMount-drev" detail={mountsDown.length === 0 ? `${health.mounts?.length ?? 0} ${(health.mounts?.length ?? 0) === 1 ? "tilgængeligt" : "tilgængelige"}` : mountsDown.map((mount) => mount.name).join(", ") + (mountsDown.length === 1 ? " er utilgængeligt" : " er utilgængelige")} />
+            {plexView ? <HealthRow ok={plexView.ok} label="Plex ser AltMount" detail={plexView.detail} /> : null}
             <HealthRow ok={failing.length === 0} label="Forbindelser" detail={failing.length === 0 ? "Ingen fejl" : failing.map((component) => component.name).join(", ")} />
             <HealthRow ok={health.outbox.retrying === 0} label="Baggrundskø" detail={`${formatNumber(health.outbox.due)} klar · ${formatNumber(health.outbox.retrying)} prøver igen`} />
             <div className="pt-1 text-xs text-text-3">Tjekket {formatDateTime(health.checked_at)}</div>

@@ -4,11 +4,13 @@ import { HardDriveDownload, Inbox, Play, Radar } from "lucide-react"
 import { Link, useParams } from "react-router"
 
 import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRepairs, loadSupportBundle, loadSystemHealth, loadSystemInfo, restoreRecycle, type APIRecycleEntry } from "@/api/client"
+import { AltMountStatusSection } from "@/components/altmount-status"
 import { chipColor, IconChip, initials } from "@/components/icon-chip"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader, PillNav, ShowMore } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
 import { activityActorLabel, activityLabel, backupStateLabel, componentKindLabel, componentOutcomeLabel, errorMessage, externalCopyLabel, humanize, queueEventLabel, repairReasonLabel, translateDetail } from "@/i18n"
+import { plexAltMountGuide, plexAltMountLine } from "@/lib/altmount-status"
 import { confirmedExternalCopy, externalCopyState, latestExternalCopy, latestRestoreTest } from "@/lib/backup-evidence"
 import { scopeLabel, titleHref, workflowHref } from "@/lib/links"
 import { useShowMore } from "@/lib/show-more"
@@ -17,6 +19,7 @@ import { ListSkeleton } from "@/pages/overview"
 
 const sections = [
   { id: "", label: "Status" },
+  { id: "altmount", label: "AltMount" },
   { id: "koe", label: "Baggrundskø" },
   { id: "backup", label: "Backup" },
   { id: "reparationer", label: "Reparationer" },
@@ -40,6 +43,7 @@ export function SystemPage() {
       <PageHeader title="System" description="Hvordan Media Manager og forbindelserne har det." />
       <PillNav label="System" items={sections.map((entry) => ({ to: entry.id ? `/system/${entry.id}` : "/system", label: entry.label, end: true }))} />
       {section === "" ? <Status /> : null}
+      {section === "altmount" ? <AltMountStatusSection /> : null}
       {section === "koe" ? <Queue /> : null}
       {section === "backup" ? <Backups /> : null}
       {section === "reparationer" ? <Repairs /> : null}
@@ -94,6 +98,23 @@ function Status() {
                 <span className="break-all text-text-2">{mount.state === "available" ? mount.path : mount.detail || "Utilgængeligt"}</span>
               </li>
             ))}
+            {(h.plex_altmount ?? []).map((view) => {
+              const line = plexAltMountLine(view)
+              return (
+                <li key={`${view.plex_id}-${view.path}`} className="flex flex-col gap-1 px-5 py-3">
+                  <div className="flex items-center gap-3">
+                    <Dot tone={line.tone} />
+                    <span className="shrink-0 font-medium">Plex ser AltMount</span>
+                    <span className="min-w-0 flex-1 text-right text-text-2 [overflow-wrap:anywhere]">{line.label}</span>
+                  </div>
+                  {line.detail ? (
+                    <p className="pl-5 text-xs text-text-3">
+                      {line.detail}{line.tone === "bad" ? <> <a href={plexAltMountGuide} target="_blank" rel="noreferrer" className="font-medium text-accent-strong hover:underline">Se vejledningen</a></> : null}
+                    </p>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
         </Card>
         {info.data ? (

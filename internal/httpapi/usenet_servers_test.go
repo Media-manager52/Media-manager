@@ -23,6 +23,9 @@ type fakeUsenetAltMount struct {
 	providers []map[string]any
 	bodies    []string
 	nextID    int
+	// Live status for GET /api/fuse/status, /api/system/pool/metrics and
+	// /api/files/active-streams; a nil value answers 500.
+	drive, pool, streams any
 }
 
 func (fake *fakeUsenetAltMount) handler(t *testing.T) http.Handler {
@@ -81,6 +84,13 @@ func (fake *fakeUsenetAltMount) handler(t *testing.T) http.Handler {
 				list = append(list, public(provider))
 			}
 			reply(map[string]any{"api_key": "altmount-own-api-key", "providers": list})
+		case request.Method == http.MethodGet && (path == "/api/fuse/status" || path == "/api/system/pool/metrics" || path == "/api/files/active-streams"):
+			data := map[string]any{"/api/fuse/status": fake.drive, "/api/system/pool/metrics": fake.pool, "/api/files/active-streams": fake.streams}[path]
+			if data == nil {
+				writer.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			reply(data)
 		case request.Method == http.MethodPost && path == "/api/providers/test":
 			if body["password"] == "right-pass" {
 				reply(map[string]any{"success": true, "rtt_ms": 23})
