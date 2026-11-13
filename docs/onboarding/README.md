@@ -16,9 +16,7 @@ for dated evidence.
 > Read `AGENTS.md` in the repository root for the short contributor contract,
 > then follow the read order below. The full documentation index, including
 > status/evidence and archived proposals, is in
-> [`docs/README.md`](../README.md). Earlier one-off session prompts are kept in
-> [`docs/archive/agent-briefs/`](../archive/agent-briefs/) for history only;
-> they describe older snapshots and are not instructions.
+> [`docs/README.md`](../README.md).
 
 ## Read order
 
@@ -75,8 +73,7 @@ evidence rather than current behavior. Prefer, in this order:
    (safety rules) and [`../invariants.md`](../invariants.md).
 5. `docs/status/implementation.md` and `docs/status/release.md` (dated audits;
    may lag behind `main`).
-6. `docs/archive/*.txt` (design proposals — **not** implemented behavior).
-7. `docs/status/indexer-conformance.md` (developer-only lab evidence, not
+6. `docs/status/indexer-conformance.md` (developer-only lab evidence, not
    runtime).
 
 If a change contradicts this documentation, fix the documentation in the same

@@ -848,8 +848,7 @@ Danish-required search ranking prefers explicit `da` observations/inferences,
 then bounded Danish/Nordic title clues, then unknown evidence. These clues do
 not create subtitle facts, change eligibility, or qualify an upgrade by
 increasing its policy score. Output inspection and exact Plex verification
-remain mandatory. See the [review](../status/retrieval-recovery-review.md) for
-live evidence, limitations and the owner decisions for deploying/resuming work.
+remain mandatory.
 
 ## Owner recovery after NZB access rejection
 
