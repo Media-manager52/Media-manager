@@ -4,6 +4,15 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **Untouched Blu-ray and DVD discs are skipped when searching.** A whole disc (BDMV/VIDEO_TS folders, DVD5/DVD9, ISO, "COMPLETE BLURAY", or "Blu-ray" with a disc codec and no x264/x265/REMUX) never holds one playable file, so every such download failed afterwards. They are now rejected before download, with the reason shown on the candidate. Encodes and remuxes of the same discs are not affected.
+
+### Fixed
+
+- **The work list no longer times out.** After the database connection had run the workflow list a few times, PostgreSQL switched to a generic query plan that cannot skip the list's optional filters; the list then took about a minute, ran into the server's 60-second write limit and came back empty. Media Manager now asks PostgreSQL to plan each query for its actual values (a few milliseconds of planning), unless the database URL sets `plan_cache_mode` itself.
+- **A movie download with no video file now says so.** A release that held only subtitles, a sample or Blu-ray/DVD disc streams was reported as "several large video files" (`movie_primary_ambiguous`). It is now recorded as "no playable video file" (`no_playable_media`), with a Danish explanation, and is no longer sent through the retained-movie path meant for releases with several features.
+
 ## [0.1.0-beta.23] - 2026-11-13
 
 ### Changed

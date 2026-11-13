@@ -249,6 +249,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 			selected = selectedPackAssets(report, assets)
 			detail = "season pack inventory and subtitle requirements verified"
 		} else {
+			if code, detail, ok := movieWithoutPlayableMedia(assets); ok {
+				return service.Store.CompleteReleaseFailure(ctx, job, code, detail, time.Now().UTC())
+			}
 			selected = selectedMovieAssets(assets)
 			if len(selected) != 1 {
 				return service.Store.CompleteReleaseFailure(ctx, job, "movie_primary_ambiguous", "movie release does not have one unambiguous primary media file", time.Now().UTC())
@@ -463,6 +466,35 @@ func selectedMovieAssets(assets []packs.ObservedAsset) []subtitles.Asset {
 		return nil
 	}
 	return []subtitles.Asset{{ID: media[0].ID, RelativePath: media[0].RelativePath, Size: media[0].Size}}
+}
+
+// movieWithoutPlayableMedia reports a movie output that has no playable media
+// file at all (only subtitles, or Blu-ray/DVD disc streams). It is a release
+// without media, not an ambiguous one: reporting it as ambiguous sent it
+// through the retained-movie path and showed the owner the wrong reason.
+func movieWithoutPlayableMedia(assets []packs.ObservedAsset) (string, string, bool) {
+	disc := false
+	for _, asset := range assets {
+		if playableOutputAsset(asset.RelativePath) && !packs.IsSample(asset.RelativePath) {
+			return "", "", false
+		}
+		if discOutputAsset(asset.RelativePath) {
+			disc = true
+		}
+	}
+	if disc {
+		return releases.PackageFailureNoPlayableMedia, "movie release contains only Blu-ray or DVD disc streams, no playable media file", true
+	}
+	return releases.PackageFailureNoPlayableMedia, "movie release contains no playable media file", true
+}
+
+func discOutputAsset(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".m2ts", ".mts", ".vob", ".iso":
+		return true
+	}
+	slashed := "/" + strings.ToLower(filepath.ToSlash(path))
+	return strings.Contains(slashed, "/bdmv/") || strings.Contains(slashed, "/video_ts/")
 }
 
 // Only explicit directory components identify extras. A second feature in the

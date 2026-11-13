@@ -779,6 +779,15 @@ restore automation and no automatic deletion.
 
 ## 16. Attention codes and recovery playbook
 
+Untouched Blu-ray and DVD discs are rejected earlier still, at search time:
+`releases.FullDiscRelease` recognizes the usual "BR-DISK" names (BDMV,
+VIDEO_TS, BD25/50/66/100, DVD5/DVD9, ISO, COMPLETE BLURAY, and, without an
+encode or remux marker, "Blu-ray" with a hyphen, Blu-ray with AVC/MPEG-2/MVC,
+UHD Blu-ray in HEVC, "Untouched" or DVDR). Such discs usually arrive as RAR
+sets, so the manifest screen below cannot see their `.m2ts`/`.vob` streams. A
+movie output that still has no playable file (only subtitles, a sample or disc
+streams) fails as `no_playable_media`, not as `movie_primary_ambiguous`.
+
 Before an NZB is submitted to AltMount, Media Manager screens its file
 manifest. Packages that only contain archive formats AltMount cannot open
 (`.zip`, `.tar`, `.gz`, `.bz2`, `.xz`), ISO/DVD structures, or other recognized
