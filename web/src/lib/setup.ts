@@ -134,9 +134,9 @@ export function recommendedText(step: APIRecommendedStep): string {
         case "no_plex": return "Forbind Plex først."
         case "plex_unreachable": return "Plex svarede ikke. Test Plex-forbindelsen under Forbindelser."
         case "no_altmount": return "Forbind AltMount først, med mappen hvor Media Manager ser AltMount-filerne."
-        case "no_plex_library": return `Plex har intet ${kindWord}bibliotek (4K-biblioteker tæller ikke). Opret et i Plex først.`
-        case "folder_not_shared": return `Media Manager kan ikke skrive i den mappe, Plex bruger (${step.detail}). Giv Media Manager adgang til den samme mappe, eller tilføj biblioteket selv under Biblioteker.`
-        case "source_not_visible": return `Plex kan ikke se AltMount-filerne, som Media Manager ser i ${step.detail}. Giv Plex adgang til den samme mappe.`
+        case "no_plex_library": return `Plex har intet ${kindWord}bibliotek (4K-biblioteker tæller ikke). Opret et i Plex, eller lad Media Manager rette Plex nedenfor.`
+        case "folder_not_shared": return `Media Manager kan ikke skrive i den mappe, Plex bruger (${step.detail}). Lad Media Manager rette Plex nedenfor, giv Media Manager adgang til den samme mappe, eller tilføj biblioteket selv under Biblioteker.`
+        case "source_not_visible": return `Plex kan ikke se AltMount-filerne, som Media Manager ser i ${step.detail}. Lad Media Manager rette Plex nedenfor, eller giv Plex adgang til den samme mappe.`
         case "root_not_default": return `Plex-biblioteket har allerede mappen "${step.name}", men den er ikke standard. Vælg den som standard under Biblioteker.`
         case "profile_name_taken": return `Der findes allerede en profil, der hedder "${step.name}", men den er ikke standard. Vælg den som standard under Kvalitetsprofiler.`
         default: return `Kunne ikke oprettes: ${step.detail ?? step.reason ?? "ukendt fejl"}`

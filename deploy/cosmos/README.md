@@ -94,24 +94,43 @@ default the install adds it as the service `<name>-altmount`, built from
   AltMount's files; Media Manager sees that folder at `/mnt`. The drive needs
   `/dev/fuse`, `SYS_ADMIN` and an unconfined AppArmor profile, like any FUSE
   container.
-- **One manual step: Plex must see the same files.** Media Manager cannot change
-  your Plex container, so add the folder you chose for AltMount's files to Plex
-  yourself, at `/mnt`, read-only, with bind propagation `rslave`:
+- **Plex must see the same files, and Media Manager can arrange that.** Plex needs
+  the folder you chose for AltMount's files (with bind propagation `rslave`) and
+  Media Manager's library folders. On **Kom i gang** (and on System → Status when
+  Plex has lost the drive), **Lad Media Manager rette Plex** does it through
+  Cosmos: create a Cosmos API token (Settings → API → New Token, not Read Only;
+  7 days is enough), paste it, look at the list of changes and press **Ret
+  Plex**. The token is used for that one request and never stored. Media
+  Manager finds Plex's container (by the Plex connection's address, or asks
+  which one when several look like Plex) and has Cosmos recreate it with:
+
+  - the folder holding AltMount's drive at `/mnt`, read-only, `rslave` (or only
+    `rslave` on a folder Plex already has that holds it);
+  - Media Manager's library folders at `/libraries/movies` and `/libraries/tv`,
+    read-only, when **Brug anbefalet opsætning** cannot use Plex's folders
+    (below `/media-manager` when Plex uses those paths for something else);
+  - every other folder, volume, setting and limit of Plex unchanged. Cosmos puts
+    the old Plex back if the new one cannot be created.
+
+  The library folders are then added to your first ordinary Plex movie and TV
+  library, or a Danish library (Film, Serier) is created. After that, **Brug
+  anbefalet opsætning** sets up the rest. A folder Cosmos' update form cannot
+  keep (an SELinux `z`/`Z` option) leaves Plex untouched with an explanation.
+
+  To do it by hand instead, add this to Plex's compose or Cosmos JSON (Cosmos'
+  container screens cannot set propagation):
 
   ```json
   { "type": "bind", "source": "<folder for AltMount's files>", "target": "/mnt",
     "readOnly": true, "bindOptions": { "propagation": "rslave" } }
   ```
 
-  Plex then sees the drive at `/mnt/altmount`, and **Brug anbefalet opsætning**
-  finds it (with another path it compares the folders both list). The propagation
-  matters: with Docker's default (`rprivate`) Plex keeps the old, dead drive after
-  every AltMount restart or update ("Socket not connected") until Plex itself is
-  restarted. Cosmos' container screens cannot set propagation, so make the change
-  in Plex's compose or Cosmos JSON. Putting AltMount's drive inside a folder Plex
-  already has does not avoid this; the same rule applies.
-  Media Manager checks this every few minutes: **Plex ser AltMount** turns red on
-  the overview and System → Status when Plex lists none of AltMount's files.
+  The propagation matters: with Docker's default (`rprivate`) Plex keeps the old,
+  dead drive after every AltMount restart or update ("Socket not connected")
+  until Plex itself is restarted. Putting AltMount's drive inside a folder Plex
+  already has does not avoid this. Media Manager checks it every few minutes:
+  **Plex ser AltMount** turns red on the overview and System → Status when Plex
+  lists none of AltMount's files.
 
 Already running your own AltMount? Turn off **Install AltMount together with Media
 Manager**, choose the host folder that contains its FUSE mount, put Media Manager on

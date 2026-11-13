@@ -21,6 +21,7 @@ import (
 	"github.com/media-manager/media-manager/internal/integrationsecrets"
 	metadataservice "github.com/media-manager/media-manager/internal/metadata"
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
+	"github.com/media-manager/media-manager/internal/plexaccess"
 	"github.com/media-manager/media-manager/internal/plexlogin"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/quicksetup"
@@ -68,6 +69,8 @@ type Config struct {
 	PlexLogin *plexlogin.Service
 	// RecommendedSetup runs "Brug anbefalet opsætning"; nil disables it.
 	RecommendedSetup *quicksetup.Service
+	// PlexAccess runs "Ret Plex" through Cosmos; nil disables it.
+	PlexAccess *plexaccess.Service
 	// ResolveSecret resolves an integration's secret_ref exactly as the
 	// workers do, for connection checks.
 	ResolveSecret func(string) (string, error)

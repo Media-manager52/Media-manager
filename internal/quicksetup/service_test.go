@@ -340,3 +340,27 @@ func TestRecommendedSetupNeverMakesA4KOnlyFolderTheDefault(t *testing.T) {
 		t.Fatalf("movie root = %+v (root %+v), want blocked with no Plex library", step, step.Root)
 	}
 }
+
+// TestRecommendedSetupTriesEveryFolderOfALibrary proves the folder Media
+// Manager can write is found even when Plex lists another folder first (Plex
+// sorts a library's folders alphabetically, so a folder "Ret Plex" added can
+// come second).
+func TestRecommendedSetupTriesEveryFolderOfALibrary(t *testing.T) {
+	fx := newFixture(t)
+	fx.plex.sections[1].Locations = []string{"/data/archive", "/data/movies"}
+	report, err := fx.service.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := stepByID(t, report, "movie_root")
+	if step.State != StateCreate || step.Root == nil || step.Root.PlexVisibleRoot != "/data/movies" || step.Root.DestinationRoot != filepath.Join(fx.host, "movies") {
+		t.Fatalf("movie root = %+v (root %+v)", step, step.Root)
+	}
+	assertNoMarkers(t, fx.host)
+	if folder := fx.service.LibraryFolder(catalog.KindSeries); folder != filepath.Join(fx.host, "tv") {
+		t.Fatalf("series folder = %q", folder)
+	}
+	if folder := (&Service{Bases: map[catalog.MediaKind][]string{catalog.KindMovie: {filepath.Join(fx.host, "missing")}}}).LibraryFolder(catalog.KindMovie); folder != "" {
+		t.Fatalf("missing folder = %q", folder)
+	}
+}

@@ -2,7 +2,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, CheckCircle2, Circle, PlusCircle } from "lucide-react"
 
 import { ApiError, runRecommendedSetup, type APIRecommendedReport, type APIRecommendedStep } from "@/api/client"
+import { PlexAccessFix } from "@/components/plex-access"
 import { Button, Card, CardHeader } from "@/components/ui"
+import { plexAccessCanHelp } from "@/lib/plex-access"
 import { recommendedText, recommendedTitle } from "@/lib/setup"
 import { errorMessage } from "@/i18n"
 
@@ -65,6 +67,7 @@ export function RecommendedSetupCard({ ready }: { ready: boolean }) {
           : null}
       />
       {report ? <Steps report={report} /> : null}
+      {preview.data && !apply.data && plexAccessCanHelp(preview.data) ? <div className="px-5 pb-4"><PlexAccessFix onDone={() => preview.mutate()} /></div> : null}
       {error ? <p role="alert" className="px-5 pb-4 text-sm text-bad">{setupErrorText(error)}</p> : null}
       {preview.data && !apply.data ? (
         <div className="flex flex-wrap items-center gap-3 px-5 pb-5">

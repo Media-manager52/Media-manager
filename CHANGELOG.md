@@ -4,6 +4,14 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **"Ret Plex": Media Manager gives Plex the folders it needs, through Cosmos.** On Kom i gang (when Plex cannot see AltMount's files or Media Manager's library folders, or has no movie or TV library) and on System → Status (when Plex has lost AltMount's drive), **Lad Media Manager rette Plex** takes a Cosmos API token for one request, never stored, logged or audited. It shows what will change, then has Cosmos recreate Plex with the folder holding AltMount's drive (`rslave`, so Plex keeps the drive when AltMount restarts) and Media Manager's library folders, read-only; every other folder, volume, setting and limit of Plex stays as it was, and Cosmos restores Plex if the new one cannot start. The library folders are then added to Plex's first ordinary movie and TV library, or Danish libraries are created. Plex's container is found by the Plex connection's address, or chosen by the owner when several look like Plex. `POST /api/v1/setup/plex-access`, audited as `plex.access_fixed`.
+
+### Changed
+
+- **Brug anbefalet opsætning tries every standard folder of a Plex library.** Plex lists a library's folders alphabetically, so the folder Media Manager can write is no longer required to be the first.
+
 ## [0.1.0-beta.28] - 2026-11-13
 
 ### Fixed

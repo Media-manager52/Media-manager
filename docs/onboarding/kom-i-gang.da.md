@@ -21,11 +21,13 @@ titler og oplysninger. Seerr er valgfri og kan levere familiens anmodninger.
    godkender hos Plex og vælger din server. Brug **Test forbindelse**, hvis du
    senere ændrer en forbindelse.
 4. Installerede du AltMount sammen med Media Manager, er den allerede
-   tilføjet. Ét trin skal du selv gøre: giv Plex mappen til AltMounts filer
-   som `/mnt` (kun læse, med `rslave`, se
-   [Cosmos-vejledningen](../../deploy/cosmos/README.md#altmount)), så Plex ser
-   filerne i `/mnt/altmount`. Uden `rslave` mister Plex drevet, hver gang
-   AltMount genstarter, indtil Plex selv genstartes. Med din egen AltMount: tilføj den under
+   tilføjet. Plex skal kunne se AltMounts filer og Media Managers
+   biblioteksmapper: brug **Lad Media Manager rette Plex** under **Brug
+   anbefalet opsætning** (det kræver en API-nøgle fra Cosmos, som ikke bliver
+   gemt), eller giv selv Plex mappen til AltMounts filer som `/mnt` (kun læse,
+   med `rslave`, se [Cosmos-vejledningen](../../deploy/cosmos/README.md#altmount)).
+   Uden `rslave` mister Plex drevet, hver gang AltMount genstarter, indtil Plex
+   selv genstartes. Med din egen AltMount: tilføj den under
    **Forbindelser**. Adressen skal kunne nås fra Media Manager. Angiv den mappe, hvor Media Manager kan læse AltMounts færdige
    filer. Test forbindelsen. Plex skal kunne læse de samme filer, også selv om
    mapperne har forskellige navne i de to tjenester.
@@ -82,8 +84,16 @@ behøver ikke åbne AltMounts egen side.
 
 Media Manager tjekker også, at Plex kan se AltMounts filer. Står der **Plex ser
 AltMount** med rødt på oversigten, har Plex mistet drevet, typisk efter en
-genstart af AltMount. Genstart Plex, og giv Plex mappen med `rslave`, så det ikke
-sker igen (se [Cosmos-vejledningen](../../deploy/cosmos/README.md#altmount)).
+genstart af AltMount. Brug **Lad Media Manager rette Plex** på System → Status:
+lav en API-nøgle i Cosmos (Settings → API → New Token, ikke "Read Only"),
+indsæt den, se hvad der bliver ændret, og tryk **Ret Plex**. Plex får mappen med
+`rslave`, så det ikke sker igen, og genstarter én gang. Nøglen bliver ikke gemt
+(se [Cosmos-vejledningen](../../deploy/cosmos/README.md#altmount)).
+
+Det samme kort står under **Brug anbefalet opsætning** på Kom i gang, når Plex
+ikke kan se AltMounts filer eller Media Managers biblioteksmapper, eller mangler
+et film- eller seriebibliotek. Så giver Media Manager Plex mapperne og lægger
+dem i dine Plex-biblioteker (eller opretter "Film" og "Serier").
 
 ## Backup og gendannelse
 

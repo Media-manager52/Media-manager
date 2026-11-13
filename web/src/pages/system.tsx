@@ -6,6 +6,7 @@ import { Link, useParams } from "react-router"
 import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRepairs, loadSupportBundle, loadSystemHealth, loadSystemInfo, restoreRecycle, type APIRecycleEntry } from "@/api/client"
 import { AltMountStatusSection } from "@/components/altmount-status"
 import { chipColor, IconChip, initials } from "@/components/icon-chip"
+import { PlexAccessFix } from "@/components/plex-access"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader, PillNav, ShowMore } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
@@ -116,6 +117,7 @@ function Status() {
               )
             })}
           </ul>
+          {(h.plex_altmount ?? []).some((view) => view.state === "missing" || view.state === "unreadable") ? <div className="px-5 pb-5"><PlexAccessFix /></div> : null}
         </Card>
         {info.data ? (
           <Card>
