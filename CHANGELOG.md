@@ -4,6 +4,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **System → AltMount no longer says AltMount did not answer about playback when nothing is playing.** AltMount answers an empty list of streams with `data: null`; Media Manager now reads that as "nothing plays" instead of an error.
+- **The AltMount installed with Media Manager now mounts its drive on a fresh Cosmos install.** Cosmos creates the folder for AltMount's files as root with mode 750, which AltMount and Media Manager could not enter. AltMount ([Media-manager52/altmount](https://github.com/Media-manager52/altmount) `mm-v0.4.0-mm.2`, also `mm-stable`) now hands that folder to its own user when it cannot enter it. Existing installs get it with the next AltMount image update.
+
 ## [0.1.0-beta.27] - 2026-11-13
 
 ### Added

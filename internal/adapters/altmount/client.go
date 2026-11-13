@@ -327,6 +327,11 @@ func decodeEnvelope(body []byte, output any) error {
 		return errors.New("AltMount rejected the request")
 	}
 	payload := envelope.Data
+	if envelope.Success != nil && bytes.Equal(payload, []byte("null")) {
+		// A real envelope with nothing in it, such as the list of streams
+		// when nothing plays: the output stays empty.
+		return nil
+	}
 	if len(payload) == 0 || bytes.Equal(payload, []byte("null")) {
 		payload = body
 	}
