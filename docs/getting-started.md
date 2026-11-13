@@ -16,7 +16,9 @@ for AltMount's files, the shared media network, the owner token and an optional
 TMDB token. It creates the API, UI, PostgreSQL and AltMount services plus the UI,
 `/api` and `/health` routes on one host, with the owner token injected
 server-side on `/api`. AltMount comes ready and connected: add your news-server
-login under **Indstillinger → Usenet-servere**. Plex must see AltMount's folder
+login under **Indstillinger → Usenet-servere**. No Plex yet? Turn on **Install
+Plex too**: that Plex sees everything from the start, and **Brug anbefalet
+opsætning** creates its libraries. Otherwise Plex must see AltMount's folder
 (with bind propagation `rslave`, or Plex loses the drive whenever AltMount
 restarts) and Media Manager's library folders: **Lad Media Manager rette Plex**
 on Kom i gang does that through Cosmos with an API token that is not stored, or

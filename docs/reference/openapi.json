@@ -2425,6 +2425,9 @@
       },
       "Quicksetup_Step": {
         "properties": {
+          "creates_plex_library": {
+            "type": "boolean"
+          },
           "detail": {
             "type": "string"
           },

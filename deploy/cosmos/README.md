@@ -26,7 +26,7 @@ Once accepted it appears without adding a source.
 ## Requirements
 
 - Cosmos Cloud 0.23.4 or newer.
-- Plex.
+- Plex, or let the install add it (see [No Plex yet?](#no-plex-yet)).
 - A Usenet news-server account (AltMount itself is installed with Media Manager;
   see [AltMount](#altmount)).
 - At least one Newznab-compatible indexer.
@@ -131,6 +131,22 @@ default the install adds it as the service `<name>-altmount`, built from
   already has does not avoid this. Media Manager checks it every few minutes:
   **Plex ser AltMount** turns red on the overview and System → Status when Plex
   lists none of AltMount's files.
+
+### No Plex yet?
+
+Turn on **Install Plex too** in the install form (off by default; leave it off
+when you already have a Plex server). The install then adds the service
+`<name>-plex` (`lscr.io/linuxserver/plex`, port 32400) that sees AltMount's
+files at `/mnt` with `rslave` and Media Manager's library folders at the same
+paths as Media Manager, read-only. Paste a claim code from
+[plex.tv/claim](https://plex.tv/claim) (valid for 4 minutes) so the new server
+joins your Plex account; without it, claim the server from your own network.
+
+Then **Log ind med Plex** and choose the new server, and **Brug anbefalet
+opsætning** creates its libraries itself: a Plex without a movie or TV library
+that already sees Media Manager's folder gets the library (Film, Serier;
+Danish) with that folder, and the default library root for it. Nothing in Plex
+needs to be edited by hand.
 
 Already running your own AltMount? Turn off **Install AltMount together with Media
 Manager**, choose the host folder that contains its FUSE mount, put Media Manager on

@@ -4,6 +4,15 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **The Cosmos install can add Plex too.** **Install Plex too** (off by default, for people without a Plex server) adds `<name>-plex` (`lscr.io/linuxserver/plex`, port 32400, optional claim code from plex.tv/claim) that sees AltMount's files at `/mnt` with `rslave` and Media Manager's library folders at Media Manager's own paths, read-only.
+- **Brug anbefalet opsætning creates a missing Plex library.** When Plex has no ordinary movie or TV library but sees Media Manager's library folder at the same path (proven with a marker folder, as before), it proposes and then creates the Plex library (Film, Serier; Danish) with that folder and the default library root for it (`creates_plex_library` in the step).
+
+### Fixed
+
+- **Folders Cosmos creates for the install belong to the media user.** Cosmos creates a missing bind folder as root (mode 750) unless the service names a user, so with a service created before the API, Media Manager could not write its library folders. AltMount and Plex now name the media user (`UID`/`GID`).
+
 ## [0.1.0-beta.29] - 2026-11-13
 
 ### Added

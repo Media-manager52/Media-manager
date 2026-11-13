@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -47,6 +48,16 @@ type Plex interface {
 	Sections(ctx context.Context) ([]PlexSection, error)
 	Browse(ctx context.Context, path string) ([]string, error)
 }
+
+// PlexLibraryCreator is a Plex connection that can create a library.
+type PlexLibraryCreator interface {
+	CreateSection(ctx context.Context, kind, name, language, folder string) error
+}
+
+// Names and language of the Plex libraries the setup creates.
+var newLibraryNames = map[string]string{"movie": "Film", "show": "Serier"}
+
+const newLibraryLanguage = "da-DK"
 
 // PlexSection is one Plex library.
 type PlexSection struct {
@@ -111,6 +122,9 @@ type Step struct {
 	// SourceProven is false when AltMount's folder could not be compared
 	// (it is empty) and the path Media Manager uses is assumed for Plex.
 	SourceProven *bool `json:"source_proven,omitempty"`
+	// CreatesPlexLibrary is true when Plex has no library of the kind but
+	// sees Media Manager's folder, so the Plex library Name is created too.
+	CreatesPlexLibrary bool `json:"creates_plex_library,omitempty"`
 }
 
 // Report is what the setup did or would do.
@@ -246,7 +260,7 @@ func (service *Service) rootSteps(ctx context.Context, integrations []postgres.I
 		step := &steps[index]
 		section := chooseSection(sections, plan.plexType)
 		if section == nil {
-			step.State, step.Reason = StateBlocked, ReasonNoPlexLibrary
+			service.newLibraryStep(ctx, plex, plexIntegration.ID, plan, step, localSource, roots, source, proven, sourceErr, apply)
 			continue
 		}
 		step.Name = section.Title
@@ -290,6 +304,66 @@ func (service *Service) rootSteps(ctx context.Context, integrations []postgres.I
 		step.State, step.Root = StateCreated, &created
 	}
 	return steps
+}
+
+// newLibraryStep handles a kind Plex has no library for. When Plex sees
+// Media Manager's own library folder at the same path (as a Plex installed
+// with Media Manager does), the Plex library is created with that folder;
+// otherwise the step is blocked.
+func (service *Service) newLibraryStep(ctx context.Context, plex Plex, plexID uuid.UUID, plan kindPlan, step *Step, localSource string, roots []postgres.LibraryRoot, source string, proven bool, sourceErr error, apply bool) {
+	step.State, step.Reason = StateBlocked, ReasonNoPlexLibrary
+	creator, canCreate := plex.(PlexLibraryCreator)
+	folder := service.LibraryFolder(plan.kind)
+	if !canCreate || folder == "" {
+		return
+	}
+	plexPath := filepath.ToSlash(folder)
+	destination, err := service.proveDestination(ctx, plex, plan.kind, plexPath, localSource, roots)
+	if err != nil || destination != folder {
+		return
+	}
+	if sourceErr != nil {
+		step.Reason, step.Detail = ReasonSourceNotVisible, localSource
+		return
+	}
+	name := newLibraryNames[plan.plexType]
+	root := postgres.LibraryRoot{MediaKind: plan.kind, Name: name, DestinationRoot: destination, PlexVisibleRoot: plexPath, SourceVisibleRoot: source, PlexInstanceID: &plexID, Default: true, Enabled: true, Edition: postgres.EditionStandard}
+	provenCopy := proven
+	step.Name, step.SourceProven, step.CreatesPlexLibrary, step.Reason = name, &provenCopy, true, ""
+	if !apply {
+		step.State, step.Root = StateCreate, &root
+		return
+	}
+	step.State = StateBlocked
+	if err := creator.CreateSection(ctx, plan.plexType, name, newLibraryLanguage, plexPath); err != nil {
+		step.Reason, step.Detail = "create_failed", err.Error()
+		return
+	}
+	sections, err := plex.Sections(ctx)
+	if err != nil {
+		step.Reason, step.Detail = "create_failed", err.Error()
+		return
+	}
+	for _, section := range sections {
+		if section.Type != plan.plexType {
+			continue
+		}
+		for _, location := range section.Locations {
+			if path.Clean(location) == plexPath {
+				root.PlexLibraryID = section.Key
+			}
+		}
+	}
+	if root.PlexLibraryID == "" {
+		step.Reason, step.Detail = "create_failed", "Plex did not list the new library"
+		return
+	}
+	created, err := service.Store.CreateLibraryRoot(ctx, root)
+	if err != nil {
+		step.Reason, step.Detail = "create_failed", err.Error()
+		return
+	}
+	step.State, step.Root = StateCreated, &created
 }
 
 func (service *Service) profileStep(ctx context.Context, plan kindPlan, profiles []postgres.QualityProfile, apply bool) Step {
