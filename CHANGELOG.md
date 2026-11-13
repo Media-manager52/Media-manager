@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.28] - 2026-11-13
+
 ### Fixed
 
 - **System → AltMount no longer says AltMount did not answer about playback when nothing is playing.** AltMount answers an empty list of streams with `data: null`; Media Manager now reads that as "nothing plays" instead of an error.
@@ -671,6 +673,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.28]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.28
 [0.1.0-beta.27]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.27
 [0.1.0-beta.26]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.26
 [0.1.0-beta.25]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.25
