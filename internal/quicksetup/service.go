@@ -249,7 +249,6 @@ func (service *Service) rootSteps(ctx context.Context, integrations []postgres.I
 			step.State, step.Reason = StateBlocked, ReasonNoPlexLibrary
 			continue
 		}
-		plexPath := path.Clean(standardLocation(*section))
 		step.Name = section.Title
 		if existing := rootForLibrary(roots, plan.kind, plexIntegration.ID.String(), section.Key); existing != nil {
 			// The library already has a folder that is just not the default;
@@ -257,7 +256,16 @@ func (service *Service) rootSteps(ctx context.Context, integrations []postgres.I
 			step.State, step.Reason, step.Name = StateBlocked, ReasonRootNotDefault, existing.Name
 			continue
 		}
-		destination, err := service.proveDestination(ctx, plex, plan.kind, plexPath, localSource, roots)
+		// Plex lists a library's folders alphabetically, so the folder Media
+		// Manager can write may be any of them.
+		var plexPath, destination string
+		err := errors.New("no standard folder")
+		for _, location := range standardLocations(*section) {
+			plexPath = path.Clean(location)
+			if destination, err = service.proveDestination(ctx, plex, plan.kind, plexPath, localSource, roots); err == nil {
+				break
+			}
+		}
 		if err != nil {
 			step.State, step.Reason, step.Detail = StateBlocked, ReasonFolderNotShared, plexPath
 			continue
@@ -357,13 +365,22 @@ func defaultIntegration(integrations []postgres.Integration, kind string) *postg
 // of one title, and the 2160p one belongs to a 4K root, never the default.
 // A library whose only folders are 4K folders has no standard location ("").
 func standardLocation(section PlexSection) string {
+	if locations := standardLocations(section); len(locations) > 0 {
+		return locations[0]
+	}
+	return ""
+}
+
+// standardLocations is every standard (non-4K) folder of a library.
+func standardLocations(section PlexSection) []string {
+	var locations []string
 	for _, location := range section.Locations {
 		lower := strings.ToLower(location)
 		if strings.HasPrefix(location, "/") && !strings.Contains(lower, "4k") && !strings.Contains(lower, "2160") {
-			return location
+			locations = append(locations, location)
 		}
 	}
-	return ""
+	return locations
 }
 
 // chooseSection picks the first ordinary (non-4K) library of the type that
@@ -444,6 +461,21 @@ func within(candidate, root string) bool {
 		return false
 	}
 	return candidate == root || strings.HasPrefix(candidate, strings.TrimSuffix(root, "/")+"/")
+}
+
+// LibraryFolder is the folder Media Manager is given for a kind's library,
+// "" when it has none.
+func (service *Service) LibraryFolder(kind catalog.MediaKind) string {
+	bases := service.Bases
+	if bases == nil {
+		bases = defaultBases
+	}
+	for _, base := range bases[kind] {
+		if info, err := os.Stat(base); err == nil && info.IsDir() {
+			return base
+		}
+	}
+	return ""
 }
 
 // proveDestination finds the folder Media Manager writes that Plex sees at
@@ -534,6 +566,9 @@ func (service *Service) sourceVisibleRoot(ctx context.Context, plex Plex, localS
 		add(value)
 	}
 	add(filepath.ToSlash(localSource))
+	// Where "Ret Plex" puts the folder when Plex uses the same place for
+	// something else.
+	add(path.Join("/media-manager", filepath.ToSlash(localSource)))
 	for _, candidate := range extra {
 		add(candidate)
 	}

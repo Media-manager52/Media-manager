@@ -200,6 +200,17 @@ func (server *Server) runPlexAltMountCheck() ([]acquisition.PlexAltMountView, bo
 	return run()
 }
 
+// forgetPlexAltMount makes the next page load check Plex again, after Plex
+// was changed.
+func (server *Server) forgetPlexAltMount() {
+	check := server.plexCheck
+	check.mu.Lock()
+	defer check.mu.Unlock()
+	if check.inflight == nil {
+		check.checkedAt = time.Time{}
+	}
+}
+
 func plexAltMountTrouble(views []acquisition.PlexAltMountView) bool {
 	for _, view := range views {
 		if view.State == acquisition.PlexAltMountMissing || view.State == acquisition.PlexAltMountUnreadable {

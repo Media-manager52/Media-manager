@@ -31,6 +31,7 @@ import (
 	"github.com/media-manager/media-manager/internal/notifications"
 	"github.com/media-manager/media-manager/internal/oldboyscredentials"
 	"github.com/media-manager/media-manager/internal/platform"
+	"github.com/media-manager/media-manager/internal/plexaccess"
 	"github.com/media-manager/media-manager/internal/plexlogin"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/publication"
@@ -325,7 +326,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, TMDBDiscovery: tmdbSource, TMDBChanged: tmdbSource.Invalidate, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, BackupConfigured: backupConfigured, BackupKeyFile: backupKeyFile, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret, PlexLogin: plexLogin, RecommendedSetup: &quicksetup.Service{Store: store, OpenPlex: quicksetup.OpenPlex(resolveSecret)}}, store)
+	api, err := httpapi.New(httpapi.Config{PlayerToken: playerToken, Streaming: browseService, StreamPreparer: streamPreparer, OldBoysCredentials: oldBoysCredentials, CommissionOldBoys: oldBoysCommission.Commission, OwnerToken: ownerToken, SeerrEnabled: seerrEnabled, SeerrWebhookSecret: seerrWebhookSecret, SeerrInstanceID: seerrInstance, Version: version, Commit: commit, MetadataProvider: seerrClient, TMDBDiscovery: tmdbSource, TMDBChanged: tmdbSource.Invalidate, MetadataEnricher: metadataService, MetadataProviderStates: metadataProviderStates, CommissionNewznab: commissionService.Commission, BackupConfigured: backupConfigured, BackupKeyFile: backupKeyFile, BackupDirectory: backupDirectory, BackupOffsite: offsite, BackupOffsiteKind: offsiteKind, BackupOffsitePrefix: offsitePrefix, ServarrAPIKey: optionalSecret("SERVARR_API_KEY"), IntegrationSecrets: integrationSecrets, ResolveSecret: resolveSecret, PlexLogin: plexLogin, RecommendedSetup: &quicksetup.Service{Store: store, OpenPlex: quicksetup.OpenPlex(resolveSecret)}, PlexAccess: plexaccess.NewService()}, store)
 	if err != nil {
 		return err
 	}

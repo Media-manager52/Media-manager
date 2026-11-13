@@ -148,6 +148,14 @@ export async function mockApi(page: Page): Promise<Recorded[]> {
       if (url.pathname.endsWith("/check")) return route.fulfill({ json: { data: { ok: true, detail: "Plex answered and shows 2 libraries" } } })
       if (url.pathname === "/api/v1/setup/plex/login") return route.fulfill({ status: 201, json: { data: { id: "login1", auth_url: "https://app.plex.tv/auth#?code=abc", expires_at: now } } })
       if (url.pathname === "/api/v1/setup/plex/login/login1/connect") return route.fulfill({ json: { data: { integration: { id: ids.plex, kind: "plex", name: "Hjemme", enabled: true, is_default: true, config: { base_url: "http://plex:32400" }, created_at: now, updated_at: now }, created: true, check: { ok: true, detail: "Plex answered and shows 2 libraries" } } } })
+      if (url.pathname === "/api/v1/setup/plex-access") {
+        const apply = Boolean((JSON.parse(request.postData() ?? "{}") as { apply?: boolean }).apply)
+        const changes = [
+          { kind: "add_folder", purpose: "altmount", path: "/mnt/altmount" },
+          { kind: "add_library_path", purpose: "movies", path: "/libraries/movies", library: "Film" },
+        ]
+        return route.fulfill({ json: { data: { plex_container: "plex", changes, plex_paths: { altmount: "/mnt/altmount" }, restart: true, applied: apply } } })
+      }
       if (url.pathname === "/api/v1/media") return route.fulfill({ status: 201, json: { data: { media: { ...media[0], id: ids.movie }, workflows: [] } } })
       return route.fulfill({ status: 202, json: { data: { status: "queued", id: ids.attention } } })
     }

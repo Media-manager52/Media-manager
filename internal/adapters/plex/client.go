@@ -33,6 +33,8 @@ type Section struct {
 	Key       string     `xml:"key,attr" json:"key"`
 	Title     string     `xml:"title,attr" json:"title"`
 	Type      string     `xml:"type,attr" json:"type"`
+	Agent     string     `xml:"agent,attr" json:"-"`
+	Language  string     `xml:"language,attr" json:"-"`
 	Locations []Location `xml:"Location" json:"locations,omitempty"`
 }
 type Location struct {
@@ -576,7 +578,7 @@ func (client *Client) Browse(ctx context.Context, path string) ([]string, error)
 		return nil, ErrInvalidConfig
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(path))
-	body, err := client.request(ctx, "/services/browse/"+encoded, "/services/browse/"+url.PathEscape(encoded), url.Values{"includeFiles": {"0"}})
+	body, err := client.request(ctx, http.MethodGet, "/services/browse/"+encoded, "/services/browse/"+url.PathEscape(encoded), url.Values{"includeFiles": {"0"}})
 	if err != nil {
 		return nil, err
 	}
@@ -595,19 +597,60 @@ func (client *Client) Browse(ctx context.Context, path string) ([]string, error)
 	return folders, nil
 }
 
+// Plex library kinds Media Manager can create, with Plex's own agent and
+// scanner for each.
+var newSectionKinds = map[string][2]string{
+	"movie": {"tv.plex.agents.movie", "Plex Movie"},
+	"show":  {"tv.plex.agents.series", "Plex TV Series"},
+}
+
+// CreateSection creates a library of kind "movie" or "show" with one folder.
+// language is Plex's code, such as "da-DK".
+func (client *Client) CreateSection(ctx context.Context, kind, name, language, folder string) error {
+	agent, ok := newSectionKinds[kind]
+	if !ok || strings.TrimSpace(name) == "" || strings.TrimSpace(language) == "" || !strings.HasPrefix(folder, "/") {
+		return ErrInvalidConfig
+	}
+	_, err := client.request(ctx, http.MethodPost, "/library/sections", "", url.Values{"name": {name}, "type": {kind}, "agent": {agent[0]}, "scanner": {agent[1]}, "language": {language}, "location": {folder}})
+	return err
+}
+
+// AddLocation adds folder to a library's folders. Plex replaces a library's
+// folders with the ones sent, so every existing folder is sent again; the
+// library's name, agent and language are sent unchanged and its other
+// settings are left as they are.
+func (client *Client) AddLocation(ctx context.Context, section Section, folder string) error {
+	if !numeric(section.Key) || section.Agent == "" || section.Language == "" || section.Title == "" || !strings.HasPrefix(folder, "/") {
+		return ErrInvalidConfig
+	}
+	query := url.Values{"agent": {section.Agent}, "language": {section.Language}, "name": {section.Title}}
+	for _, location := range section.Locations {
+		if location.Path == folder {
+			return nil
+		}
+		query.Add("location", location.Path)
+	}
+	if len(query["location"]) == 0 {
+		return ErrInvalidConfig
+	}
+	query.Add("location", folder)
+	_, err := client.request(ctx, http.MethodPut, "/library/sections/"+section.Key, "", query)
+	return err
+}
+
 func (client *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	if !strings.HasPrefix(path, "/library/") || strings.Contains(path, "..") || strings.Contains(path, "//") {
 		return nil, ErrInvalidConfig
 	}
-	return client.request(ctx, path, "", query)
+	return client.request(ctx, http.MethodGet, path, "", query)
 }
 
-func (client *Client) request(ctx context.Context, path, rawPath string, query url.Values) ([]byte, error) {
+func (client *Client) request(ctx context.Context, method, path, rawPath string, query url.Values) ([]byte, error) {
 	endpoint := *client.base
 	endpoint.Path = path
 	endpoint.RawPath = rawPath
 	endpoint.RawQuery = query.Encode()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, method, endpoint.String(), nil)
 	if err != nil {
 		return nil, err
 	}

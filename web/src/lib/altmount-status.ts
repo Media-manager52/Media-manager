@@ -16,12 +16,12 @@ export function plexAltMountLine(view: APIPlexAltMountView): PlexAltMountLine {
     case "unknown":
       return { tone: "neutral", label: "Kan ikke kontrolleres", detail: "Media Manager kan ikke selv læse AltMount-drevet lige nu (se AltMount-drev)." }
     case "unreadable":
-      return { tone: "bad", label: `${view.plex_name} kan ikke åbne ${view.path}`, detail: "Plex kan ikke se AltMounts filer, så nye titler kan ikke afspilles. Giv Plex mappen med AltMounts filer (med rslave) og genstart Plex." }
+      return { tone: "bad", label: `${view.plex_name} kan ikke åbne ${view.path}`, detail: "Plex kan ikke se AltMounts filer, så nye titler kan ikke afspilles. Brug \"Lad Media Manager rette Plex\" nedenfor, eller giv selv Plex mappen med AltMounts filer (med rslave)." }
     case "missing":
       return {
         tone: "bad",
         label: `${view.plex_name} mangler AltMounts filer i ${view.path}`,
-        detail: "Plex har sandsynligvis mistet drevet efter en genstart af AltMount. Genstart Plex nu, og giv Plex mappen med rslave, så det ikke sker igen.",
+        detail: "Plex har sandsynligvis mistet drevet efter en genstart af AltMount. Brug \"Lad Media Manager rette Plex\" nedenfor: Plex får mappen med rslave, så det ikke sker igen.",
       }
   }
 }

@@ -1110,6 +1110,38 @@
         },
         "type": "object"
       },
+      "PlexAccessInput": {
+        "properties": {
+          "apply": {
+            "type": "boolean"
+          },
+          "cosmos_api_key": {
+            "type": "string"
+          },
+          "cosmos_host": {
+            "type": "string"
+          },
+          "plex_container": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PlexAccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Plexaccess_Plan"
+          },
+          {
+            "properties": {
+              "problem": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
       "PlexLoginConnectInput": {
         "properties": {
           "integration_id": {
@@ -1134,6 +1166,55 @@
           },
           "integration": {
             "$ref": "#/components/schemas/Postgres_Integration"
+          }
+        },
+        "type": "object"
+      },
+      "Plexaccess_Change": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "library": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Plexaccess_Plan": {
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "candidates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/Plexaccess_Change"
+            },
+            "type": "array"
+          },
+          "plex_container": {
+            "type": "string"
+          },
+          "plex_paths": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "restart": {
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -8232,6 +8313,70 @@
           }
         },
         "summary": "Change a Usenet server; only the fields sent change",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/setup/plex-access": {
+      "post": {
+        "description": "Uses a Cosmos API token for this request only; it is never stored, logged or audited. Finds Media Manager's own container and Plex's (by the Plex connection's address, else the only Plex image; problem choose_plex lists candidates for plex_container). Plex gets the folder holding AltMount's drive with rslave propagation (or only rslave on a folder it already has), and the library folders of kinds \"Brug anbefalet opsætning\" cannot use, read-only, at the same path as Media Manager (below /media-manager when that path is taken). Every other folder, volume and limit of Plex is kept; Cosmos recreates Plex and restores it when that fails. Library folders are then added to the first ordinary Plex library of the kind, or a library (Film, Serier; Danish) is created. With apply false it only reports changes. Audited as plex.access_fixed.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "fixPlexAccess",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PlexAccessInput"
+                  }
+                ],
+                "required": [
+                  "cosmos_host",
+                  "cosmos_api_key"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/PlexAccessResponse"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "\"Ret Plex\": give Plex AltMount's drive and Media Manager's library folders through Cosmos",
         "tags": [
           "settings"
         ],

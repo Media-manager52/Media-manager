@@ -332,6 +332,10 @@ export const createIntegration = (input: Omit<APIIntegration, "id" | "created_at
 export type APIRecommendedStep = { id: "movie_root" | "series_root" | "movie_profile" | "series_profile"; state: "exists" | "create" | "created" | "blocked"; name?: string; reason?: string; detail?: string; root?: Omit<APILibraryRoot, "id"> & { id?: string }; source_proven?: boolean }
 export type APIRecommendedReport = { applied: boolean; steps: APIRecommendedStep[] }
 export const runRecommendedSetup = (apply: boolean) => requestJSON<APIRecommendedReport>("/api/v1/setup/recommended", { method: "POST", body: JSON.stringify({ apply }) })
+export type APIPlexAccessChange = { kind: "add_folder" | "set_propagation" | "add_library_path" | "create_library"; purpose: "altmount" | "movies" | "tv"; path: string; library?: string }
+export type APIPlexAccessPlan = { plex_container?: string; candidates?: string[]; changes: APIPlexAccessChange[]; plex_paths: Record<string, string>; restart: boolean; applied: boolean; problem?: "choose_plex" }
+/** "Ret Plex": the Cosmos API token is sent for this request only and never stored. */
+export const fixPlexAccess = (input: { cosmos_host: string; cosmos_api_key: string; plex_container?: string; apply: boolean }) => requestJSON<APIPlexAccessPlan>("/api/v1/setup/plex-access", { method: "POST", body: JSON.stringify(input) })
 export const loadSetupStatus = (signal?: AbortSignal) => requestJSON<APISetupStatus>("/api/v1/setup/status", { signal })
 export const saveIntegrationSecret = (id: string, value: string) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/secret`, { method: "PUT", body: JSON.stringify({ value }) })
 export const updateIntegrationConnection = (id: string, patch: APIConnectionPatch) => requestJSON<APIIntegration>(`/api/v1/settings/integrations/${encodeURIComponent(id)}/connection`, { method: "PATCH", body: JSON.stringify(patch) })
