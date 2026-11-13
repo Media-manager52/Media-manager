@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.24] - 2026-11-13
+
 ### Changed
 
 - **Untouched Blu-ray and DVD discs are skipped when searching.** A whole disc (BDMV/VIDEO_TS folders, DVD5/DVD9, ISO, "COMPLETE BLURAY", or "Blu-ray" with a disc codec and no x264/x265/REMUX) never holds one playable file, so every such download failed afterwards. They are now rejected before download, with the reason shown on the candidate. Encodes and remuxes of the same discs are not affected.
@@ -645,6 +647,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.24]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.24
 [0.1.0-beta.23]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.23
 [0.1.0-beta.22]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.22
 [0.1.0-beta.21]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.21
