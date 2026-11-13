@@ -29,3 +29,11 @@ func UsenetServerRefusal(err error) (status int, message string, ok bool) {
 	}
 	return apiError.StatusCode, apiError.Message, true
 }
+
+// AltMount's live status, read with the same login as the servers.
+type (
+	AltMountDrive        = altmount.DriveStatus
+	AltMountPool         = altmount.PoolStatus
+	AltMountServerStatus = altmount.ServerStatus
+	AltMountStream       = altmount.Stream
+)

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/media-manager/media-manager/internal/acquisition"
 	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
@@ -60,7 +61,21 @@ func (server *Server) systemHealth(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	snapshot.Mounts = altMountMountHealth(snapshot.Components, altmount.CheckMount)
-	writeJSON(writer, http.StatusOK, dataEnvelope{Data: snapshot})
+	response := systemHealthResponse{SystemHealthSnapshot: snapshot}
+	views, checkedAt := server.plexAltMountViews(1500 * time.Millisecond)
+	response.PlexAltMount = views
+	if !checkedAt.IsZero() {
+		response.PlexAltMountCheckedAt = &checkedAt
+	}
+	writeJSON(writer, http.StatusOK, dataEnvelope{Data: response})
+}
+
+// systemHealthResponse adds whether each Plex server can read AltMount's
+// files where its library roots say it does.
+type systemHealthResponse struct {
+	postgres.SystemHealthSnapshot
+	PlexAltMount          []acquisition.PlexAltMountView `json:"plex_altmount"`
+	PlexAltMountCheckedAt *time.Time                     `json:"plex_altmount_checked_at,omitempty"`
 }
 
 // altMountMountHealth probes the read-only output root of every enabled

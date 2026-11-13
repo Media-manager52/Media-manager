@@ -78,6 +78,7 @@ type Server struct {
 	store      *postgres.Store
 	mux        *http.ServeMux
 	readySince time.Time
+	plexCheck  *plexAltMountCheck
 }
 
 type errorEnvelope struct {
@@ -99,6 +100,7 @@ func New(config Config, store *postgres.Store) (*Server, error) {
 		return nil, errors.New("owner token must contain at least 32 bytes")
 	}
 	server := &Server{config: config, store: store, mux: http.NewServeMux(), readySince: time.Now().UTC()}
+	server.plexCheck = &plexAltMountCheck{listPlex: acquisition.PlexFolders(server.resolveSecret), listLocal: acquisition.LocalFolders, recheck: 10 * time.Second}
 	server.routes()
 	return server, nil
 }

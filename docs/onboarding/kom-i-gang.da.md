@@ -74,6 +74,17 @@ bibliotek**. Start med en lille undermappe.
 4. Først når du har skrevet bekræftelsen og trykket **Overtag nu**, bliver filerne
    flyttet. Plex skal bekræfte hver fil, før den tæller som overtaget.
 
+## AltMount og Plex
+
+**System → AltMount** viser AltMounts drev, dine Usenet-servere (forbindelser,
+fejl og hvor meget af kvoten der er brugt) og hvad der afspilles lige nu. Du
+behøver ikke åbne AltMounts egen side.
+
+Media Manager tjekker også, at Plex kan se AltMounts filer. Står der **Plex ser
+AltMount** med rødt på oversigten, har Plex mistet drevet, typisk efter en
+genstart af AltMount. Genstart Plex, og giv Plex mappen med `rslave`, så det ikke
+sker igen (se [Cosmos-vejledningen](../../deploy/cosmos/README.md#altmount)).
+
 ## Backup og gendannelse
 
 **System → Backup** viser krypterede databasebackups. **Database kontrolleret**

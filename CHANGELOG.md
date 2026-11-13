@@ -4,6 +4,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **AltMount's status in Media Manager.** The new page System → AltMount shows AltMount's drive, how much it fetched in the last day, each Usenet server in the order AltMount uses it (connections, errors, missing articles, quota used and when it resets) and what is being played from the drive now, named by title when Media Manager made the download. The viewer's address and player are not shown. AltMount's own website is no longer needed for this. The page reads `GET /api/v1/system/altmount` and changes nothing.
+- **A warning when Plex cannot see AltMount's files.** Media Manager compares the top folders of AltMount's drive with what each Plex server lists at the path its library folders name for AltMount, at most every two minutes and once more before it warns. When Plex has lost the drive, typically after an AltMount restart with Plex's folder added without `rslave`, the overview and System → Status say so and how to fix it (`plex_altmount` in `GET /api/v1/system/health`).
+
 ## [0.1.0-beta.26] - 2026-11-13
 
 ### Added

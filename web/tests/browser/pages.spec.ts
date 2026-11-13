@@ -28,6 +28,7 @@ const pages: Array<[string, string]> = [
   ["/indstillinger/overtag", "Indstillinger"],
   ["/kom-i-gang", "Kom i gang"],
   ["/system", "System"],
+  ["/system/altmount", "System"],
   ["/system/koe", "System"],
   ["/system/backup", "System"],
   ["/system/reparationer", "System"],
