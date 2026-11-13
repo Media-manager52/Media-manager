@@ -1,9 +1,9 @@
 # Versioning and image identity
 
 This document defines the contract every Media Manager release follows. The
-current release, `v0.1.0-beta.25`, was published on 2026-11-13; see
-[`v0.1.0-beta.25.md`](v0.1.0-beta.25.md) and its
-[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.25).
+current release, `v0.1.0-beta.26`, was published on 2026-11-13; see
+[`v0.1.0-beta.26.md`](v0.1.0-beta.26.md) and its
+[GitHub release](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.26).
 Earlier releases: [`v0.1.0-beta.11`](v0.1.0-beta.11.md), [`v0.1.0-beta.10`](v0.1.0-beta.10.md), [`v0.1.0-beta.9`](v0.1.0-beta.9.md), [`v0.1.0-beta.8`](v0.1.0-beta.8.md), [`v0.1.0-beta.7`](v0.1.0-beta.7.md), [`v0.1.0-beta.6`](v0.1.0-beta.6.md), [`v0.1.0-beta.5`](v0.1.0-beta.5.md), [`v0.1.0-beta.4`](v0.1.0-beta.4.md), [`v0.1.0-beta.3`](v0.1.0-beta.3.md), [`v0.1.0-beta.2`](v0.1.0-beta.2.md) and
 [`v0.1.0-beta.1`](v0.1.0-beta.1.md).
 
@@ -42,6 +42,15 @@ under `/usr/share/doc/media-manager/`, and carries the
 `org.opencontainers.image.licenses="AGPL-3.0-only"` label. The corresponding
 source is <https://github.com/Media-manager52/Media-manager>. Release checks must
 verify the label and both files in the published image.
+
+Released images (`v0.1.0-beta.26`, commit `34397c48364f5387b761411ff90d9e796c19fb0f`):
+
+```text
+api index         sha256:ed27ee976298253bd7891cb25be1ff474ea39d2dd1ccb18bc7027e0a5883cd74
+api linux/amd64   sha256:c1dbbdecbae2d0cd82a6be2f1be2ed9ec09424fca2fe29f419ed6a39aa5f273c
+ui  index         sha256:6a39e34402fc5628638485925ebb32f3223de4847caa85f10de7c1bb8a04ad8c
+ui  linux/amd64   sha256:a106ad934a679f106019fd1db149d3af12aab0ec7e6d79283b6c0488fe5abe3c
+```
 
 Released images (`v0.1.0-beta.25`, commit `ff490484a89a16b2e111e30b6e38d2ea4e3f301e`):
 
