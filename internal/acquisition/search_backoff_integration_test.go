@@ -19,7 +19,7 @@ func TestEmptySearchesBackOff(t *testing.T) {
 	ctx := context.Background()
 	server, captured := newMovieSearchServer(t, func(url.Values) string { return emptySearchXML() })
 	defer server.Close()
-	configureMovieSearchIndexer(t, store, server.URL, true)
+	configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	service := movieSearchService(store, server)
 

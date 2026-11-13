@@ -225,11 +225,8 @@ the scheduler budget → build the client → build the request. The `q` text us
 scene spelling (`releases.SearchQueryTitle`: Nordic letters transliterated,
 punctuation collapsed), because indexers match release names:
 
-1. Prefer the immutable **active capability profile**
-   (`searchProfilePlan` → `PlanSearch`).
-2. Fall back to the legacy commissioned dialect when no profile is active or it
-   cannot satisfy the item.
-3. Unknown/unavailable configurations are recorded per indexer, never fatal for
+1. Use the dialect the commission check stored for the indexer (`buildRequest`).
+2. Unknown/unavailable configurations are recorded per indexer, never fatal for
    the others.
 
 Pacing rules (must not be weakened):
@@ -766,13 +763,6 @@ Staged Newznab rows are always created disabled. Commissioning fetches CAPS,
 requires a usable movie/TV dialect, and performs one random negative search —
 all paced ≥3s through the shared scheduler. Only both-passing enables the
 indexer and persists capability state.
-
-### Capability profiles
-
-`indexer_capability_profiles` holds versioned search profiles for an indexer.
-Runtime search uses the active profile when one exists and otherwise the
-dialect v1 commissioning stored. The owner-authorized v2 runs that created
-these profiles were removed in schema 69.
 
 The developer-only DRI lab evidence is recorded in
 `docs/status/indexer-conformance.md`; it is not a runtime dependency and raw evidence is

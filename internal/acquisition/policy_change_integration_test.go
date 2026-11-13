@@ -27,7 +27,7 @@ func TestQualityPolicyChangeParksSearchUntilOwnerApplies(t *testing.T) {
 		return movieSearchReleaseXML("Klaus.2019.1080p.WEB-DL")
 	})
 	defer server.Close()
-	configureMovieSearchIndexer(t, store, server.URL, true)
+	configureMovieSearchIndexer(t, store, server.URL)
 	workflow := createMovieSearchWorkflow(t, store)
 	service := movieSearchService(store, server)
 	profileID := workflow.QualityProfileID

@@ -91,8 +91,8 @@ func TestPartialSearchRetryCallsOnlyDeferredProvider(t *testing.T) {
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 
@@ -166,8 +166,8 @@ func TestPartialSearchRetrySkipsSuccessfulEmptyProvider(t *testing.T) {
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 
@@ -204,8 +204,8 @@ func TestPartialSearchRetryInvalidatesWhenCandidateObservationMoves(t *testing.T
 	defer aServer.Close()
 	bServer, _ := newMovieSearchServer(t, func(url.Values) string { return emptySearchXML() })
 	defer bServer.Close()
-	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 
@@ -251,8 +251,8 @@ func TestPartialSearchRetryDoesNotInheritCompletionAfterMetadataChange(t *testin
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 
@@ -289,11 +289,9 @@ func TestSearchIntentFingerprintCoversRetryInvalidationInputs(t *testing.T) {
 		CompleteSearches:     2,
 	}
 	planned := []plannedSearchIndexer{{
-		Integration:    postgres.Integration{ID: uuid.NewV7(), Kind: "newznab", Enabled: true, Config: []byte(`{"base_url":"https://indexer.invalid"}`)},
-		Config:         indexerConfig{BaseURL: "https://indexer.invalid"},
-		Request:        newznab.SearchRequest{Mode: "movie", Params: []newznab.Param{{Name: "q", Value: "Intent"}}},
-		ProfileID:      uuid.NewV7(),
-		ProfileVersion: 1,
+		Integration: postgres.Integration{ID: uuid.NewV7(), Kind: "newznab", Enabled: true, Config: []byte(`{"base_url":"https://indexer.invalid"}`)},
+		Config:      indexerConfig{BaseURL: "https://indexer.invalid"},
+		Request:     newznab.SearchRequest{Mode: "movie", Params: []newznab.Param{{Name: "q", Value: "Intent"}}},
 	}}
 	fingerprint := func(search postgres.SearchContext, planned []plannedSearchIndexer) []byte {
 		t.Helper()
@@ -333,9 +331,6 @@ func TestSearchIntentFingerprintCoversRetryInvalidationInputs(t *testing.T) {
 		{"provider plan", func(_ *postgres.SearchContext, planned *[]plannedSearchIndexer) {
 			(*planned)[0].Request.Params[0].Value = "Changed"
 		}},
-		{"capability profile", func(_ *postgres.SearchContext, planned *[]plannedSearchIndexer) {
-			(*planned)[0].ProfileVersion++
-		}},
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {
@@ -364,8 +359,8 @@ func TestPartialRecoveryReusesCompletedProviderAndKeepsIdentity(t *testing.T) {
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Recovery A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Recovery B", true)
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Recovery A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Recovery B")
 	workflow := createMovieSearchWorkflow(t, store)
 	current, err := store.GetWorkflow(ctx, workflow.ID)
 	if err != nil {
@@ -437,8 +432,8 @@ func TestPartialSearchRetryExpiredStateFallsBackToFullSearch(t *testing.T) {
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 	service := newTwoProviderSearchService(store)
@@ -473,8 +468,8 @@ func TestNewSearchEventDoesNotReusePartialCompletion(t *testing.T) {
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	a := configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 	service := newTwoProviderSearchService(store)
@@ -517,8 +512,8 @@ func TestPartialSearchSelectsEligibleCandidateDespiteLongProviderDeferral(t *tes
 		return movieSearchXMLWithResolution("Klaus.2019.720p.WEB-DL", "1280x720")
 	})
 	defer bServer.Close()
-	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(30*24*time.Hour))
 
@@ -556,8 +551,8 @@ func TestPartialSearchRetrySurvivesSuccessiveDeferrals(t *testing.T) {
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 
@@ -628,8 +623,8 @@ func TestPartialSearchRetrySurvivesSuccessiveEmptyDeferrals(t *testing.T) {
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B", true)
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Provider A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Provider B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 	for attempt := 0; attempt < 2; attempt++ {
@@ -694,8 +689,8 @@ func TestPartialSearchRetryCarriedHeldEvidenceIsReevaluated(t *testing.T) {
 	defer aServer.Close()
 	bServer, bCaptured := newMovieSearchServer(t, func(url.Values) string { return emptySearchXML() })
 	defer bServer.Close()
-	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Carried Held A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Carried Held B", true)
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Carried Held A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Carried Held B")
 	workflow := createMovieSearchWorkflow(t, store)
 	deferIndexerBudget(t, store, b.ID, time.Now().UTC().Add(time.Hour))
 	service := newTwoProviderSearchService(store)
@@ -754,8 +749,8 @@ func TestRecoveryContinuationSurvivesPendingPacedSearchAndRejectsStaleGeneration
 		return movieSearchXMLWithResolution("Klaus.2019.1080p.WEB-DL", "1920x1080")
 	})
 	defer bServer.Close()
-	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Recovery Paced A", true)
-	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Recovery Paced B", true)
+	configureMovieSearchIndexerNamed(t, store, aServer.URL, "Recovery Paced A")
+	b := configureMovieSearchIndexerNamed(t, store, bServer.URL, "Recovery Paced B")
 	workflow := createMovieSearchWorkflow(t, store)
 	current, err := store.GetWorkflow(ctx, workflow.ID)
 	if err != nil {

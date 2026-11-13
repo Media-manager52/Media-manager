@@ -325,6 +325,9 @@ func readFeedPages(request newznab.SearchRequest, seen *feedSeen, fetch func(new
 	return pages, nil
 }
 
+// maxFeedCategoryIDs bounds an owner-selected category list sent to a feed.
+const maxFeedCategoryIDs = 128
+
 // feedRequestCategories are the categories whose newest uploads are read:
 // the indexer's own search categories, else the movie and series categories
 // the owner selected for it, else the standard movie and TV roots.
@@ -334,7 +337,7 @@ func feedRequestCategories(config indexerConfig) []int {
 	}
 	if len(config.MovieCategoryIDs) > 0 && len(config.SeriesCategoryIDs) > 0 && !config.CategorySelectionReviewRequired {
 		selected := append(append([]int{}, config.MovieCategoryIDs...), config.SeriesCategoryIDs...)
-		if len(selected) <= maxPlannedCategoryIDs {
+		if len(selected) <= maxFeedCategoryIDs {
 			return selected
 		}
 	}

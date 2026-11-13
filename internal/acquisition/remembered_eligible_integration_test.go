@@ -34,7 +34,7 @@ func rememberedEligibleScenario(t *testing.T, age time.Duration) (workflows.Work
 		return emptySearchXML()
 	})
 	t.Cleanup(server.Close)
-	indexer := configureMovieSearchIndexerNamed(t, store, server.URL, "Provider", true)
+	indexer := configureMovieSearchIndexerNamed(t, store, server.URL, "Provider")
 	workflow := createMovieSearchWorkflow(t, store)
 	service := newTwoProviderSearchService(store)
 

@@ -20,7 +20,7 @@ import (
 func heldRescoreFixture(t *testing.T, now time.Time) (*postgres.Store, workflows.Workflow, postgres.Integration) {
 	t.Helper()
 	store := openMovieSearchTestStore(t)
-	indexer := configureSeasonSearchIndexer(t, store, "https://indexer.invalid/api", false)
+	indexer := configureSeasonSearchIndexer(t, store, "https://indexer.invalid/api")
 	workflow := createSeasonSearchWorkflow(t, store, true)
 	ctx := context.Background()
 	if _, err := store.Pool.Exec(ctx, `UPDATE pack_expected_episodes e SET air_date=$2 FROM pack_expectation_sets s WHERE e.expectation_id=s.id AND s.workflow_id=$1 AND e.season=1 AND e.episode=1`, workflow.ID.String(), "2026-04-15"); err != nil {

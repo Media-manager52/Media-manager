@@ -206,7 +206,7 @@ From `AGENTS.md` plus observed practice:
 | Need | Go to |
 | --- | --- |
 | Understand a workflow state | `internal/workflows/model.go` + [workflows.md](../architecture/workflows.md) |
-| Trace a search | `internal/acquisition/search.go` → `search_plan.go` → `internal/adapters/newznab` |
+| Trace a search | `internal/acquisition/search.go` → `internal/adapters/newznab` |
 | Trace a failure | `internal/postgres/acquisition_rounds.go` (`recordAttributableAcquisitionFailure`) |
 | Understand verification | `internal/packs/coverage.go`, `internal/subtitles/verify.go` |
 | Understand publication | `internal/publication/service.go`, `internal/library/` |

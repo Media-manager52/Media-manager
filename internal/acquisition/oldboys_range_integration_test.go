@@ -24,7 +24,7 @@ func TestNativeOldBoysCollectionSearchSelectsOneGuardedSeasonAcquisition(t *test
 	ctx := context.Background()
 	server, _ := newMovieSearchServer(t, func(url.Values) string { return emptySearchXML() })
 	defer server.Close()
-	existing := configureSeasonSearchIndexer(t, store, server.URL, false)
+	existing := configureSeasonSearchIndexer(t, store, server.URL)
 	w := createSeasonSearchWorkflow(t, store, true)
 	seasons := uint16(16)
 	if _, err := store.RefreshMediaMetadata(ctx, w.MediaID, &catalog.MediaMetadata{OriginalTitle: "Example Series", OriginalLanguage: "da", SeasonCount: &seasons}, nil, "test", time.Now().UTC()); err != nil {
