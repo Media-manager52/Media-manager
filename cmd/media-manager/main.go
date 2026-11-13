@@ -45,6 +45,11 @@ var commit = "unknown"
 // attention are handed to the automatic retry per five-minute sweep.
 const altMountResumeBatch = 10
 
+// outboxHistoryBatchesPerRun bounds one hourly outbox history cleanup (each
+// batch removes at most a few thousand events), so a large backlog is worked
+// off over a few hours instead of in one long run.
+const outboxHistoryBatchesPerRun = 50
+
 // resumeAttention hands work that stopped at owner attention for a reason
 // the worker can now resolve itself back to the automatic flow: rounds with
 // no untried release left wait for a new one, releases media-info could not
@@ -425,6 +430,7 @@ func run() error {
 		_ = store.DeleteExpiredSearchPartialRetries(workerContext, time.Now().UTC())
 		_, _ = store.DeleteExpiredSeasonResponses(workerContext, time.Now().UTC().Add(-24*time.Hour))
 		_, _ = store.DeleteExpiredRecentSearchAnswers(workerContext, time.Now().UTC().Add(-24*time.Hour))
+		_, _ = store.DeleteCompletedOutboxHistory(workerContext, time.Now().UTC().Add(-postgres.OutboxHistoryRetention), outboxHistoryBatchesPerRun)
 		_, _ = store.RequeueSeerrNeedsConfiguration(workerContext, time.Now().UTC())
 		_, _ = store.QueueAltMountRepairSweeps(workerContext, time.Now().UTC())
 		_, _ = store.QueueDueImportListSyncs(workerContext, time.Now().UTC())
@@ -447,6 +453,9 @@ func run() error {
 				_ = store.DeleteExpiredSearchPartialRetries(workerContext, time.Now().UTC())
 				_, _ = store.DeleteExpiredSeasonResponses(workerContext, time.Now().UTC().Add(-24*time.Hour))
 				_, _ = store.DeleteExpiredRecentSearchAnswers(workerContext, time.Now().UTC().Add(-24*time.Hour))
+				// Superseded, completed queue events older than a week; at most
+				// a bounded number of small batches per hour.
+				_, _ = store.DeleteCompletedOutboxHistory(workerContext, time.Now().UTC().Add(-postgres.OutboxHistoryRetention), outboxHistoryBatchesPerRun)
 			case <-repairTicker.C:
 				// AltMount marks files whose Usenet articles disappeared as
 				// corrupted; Media Manager acquires their replacement itself.
