@@ -57,6 +57,7 @@ describe("recommendedText", () => {
   })
   it("says why a step cannot be done", () => {
     expect(recommendedText({ id: "series_root", state: "blocked", reason: "no_plex_library" })).toContain("intet seriebibliotek")
+    expect(recommendedText({ id: "series_root", state: "create", name: "Serier", creates_plex_library: true, root: { media_kind: "series", name: "Serier", destination_root: "/libraries/tv", plex_visible_root: "/libraries/tv", source_visible_root: "/mnt/altmount", is_default: true, enabled: true } })).toBe("Opretter Plex-biblioteket \"Serier\" (dansk) med mappen /libraries/tv og bruger det som standard; Media Manager lægger filerne i /libraries/tv.")
     expect(recommendedText({ id: "movie_root", state: "blocked", reason: "folder_not_shared", detail: "/data/movies" })).toContain("(/data/movies)")
     expect(recommendedText({ id: "movie_profile", state: "created", name: "Dansk tekst eller tale" })).toBe("Oprettet \"Dansk tekst eller tale\" som standard: kræver danske undertekster eller dansk tale.")
     expect(recommendedText({ id: "movie_profile", state: "exists", name: "Min profil" })).toBe("Findes allerede: Min profil. Den bliver ikke ændret.")

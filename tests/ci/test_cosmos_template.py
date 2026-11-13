@@ -30,6 +30,8 @@ def render(**context):
         return match.group(3) if value else ""
 
     rendered = CONDITIONAL.sub(apply, text)
+    # Cosmos reads UID/GID as numbers, so they are written unquoted.
+    rendered = re.sub(r'(": )\{Context\.media(Uid|Gid)\}', r"\g<1>1000", rendered)
     assert "{if" not in rendered and "{/if}" not in rendered, "nested or unclosed {if} block"
     return json.loads(rendered)
 
@@ -37,8 +39,9 @@ def render(**context):
 class CosmosTemplateTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.template = render(bundleAltmount=True)
-        cls.own_altmount = render(bundleAltmount=False)
+        cls.template = render(bundleAltmount=True, bundlePlex=False)
+        cls.own_altmount = render(bundleAltmount=False, bundlePlex=False)
+        cls.with_plex = render(bundleAltmount=True, bundlePlex=True)
         cls.description = json.loads(DESCRIPTION.read_text(encoding="utf-8"))
         cls.api = cls.template["services"]["{ServiceName}-api"]
         cls.routes = cls.template["services"]["{ServiceName}"]["routes"]
@@ -194,6 +197,41 @@ class CosmosTemplateTest(unittest.TestCase):
         api = services["{ServiceName}-api"]
         self.assertFalse([entry for entry in api["environment"] if entry.startswith("BUNDLED_ALTMOUNT_URL=")])
         self.assertEqual(api["volumes"], self.api["volumes"])
+
+    def test_folders_cosmos_creates_belong_to_the_media_user(self):
+        # Cosmos creates a missing bind folder as root (mode 750) unless the
+        # service names a user. AltMount and Plex run as root before they
+        # drop privileges, so they name the media user: whichever service
+        # Cosmos creates first, the API can then write the library folders.
+        text = TEMPLATE.read_text(encoding="utf-8")
+        self.assertEqual(text.count('"UID": {Context.mediaUid},'), 2)
+        self.assertEqual(text.count('"GID": {Context.mediaGid},'), 2)
+        for service in (self.with_plex["services"]["{ServiceName}-plex"], self.with_plex["services"]["{ServiceName}-altmount"]):
+            self.assertEqual((service["UID"], service["GID"]), (1000, 1000))
+        self.assertEqual(self.api["user"], "{Context.mediaUid}:{Context.mediaGid}")
+
+    def test_plex_is_left_out_by_default(self):
+        form = {field["name"]: field for field in self.template["cosmos-installer"]["form"]}
+        self.assertIs(form["bundlePlex"]["initialValue"], False)
+        self.assertNotIn("{ServiceName}-plex", self.template["services"])
+        self.assertNotIn("{ServiceName}-plex-config", self.template["volumes"])
+
+    def test_installed_plex_sees_altmount_and_the_libraries_at_media_managers_paths(self):
+        plex = self.with_plex["services"]["{ServiceName}-plex"]
+        self.assertIn("PLEX_CLAIM={Context.plexClaim}", plex["environment"])
+        self.assertIn("PUID={Context.mediaUid}", plex["environment"])
+        self.assertEqual(list(plex["networks"]), ["{ServiceName}"])
+        volumes = {volume["target"]: volume for volume in plex["volumes"]}
+        # The same paths as the API, so the recommended setup proves them and
+        # can create Plex's libraries itself.
+        api = {volume["target"]: volume for volume in self.with_plex["services"]["{ServiceName}-api"]["volumes"]}
+        for target in ("/mnt", "/libraries/movies", "/libraries/tv", "/srv/media"):
+            self.assertEqual(volumes[target]["source"], api[target]["source"], target)
+            self.assertIs(volumes[target]["readOnly"], True, target)
+        # rslave: Plex keeps AltMount's drive when AltMount restarts.
+        self.assertEqual(volumes["/mnt"]["bindOptions"]["propagation"], "rslave")
+        self.assertEqual(volumes["/config"], {"source": "{ServiceName}-plex-config", "target": "/config", "type": "volume"})
+        self.assertIn("{ServiceName}-plex-config", self.with_plex["volumes"])
 
     def test_healthcheck_units_are_integer_seconds(self):
         api = self.api["healthcheck"]

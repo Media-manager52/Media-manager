@@ -364,3 +364,60 @@ func TestRecommendedSetupTriesEveryFolderOfALibrary(t *testing.T) {
 		t.Fatalf("missing folder = %q", folder)
 	}
 }
+
+// creatingPlex is a viewPlex that can create libraries, like a Plex
+// installed together with Media Manager.
+type creatingPlex struct {
+	*viewPlex
+	created []string
+}
+
+func (fake *creatingPlex) CreateSection(_ context.Context, kind, name, language, folder string) error {
+	fake.created = append(fake.created, kind+" "+name+" "+language+" "+folder)
+	fake.sections = append(fake.sections, PlexSection{Key: "7", Title: name, Type: kind, Locations: []string{folder}})
+	return nil
+}
+
+// TestRecommendedSetupCreatesAPlexLibraryPlexCanAlreadySee proves a Plex
+// without a series library that sees Media Manager's own series folder at
+// the same path gets the library "Serier", created only on apply, and a
+// root for it; a Plex that cannot see the folder stays blocked.
+func TestRecommendedSetupCreatesAPlexLibraryPlexCanAlreadySee(t *testing.T) {
+	fx := newFixture(t)
+	fx.plex.sections = fx.plex.sections[:2] // no series library
+	tvFolder := filepath.Join(fx.host, "tv")
+	fx.plex.mounts[tvFolder] = tvFolder // Plex sees the folder at Media Manager's path
+	plex := &creatingPlex{viewPlex: fx.plex}
+	fx.service.OpenPlex = func(context.Context, postgres.Integration) (Plex, error) { return plex, nil }
+
+	report, err := fx.service.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := stepByID(t, report, "series_root")
+	if step.State != StateCreate || !step.CreatesPlexLibrary || step.Name != "Serier" || step.Root == nil || step.Root.PlexVisibleRoot != tvFolder || step.Root.DestinationRoot != tvFolder || len(plex.created) != 0 {
+		t.Fatalf("preview = %+v (root %+v), created %v", step, step.Root, plex.created)
+	}
+	report, err = fx.service.Run(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step = stepByID(t, report, "series_root")
+	if step.State != StateCreated || step.Root == nil || step.Root.PlexLibraryID != "7" || len(plex.created) != 1 || plex.created[0] != "show Serier da-DK "+tvFolder {
+		t.Fatalf("apply = %+v (root %+v), created %v", step, step.Root, plex.created)
+	}
+	assertNoMarkers(t, fx.host)
+
+	// Plex does not see the folder: nothing is created.
+	fx = newFixture(t)
+	fx.plex.sections = fx.plex.sections[:2]
+	plex = &creatingPlex{viewPlex: fx.plex}
+	fx.service.OpenPlex = func(context.Context, postgres.Integration) (Plex, error) { return plex, nil }
+	report, err = fx.service.Run(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if step := stepByID(t, report, "series_root"); step.State != StateBlocked || step.Reason != ReasonNoPlexLibrary || len(plex.created) != 0 {
+		t.Fatalf("blocked = %+v, created %v", step, plex.created)
+	}
+}

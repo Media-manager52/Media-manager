@@ -26,6 +26,10 @@ func (connection plexConnection) Sections(ctx context.Context) ([]PlexSection, e
 	return result, nil
 }
 
+func (connection plexConnection) CreateSection(ctx context.Context, kind, name, language, folder string) error {
+	return connection.client.CreateSection(ctx, kind, name, language, folder)
+}
+
 func (connection plexConnection) Browse(ctx context.Context, path string) ([]string, error) {
 	return connection.client.Browse(ctx, path)
 }

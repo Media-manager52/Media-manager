@@ -21,7 +21,10 @@ titler og oplysninger. Seerr er valgfri og kan levere familiens anmodninger.
    godkender hos Plex og vælger din server. Brug **Test forbindelse**, hvis du
    senere ændrer en forbindelse.
 4. Installerede du AltMount sammen med Media Manager, er den allerede
-   tilføjet. Plex skal kunne se AltMounts filer og Media Managers
+   tilføjet. Har du ikke Plex endnu, så slå **Install Plex too** til ved
+   installationen; så ser Plex alt fra start, og **Brug anbefalet opsætning**
+   opretter selv Plex-bibliotekerne "Film" og "Serier". Ellers skal Plex kunne
+   se AltMounts filer og Media Managers
    biblioteksmapper: brug **Lad Media Manager rette Plex** under **Brug
    anbefalet opsætning** (det kræver en API-nøgle fra Cosmos, som ikke bliver
    gemt), eller giv selv Plex mappen til AltMounts filer som `/mnt` (kun læse,

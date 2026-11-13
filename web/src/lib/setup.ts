@@ -126,6 +126,7 @@ export function recommendedText(step: APIRecommendedStep): string {
       const done = step.state === "created"
       if (!isRoot) return `${done ? "Oprettet" : "Opretter"} "${step.name}" som standard: kræver danske undertekster eller dansk tale.`
       const root = step.root
+      if (root && step.creates_plex_library) return `${done ? "Oprettet" : "Opretter"} Plex-biblioteket "${step.name}" (dansk) med mappen ${root.plex_visible_root} og bruger det som standard; Media Manager lægger filerne i ${root.destination_root}.`
       const where = root ? ` Plex-biblioteket "${step.name}" i ${root.plex_visible_root}; Media Manager lægger filerne i ${root.destination_root}.` : ""
       return `${done ? "Oprettet" : "Opretter"} som standard.${where}`
     }
