@@ -41,6 +41,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.32.md](releases/v0.1.0-beta.32.md) | Thirty-second public beta (2026-11-14): A shorter, plainer Cosmos install form and market listing. |
 | [releases/v0.1.0-beta.31.md](releases/v0.1.0-beta.31.md) | Thirty-first public beta (2026-11-13): Skift til Media Managers AltMount: a normal AltMount moves to Media Manager's build through Cosmos and keeps everything. |
 | [releases/v0.1.0-beta.30.md](releases/v0.1.0-beta.30.md) | Thirtieth public beta (2026-11-13): Install Plex too in the Cosmos install, and Brug anbefalet opsætning creates a missing Plex library. |
 | [releases/v0.1.0-beta.29.md](releases/v0.1.0-beta.29.md) | Twenty-ninth public beta (2026-11-13): "Ret Plex": Media Manager gives Plex AltMount's drive and its library folders through Cosmos, with a token that is never stored. |
