@@ -11,11 +11,14 @@ architecture as the production deployment.
 ## Install from the Cosmos market
 
 If your Cosmos market already shows **Media Manager**, install it there and skip
-the source setup below. The market wizard asks for the library paths, AltMount
-parent, shared media network, owner token, and optional Plex/Newznab/TMDB
-credentials. It creates the API, UI and PostgreSQL services plus the UI,
+the source setup below. The market wizard asks for the library paths, a folder
+for AltMount's files, the shared media network, the owner token and an optional
+TMDB token. It creates the API, UI, PostgreSQL and AltMount services plus the UI,
 `/api` and `/health` routes on one host, with the owner token injected
-server-side on `/api`. Then continue at **Connect the pieces**.
+server-side on `/api`. AltMount comes ready and connected: add your news-server
+login under **Indstillinger → Usenet-servere**, and give Plex the AltMount folder
+at `/mnt` (see the [Cosmos guide](../deploy/cosmos/README.md#altmount)). Then
+continue at **Connect the pieces**.
 
 To make it appear in your Cosmos market before the official listing is merged,
 add this source under **Market → Sources**:

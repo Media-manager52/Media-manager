@@ -15,10 +15,30 @@ TEMPLATE = ROOT / "deploy" / "cosmos" / "MediaManager" / "cosmos-compose.json"
 DESCRIPTION = ROOT / "deploy" / "cosmos" / "MediaManager" / "description.json"
 
 
+CONDITIONAL = re.compile(r"\{if (not )?Context\.(\w+)\}(.*?)\{/if\}", re.S)
+
+
+def render(**context):
+    """Applies Cosmos' {if Context.x}...{/if} blocks (not nested) for a form
+    answer and parses the result; other placeholders stay as written."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+
+    def apply(match):
+        value = bool(context[match.group(2)])
+        if match.group(1):
+            value = not value
+        return match.group(3) if value else ""
+
+    rendered = CONDITIONAL.sub(apply, text)
+    assert "{if" not in rendered and "{/if}" not in rendered, "nested or unclosed {if} block"
+    return json.loads(rendered)
+
+
 class CosmosTemplateTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.template = json.loads(TEMPLATE.read_text(encoding="utf-8"))
+        cls.template = render(bundleAltmount=True)
+        cls.own_altmount = render(bundleAltmount=False)
         cls.description = json.loads(DESCRIPTION.read_text(encoding="utf-8"))
         cls.api = cls.template["services"]["{ServiceName}-api"]
         cls.routes = cls.template["services"]["{ServiceName}"]["routes"]
@@ -79,7 +99,8 @@ class CosmosTemplateTest(unittest.TestCase):
     def test_form_asks_only_for_what_the_website_cannot_set(self):
         # Plex, indexer and AltMount secrets are entered, sealed and tested on
         # the website; the backup key is generated. Only host paths, ids, the
-        # network, the generated owner token and the optional TMDB token remain.
+        # network, the AltMount choice, the generated owner token and the
+        # optional TMDB token remain.
         names = [field["name"] for field in self.template["cosmos-installer"]["form"]]
         for removed in ("plexToken", "newznabKey", "altmountSecret", "backupKey"):
             self.assertNotIn(removed, names)
@@ -145,10 +166,40 @@ class CosmosTemplateTest(unittest.TestCase):
         for path in ("/api/v1/dashboard", "/health/ready", "/"):
             self.assertIsNone(first_match(other, path), path)
 
+    def test_altmount_is_installed_by_default_on_the_private_network(self):
+        form = {field["name"]: field for field in self.template["cosmos-installer"]["form"]}
+        self.assertEqual(form["bundleAltmount"]["type"], "checkbox")
+        self.assertIs(form["bundleAltmount"]["initialValue"], True)
+        altmount = self.template["services"]["{ServiceName}-altmount"]
+        self.assertEqual(altmount["image"], "ghcr.io/media-manager52/altmount:mm-stable")
+        self.assertIn("ALTMOUNT_PRESET=media-manager", altmount["environment"])
+        self.assertEqual(list(altmount["networks"]), ["{ServiceName}"])
+        self.assertEqual(altmount["devices"], ["/dev/fuse:/dev/fuse:rwm"])
+        self.assertEqual(altmount["cap_add"], ["SYS_ADMIN"])
+        # AltMount mounts its drive inside the folder Media Manager reads at
+        # /mnt; rshared lets the mount reach the host and the API container.
+        mount = next(volume for volume in altmount["volumes"] if volume["target"] == "/mnt")
+        self.assertEqual(mount["source"], "{Context.altmountParentPath}")
+        self.assertEqual(mount["bindOptions"]["propagation"], "rshared")
+        self.assertNotIn("readOnly", mount)
+        config = next(volume for volume in altmount["volumes"] if volume["target"] == "/config")
+        self.assertEqual(config, {"source": "{ServiceName}-altmount-config", "target": "/config", "type": "volume"})
+        self.assertIn("{ServiceName}-altmount-config", self.template["volumes"])
+        self.assertIn("BUNDLED_ALTMOUNT_URL=http://{ServiceName}-altmount:8080", self.api["environment"])
+
+    def test_own_altmount_leaves_the_bundled_one_out(self):
+        services = self.own_altmount["services"]
+        self.assertEqual(set(services), {"{ServiceName}", "{ServiceName}-api", "{ServiceName}-postgres"})
+        self.assertNotIn("{ServiceName}-altmount-config", self.own_altmount["volumes"])
+        api = services["{ServiceName}-api"]
+        self.assertFalse([entry for entry in api["environment"] if entry.startswith("BUNDLED_ALTMOUNT_URL=")])
+        self.assertEqual(api["volumes"], self.api["volumes"])
+
     def test_healthcheck_units_are_integer_seconds(self):
         api = self.api["healthcheck"]
         postgres = self.template["services"]["{ServiceName}-postgres"]["healthcheck"]
-        for healthcheck in (api, postgres):
+        altmount = self.template["services"]["{ServiceName}-altmount"]["healthcheck"]
+        for healthcheck in (api, postgres, altmount):
             for key in ("interval", "timeout"):
                 self.assertIsInstance(healthcheck[key], int, (key, healthcheck))
         self.assertIsInstance(api["start_period"], int)

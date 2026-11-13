@@ -13,9 +13,9 @@ https://raw.githubusercontent.com/Media-manager52/Media-manager/main/deploy/cosm
 ```
 
 Then open **Market → Media Manager → Install**. The installer asks for your movie and TV
-library folders, the AltMount parent folder, the existing media network, and
-optionally a TMDB token. Plex, AltMount and indexer keys are entered on the website
-afterwards. It creates the API, UI and PostgreSQL services, plus the
+library folders, a folder for AltMount's files, the existing media network, and
+optionally a TMDB token. Plex, news-server and indexer logins are entered on the
+website afterwards. It creates the API, UI, PostgreSQL and AltMount services, plus the
 UI, `/api` and `/health` routes on one host. The `/api` route injects the owner token
 server-side.
 
@@ -26,12 +26,15 @@ Once accepted it appears without adding a source.
 ## Requirements
 
 - Cosmos Cloud 0.23.4 or newer.
-- AltMount (Usenet acquisition) and Plex.
+- Plex.
+- A Usenet news-server account (AltMount itself is installed with Media Manager;
+  see [AltMount](#altmount)).
 - At least one Newznab-compatible indexer.
 - A TMDB API read access token, unless you use Seerr. It is free; you can enter it
   in the install form or later on the website.
-- A Docker network shared with AltMount, Plex and Seerr (default `media-stack`).
-- Host folders for movies, TV, AltMount's parent mount and encrypted backups.
+- A Docker network shared with Plex and Seerr (default `media-stack`).
+- Host folders for movies, TV, AltMount's files and encrypted backups.
+- `/dev/fuse` on the host (standard on Linux), for AltMount's drive.
 
 ## Images
 
@@ -56,18 +59,49 @@ publish.
 
 1. Open the installed Media Manager app from Cosmos (Cosmos OpenID handles the login).
 2. Under **Indstillinger → Forbindelser** choose **Log ind med Plex** and allow
-   Media Manager on Plex. Then add **AltMount**, and **TMDB** unless you use Seerr.
-3. Add and commission a **Newznab** indexer under **Kilder**.
-4. On **Kom i gang** choose **Brug anbefalet opsætning**. It sets up the library
+   Media Manager on Plex. Add **TMDB** unless you use Seerr. AltMount is already
+   connected.
+3. Under **Indstillinger → Usenet-servere** add your news-server login (address,
+   user name, password) and choose **Test login**.
+4. Add and commission a **Newznab** indexer under **Kilder**.
+5. On **Kom i gang** choose **Brug anbefalet opsætning**. It sets up the library
    folders and the "Dansk tekst eller tale" profile after showing you the proposal.
    Then add a title.
-5. Optional: configure Seerr, off-site backups and more metadata providers.
+6. Optional: configure Seerr, off-site backups and more metadata providers.
 
 The install form no longer asks for the Plex token, an indexer key or the AltMount
 secret: these are entered on the website, stored encrypted and tested there. The
 `PLEX_TOKEN`, `NEWZNAB_PRIMARY_API_KEY`, `ALTMOUNT_SECRET` and
 `BACKUP_ENCRYPTION_KEY` environment variables still work if you set them on the API
 service yourself.
+
+## AltMount
+
+AltMount streams Usenet downloads as files instead of downloading them first. By
+default the install adds it as the service `<name>-altmount`, built from
+[Media-manager52/altmount](https://github.com/Media-manager52/altmount)
+(`ghcr.io/media-manager52/altmount:mm-stable`, MIT licensed, upstream
+[javi11/altmount](https://github.com/javi11/altmount) plus Media Manager's fixes).
+
+- It runs only on Media Manager's private network, without a login, and gets no
+  Cosmos route. Media Manager adds it as its default AltMount connection on the
+  first start (`BUNDLED_ALTMOUNT_URL`); if an AltMount connection already exists,
+  nothing is changed.
+- Its settings are written once, on its first start (`ALTMOUNT_PRESET=media-manager`),
+  in the volume `<name>-altmount-config`. News servers are added from Media Manager
+  under **Indstillinger → Usenet-servere**; their passwords stay in AltMount.
+- It mounts its read-only drive at `altmount` inside the folder you chose for
+  AltMount's files; Media Manager sees that folder at `/mnt`. The drive needs
+  `/dev/fuse`, `SYS_ADMIN` and an unconfined AppArmor profile, like any FUSE
+  container.
+- **Plex must see the same files.** Add the folder you chose for AltMount's files
+  to your Plex container at `/mnt` (read-only, propagation `rslave`), so Plex sees
+  the drive at `/mnt/altmount`. **Brug anbefalet opsætning** then finds it by
+  itself; with another path it compares the folders both list.
+
+Already running your own AltMount? Turn off **Install AltMount together with Media
+Manager**, choose the host folder that contains its FUSE mount, put Media Manager on
+a network AltMount is on, and add it under **Indstillinger → Forbindelser**.
 
 The owner token is in the install form (and in the API service environment). It is
 injected only by the Cosmos `/api` route; do not expose the API port.
