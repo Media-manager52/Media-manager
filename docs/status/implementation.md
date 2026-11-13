@@ -176,7 +176,6 @@ screens.
 
 Schema 41 adds bounded, round-scoped recovery from NZB retrieval failures,
 pre-grab admission and Danish-clue ranking without weakening output verification.
-See the [review](retrieval-recovery-review.md) for behavior, tests and limitations.
 Production was independently verified at `78c127b`, schema 40; older deployed
 snapshots below remain historical.
 

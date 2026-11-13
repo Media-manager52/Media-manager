@@ -295,7 +295,6 @@ alone do not qualify.
 Production was independently verified at `78c127b`, schema 40. The local schema
 41 follow-up fixes stranded retrieval failures, checks admission before provider
 grabs, and ranks Danish clues without treating them as verified subtitle facts.
-See the [review and reproduction SQL](retrieval-recovery-review.md).
 
 Validation passed: `gofmt`, focused recovery/migration regressions,
 `go vet ./...`, `GOFLAGS=-mod=readonly go test -count=1 ./...`, the full

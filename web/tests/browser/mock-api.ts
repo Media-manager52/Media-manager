@@ -1,5 +1,12 @@
 import type { Page, Request } from "@playwright/test"
 
+/** A day relative to today, so calendar fixtures never fall out of the visible week. */
+function recentDay(offset: number): string {
+  const day = new Date()
+  day.setDate(day.getDate() + offset)
+  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`
+}
+
 export const ids = {
   movie: "11111111-1111-4111-8111-111111111111",
   series: "22222222-2222-4222-8222-222222222222",
@@ -49,7 +56,7 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   [/^\/api\/v1\/system\/health$/, () => ({ database_state: "ready", database_latency_ms: 3, schema_version: 50, expected_schema: 50, outbox: { pending: 2, due: 0, retrying: 0 }, components: [{ id: ids.indexer, kind: "newznab", name: "TestIndexer", enabled: true, is_default: false, config: {}, created_at: now, updated_at: now, configuration_state: "configured", consecutive_failure: 0, last_outcome: "success" }, { id: "77777777-7777-4777-8777-777777777777", kind: "seerr", name: "Seerr - Media Manager Test med et langt navn", enabled: true, is_default: false, config: {}, created_at: now, updated_at: now, configuration_state: "configured", consecutive_failure: 0 }], mounts: [{ integration_id: "a", name: "AltMount", path: "/mnt/altmount", state: "available" }], checked_at: now })],
   [/^\/api\/v1\/system\/info$/, () => ({ version: "test", owner_only: true, browser_auth: "cosmos", api_auth: "bearer", seerr_webhook_enabled: true, metadata_providers: {}, recycle_retention_days: 30, checked_at: now })],
   [/^\/api\/v1\/system\/queue$/, () => ({ checked_at: now, due: 0, scheduled: 1, leased: 0, retrying: 0, completed_last_10m: 4, completed_last_hour: 20, by_type: [{ event_type: "workflow.search_requested", due: 0, scheduled: 1, leased: 0, retrying: 0 }] })],
-  [/^\/api\/v1\/calendar$/, () => [{ media_id: ids.series, media_kind: "series", media_title: "Testserien", workflow_id: ids.season, variant: "season:2:episode:1", season: 2, episode: 1, episode_title: "Pilot", air_date: "2026-11-05", monitored: true, workflow_state: "waiting" }]],
+  [/^\/api\/v1\/calendar$/, () => [{ media_id: ids.series, media_kind: "series", media_title: "Testserien", workflow_id: ids.season, variant: "season:2:episode:1", season: 2, episode: 1, episode_title: "Pilot", air_date: recentDay(-2), monitored: true, workflow_state: "waiting" }]],
   [/^\/api\/v1\/media$/, (url) => (url.searchParams.get("offset") === "0" || !url.searchParams.get("offset") ? media : [])],
   [/^\/api\/v1\/media\/gaps$/, () => ({
     series: [

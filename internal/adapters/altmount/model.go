@@ -93,16 +93,6 @@ type UploadRequest struct {
 	RelativePath string
 }
 
-type PollPolicy struct {
-	Interval time.Duration
-	Timeout  time.Duration
-}
-type RemoveResult struct {
-	Cancelled bool       `json:"cancelled"`
-	Deleted   bool       `json:"deleted"`
-	Final     *QueueItem `json:"final,omitempty"`
-}
-
 type Phase string
 
 const (
@@ -139,7 +129,4 @@ type Client interface {
 	UploadNZB(context.Context, UploadRequest) (QueueItem, error)
 	Queue(context.Context, QueueID) (QueueItem, error)
 	ListQueue(context.Context, QueueQuery) (QueuePage, error)
-	RequestCancel(context.Context, QueueID) error
-	DeleteQueueRecord(context.Context, QueueID) error
-	CancelAndDelete(context.Context, QueueID, PollPolicy) (RemoveResult, error)
 }

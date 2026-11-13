@@ -250,56 +250,6 @@ func (client *HTTPClient) RetryQueue(ctx context.Context, id QueueID) error {
 	return client.json(ctx, http.MethodPost, "/api/queue/"+strconv.FormatInt(int64(id), 10)+"/retry", nil, nil)
 }
 
-func (client *HTTPClient) RequestCancel(ctx context.Context, id QueueID) error {
-	return client.json(ctx, http.MethodPost, "/api/queue/"+strconv.FormatInt(int64(id), 10)+"/cancel", nil, nil)
-}
-func (client *HTTPClient) DeleteQueueRecord(ctx context.Context, id QueueID) error {
-	return client.json(ctx, http.MethodDelete, "/api/queue/"+strconv.FormatInt(int64(id), 10), nil, nil)
-}
-
-func (client *HTTPClient) CancelAndDelete(ctx context.Context, id QueueID, policy PollPolicy) (RemoveResult, error) {
-	if policy.Interval <= 0 {
-		policy.Interval = 2 * time.Second
-	}
-	if policy.Timeout <= 0 {
-		policy.Timeout = 2 * time.Minute
-	}
-	item, err := client.Queue(ctx, id)
-	if err != nil {
-		return RemoveResult{}, err
-	}
-	result := RemoveResult{Final: &item}
-	if item.Status == StatusProcessing {
-		if err := client.RequestCancel(ctx, id); err != nil {
-			return result, err
-		}
-		result.Cancelled = true
-		deadline := time.Now().Add(policy.Timeout)
-		for item.Status == StatusProcessing {
-			if time.Now().After(deadline) {
-				return result, context.DeadlineExceeded
-			}
-			timer := time.NewTimer(policy.Interval)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				timer.Stop()
-				return result, ctx.Err()
-			}
-			item, err = client.Queue(ctx, id)
-			if err != nil {
-				return result, err
-			}
-			result.Final = &item
-		}
-	}
-	if err := client.DeleteQueueRecord(ctx, id); err != nil {
-		return result, err
-	}
-	result.Deleted = true
-	return result, nil
-}
-
 func (client *HTTPClient) json(ctx context.Context, method, path string, input, output any) error {
 	err := client.jsonOnce(ctx, method, path, input, output)
 	var apiError APIError
