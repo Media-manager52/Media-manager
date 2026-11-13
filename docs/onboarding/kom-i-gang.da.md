@@ -21,8 +21,11 @@ titler og oplysninger. Seerr er valgfri og kan levere familiens anmodninger.
    godkender hos Plex og vælger din server. Brug **Test forbindelse**, hvis du
    senere ændrer en forbindelse.
 4. Installerede du AltMount sammen med Media Manager, er den allerede
-   tilføjet; giv Plex mappen til AltMounts filer som `/mnt`, så Plex ser
-   filerne i `/mnt/altmount`. Med din egen AltMount: tilføj den under
+   tilføjet. Ét trin skal du selv gøre: giv Plex mappen til AltMounts filer
+   som `/mnt` (kun læse, med `rslave`, se
+   [Cosmos-vejledningen](../../deploy/cosmos/README.md#altmount)), så Plex ser
+   filerne i `/mnt/altmount`. Uden `rslave` mister Plex drevet, hver gang
+   AltMount genstarter, indtil Plex selv genstartes. Med din egen AltMount: tilføj den under
    **Forbindelser**. Adressen skal kunne nås fra Media Manager. Angiv den mappe, hvor Media Manager kan læse AltMounts færdige
    filer. Test forbindelsen. Plex skal kunne læse de samme filer, også selv om
    mapperne har forskellige navne i de to tjenester.
