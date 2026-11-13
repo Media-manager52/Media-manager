@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.26] - 2026-11-13
+
 ### Added
 
 - **AltMount is installed together with Media Manager.** The Cosmos install has a new choice, **Install AltMount together with Media Manager** (on by default). It adds the service `<name>-altmount` from [Media-manager52/altmount](https://github.com/Media-manager52/altmount) (upstream AltMount plus Media Manager's fixes, MIT licensed), with settings written on its first start: no login on Media Manager's private network, a read-only drive in the folder chosen for AltMount's files. On its first start Media Manager adds it as the default AltMount connection (`BUNDLED_ALTMOUNT_URL`), unless an AltMount connection already exists; the addition is audited as `integration.bundled_altmount_added`. A new install then only needs the news-server login under Indstillinger → Usenet-servere. Turn the choice off to keep using your own AltMount as before.
@@ -657,6 +659,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.26]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.26
 [0.1.0-beta.25]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.25
 [0.1.0-beta.24]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.24
 [0.1.0-beta.23]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.23
