@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.30] - 2026-11-13
+
 ### Added
 
 - **The Cosmos install can add Plex too.** **Install Plex too** (off by default, for people without a Plex server) adds `<name>-plex` (`lscr.io/linuxserver/plex`, port 32400, optional claim code from plex.tv/claim) that sees AltMount's files at `/mnt` with `rslave` and Media Manager's library folders at Media Manager's own paths, read-only.
@@ -692,6 +694,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.30]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.30
 [0.1.0-beta.29]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.29
 [0.1.0-beta.28]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.28
 [0.1.0-beta.27]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.27
