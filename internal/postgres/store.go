@@ -37,6 +37,16 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if _, set := config.ConnConfig.RuntimeParams["jit"]; !set {
 		config.ConnConfig.RuntimeParams["jit"] = "off"
 	}
+	// Many read models filter with optional parameters ("$3 IS NULL OR
+	// workflow.media_id=$3"). After a prepared statement has run a few times
+	// PostgreSQL may switch to a generic plan that cannot prune those branches;
+	// for the workflow list that plan took a minute instead of milliseconds and
+	// ran into the HTTP write timeout. Planning for the actual values costs a
+	// few milliseconds. A database URL that sets plan_cache_mode keeps its
+	// choice.
+	if _, set := config.ConnConfig.RuntimeParams["plan_cache_mode"]; !set {
+		config.ConnConfig.RuntimeParams["plan_cache_mode"] = "force_custom_plan"
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, err

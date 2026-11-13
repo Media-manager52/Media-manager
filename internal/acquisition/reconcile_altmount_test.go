@@ -14,6 +14,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/mediainfo"
 	"github.com/media-manager/media-manager/internal/packs"
+	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/subtitles"
 )
 
@@ -32,6 +33,38 @@ func TestMoviePrimaryExcludesExplicitBonusDirectories(t *testing.T) {
 	}
 	if got := selectedMovieAssets([]packs.ObservedAsset{{ID: uuid.NewV7(), RelativePath: "extras/Film.mkv", Size: 900}}); len(got) != 0 {
 		t.Fatalf("extras-only inventory selected: %+v", got)
+	}
+}
+
+// A movie output without any playable media file is a release without media,
+// not an ambiguous one; disc streams are named as such.
+func TestMovieWithoutPlayableMediaIsNotAmbiguous(t *testing.T) {
+	asset := func(path string, size int64) packs.ObservedAsset {
+		return packs.ObservedAsset{ID: uuid.NewV7(), RelativePath: path, Size: size}
+	}
+	for name, test := range map[string]struct {
+		assets []packs.ObservedAsset
+		ok     bool
+		disc   bool
+	}{
+		"subtitles only":   {assets: []packs.ObservedAsset{asset("Film.2026/Film.2026.da.srt", 60), asset("Film.2026/Film.2026.sv.srt", 60)}, ok: true},
+		"sample only":      {assets: []packs.ObservedAsset{asset("Film.2026/Sample/film-sample.mkv", 50)}, ok: true},
+		"blu-ray disc":     {assets: []packs.ObservedAsset{asset("DISC/BDMV/STREAM/00004.m2ts", 9000), asset("DISC/BDMV/STREAM/00001.m2ts", 30)}, ok: true, disc: true},
+		"dvd structure":    {assets: []packs.ObservedAsset{asset("Film/VIDEO_TS/VTS_01_1.VOB", 1000)}, ok: true, disc: true},
+		"playable movie":   {assets: []packs.ObservedAsset{asset("Film.2026/Film.2026.mkv", 9000), asset("Film.2026/Film.2026.da.srt", 60)}},
+		"two features":     {assets: []packs.ObservedAsset{asset("Film.2026/A.mkv", 9000), asset("Film.2026/B.mkv", 8000)}},
+		"extras directory": {assets: []packs.ObservedAsset{asset("extras/Film.mkv", 900)}},
+	} {
+		code, detail, ok := movieWithoutPlayableMedia(test.assets)
+		if ok != test.ok {
+			t.Fatalf("%s: without media=%v, want %v", name, ok, test.ok)
+		}
+		if !ok {
+			continue
+		}
+		if code != releases.PackageFailureNoPlayableMedia || strings.Contains(detail, "disc") != test.disc {
+			t.Fatalf("%s: code=%q detail=%q", name, code, detail)
+		}
 	}
 }
 

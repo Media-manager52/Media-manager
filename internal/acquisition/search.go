@@ -508,6 +508,7 @@ func evaluateCandidateObservation(observation releases.Observation, search postg
 		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "native release identity", Decision: releases.DecisionUnknown, Category: releases.CategoryIdentity, Reason: "provider supplied no retrievable native GUID"})
 	}
 	evaluation = constrainMediaMatch(observation, evaluation, search.Media)
+	evaluation = rejectFullDiscRelease(observation, evaluation)
 	evaluation = applyReleaseBlocks(observation, evaluation, search)
 	evaluation = applyWorkflowExclusions(observation, evaluation, search)
 	evaluation = applyRepairExclusions(observation, evaluation, search.RepairBrokenTitles)
@@ -553,6 +554,21 @@ func applyUpgradeBaseline(observation releases.Observation, evaluation releases.
 		evaluation.Verdict = releases.VerdictRejected
 		evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "upgrade improvement", Fact: "quality_score", Decision: releases.DecisionFail, Category: releases.CategoryUpgrade, Reason: "candidate does not improve the current publication under this quality profile"})
 	}
+	return evaluation
+}
+
+// fullDiscReason is the explanation for a rejected Blu-ray or DVD disc release.
+const fullDiscReason = "release is an untouched Blu-ray or DVD disc, which never holds one playable media file"
+
+// rejectFullDiscRelease rejects untouched Blu-ray and DVD discs before they are
+// downloaded: their output is .m2ts/.vob streams or an ISO, which can never be
+// published, so every such download used to fail after the fact.
+func rejectFullDiscRelease(observation releases.Observation, evaluation releases.Evaluation) releases.Evaluation {
+	if !releases.FullDiscRelease(observation.Title) {
+		return evaluation
+	}
+	evaluation.Verdict = releases.VerdictRejected
+	evaluation.Explanations = append(evaluation.Explanations, releases.Explanation{Rule: "full disc release", Fact: "source", Decision: releases.DecisionFail, Values: []string{observation.Title}, Category: releases.CategoryEligibility, Reason: fullDiscReason})
 	return evaluation
 }
 

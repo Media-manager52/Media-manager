@@ -35,6 +35,9 @@ describe("translateDetail", () => {
     expect(translateDetail("All 3 acquisition slots in this round were used. Scheduled discovery will wait for a newly observed eligible release; when automatic rounds are on another round opens once one is found, otherwise the owner opens it."))
       .toBe("Alle 3 forsøg i runden er brugt. Media Manager holder øje med nye udgivelser. En ny runde kan starte af sig selv, når der findes en ny udgivelse, der passer til titlen; du kan også selv starte den.")
     expect(translateDetail("no eligible release yet")).toBe("Ingen egnet udgivelse fundet endnu.")
+    expect(translateDetail("movie release contains only Blu-ray or DVD disc streams, no playable media file")).toBe("Udgivelsen er en hel Blu-ray- eller DVD-disk uden en afspillelig videofil.")
+    expect(translateDetail("movie release contains no playable media file")).toBe("Udgivelsen indeholder ingen afspillelig videofil.")
+    expect(translateDetail("release is an untouched Blu-ray or DVD disc, which never holds one playable media file")).toBe("Udgivelsen er en hel Blu-ray- eller DVD-disk, og den kan aldrig blive til én afspillelig fil.")
   })
 
   it("translates the most common attention explanations and keeps file names and counts", () => {

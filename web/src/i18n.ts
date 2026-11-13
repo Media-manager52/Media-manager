@@ -280,6 +280,9 @@ const nextRoundText = "En ny runde kan starte af sig selv, når der findes en ny
 
 const detailPatterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [/^no eligible release yet$/i, () => "Ingen egnet udgivelse fundet endnu."],
+  [/^movie release contains only Blu-ray or DVD disc streams, no playable media file$/, () => "Udgivelsen er en hel Blu-ray- eller DVD-disk uden en afspillelig videofil."],
+  [/^movie release contains no playable media file$/, () => "Udgivelsen indeholder ingen afspillelig videofil."],
+  [/^release is an untouched Blu-ray or DVD disc, which never holds one playable media file$/, () => "Udgivelsen er en hel Blu-ray- eller DVD-disk, og den kan aldrig blive til én afspillelig fil."],
   [/^replacement confirmed in Plex; the old (?:file was retired|symlink was removed)$/, () => "Erstatningen er bekræftet i Plex, og den gamle fil er fjernet."],
   [/^the file has no ([a-z]{2,3}) audio track; a dubbed replacement is being acquired$/, (m) => `Filen har ikke ${languageName(m[1]).toLowerCase()} tale. Media Manager henter en udgave med ${languageName(m[1]).toLowerCase()} tale.`],
   [/^no dubbed release was found; the current file stays and is tried again later$/, () => "Ingen udgave med tale fundet. Den nuværende fil bliver liggende, og der prøves igen senere."],

@@ -591,3 +591,31 @@ func TestSearchRejectsARangeShorterThanTheSeason(t *testing.T) {
 		}
 	}
 }
+
+// Untouched Blu-ray and DVD discs are rejected before download, whatever the
+// profile allows; encodes and remuxes of the same source stay eligible.
+func TestSearchRejectsFullDiscReleases(t *testing.T) {
+	now := time.Unix(1, 0).UTC()
+	rules := []releases.Rule{{Name: "any resolution", Fact: "resolution", AllowedValues: []string{"1080p", "2160p"}, Kind: releases.RulePreferred, Weight: 1, Unknown: releases.UnknownAllow}}
+	for title, rejected := range map[string]bool{
+		"Some.Movie.2001.1080p.Blu-ray.AVC.DTS-HD.MA.5.1-GRP":      true,
+		"Some.Movie.2001.NORDiC.COMPLETE.BLURAY-GRP":               true,
+		"Some.Movie.2001.NTSC.DVD9-GRP":                            true,
+		"Some.Movie.2001.1080p.BluRay.x264-GRP":                    false,
+		"Some.Movie.2001.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-GRP": false,
+	} {
+		_, evaluation, err := evaluateCandidateObservation(releases.Observation{Title: title}, postgres.SearchContext{}, rules, rules, rules, nil, false, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, explanation := range evaluation.Explanations {
+			if explanation.Rule == "full disc release" && explanation.Decision == releases.DecisionFail {
+				found = true
+			}
+		}
+		if found != rejected || (rejected && evaluation.Verdict != releases.VerdictRejected) {
+			t.Errorf("%s: disc rejection=%v verdict=%q, want rejected=%v", title, found, evaluation.Verdict, rejected)
+		}
+	}
+}
