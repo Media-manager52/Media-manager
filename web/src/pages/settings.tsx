@@ -12,6 +12,7 @@ import { AdoptionGuide } from "@/components/adoption-guide"
 import { OptionPicker } from "@/components/option-picker"
 import { AddNotificationDialog, AddProfileDialog, AddRootDialog, ConnectionsSection, DeleteSettingDialog, EditProfileDialog, fieldClass } from "@/components/setup-forms"
 import { useToast } from "@/components/toast"
+import { UsenetServersSection } from "@/components/usenet-servers"
 import { Badge, Button, Card, CardHeader, Dialog, Empty, ErrorBox, PageHeader, PillNav } from "@/components/ui"
 import { formatNumber, formatRelative, pluralize } from "@/format"
 import { errorMessage, kindLabel, languageName } from "@/i18n"
@@ -25,6 +26,7 @@ const sections = [
   { id: "seerr", label: "Seerr-regler" },
   { id: "notifikationer", label: "Notifikationer" },
   { id: "forbindelser", label: "Forbindelser" },
+  { id: "usenet-servere", label: "Usenet-servere" },
   { id: "overtag", label: "Overtag bibliotek" },
 ]
 
@@ -39,6 +41,7 @@ export function SettingsPage() {
       {section === "seerr" ? <SeerrRoutes /> : null}
       {section === "notifikationer" ? <Notifications /> : null}
       {section === "forbindelser" ? <ConnectionsSection /> : null}
+      {section === "usenet-servere" ? <UsenetServersSection /> : null}
       {section === "overtag" ? <AdoptionGuide /> : null}
     </>
   )

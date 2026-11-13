@@ -219,6 +219,123 @@
         },
         "type": "object"
       },
+      "Altmount_Provider": {
+        "properties": {
+          "account_expiration_date": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "insecure_tls": {
+            "type": "boolean"
+          },
+          "is_backup_provider": {
+            "type": "boolean"
+          },
+          "last_rtt_ms": {
+            "type": "integer"
+          },
+          "max_connections": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password_set": {
+            "type": "boolean"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "quota_bytes": {
+            "type": "integer"
+          },
+          "quota_period_hours": {
+            "type": "integer"
+          },
+          "tls": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Altmount_ProviderInput": {
+        "properties": {
+          "account_expiration_date": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "insecure_tls": {
+            "type": "boolean"
+          },
+          "is_backup_provider": {
+            "type": "boolean"
+          },
+          "max_connections": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "quota_bytes": {
+            "type": "integer"
+          },
+          "quota_period_hours": {
+            "type": "integer"
+          },
+          "tls": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Altmount_ProviderTest": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "insecure_tls": {
+            "type": "boolean"
+          },
+          "password": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "tls": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ApplyQualityProfilePresetInput": {
         "properties": {
           "policy_version": {
@@ -2486,6 +2603,57 @@
           },
           "series_root_id": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UsenetServerOrderInput": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "UsenetServerTestResult": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "rtt_ms": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "UsenetServersConnection": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UsenetServersView": {
+        "properties": {
+          "altmount": {
+            "$ref": "#/components/schemas/UsenetServersConnection"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/Altmount_Provider"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -7540,6 +7708,341 @@
         ],
         "x-mm-auth": "owner",
         "x-mm-effect": "write"
+      }
+    },
+    "/api/v1/settings/usenet-servers": {
+      "get": {
+        "description": "Read from the enabled default AltMount connection; the servers and their passwords live in AltMount only. password_set says whether AltMount holds a password; a password is never returned. 409 altmount_not_configured without one enabled AltMount connection; 502 altmount_unavailable when AltMount does not answer or refuses Media Manager's login.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "listUsenetServers",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/UsenetServersView"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "The Usenet (news) servers AltMount downloads from, in the order they are tried",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      },
+      "post": {
+        "description": "max_connections defaults to 10 and enabled to true. The password goes to AltMount only; Media Manager does not store, log or audit it. 422 usenet_server_rejected carries AltMount's reason. Audited as usenet_server.created without the password.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "createUsenetServer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Altmount_ProviderInput"
+                  }
+                ],
+                "required": [
+                  "host",
+                  "port",
+                  "username",
+                  "password"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Altmount_Provider"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Add a Usenet server to AltMount",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/usenet-servers/order": {
+      "put": {
+        "description": "ids lists every server's id once, first to last. Audited as usenet_server.reordered.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "reorderUsenetServers",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/UsenetServerOrderInput"
+                  }
+                ],
+                "required": [
+                  "ids"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Set the order AltMount tries the Usenet servers in",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/usenet-servers/test": {
+      "post": {
+        "description": "AltMount connects and logs in to the news server (up to 30 seconds). ok is false with AltMount's reason when the login does not work. Nothing is saved.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "testUsenetServer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Altmount_ProviderTest"
+                  }
+                ],
+                "required": [
+                  "host",
+                  "port",
+                  "username",
+                  "password"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/UsenetServerTestResult"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Have AltMount try a Usenet login without saving it",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
+    "/api/v1/settings/usenet-servers/{id}": {
+      "delete": {
+        "description": "The only enabled server is refused with 409 usenet_server_last_active: without one nothing can be downloaded. Audited as usenet_server.deleted.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "deleteUsenetServer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Remove a Usenet server from AltMount",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      },
+      "patch": {
+        "description": "An empty or missing password keeps the one AltMount holds. enabled=false on the only enabled server is refused with 409 usenet_server_last_active. Audited as usenet_server.changed with the names of the changed fields.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "updateUsenetServer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Altmount_ProviderInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Altmount_Provider"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Change a Usenet server; only the fields sent change",
+        "tags": [
+          "settings"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
       }
     },
     "/api/v1/setup/plex/login": {

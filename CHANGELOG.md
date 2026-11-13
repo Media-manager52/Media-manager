@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Usenet servers can be managed from Media Manager.** The new page Indstillinger → Usenet-servere lists AltMount's news servers in the order they are tried and adds, changes, reorders, turns off and removes them; **Test login** has AltMount try a login before it is saved. The servers and their passwords stay in AltMount: Media Manager uses its existing AltMount login, passes a typed password straight through and never stores, logs, audits or returns it (an empty password field keeps the stored one). The only enabled server cannot be turned off or deleted. Changes are audited as `usenet_server.*` without the password.
+
 ## [0.1.0-beta.24] - 2026-11-13
 
 ### Changed
