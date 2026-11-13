@@ -103,7 +103,6 @@ readable form of the code itself, never as a guess.
 | `series-variants.ts` | Parses `season:N[:episode:M]`, rolls workflows and files up per season, and derives each episode's status. |
 | `media-manager-requests.ts` | Request lifecycle tone and filters. |
 | `quality-profile-rules.ts` | Reads required and preferred rules from a profile policy. |
-| `release-evidence.ts` | Release-group and evidence summaries. |
 | `links.ts` | Hrefs and the scope label ("Sæson 2", "S02E05"). |
 
 These have no React and are covered by Vitest. The preset fixture

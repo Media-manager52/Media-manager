@@ -19,6 +19,7 @@ import (
 	"github.com/media-manager/media-manager/internal/adoption"
 	"github.com/media-manager/media-manager/internal/catalog"
 	"github.com/media-manager/media-manager/internal/importlists"
+	"github.com/media-manager/media-manager/internal/postgres/migrations"
 	"github.com/media-manager/media-manager/internal/releases"
 	"github.com/media-manager/media-manager/internal/workflows"
 )
@@ -797,4 +798,10 @@ func assertWorkflowIntent(t *testing.T, ctx context.Context, store *Store, workf
 	if variant != wantVariant || episodes != wantEpisodes || events != wantSearchEvents {
 		t.Fatalf("workflow %s: got variant=%q episodes=%d search_events=%d; want %q/%d/%d", fmt.Sprint(workflowID), variant, episodes, events, wantVariant, wantEpisodes, wantSearchEvents)
 	}
+}
+
+// migrateThrough migrates a test database only up to maximumVersion, so a
+// migration can be tested against data written by the schema before it.
+func migrateThrough(ctx context.Context, pool *pgxpool.Pool, maximumVersion int64) error {
+	return migrations.Through(ctx, pool, maximumVersion)
 }

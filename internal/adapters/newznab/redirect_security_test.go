@@ -86,7 +86,7 @@ func TestGetNZBRedirectPinsValidatedAddressAgainstDNSRebindingAndPreservesTLSNam
 		return (&net.Dialer{}).DialContext(ctx, network, target.Listener.Addr().String())
 	}
 
-	body, err := client.GetNZB(context.Background(), "native-id")
+	body, err := client.getNZB(context.Background(), "native-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestGetNZBRedirectRejectsMixedPublicAndPrivateAnswersBeforeDial(t *testing.
 		return nil, errors.New("unexpected dial")
 	}
 
-	_, err := client.GetNZB(context.Background(), "native-id")
+	_, err := client.getNZB(context.Background(), "native-id", nil)
 	assertSafeCode(t, err, "newznab_redirect_dns_address_rejected")
 	if dials.Load() != 0 {
 		t.Fatalf("dial count=%d", dials.Load())
@@ -191,7 +191,7 @@ func TestGetNZBRedirectValidatesAndPinsEveryHopWithoutProxyOrReuse(t *testing.T)
 		return (&net.Dialer{}).DialContext(ctx, network, target.Listener.Addr().String())
 	}
 
-	if _, err := client.GetNZB(context.Background(), "native-id"); err != nil {
+	if _, err := client.getNZB(context.Background(), "native-id", nil); err != nil {
 		t.Fatal(err)
 	}
 	lock.Lock()
@@ -228,7 +228,7 @@ func TestGetNZBRedirectTLSVerificationUsesRedirectHostname(t *testing.T) {
 		return (&net.Dialer{}).DialContext(ctx, network, target.Listener.Addr().String())
 	}
 
-	_, err := client.GetNZB(context.Background(), "native-id")
+	_, err := client.getNZB(context.Background(), "native-id", nil)
 	assertSafeCode(t, err, "newznab_transport_failed")
 	if got, _ := sni.Load().(string); got != "download.test" {
 		t.Fatalf("TLS SNI=%q", got)
@@ -254,7 +254,7 @@ func TestCrossOriginRedirectFailureIsRedactedForLoggingAndPersistence(t *testing
 		return nil, errors.New("resolver detail must remain private")
 	}
 
-	_, err := client.GetNZB(context.Background(), "native-id")
+	_, err := client.getNZB(context.Background(), "native-id", nil)
 	assertSafeCode(t, err, "newznab_redirect_dns_resolution_rejected")
 	if err.Error() != "Newznab request failed" {
 		t.Fatalf("persistable error=%q", err.Error())
@@ -340,7 +340,7 @@ func TestRedirectSourceCredentialIsRemovedBeforeTheNextRequest(t *testing.T) {
 	defer source.Close()
 	client, _ := newRedirectTestClient(t, "credential", source.URL, nil, nil)
 
-	if _, err := client.GetNZB(context.Background(), "native-id"); err != nil {
+	if _, err := client.getNZB(context.Background(), "native-id", nil); err != nil {
 		t.Fatal(err)
 	}
 	if redirectedRequests.Load() != 1 {
@@ -360,7 +360,7 @@ func TestRedirectTargetForbiddenDoesNotInvalidateSourceCredentials(t *testing.T)
 	defer source.Close()
 	client, scheduler := newRedirectTestClient(t, "redirect-forbidden", source.URL, nil, nil)
 
-	_, err := client.GetNZB(context.Background(), "native-id")
+	_, err := client.getNZB(context.Background(), "native-id", nil)
 	var status HTTPError
 	if !errors.As(err, &status) || status.StatusCode != http.StatusForbidden {
 		t.Fatalf("error=%v", err)
@@ -438,7 +438,7 @@ func TestGetNZBAllowsExactlyTwoRedirects(t *testing.T) {
 	}))
 	defer server.Close()
 	client, _ := newRedirectTestClient(t, "two-redirects", server.URL, nil, nil)
-	body, err := client.GetNZB(context.Background(), "native-id")
+	body, err := client.getNZB(context.Background(), "native-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +474,7 @@ func TestGetNZBRejectsThirdRedirectBeforeFollowing(t *testing.T) {
 	}))
 	defer server.Close()
 	client, _ := newRedirectTestClient(t, "third-redirect", server.URL, nil, nil)
-	_, err := client.GetNZB(context.Background(), "native-id")
+	_, err := client.getNZB(context.Background(), "native-id", nil)
 	assertSafeCode(t, err, "newznab_too_many_redirects")
 	if requests.Load() != 3 {
 		t.Fatalf("requests=%d want=3", requests.Load())
@@ -507,7 +507,7 @@ func TestGetNZBGuardRunsImmediatelyBeforeEveryRedirectRequest(t *testing.T) {
 	}))
 	defer server.Close()
 	client, scheduler := newRedirectTestClient(t, "guard-every-request", server.URL, nil, nil)
-	body, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error {
+	body, err := client.getNZB(context.Background(), "native-id", func(context.Context) error {
 		guards.Add(1)
 		return nil
 	})
@@ -545,7 +545,7 @@ func TestGetNZBGuardFailurePreventsRedirectRequest(t *testing.T) {
 	}))
 	defer server.Close()
 	client, scheduler := newRedirectTestClient(t, "guard-rejects-redirect", server.URL, nil, nil)
-	_, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error {
+	_, err := client.getNZB(context.Background(), "native-id", func(context.Context) error {
 		if guards.Add(1) == 2 {
 			return guardFailure
 		}
@@ -591,7 +591,7 @@ func TestRedirectedNZBStillUsesStrictBoundedValidation(t *testing.T) {
 			client.dialPinnedAddress = func(ctx context.Context, network, _ string) (net.Conn, error) {
 				return (&net.Dialer{}).DialContext(ctx, network, target.Listener.Addr().String())
 			}
-			_, err := client.GetNZB(context.Background(), "native-id")
+			_, err := client.getNZB(context.Background(), "native-id", nil)
 			assertSafeCode(t, err, test.wantCode)
 			if scheduler.Snapshot("validation").LastOutcome != indexers.OutcomeSystemFailure {
 				t.Fatalf("scheduler outcome=%q", scheduler.Snapshot("validation").LastOutcome)

@@ -2,8 +2,6 @@ package newznab
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -341,17 +339,6 @@ const (
 	EvidenceOutcomePermissionRestricted EvidenceOutcome = "permission_restricted"
 	EvidenceOutcomeContradicted         EvidenceOutcome = "contradicted"
 )
-
-// NewCommissionEvidenceKey creates the only supported evidence identifier
-// shape. Future commissioning constructs keys locally; provider values are
-// never used as identifiers.
-func NewCommissionEvidenceKey() (string, error) {
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return "", errors.New("generate Newznab commissioning evidence key")
-	}
-	return "evidence." + hex.EncodeToString(random[:]), nil
-}
 
 type CommissionEvidence struct {
 	Key                    string          `json:"key"`
@@ -916,15 +903,6 @@ func knownMapping(reference MappingRef) bool {
 }
 
 func validProfileKey(value string) bool { return profileKeyPattern.MatchString(value) }
-
-// ValidStructurallySafePersistedText applies the capability profile's bounded
-// URL/auth-material and control-character exclusions to another profile-bound
-// document. It deliberately does not claim to recognize arbitrary secrets;
-// future live commissioning must still compare against the resolved credential
-// at its authorized construction boundary.
-func ValidStructurallySafePersistedText(value string, maximumBytes int) bool {
-	return maximumBytes > 0 && maximumBytes <= maxProfileTextBytes && validProfileText(value, maximumBytes)
-}
 
 func validProfileText(value string, maximum int) bool {
 	current := value

@@ -103,7 +103,7 @@ func seedVerifiedEpisodeOutput(t *testing.T, fixture *plexPublicationFixture, wo
 	if err != nil || len(expected) != 1 {
 		t.Fatalf("episode expectation episodes=%d err=%v", len(expected), err)
 	}
-	report := packs.Evaluate(seriesIdentity, season, expected, []packs.ObservedAsset{{ID: assets[0], RelativePath: relative, Size: 1000}})
+	report := packs.EvaluateNumbered(seriesIdentity, season, expected, []packs.ObservedAsset{{ID: assets[0], RelativePath: relative, Size: 1000}}, packs.EpisodeNumbering{})
 	if !report.Publishable() {
 		t.Fatalf("episode report=%+v", report)
 	}

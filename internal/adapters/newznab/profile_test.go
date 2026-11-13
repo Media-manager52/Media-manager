@@ -16,21 +16,6 @@ func profileTestEvidenceKey(seed string) string {
 	return "evidence." + hex.EncodeToString(digest[:16])
 }
 
-func TestNewCommissionEvidenceKeyUsesLocalBoundedFormat(t *testing.T) {
-	t.Parallel()
-	first, err := NewCommissionEvidenceKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := NewCommissionEvidenceKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !evidenceKeyPattern.MatchString(first) || !evidenceKeyPattern.MatchString(second) || first == second {
-		t.Fatalf("invalid locally generated evidence identifiers")
-	}
-}
-
 func profileTestEvidence() CommissionEvidence {
 	return CommissionEvidence{
 		Key:         profileTestEvidenceKey("caps"),

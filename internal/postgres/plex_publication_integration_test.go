@@ -151,7 +151,7 @@ func (fixture *plexPublicationFixture) seedVerifiedPackOutput(t *testing.T, work
 	if err != nil || len(expected) != 3 {
 		t.Fatalf("pack expectation episodes=%d err=%v", len(expected), err)
 	}
-	report := packs.Evaluate(seriesIdentity, season, expected, []packs.ObservedAsset{{ID: assets[0], RelativePath: "Show.S01E01-E02.mkv", Size: 2000}, {ID: assets[1], RelativePath: "Show.S01E03.mkv", Size: 1000}})
+	report := packs.EvaluateNumbered(seriesIdentity, season, expected, []packs.ObservedAsset{{ID: assets[0], RelativePath: "Show.S01E01-E02.mkv", Size: 2000}, {ID: assets[1], RelativePath: "Show.S01E03.mkv", Size: 1000}}, packs.EpisodeNumbering{})
 	if !report.Publishable() {
 		t.Fatalf("season pack report=%+v", report)
 	}

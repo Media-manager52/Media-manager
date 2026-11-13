@@ -738,7 +738,7 @@ func TestSubtitleVerificationRetriesExactReleaseAndPreservesCurrentMedia(t *test
 		t.Fatal(err)
 	}
 	packAssets := []packs.ObservedAsset{{ID: seriesAssets[0], RelativePath: "Retained.Pack.S02E01-E02.mkv", Size: 1000}, {ID: seriesAssets[1], RelativePath: "Retained.Pack.S02E01-E02.da.srt", Size: 100}}
-	report := packs.Evaluate(seriesIdentity, season, expectedEpisodes, packAssets)
+	report := packs.EvaluateNumbered(seriesIdentity, season, expectedEpisodes, packAssets, packs.EpisodeNumbering{})
 	if !report.Publishable() {
 		t.Fatalf("series pack report=%+v", report)
 	}

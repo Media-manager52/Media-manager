@@ -28,7 +28,7 @@ func TestCollectionInventoryVerifiesExactRequestedScopeAndKeepsFailures(t *testi
 	if !report.Publishable() || len(report.Groups) != 1 || len(report.Covered) != 1 || report.Groups[0].AssetIDs[0] != base[2].ID {
 		t.Fatalf("exact episode projection: %+v", report)
 	}
-	if report.InventoryDigest != Evaluate(key.SeriesID, 16, expected, base).InventoryDigest || len(base) != 4 {
+	if report.InventoryDigest != EvaluateNumbered(key.SeriesID, 16, expected, base, EpisodeNumbering{}).InventoryDigest || len(base) != 4 {
 		t.Fatal("whole inventory identity or retained files were changed")
 	}
 	for _, spec := range []struct {

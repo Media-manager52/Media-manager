@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Removed
+
+- **Code the program never runs is gone.** About twenty functions and one file that only tests still called were removed: old Newznab search and download shortcuts, an unused season-pack job state machine, unused naming, link and AltMount session helpers, two leftover commissioning helpers and an unused web helper. Their tests now exercise the functions Media Manager actually uses, so the same safety checks (download redirects, link containment, NZB validation, pack coverage) still run. The season workflow name is now built in one place. No behaviour changes.
+
 ## [0.1.0-beta.22] - 2026-11-13
 
 ### Removed

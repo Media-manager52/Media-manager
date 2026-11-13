@@ -68,10 +68,10 @@ func TestPublishSymlinkRejectsNonRegularSources(t *testing.T) {
 	if err := os.Symlink("/etc/passwd", filepath.Join(source, "release", "escape.mkv")); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishSymlink(LinkPlan{SourceRoot: source, SourceRelative: "release/not-media", DestinationRoot: destination, DestinationRel: "Movie (2026)/Movie (2026).mkv", PlexVisibleSourceRoot: "/mnt/altmount"}); !errors.Is(err, ErrSourceType) {
+	if _, err := publishSymlink(LinkPlan{SourceRoot: source, SourceRelative: "release/not-media", DestinationRoot: destination, DestinationRel: "Movie (2026)/Movie (2026).mkv", PlexVisibleSourceRoot: "/mnt/altmount"}); !errors.Is(err, ErrSourceType) {
 		t.Fatalf("directory source error=%v, want ErrSourceType", err)
 	}
-	if err := PublishSymlink(LinkPlan{SourceRoot: source, SourceRelative: "release/escape.mkv", DestinationRoot: destination, DestinationRel: "Movie (2026)/Movie (2026).mkv", PlexVisibleSourceRoot: "/mnt/altmount"}); err == nil {
+	if _, err := publishSymlink(LinkPlan{SourceRoot: source, SourceRelative: "release/escape.mkv", DestinationRoot: destination, DestinationRel: "Movie (2026)/Movie (2026).mkv", PlexVisibleSourceRoot: "/mnt/altmount"}); err == nil {
 		t.Fatal("escaping symlink source was published")
 	}
 	if _, err := os.Lstat(filepath.Join(destination, "Movie (2026)", "Movie (2026).mkv")); !errors.Is(err, os.ErrNotExist) {
@@ -101,7 +101,7 @@ func TestPublishSymlinkCannotEscapeThroughSymlinkedParent(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(destination, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	err := PublishSymlink(LinkPlan{SourceRoot: source, SourceRelative: "movie.mkv", DestinationRoot: destination, DestinationRel: "escape/movie.mkv", PlexVisibleSourceRoot: "/mnt/altmount"})
+	_, err := publishSymlink(LinkPlan{SourceRoot: source, SourceRelative: "movie.mkv", DestinationRoot: destination, DestinationRel: "escape/movie.mkv", PlexVisibleSourceRoot: "/mnt/altmount"})
 	if err == nil {
 		t.Fatal("publication escaped the library root through a symlinked parent")
 	}
