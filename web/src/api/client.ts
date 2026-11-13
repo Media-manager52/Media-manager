@@ -361,6 +361,23 @@ export type APIProfileDeletion = { status: string; moved: { name: string; replac
 export const deleteQualityProfile = (id: string, replaceWith?: string) =>
   requestJSON<APIProfileDeletion>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}${replaceWith ? `?replace_with=${encodeURIComponent(replaceWith)}` : ""}`, { method: "DELETE" })
 export const deleteLibraryRoot = (id: string) => requestJSON<unknown>(`/api/v1/settings/library-roots/${encodeURIComponent(id)}`, { method: "DELETE" })
+export type APIUsenetServer = {
+  id: string; name?: string; host: string; port: number; username: string; max_connections: number; tls: boolean; insecure_tls: boolean
+  password_set: boolean; enabled: boolean; is_backup_provider: boolean; last_rtt_ms: number; quota_bytes: number; quota_period_hours: number; account_expiration_date?: string
+}
+export type APIUsenetServers = { altmount: { id: string; name: string }; servers: APIUsenetServer[] | null }
+export type APIUsenetServerInput = {
+  name?: string; host?: string; port?: number; username?: string; password?: string; max_connections?: number; tls?: boolean; insecure_tls?: boolean
+  enabled?: boolean; is_backup_provider?: boolean; quota_bytes?: number; quota_period_hours?: number; account_expiration_date?: string
+}
+export type APIUsenetServerTest = { ok: boolean; detail?: string; rtt_ms?: number }
+export const loadUsenetServers = (signal?: AbortSignal) => requestJSON<APIUsenetServers>("/api/v1/settings/usenet-servers", { signal })
+export const createUsenetServer = (input: APIUsenetServerInput) => requestJSON<APIUsenetServer>("/api/v1/settings/usenet-servers", { method: "POST", body: JSON.stringify(input) })
+export const updateUsenetServer = (id: string, input: APIUsenetServerInput) => requestJSON<APIUsenetServer>(`/api/v1/settings/usenet-servers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })
+export const deleteUsenetServer = (id: string) => requestJSON<unknown>(`/api/v1/settings/usenet-servers/${encodeURIComponent(id)}`, { method: "DELETE" })
+export const reorderUsenetServers = (ids: string[]) => requestJSON<unknown>("/api/v1/settings/usenet-servers/order", { method: "PUT", body: JSON.stringify({ ids }) })
+export const testUsenetServer = (input: { host: string; port: number; username: string; password: string; tls: boolean; insecure_tls: boolean }) =>
+  requestJSON<APIUsenetServerTest>("/api/v1/settings/usenet-servers/test", { method: "POST", body: JSON.stringify(input) })
 export const deleteIntegration = (id: string) => requestJSON<unknown>(`/api/v1/settings/integrations/${encodeURIComponent(id)}`, { method: "DELETE" })
 export const updateQualityProfile = (id: string, input: Omit<APIQualityProfile, "id">) => requestJSON<APIQualityProfile>(`/api/v1/settings/quality-profiles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) })
 export type APIPolicyApplication = { profile_id: string; policy_version: number; applied: number; skipped: number }

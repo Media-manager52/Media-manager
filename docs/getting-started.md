@@ -216,6 +216,14 @@ Open **Indstillinger → Forbindelser** and choose **Tilføj AltMount**:
 once and checks that the folder is visible. **Test forbindelse** repeats the
 check at any time.
 
+Then add your Usenet provider under **Indstillinger → Usenet-servere**: address,
+port (usually 563 with TLS), username, password and the number of connections
+your plan allows. **Test login** has AltMount try the login without saving it.
+The servers live in AltMount: Media Manager passes the password straight to
+AltMount over its existing login and never stores, logs or returns it. Servers
+are tried in the listed order; a backup server is used only when the others
+miss an article. The only enabled server cannot be turned off or deleted.
+
 The API mounts the **parent** of AltMount's FUSE mount at `/mnt` read-only with
 `rslave` propagation, so an AltMount restart or remount reaches the running API.
 Both the Compose file and the Cosmos market template declare this propagation;

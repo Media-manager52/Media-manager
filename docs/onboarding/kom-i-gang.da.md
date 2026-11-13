@@ -2,7 +2,8 @@
 
 Media Manager finder film og serier, lader AltMount hente dem og viser dem i
 Plex efter kontrol. Plex og AltMount skal være installeret og virke i forvejen.
-En indexer finder udgivelser; Usenet-adgangen sættes op i AltMount. TMDB leverer
+En indexer finder udgivelser; login til dine news-servere (Usenet-udbydere)
+skriver du under **Indstillinger → Usenet-servere**. TMDB leverer
 titler og oplysninger. Seerr er valgfri og kan levere familiens anmodninger.
 
 ## Installation og forbindelser
@@ -21,6 +22,10 @@ titler og oplysninger. Seerr er valgfri og kan levere familiens anmodninger.
    Manager. Angiv den mappe, hvor Media Manager kan læse AltMounts færdige
    filer. Test forbindelsen. Plex skal kunne læse de samme filer, også selv om
    mapperne har forskellige navne i de to tjenester.
+   Skriv derefter login til din Usenet-udbyder under **Usenet-servere**:
+   adresse, port (oftest 563 med kryptering), brugernavn, adgangskode og antal
+   forbindelser. **Test login** prøver det, før det gemmes. Adgangskoden gemmes
+   kun i AltMount, ikke i Media Manager.
 5. Tilføj TMDB og dens **API Read Access Token** under **Forbindelser**. Brug
    den lange læseadgangsnøgle fra TMDB, og test forbindelsen. Del ikke nøglen i
    en chat, et skærmbillede eller et kodelager.

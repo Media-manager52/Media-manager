@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -40,6 +41,31 @@ func CheckAltMount(ctx context.Context, integration postgres.Integration, resolv
 		return fmt.Errorf("AltMount answered, but %s is not a folder Media Manager can see", root)
 	}
 	return nil
+}
+
+// providerRequestTimeout covers AltMount's own 30-second limit on a test
+// login to a Usenet server.
+const providerRequestTimeout = 45 * time.Second
+
+// AltMountProviderClient logs in to an AltMount integration exactly as
+// acquisition does, for reading and changing AltMount's Usenet servers.
+// The caller logs out.
+func AltMountProviderClient(ctx context.Context, integration postgres.Integration, resolveSecret SecretResolver, transport http.RoundTripper) (*altmount.HTTPClient, error) {
+	var config altMountConfig
+	if err := json.Unmarshal(integration.Config, &config); err != nil {
+		return nil, errors.New("AltMount configuration is not valid JSON")
+	}
+	if time.Duration(config.RequestTimeoutMS)*time.Millisecond < providerRequestTimeout {
+		config.RequestTimeoutMS = providerRequestTimeout.Milliseconds()
+	}
+	client, err := newAltMountClient(config, integration.SecretRef, resolveSecret, transport)
+	if err != nil {
+		return nil, fmt.Errorf("AltMount settings are incomplete: %w", err)
+	}
+	if _, err := client.Login(ctx); err != nil {
+		return nil, fmt.Errorf("AltMount did not accept the login: %w", err)
+	}
+	return client, nil
 }
 
 // PlexLibrary is one Plex library as the website shows it when creating a

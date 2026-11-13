@@ -103,6 +103,10 @@ const routes: Array<[RegExp, (url: URL) => unknown]> = [
   })],
   [/^\/api\/v1\/settings\/integrations\/[0-9a-f-]+\/seerr-routes$/, () => ({ routes: [{ id: "route-1", seerr_instance_id: ids.seerr, media_kind: "movie", root_folder: "/media/Movies", library_root_id: ids.root, enabled: true, created_at: now, updated_at: now }], observed_folders: [] })],
   [/^\/api\/v1\/settings\/notifications$/, () => []],
+  [/^\/api\/v1\/settings\/usenet-servers$/, () => ({ altmount: { id: "altmount-1", name: "AltMount" }, servers: [
+    { id: "provider_1", name: "Hovedudbyder", host: "news.example.test", port: 563, username: "me", max_connections: 20, tls: true, insecure_tls: false, password_set: true, enabled: true, is_backup_provider: false, last_rtt_ms: 41, quota_bytes: 0, quota_period_hours: 0 },
+    { id: "provider_2", host: "backup.example.test", port: 563, username: "me2", max_connections: 5, tls: true, insecure_tls: false, password_set: true, enabled: false, is_backup_provider: true, last_rtt_ms: 0, quota_bytes: 0, quota_period_hours: 0 },
+  ] })],
   [/^\/api\/v1\/setup\/plex\/login\/login1$/, () => ({ state: "approved", servers: [{ id: "machine-1", name: "Hjemme", owned: true, recommended: "http://plex:32400", addresses: [{ uri: "http://plex:32400", local: true, relay: false, reachable: true }, { uri: "https://10-0-0-5.abc.plex.direct:32400", local: true, relay: false, reachable: true }] }] })],
   [/^\/api\/v1\/backups$/, () => ({ configured: true, format: "mmbackup", restore_verification: "isolated", automatic_deletion: false, production_restore: false, offsite: { configured: false, kind: "", prefix: "" }, records: [{ id: "b1", state: "verified", format: "mmbackup", size_bytes: 1_000_000, attempts: 1, created_at: now, completed_at: now }] })],
   [/^\/api\/v1\/repairs$/, () => []],
@@ -132,6 +136,7 @@ export async function mockApi(page: Page): Promise<Recorded[]> {
     const url = new URL(request.url())
     if (request.method() !== "GET") {
       writes.push({ method: request.method(), path: url.pathname, body: request.postData() ? JSON.parse(request.postData()!) : null })
+      if (url.pathname === "/api/v1/settings/usenet-servers/test") return route.fulfill({ json: { data: { ok: true, rtt_ms: 23 } } })
       if (url.pathname.endsWith("/check")) return route.fulfill({ json: { data: { ok: true, detail: "Plex answered and shows 2 libraries" } } })
       if (url.pathname === "/api/v1/setup/plex/login") return route.fulfill({ status: 201, json: { data: { id: "login1", auth_url: "https://app.plex.tv/auth#?code=abc", expires_at: now } } })
       if (url.pathname === "/api/v1/setup/plex/login/login1/connect") return route.fulfill({ json: { data: { integration: { id: ids.plex, kind: "plex", name: "Hjemme", enabled: true, is_default: true, config: { base_url: "http://plex:32400" }, created_at: now, updated_at: now }, created: true, check: { ok: true, detail: "Plex answered and shows 2 libraries" } } } })

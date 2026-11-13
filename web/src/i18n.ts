@@ -192,6 +192,10 @@ const activityActions: Record<string, string> = {
   "quality_profile.deleted": "Kvalitetsprofil slettet",
   "library.root_deleted": "Biblioteksmappe slettet",
   "integration.deleted": "Forbindelse slettet",
+  "usenet_server.created": "Usenet-server tilføjet",
+  "usenet_server.changed": "Usenet-server ændret",
+  "usenet_server.deleted": "Usenet-server slettet",
+  "usenet_server.reordered": "Usenet-servernes rækkefølge ændret",
   "output.movie_reinspection_requested": "Film sat til ny undersøgelse",
   "subtitle.output_reverification_requested": "Ny sprogkontrol bestilt",
   "subtitle.output_reverified": "Sprogkontrol kørt igen",
@@ -418,6 +422,10 @@ const errorCodes: Record<string, string> = {
   integration_in_use: "Den kan ikke slettes, fordi den har været brugt: dens søgninger, downloads eller anmodninger er en del af titlernes historik. Lad den være slået fra i stedet.",
   invalid_name: "Navnet er tomt eller bruges allerede af en anden mappe af samme slags.",
   quality_profile_is_default: "Standardprofilen kan ikke slettes. Gør først en anden profil til standard.",
+  altmount_not_configured: "Usenet-servere styres gennem AltMount. Tilføj AltMount under Indstillinger → Forbindelser, og slå den til.",
+  altmount_unavailable: "AltMount svarer ikke, eller den afviste Media Managers login. Test AltMount under Indstillinger → Forbindelser.",
+  usenet_server_last_active: "Det er den eneste aktive Usenet-server, og uden den kan intet hentes. Tilføj eller slå en anden server til først.",
+  invalid_usenet_server: "Tjek felterne: adressen (fx news.eksempel.dk uden http://), porten (1-65535), brugernavn og adgangskode.",
   policy_application_failed: "Opgaverne ændrede sig imens, så intet blev flyttet over på profilen. Prøv igen.",
 }
 
