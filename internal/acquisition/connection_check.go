@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/adapters/plex"
 	"github.com/media-manager/media-manager/internal/adapters/seerr"
 	"github.com/media-manager/media-manager/internal/postgres"
@@ -50,7 +49,7 @@ const providerRequestTimeout = 45 * time.Second
 // AltMountProviderClient logs in to an AltMount integration exactly as
 // acquisition does, for reading and changing AltMount's Usenet servers.
 // The caller logs out.
-func AltMountProviderClient(ctx context.Context, integration postgres.Integration, resolveSecret SecretResolver, transport http.RoundTripper) (*altmount.HTTPClient, error) {
+func AltMountProviderClient(ctx context.Context, integration postgres.Integration, resolveSecret SecretResolver, transport http.RoundTripper) (*UsenetServerClient, error) {
 	var config altMountConfig
 	if err := json.Unmarshal(integration.Config, &config); err != nil {
 		return nil, errors.New("AltMount configuration is not valid JSON")

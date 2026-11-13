@@ -11,7 +11,6 @@ import (
 	"uuid"
 
 	"github.com/media-manager/media-manager/internal/acquisition"
-	"github.com/media-manager/media-manager/internal/adapters/altmount"
 	"github.com/media-manager/media-manager/internal/postgres"
 )
 
@@ -22,8 +21,8 @@ import (
 // AltMount holds one.
 
 type usenetServersView struct {
-	AltMount usenetServersConnection `json:"altmount"`
-	Servers  []altmount.Provider     `json:"servers"`
+	AltMount usenetServersConnection    `json:"altmount"`
+	Servers  []acquisition.UsenetServer `json:"servers"`
 }
 
 type usenetServersConnection struct {
@@ -50,7 +49,7 @@ var (
 
 // usenetAltMount opens the AltMount connection the servers are managed
 // through: the enabled default AltMount connection, or the only enabled one.
-func (server *Server) usenetAltMount(writer http.ResponseWriter, request *http.Request) (postgres.Integration, *altmount.HTTPClient, bool) {
+func (server *Server) usenetAltMount(writer http.ResponseWriter, request *http.Request) (postgres.Integration, *acquisition.UsenetServerClient, bool) {
 	integrations, err := server.store.ListIntegrations(request.Context())
 	if err != nil {
 		writeDatabaseError(writer, err, "could not load integrations")
@@ -81,14 +80,13 @@ func (server *Server) usenetAltMount(writer http.ResponseWriter, request *http.R
 // writeUsenetServerError turns AltMount's answer into Media Manager's error
 // shape. AltMount's refusal reason is kept; it never carries a password.
 func writeUsenetServerError(writer http.ResponseWriter, err error) {
-	var apiError altmount.APIError
+	status, message, refused := acquisition.UsenetServerRefusal(err)
 	switch {
-	case errors.Is(err, altmount.ErrInvalidProviderID):
+	case errors.Is(err, acquisition.ErrInvalidUsenetServerID):
 		writeError(writer, http.StatusBadRequest, "invalid_id", "Usenet server ID is invalid")
-	case errors.As(err, &apiError) && apiError.StatusCode == http.StatusNotFound:
+	case refused && status == http.StatusNotFound:
 		writeError(writer, http.StatusNotFound, "not_found", "Usenet server was not found in AltMount")
-	case errors.As(err, &apiError) && apiError.StatusCode >= 400 && apiError.StatusCode < 500:
-		message := apiError.Message
+	case refused && status >= 400 && status < 500:
 		if message == "" {
 			message = "AltMount refused the change"
 		}
@@ -119,7 +117,7 @@ func (server *Server) listUsenetServers(writer http.ResponseWriter, request *htt
 }
 
 func (server *Server) createUsenetServer(writer http.ResponseWriter, request *http.Request) {
-	var input altmount.ProviderInput
+	var input acquisition.UsenetServerInput
 	if err := decodeJSON(request, &input, usenetServerBodyLimit); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_json", "request body must be one Usenet server")
 		return
@@ -146,7 +144,7 @@ func (server *Server) createUsenetServer(writer http.ResponseWriter, request *ht
 
 func (server *Server) updateUsenetServer(writer http.ResponseWriter, request *http.Request) {
 	id := request.PathValue("id")
-	var input altmount.ProviderInput
+	var input acquisition.UsenetServerInput
 	if err := decodeJSON(request, &input, usenetServerBodyLimit); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_json", "request body must be the Usenet server fields to change")
 		return
@@ -190,7 +188,7 @@ func (server *Server) deleteUsenetServer(writer http.ResponseWriter, request *ht
 		writeUsenetServerError(writer, err)
 		return
 	}
-	var removed *altmount.Provider
+	var removed *acquisition.UsenetServer
 	for index := range servers {
 		if servers[index].ID == id {
 			removed = &servers[index]
@@ -242,7 +240,7 @@ func (server *Server) reorderUsenetServers(writer http.ResponseWriter, request *
 }
 
 func (server *Server) testUsenetServer(writer http.ResponseWriter, request *http.Request) {
-	var input altmount.ProviderTest
+	var input acquisition.UsenetServerTest
 	if err := decodeJSON(request, &input, usenetServerBodyLimit); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid_json", "request body must be the login to test")
 		return
@@ -280,7 +278,7 @@ func (server *Server) testUsenetServer(writer http.ResponseWriter, request *http
 
 // keepsAnActiveUsenetServer refuses to turn off the last enabled server:
 // without one AltMount cannot download anything.
-func (server *Server) keepsAnActiveUsenetServer(ctx context.Context, writer http.ResponseWriter, client *altmount.HTTPClient, id string) bool {
+func (server *Server) keepsAnActiveUsenetServer(ctx context.Context, writer http.ResponseWriter, client *acquisition.UsenetServerClient, id string) bool {
 	servers, err := client.ListProviders(ctx)
 	if err != nil {
 		writeUsenetServerError(writer, err)
@@ -295,7 +293,7 @@ func (server *Server) keepsAnActiveUsenetServer(ctx context.Context, writer http
 	return true
 }
 
-func enabledUsenetServers(servers []altmount.Provider) int {
+func enabledUsenetServers(servers []acquisition.UsenetServer) int {
 	count := 0
 	for _, candidate := range servers {
 		if candidate.Enabled {
@@ -318,7 +316,7 @@ func (server *Server) auditUsenetServer(ctx context.Context, integrationID uuid.
 // validateUsenetServer checks what the owner typed before AltMount sees it.
 // A new server needs host, port, username and password; a change checks only
 // the fields it sets. Text fields are trimmed in place.
-func validateUsenetServer(input *altmount.ProviderInput, creating bool) string {
+func validateUsenetServer(input *acquisition.UsenetServerInput, creating bool) string {
 	trim := func(value *string) {
 		if value != nil {
 			*value = strings.TrimSpace(*value)
@@ -381,7 +379,7 @@ func validUsenetDate(value string) bool {
 
 // changedUsenetFields names the fields a change set, for the audit trail. A
 // new password is recorded as "password", never its value.
-func changedUsenetFields(input altmount.ProviderInput) []string {
+func changedUsenetFields(input acquisition.UsenetServerInput) []string {
 	fields := []string{}
 	add := func(set bool, name string) {
 		if set {
