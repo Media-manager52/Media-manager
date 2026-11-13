@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **The internal work queue no longer grows forever.** Every finished task (searches, rescans, status changes, AltMount and Seerr checks) stayed in the queue table for good. Once an hour, finished tasks of those five kinds that are over a week old and have been replaced by a newer task for the same item are now removed, a few thousand at a time. The newest task for each item is always kept, because Media Manager uses it to avoid doing the same work twice; all other kinds of tasks are kept as before.
+
 ### Fixed
 
 - **A backup interrupted by a restart no longer blocks every later attempt.** The restore check uses a test database named after the backup. A restart during that check left the database behind, so each retry made the whole backup again and then failed with "verification database creation failed". A new attempt now removes that leftover test database first, and removes temporary backup files older than 3 hours (including a decrypted copy of the database) that a killed attempt left behind.

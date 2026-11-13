@@ -76,6 +76,14 @@ func (worker *Worker) Run(ctx context.Context) error
 - Claims one event per iteration, renews the lease while the handler runs,
   completes/defer/fails as described in [overview.md](overview.md#3-the-durable-outbox-the-heart-of-the-system).
 - Unknown event type → failed with "no handler registered" and a 30-minute retry.
+- Completed events are history, and some enqueue paths deduplicate against it
+  (`ON CONFLICT DO NOTHING` on aggregate + revision + type; Seerr reconcile
+  numbers its next event `max(revision)+1`). The hourly
+  `DeleteCompletedOutboxHistory` (`internal/postgres/outbox_retention.go`)
+  removes only events of the high-volume types search, transition, discovery
+  rescan, AltMount reconcile and Seerr reconcile that completed over a week ago,
+  have a newer event of the same aggregate and type, and whose aggregate has
+  moved past their revision. Other types are never removed.
 - `safeError()` only persists errors with a valid `SafeCode()` or the Go type
   name — never raw error strings (they may contain secrets/paths).
 - Handlers that need paced deferral return an error implementing
