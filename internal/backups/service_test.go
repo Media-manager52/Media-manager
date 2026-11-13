@@ -59,7 +59,7 @@ func TestCreateAndVerifyUsesIsolatedRestoreLifecycle(t *testing.T) {
 
 // A restart during the restore check used to leave the fixed-name verification
 // database and the temporary dumps behind; every later attempt then failed at
-// createdb (2026-11-13: 37 attempts). A new attempt must drop the leftover
+// createdb. A new attempt must drop the leftover
 // database first and remove temporary files older than the handler limit.
 func TestCreateAndVerifyRecoversFromKilledAttempt(t *testing.T) {
 	directory := t.TempDir()
