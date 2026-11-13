@@ -53,7 +53,8 @@ using AltMount's own contributor instructions and Debian CI Dockerfile before
 any future deployment. The deployed image retained the original frontend build;
 this bundle contains backend source changes only.
 
-Protected persistent queue/upload mounts and their ownership are separate
-runtime configuration, described in the [deployment evidence](../../status/release.md).
+AltMount's pending NZB queue and upload directories need protected persistent
+host mounts with the right ownership; that is runtime configuration, not part
+of this bundle.
 No credentials, production NZBs, database contents or media are included.
 The upstream MIT copyright and license are preserved in [LICENSE](LICENSE).

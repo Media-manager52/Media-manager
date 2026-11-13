@@ -8,6 +8,7 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 - **Code the program never runs is gone.** About twenty functions and one file that only tests still called were removed: old Newznab search and download shortcuts, an unused season-pack job state machine, unused naming, link and AltMount session helpers, two leftover commissioning helpers and an unused web helper. Their tests now exercise the functions Media Manager actually uses, so the same safety checks (download redirects, link containment, NZB validation, pack coverage) still run. The season workflow name is now built in one place. No behaviour changes.
 - **Search capability profiles are removed (schema 70).** Only the removed commissioning v2 could activate a profile, so every search already used the dialect the normal commission check stored. The search planner, the profile store code and about 1,000 lines of profile validation are gone, and migration 0070 drops the profile and operation status tables (they held only empty drafts) and refuses to run if a profile was ever activated. Searches send the same requests as before, each indexer in a search makes one database read less, and searches waiting for a retry keep their stored intent.
+- **Two dated status logs are gone.** `docs/status/implementation.md` (a feature audit from September) and `docs/status/release.md` (a running log that repeated this changelog) were removed; they remain in the Git history. The changelog and `docs/releases/` are the record of what changed.
 
 ## [0.1.0-beta.22] - 2026-11-13
 
