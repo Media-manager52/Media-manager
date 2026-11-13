@@ -511,7 +511,10 @@ and secrets excluded from payloads. Retries stay visible
 - `KeyReference` names the env var; key must be base64 32 bytes (`ParseKey`).
 - Job records track state/attempts/size/sha256/schema version; verification
   restores into an isolated temporary database and requires the exact schema
-  version. Download only serves checksum-matching encrypted files.
+  version. That database is named after the backup, so each attempt drops a
+  leftover one first (a restart mid-check used to block every retry), and
+  temporary dump files older than the 3-hour handler limit are removed.
+  Download only serves checksum-matching encrypted files.
 
 ## internal/importlists
 

@@ -21,6 +21,16 @@ import (
 
 const KeyReference = "BACKUP_ENCRYPTION_KEY"
 
+// staleTemporaryAge is how old a temporary backup file must be before a new
+// attempt removes it. A backup handler is cancelled after 3 hours, so an older
+// temporary file belongs to an attempt that was killed (for example by a
+// restart) and will never be cleaned up by its own deferred removal.
+const staleTemporaryAge = 3 * time.Hour
+
+// temporaryPatterns match the temporary files createAndVerify writes. The
+// .verify-*.dump file is a decrypted (plaintext) copy of the database.
+var temporaryPatterns = []string{".backup-*.dump", ".backup-*.encrypted", ".verify-*.dump"}
+
 type SecretResolver func(string) (string, error)
 
 type CommandRunner interface {
@@ -159,6 +169,7 @@ func (service *Service) createAndVerify(ctx context.Context, id uuid.UUID) (stri
 	if err != nil {
 		return "", 0, "", 0, phaseError{phase: "storage preparation", err: err}
 	}
+	removeStaleTemporaryFiles(directory, time.Now())
 	runner := service.Runner
 	if runner == nil {
 		runner = execRunner{}
@@ -240,6 +251,12 @@ func (service *Service) verifyRestore(ctx context.Context, runner CommandRunner,
 		return 0, phaseError{phase: "restore verification", err: errors.Join(decryptErr, closeEncryptedErr, syncErr, closeDecryptedErr)}
 	}
 	verificationDatabase := "mm_verify_" + strings.ReplaceAll(id.String(), "-", "")
+	// The name is fixed per backup, so an attempt killed during the restore
+	// leaves a database that would make every later createdb fail. It holds
+	// only a throwaway restore of this backup.
+	if _, err := runner.Run(ctx, "dropdb", "--if-exists", verificationDatabase); err != nil {
+		return 0, phaseError{phase: "verification cleanup", err: err}
+	}
 	if _, err := runner.Run(ctx, "createdb", "--template=template0", verificationDatabase); err != nil {
 		return 0, phaseError{phase: "verification database creation", err: err}
 	}
@@ -265,6 +282,29 @@ func (service *Service) verifyRestore(ctx context.Context, runner CommandRunner,
 		return 0, phaseError{phase: "verification cleanup", err: err}
 	}
 	return version, nil
+}
+
+// removeStaleTemporaryFiles deletes temporary files left by a killed attempt.
+// Failures are logged and ignored: a leftover file wastes space but does not
+// make the new backup unsafe.
+func removeStaleTemporaryFiles(directory string, now time.Time) {
+	for _, pattern := range temporaryPatterns {
+		matches, err := filepath.Glob(filepath.Join(directory, pattern))
+		if err != nil {
+			continue
+		}
+		for _, path := range matches {
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() || now.Sub(info.ModTime()) < staleTemporaryAge {
+				continue
+			}
+			if err := os.Remove(path); err != nil {
+				slog.Warn("could not remove stale temporary backup file", "file", filepath.Base(path), "error", err)
+				continue
+			}
+			slog.Info("removed stale temporary backup file", "file", filepath.Base(path))
+		}
+	}
 }
 
 func (service *Service) safeDirectory() (string, error) {
