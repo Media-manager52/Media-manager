@@ -128,13 +128,6 @@ func (client *HTTPClient) Login(ctx context.Context) (Session, error) {
 	return Session{User: response.User, AuthenticatedAt: time.Now().UTC()}, nil
 }
 
-func (client *HTTPClient) Refresh(ctx context.Context) error {
-	if client.config.AllowAnonymousAdmin {
-		_, err := client.Login(ctx)
-		return err
-	}
-	return client.json(ctx, http.MethodPost, "/api/user/refresh", nil, nil)
-}
 func (client *HTTPClient) Logout(ctx context.Context) error {
 	if client.config.AllowAnonymousAdmin {
 		return nil

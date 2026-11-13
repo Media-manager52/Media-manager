@@ -413,7 +413,7 @@ func TestParseCapsBoundsModeParameterEvidence(t *testing.T) {
 
 func TestValidateNZBRequiresParsedDocumentWithFilesAndSegments(t *testing.T) {
 	valid := []byte(`<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><file poster="owner"><groups><group>alt.binaries.test</group></groups><segments><segment bytes="12" number="1">message@example</segment></segments></file></nzb>`)
-	if err := validateNZB(valid); err != nil {
+	if _, err := PackageIdentity(valid); err != nil {
 		t.Fatalf("valid NZB rejected: %v", err)
 	}
 	invalid := [][]byte{
@@ -422,7 +422,7 @@ func TestValidateNZBRequiresParsedDocumentWithFilesAndSegments(t *testing.T) {
 		[]byte(`<nzb></nzb>`),
 	}
 	for _, body := range invalid {
-		if err := validateNZB(body); err == nil {
+		if _, err := PackageIdentity(body); err == nil {
 			t.Fatalf("invalid NZB accepted: %s", body)
 		}
 	}

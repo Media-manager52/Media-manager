@@ -78,10 +78,6 @@ var episodePattern = regexp.MustCompile(`(?i)S(\d{1,3})E(\d{1,3})(?:-E(\d{1,3})|
 var chainedEpisodePattern = regexp.MustCompile(`(?i)E(\d{1,3})`)
 var playableExtensions = map[string]struct{}{".mkv": {}, ".mp4": {}, ".m4v": {}, ".avi": {}, ".ts": {}}
 
-func Evaluate(seriesID string, season uint16, expected []ExpectedEpisode, assets []ObservedAsset) Report {
-	return EvaluateNumbered(seriesID, season, expected, assets, EpisodeNumbering{})
-}
-
 // EvaluateNumbered keeps inventory paths unchanged while resolving explicitly
 // numbered annual episodes against a verified frozen metadata mapping.
 func EvaluateNumbered(seriesID string, season uint16, expected []ExpectedEpisode, assets []ObservedAsset, numbering EpisodeNumbering) Report {

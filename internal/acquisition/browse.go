@@ -23,6 +23,7 @@ import (
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/postgres"
 	"github.com/media-manager/media-manager/internal/releases"
+	"github.com/media-manager/media-manager/internal/workflows"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -471,7 +472,7 @@ func (s *BrowseService) browseNewznab(ctx context.Context, client *newznab.Clien
 		return exact, nil
 	}
 	seasonSearch := search
-	seasonSearch.Variant = fmt.Sprintf("season:%02d", in.Season)
+	seasonSearch.Variant = workflows.SeasonVariant(in.Season)
 	season, seasonErr := s.searchNewznab(ctx, client, i, c, seasonSearch)
 	if seasonErr == nil {
 		s.storeSeasonCache(key, season, now)

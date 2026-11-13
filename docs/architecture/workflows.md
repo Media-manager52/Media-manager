@@ -592,7 +592,7 @@ Handler: `acquisition.AltMountReconcileService` (`reconcile_altmount.go`).
      evidence rather than guessing the largest inventory file again. The
      [retained movie action](api.md#retained-movie-inspection) can inspect an
      eligible latest ambiguous output once without another acquisition.
-  4. **Series**: `packs.Evaluate` against the immutable expectation. Not
+  4. **Series**: `packs.EvaluateNumbered` against the immutable expectation. Not
      publishable → `season_pack_incomplete`. Every expected episode maps exactly
      once; multi-episode files are grouped.
   5. **Subtitle verification** (`subtitles.Verify`): every selected video is
@@ -631,7 +631,7 @@ movies prefer TMDB then IMDb; series prefer TVDB then TMDB. It:
 - validates the AltMount read-only root and every source relative path
   (containment);
 - maps the source root to the Plex-visible root;
-- renders Plex-safe names (`library.RenderMovie`/`RenderEpisode`), appending the
+- renders Plex-safe names (`library.RenderMovie`/`RenderEpisodeSet`), appending the
   unique persisted **release token** so old and new generations can coexist
   during verification;
 - emits one plan per verified asset, plus subtitle companions that share the

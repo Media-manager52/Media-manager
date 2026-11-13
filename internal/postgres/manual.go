@@ -130,7 +130,7 @@ func (store *Store) CreateManualMedia(ctx context.Context, item catalog.MediaIte
 				return nil, errors.New("season snapshot has no episodes")
 			}
 			workflow := workflows.NewWithClient(item.ID, rootID, profileID, clientID, item.CreatedAt)
-			variant := fmt.Sprintf("season:%02d", season.Number)
+			variant := workflows.SeasonVariant(season.Number)
 			if err := store.insertManualWorkflow(ctx, transaction, workflow, variant, season.Monitored && season.SearchImmediately); err != nil {
 				return nil, err
 			}
@@ -217,7 +217,7 @@ func (store *Store) CreateManualWorkflowForExisting(ctx context.Context, item ca
 		if season.Number > 999 || len(season.Episodes) == 0 {
 			return workflows.Workflow{}, errors.New("series workflow requires a valid exact season snapshot")
 		}
-		variant = fmt.Sprintf("season:%02d", season.Number)
+		variant = workflows.SeasonVariant(season.Number)
 	}
 	transaction, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {

@@ -137,11 +137,10 @@ If you add a service handler, keep it idempotent: events are at-least-once.
 
 ## internal/packs — season-pack expectation and coverage
 
-`coverage.go`, `job.go` + tests.
+`coverage.go`, `season_range.go` + tests.
 
 - `ExpectedEpisode`, `EpisodeKey`, `ObservedAsset`, `ContentGroup`.
-- `PackJob` state machine: `submitted` → ... (`ErrInvalidJobTransition`).
-- `Evaluate(seriesID, season, expected, assets)` → `Report` with `Verdict`
+- `EvaluateNumbered(seriesID, season, expected, assets, numbering)` → `Report` with `Verdict`
   (`verified`, `incomplete`, `ambiguous`, ...), `Missing`, `Issues`,
   content groups. `Report.Publishable()` gates publication.
 - Exact coverage rule: every expected episode maps exactly once; multi-episode
@@ -171,10 +170,10 @@ If you add a service handler, keep it idempotent: events are at-least-once.
 
 - Containment: `ValidateRelative`, `DestinationRelative`, `ErrUnsafePath`,
   `InspectRegularFile`.
-- Naming: `RenderMovie(MovieName)` and `RenderEpisode`/`RenderEpisodeSet`
+- Naming: `RenderMovie(MovieName)` and `RenderEpisodeSet`
   produce Plex-compatible folder/file names (identity + year + optional release
   token). Series prefers TVDB identity, movies prefer TMDB (`publication.namingIdentity`).
-- Symlinks: `ValidatePlan`, `PreflightBatch`, `PublishSymlink`, `PublishBatch`,
+- Symlinks: `ValidatePlan`, `PreflightBatch`, `PublishBatch`,
   `MoveSymlink`, `RemoveSymlink` — every operation checks the expected target.
 - Regular files: `MoveRegularFile`, `RemoveRegularFile`, `TransferRegularFile`
   (cross-root copy to a temp file, SHA-256 verify, atomic rename, source removal
@@ -613,7 +612,7 @@ dependency).
   `ProviderContractAcceptsEndpoint` enforce verified download locators.
 - `PackageIdentity(body)` = SHA-256 of the exact NZB bytes.
 - `Sanitize*` functions strip credentials from observations/raw fields before
-  persistence; `ValidStructurallySafePersistedText` guards stored text.
+  persistence.
 - Redirect policy: max 2 hops, workflow guard rechecked per hop, only validated
   public addresses pinned, TLS hostname verification preserved, proxies/reuse
   disabled, cross-origin credentials/Referer stripped.

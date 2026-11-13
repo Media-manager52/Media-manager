@@ -60,17 +60,6 @@ func RenderMovie(name MovieName) (folder, file string, err error) {
 	return folder, file, nil
 }
 
-func RenderEpisode(show string, year uint16, provider, providerID string, season uint16, firstEpisode, lastEpisode uint16, title string, technical []string, extension string) (folder, seasonFolder, file string, err error) {
-	if firstEpisode == 0 || lastEpisode < firstEpisode || lastEpisode-firstEpisode > 99 {
-		return "", "", "", ErrUnsafePath
-	}
-	episodes := make([]uint16, 0, lastEpisode-firstEpisode+1)
-	for episode := firstEpisode; episode <= lastEpisode; episode++ {
-		episodes = append(episodes, episode)
-	}
-	return RenderEpisodeSet(show, year, provider, providerID, season, episodes, title, technical, extension)
-}
-
 func RenderEpisodeSet(show string, year uint16, provider, providerID string, season uint16, episodes []uint16, title string, technical []string, extension string) (folder, seasonFolder, file string, err error) {
 	if len(episodes) == 0 {
 		return "", "", "", ErrUnsafePath

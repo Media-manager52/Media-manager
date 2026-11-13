@@ -156,24 +156,10 @@ func New(config Config, scheduler *indexers.Scheduler, transport http.RoundTripp
 	return client, nil
 }
 
-func (client *Client) Search(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
-	return client.search(ctx, indexers.WorkloadInteractive, request, nil)
-}
-
 // BrowseSearch performs a viewer-facing search that may wait for its next
 // permitted pacing slot instead of deferring behind background recovery work.
 func (client *Client) BrowseSearch(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
 	return client.search(ctx, indexers.WorkloadBrowse, request, nil)
-}
-
-// BackgroundSearch uses a conservative share of the persisted query budget.
-// It otherwise has exactly the same parsing and transport behavior as Search.
-func (client *Client) BackgroundSearch(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
-	return client.search(ctx, indexers.WorkloadBackground, request, nil)
-}
-
-func (client *Client) BackgroundSearchGuarded(ctx context.Context, request SearchRequest, guard func(context.Context) error) ([]releases.Observation, error) {
-	return client.search(ctx, indexers.WorkloadBackground, request, guard)
 }
 
 func (client *Client) CommissionSearch(ctx context.Context, request SearchRequest) ([]releases.Observation, error) {
@@ -269,19 +255,6 @@ func sanitizeObservationsWithCredential(observations []releases.Observation, cre
 	return result
 }
 
-func (client *Client) GetNZB(ctx context.Context, nativeID string) ([]byte, error) {
-	return client.GetNZBGuarded(ctx, nativeID, nil)
-}
-
-func (client *Client) GetNZBGuarded(ctx context.Context, nativeID string, guard func(context.Context) error) ([]byte, error) {
-	pack, err := client.GetNZBPackageGuarded(ctx, nativeID, guard)
-	return pack.Body, err
-}
-
-func (client *Client) GetNZBPackageGuarded(ctx context.Context, nativeID string, guard func(context.Context) error) (NZBPackage, error) {
-	return client.GetNZBPackageFromLocatorGuarded(ctx, nativeID, "", guard)
-}
-
 func (client *Client) GetNZBPackageFromLocatorGuarded(ctx context.Context, nativeID, locatorReference string, guard func(context.Context) error) (NZBPackage, error) {
 	var identity [sha256.Size]byte
 	validate := func(body []byte) (indexers.Outcome, error) {
@@ -317,11 +290,6 @@ func (client *Client) GetNZBPackageFromLocatorGuarded(ctx context.Context, nativ
 		return NZBPackage{}, err
 	}
 	return NZBPackage{Body: body, Identity: identity}, nil
-}
-
-func validateNZB(body []byte) error {
-	_, err := PackageIdentity(body)
-	return err
 }
 
 func PackageIdentity(body []byte) ([sha256.Size]byte, error) {

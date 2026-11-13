@@ -33,16 +33,16 @@ func TestPublishSymlinkIsContainedAndIdempotent(t *testing.T) {
 	}
 
 	plan := LinkPlan{SourceRoot: source, SourceRelative: "release/movie.mkv", DestinationRoot: destination, DestinationRel: "Movie (2026)/Movie (2026).mkv", PlexVisibleSourceRoot: "/mnt/altmount"}
-	if err := PublishSymlink(plan); err != nil {
+	if _, err := publishSymlink(plan); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishSymlink(plan); err != nil {
+	if _, err := publishSymlink(plan); err != nil {
 		t.Fatalf("idempotent publish failed: %v", err)
 	}
 
 	conflict := plan
 	conflict.PlexVisibleSourceRoot = "/other"
-	if err := PublishSymlink(conflict); !errors.Is(err, ErrCollision) {
+	if _, err := publishSymlink(conflict); !errors.Is(err, ErrCollision) {
 		t.Fatalf("expected collision, got %v", err)
 	}
 }
@@ -61,7 +61,7 @@ func TestRenderMoviePlexDefault(t *testing.T) {
 }
 
 func TestRenderEpisodeAllowsTVDBAndPreservesTokens(t *testing.T) {
-	folder, season, file, err := RenderEpisode(strings.Repeat("Very Long Show ", 40), 2026, "tvdb", "12345", 1, 3, 4, "", []string{"2160p"}, ".mkv")
+	folder, season, file, err := RenderEpisodeSet(strings.Repeat("Very Long Show ", 40), 2026, "tvdb", "12345", 1, []uint16{3, 4}, "", []string{"2160p"}, ".mkv")
 	if err != nil {
 		t.Fatal(err)
 	}

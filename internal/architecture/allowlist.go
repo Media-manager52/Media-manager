@@ -24,5 +24,5 @@ var knownImportViolations = map[string]bool{
 // entry once the file is under the limit.
 var oversizedFiles = map[string]int{
 	"internal/postgres/publication.go":     1152,
-	"internal/adapters/newznab/profile.go": 1133,
+	"internal/adapters/newznab/profile.go": 1111,
 }

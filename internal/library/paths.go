@@ -81,14 +81,6 @@ func ValidatePlan(plan LinkPlan) (LinkPlan, error) {
 	return plan, nil
 }
 
-// PublishSymlink creates one final Plex-facing link without ever mutating the
-// source root. os.Root makes every destination operation reject path escapes
-// and intermediate symlinks. Existing identical links are idempotent.
-func PublishSymlink(plan LinkPlan) error {
-	_, err := publishSymlink(plan)
-	return err
-}
-
 func publishSymlink(plan LinkPlan) (bool, error) {
 	validated, err := ValidatePlan(plan)
 	if err != nil {

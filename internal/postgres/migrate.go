@@ -17,7 +17,3 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error { return migrations.
 func SchemaVersion(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
 	return migrations.SchemaVersion(ctx, pool)
 }
-
-func migrateThrough(ctx context.Context, pool *pgxpool.Pool, maximumVersion int64) error {
-	return migrations.Through(ctx, pool, maximumVersion)
-}

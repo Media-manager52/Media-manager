@@ -69,14 +69,14 @@ func TestSearchEncodesExactXMLWireRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observations, err := client.Search(context.Background(), SearchRequest{
+	observations, err := client.search(context.Background(), indexers.WorkloadInteractive, SearchRequest{
 		Mode:       "tvsearch",
 		Params:     []Param{{Name: "q", Value: "Example Show"}, {Name: "tvdbid", Value: "12345"}, {Name: "season", Value: "2"}},
 		Categories: []int{5000, 5040},
 		Limit:      100,
 		Offset:     200,
 		Extended:   true,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestGetNZBGuardedDefersPacingBeforeGuardAndProviderRequest(t *testing.T) {
 	}
 	guardFailure := errors.New("workflow changed")
 	started := time.Now()
-	if _, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error { return guardFailure }); err == nil {
+	if _, err := client.getNZB(context.Background(), "native-id", func(context.Context) error { return guardFailure }); err == nil {
 		t.Fatal("pacing deferral was not returned")
 	} else {
 		var deferred indexers.CooldownError
@@ -124,7 +124,7 @@ func TestGetNZBGuardedDefersPacingBeforeGuardAndProviderRequest(t *testing.T) {
 		t.Fatalf("provider requests=%d, want 0", got)
 	}
 	time.Sleep(30 * time.Millisecond)
-	if _, err := client.GetNZBGuarded(context.Background(), "native-id", func(context.Context) error { return guardFailure }); !errors.Is(err, guardFailure) {
+	if _, err := client.getNZB(context.Background(), "native-id", func(context.Context) error { return guardFailure }); !errors.Is(err, guardFailure) {
 		t.Fatalf("guard error after pacing deadline=%v", err)
 	}
 	if got := scheduler.Snapshot("guarded").LastOutcome; got != indexers.OutcomeCancelled {
@@ -149,7 +149,7 @@ func TestBackgroundSearchGuardStopsBeforeProviderRequest(t *testing.T) {
 	}
 	guardFailure := errors.New("discovery generation changed")
 	guardCalls := 0
-	if _, err := client.BackgroundSearchGuarded(context.Background(), SearchRequest{Mode: "search"}, func(context.Context) error {
+	if _, err := client.search(context.Background(), indexers.WorkloadBackground, SearchRequest{Mode: "search"}, func(context.Context) error {
 		guardCalls++
 		return guardFailure
 	}); !errors.Is(err, guardFailure) {
@@ -179,7 +179,7 @@ func TestGetNZBRejectsUnsafeCrossHostRedirectWithoutExposingURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.GetNZB(context.Background(), "native-id")
+	_, err = client.getNZB(context.Background(), "native-id", nil)
 	var coded interface{ SafeCode() string }
 	if !errors.As(err, &coded) || coded.SafeCode() != "newznab_redirect_url_policy_rejected" || strings.Contains(err.Error(), redirectTarget) {
 		t.Fatalf("classified redirect error=%T %v", err, err)
@@ -208,7 +208,7 @@ func TestSearchStillRejectsCrossHostRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Search(context.Background(), SearchRequest{Mode: "search"})
+	_, err = client.search(context.Background(), indexers.WorkloadInteractive, SearchRequest{Mode: "search"}, nil)
 	var coded interface{ SafeCode() string }
 	if !errors.As(err, &coded) || coded.SafeCode() != "newznab_cross_host_redirect_rejected" || strings.Contains(err.Error(), redirectTarget) {
 		t.Fatalf("classified redirect error=%T %v", err, err)
@@ -256,7 +256,7 @@ func TestValidatedResponseControlsPersistedSchedulerOutcome(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = client.Search(context.Background(), SearchRequest{Mode: "search"})
+			_, err = client.search(context.Background(), indexers.WorkloadInteractive, SearchRequest{Mode: "search"}, nil)
 			if (err != nil) != test.wantError {
 				t.Fatalf("error=%v, wantError=%v", err, test.wantError)
 			}
@@ -502,4 +502,11 @@ func TestCrossOriginRedirectRejectsCredentialInPath(t *testing.T) {
 			t.Fatal("cross-origin redirect carrying a source credential in its path was not rejected")
 		}
 	}
+}
+
+// getNZB downloads through the production path (no advertised locator) and
+// returns only the body.
+func (client *Client) getNZB(ctx context.Context, nativeID string, guard func(context.Context) error) ([]byte, error) {
+	pack, err := client.GetNZBPackageFromLocatorGuarded(ctx, nativeID, "", guard)
+	return pack.Body, err
 }
