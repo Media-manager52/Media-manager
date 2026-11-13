@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.27] - 2026-11-13
+
 ### Added
 
 - **AltMount's status in Media Manager.** The new page System → AltMount shows AltMount's drive, how much it fetched in the last day, each Usenet server in the order AltMount uses it (connections, errors, missing articles, quota used and when it resets) and what is being played from the drive now, named by title when Media Manager made the download. The viewer's address and player are not shown. AltMount's own website is no longer needed for this. The page reads `GET /api/v1/system/altmount` and changes nothing.
@@ -664,6 +666,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.27]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.27
 [0.1.0-beta.26]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.26
 [0.1.0-beta.25]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.25
 [0.1.0-beta.24]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.24
