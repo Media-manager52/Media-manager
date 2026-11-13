@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **AltMount is installed together with Media Manager.** The Cosmos install has a new choice, **Install AltMount together with Media Manager** (on by default). It adds the service `<name>-altmount` from [Media-manager52/altmount](https://github.com/Media-manager52/altmount) (upstream AltMount plus Media Manager's fixes, MIT licensed), with settings written on its first start: no login on Media Manager's private network, a read-only drive in the folder chosen for AltMount's files. On its first start Media Manager adds it as the default AltMount connection (`BUNDLED_ALTMOUNT_URL`), unless an AltMount connection already exists; the addition is audited as `integration.bundled_altmount_added`. A new install then only needs the news-server login under Indstillinger → Usenet-servere. Turn the choice off to keep using your own AltMount as before.
+
 ## [0.1.0-beta.25] - 2026-11-13
 
 ### Added

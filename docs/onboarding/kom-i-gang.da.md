@@ -1,7 +1,9 @@
 # Kom i gang med Media Manager
 
 Media Manager finder film og serier, lader AltMount hente dem og viser dem i
-Plex efter kontrol. Plex og AltMount skal være installeret og virke i forvejen.
+Plex efter kontrol. Plex skal være installeret og virke i forvejen. AltMount
+installeres sammen med Media Manager fra Cosmos-butikken og er forbundet fra
+start (du kan også bruge din egen AltMount).
 En indexer finder udgivelser; login til dine news-servere (Usenet-udbydere)
 skriver du under **Indstillinger → Usenet-servere**. TMDB leverer
 titler og oplysninger. Seerr er valgfri og kan levere familiens anmodninger.
@@ -18,8 +20,10 @@ titler og oplysninger. Seerr er valgfri og kan levere familiens anmodninger.
 3. Under **Indstillinger → Forbindelser** vælger du **Log ind med Plex**,
    godkender hos Plex og vælger din server. Brug **Test forbindelse**, hvis du
    senere ændrer en forbindelse.
-4. Tilføj AltMount under **Forbindelser**. Adressen skal kunne nås fra Media
-   Manager. Angiv den mappe, hvor Media Manager kan læse AltMounts færdige
+4. Installerede du AltMount sammen med Media Manager, er den allerede
+   tilføjet; giv Plex mappen til AltMounts filer som `/mnt`, så Plex ser
+   filerne i `/mnt/altmount`. Med din egen AltMount: tilføj den under
+   **Forbindelser**. Adressen skal kunne nås fra Media Manager. Angiv den mappe, hvor Media Manager kan læse AltMounts færdige
    filer. Test forbindelsen. Plex skal kunne læse de samme filer, også selv om
    mapperne har forskellige navne i de to tjenester.
    Skriv derefter login til din Usenet-udbyder under **Usenet-servere**:

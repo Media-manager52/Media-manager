@@ -137,6 +137,17 @@ func run() error {
 			return err
 		}
 	}
+	// The AltMount installed together with Media Manager becomes its default
+	// AltMount connection on the first start; an existing one is kept.
+	if bundled := strings.TrimSpace(os.Getenv("BUNDLED_ALTMOUNT_URL")); bundled != "" {
+		added, err := store.EnsureBundledAltMount(context.Background(), bundled, time.Now())
+		if err != nil {
+			return fmt.Errorf("bundled AltMount: %w", err)
+		}
+		if added {
+			slog.Info("added the bundled AltMount as the default AltMount connection", "base_url", bundled)
+		}
+	}
 	ownerToken, err := requiredSecret("OWNER_TOKEN")
 	if err != nil {
 		return err
