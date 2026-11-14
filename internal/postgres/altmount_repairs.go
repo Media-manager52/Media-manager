@@ -124,15 +124,20 @@ func (store *Store) RequestAltMountReplacementForFile(ctx context.Context, fileP
 
 // CurrentAltMountPublications returns the AltMount file path, as AltMount
 // reports it, of every current publication from one AltMount client whose
-// publishing workflow has finished.
+// publishing workflow has finished, and of every unconfirmed publication of a
+// current attempt that waits on the owner after a Plex timeout or a failed
+// publication (its release is rejected when the file is gone).
 func (store *Store) CurrentAltMountPublications(ctx context.Context, altMountID uuid.UUID) ([]string, error) {
 	rows, err := store.Pool.Query(ctx, `SELECT DISTINCT inventory.root_relative || '/' || asset.relative_path
 		FROM library_link_versions version
 		JOIN altmount_output_assets asset ON asset.id=version.source_asset_id
 		JOIN altmount_output_inventories inventory ON inventory.id=asset.inventory_id
 		JOIN altmount_jobs job ON job.id=inventory.job_id AND job.altmount_instance_id=$1
-		JOIN workflows workflow ON workflow.id=version.workflow_id AND workflow.terminal_at IS NOT NULL
-		WHERE version.state='current' ORDER BY 1`, altMountID.String())
+		JOIN workflows workflow ON workflow.id=version.workflow_id
+		WHERE (version.state='current' AND workflow.terminal_at IS NOT NULL)
+		   OR (version.state IN ('verified','quarantined') AND version.altmount_job_id=job.id AND workflow.grab_attempt_id=job.id
+		       AND workflow.terminal_at IS NULL AND workflow.state='needs_attention' AND workflow.attention_code IN ('plex_timeout','publication_failed'))
+		ORDER BY 1`, altMountID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +197,12 @@ func (store *Store) planManagedRepairForFile(ctx context.Context, altMountID uui
 		WHERE $1 LIKE inventory.root_relative || '/%' AND ($3::uuid IS NULL OR version.id=$3::uuid)
 		ORDER BY version.id LIMIT 1`, filePath, altMountID.String(), versionValue).Scan(&linkVersionID, &workflowID, &mediaID, &variant, &rootID, &profileID, &clientID, &assetID, &releaseTitle, &kind, &terminal, &originalLanguage, &edition)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if versionID == nil && (reason == RepairReasonCorrupted || reason == RepairReasonMissingFile) {
+			// No confirmed publication: the file may belong to one still
+			// waiting on the owner after its Plex confirmation timed out.
+			_ = tx.Rollback(ctx)
+			return store.rejectUnconfirmedBrokenFile(ctx, altMountID, filePath, reason, now)
+		}
 		return RepairUnmanaged, nil
 	}
 	if err != nil {

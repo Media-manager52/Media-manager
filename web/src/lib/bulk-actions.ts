@@ -1,7 +1,7 @@
 import type { APIWorkflow, APIWorkflowAction } from "@/api/client"
 
 /** The order owner actions are offered in, most useful first. */
-export const actionOrder = ["search", "open_next_round", "open_round_from_known", "discover", "reconcile_altmount", "reconfirm_plex", "retry_access_rejected_release", "cancel"]
+export const actionOrder = ["search", "open_next_round", "open_round_from_known", "discover", "reconcile_altmount", "reconfirm_plex", "reject_published_release", "retry_access_rejected_release", "cancel"]
 
 /** One click handles at most this many cases, so indexer limits are not spent in one go. */
 export const bulkLimit = 25
@@ -12,9 +12,11 @@ export type BulkChoice = { action: string; steps: BulkStep[] }
 /**
  * An action may run for many cases at once only when the server offers it
  * now, it needs no typed confirmation and it does not end or delete anything.
+ * Rejecting a published release is a judgement about one release, never a
+ * bulk step.
  */
 function bulkSafe(action: APIWorkflowAction): boolean {
-  return action.available && !action.confirmation && action.action !== "cancel" && (action.effect === "write" || action.effect === "provider")
+  return action.available && !action.confirmation && action.action !== "cancel" && action.action !== "reject_published_release" && (action.effect === "write" || action.effect === "provider")
 }
 
 /** The actions at least two of the cases share, each with the cases that offer it. */

@@ -4,6 +4,14 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Added
+
+- **Kassér udgivelsen og søg igen.** When Plex never confirmed a published release (attention `plex_timeout` or `publication_failed`), the owner can reject it: its unconfirmed library links are removed, the exact release and package are excluded, and the workflow tries the round's next release. `POST /api/v1/workflows/{id}/reject-published-release`, offered as `reject_published_release` in `available_actions` (never as a bulk action), audited as `workflow.published_release_rejected`.
+
+### Fixed
+
+- **A release that breaks before Plex confirms it no longer leaves the title stuck.** When AltMount reports the published file corrupted, or the missing-file check finds it gone, while the workflow waits on a timed-out Plex confirmation or a failed publication, the release is now rejected automatically (failure code `broken_before_plex`) and another release is searched. Before, only confirmed files were repaired, so these titles waited on a Plex confirmation that could never come.
+
 ## [0.1.0-beta.33] - 2026-11-14
 
 ### Changed

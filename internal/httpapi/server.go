@@ -252,6 +252,7 @@ var conflictSentinels = []struct {
 	{postgres.ErrWorkflowAltMountJobActive, "altmount_job_active", "Wait for the active AltMount job to settle, then retry."},
 	{postgres.ErrWorkflowNotCancellable, "workflow_not_cancellable", "Workflows that are publishing, published or terminal cannot be cancelled."},
 	{postgres.ErrPlexReconfirmationNotTimedOut, "plex_not_timed_out", "Only a workflow in needs_attention with attention_code plex_timeout can be reconfirmed."},
+	{postgres.ErrPublicationNotRejectable, "publication_not_rejectable", "Only a workflow in needs_attention with attention_code plex_timeout or publication_failed can have its release rejected."},
 }
 
 // writeConflict reports a refused owner action as 409. A typed ActionRefusal

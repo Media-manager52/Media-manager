@@ -104,6 +104,7 @@ func workflowActions(item postgres.WorkflowSummary) []workflowAction {
 
 	reconcile := state == workflows.StateNeedsAttention && postgres.InfrastructureAttentionCode(item.AttentionCode)
 	plex := state == workflows.StateNeedsAttention && item.AttentionCode == "plex_timeout"
+	rejectable := state == workflows.StateNeedsAttention && (item.AttentionCode == "plex_timeout" || item.AttentionCode == "publication_failed")
 	cancellable := !terminal
 	cancelReason := ""
 	switch state {
@@ -123,6 +124,7 @@ func workflowActions(item postgres.WorkflowSummary) []workflowAction {
 		{Action: "open_round_from_known", OperationID: "openKnownAcquisitionRound", Method: http.MethodPost, Path: path("/acquisition-rounds/from-known"), Effect: effectProvider, Available: knownReason == "", Reason: knownReason, Note: "Refused with no_known_eligible_release when no stored release is both eligible and untried."},
 		{Action: "reconcile_altmount", OperationID: "reconcileAltMount", Method: http.MethodPost, Path: path("/reconcile-altmount"), Effect: effectWrite, Available: reconcile, Reason: unless(reconcile, "Only for needs_attention with an AltMount or inspection attention code.")},
 		{Action: "reconfirm_plex", OperationID: "reconfirmPlex", Method: http.MethodPost, Path: path("/reconfirm-plex"), Effect: effectProvider, Available: plex, Reason: unless(plex, "Only after a Plex confirmation timed out (attention_code plex_timeout).")},
+		{Action: "reject_published_release", OperationID: "rejectPublishedRelease", Method: http.MethodPost, Path: path("/reject-published-release"), Effect: effectProvider, Available: rejectable, Reason: unless(rejectable, "Only after a Plex confirmation timed out or publication failed (attention_code plex_timeout or publication_failed).")},
 		{Action: "cancel", OperationID: "cancelWorkflow", Method: http.MethodPost, Path: path("/cancel"), Effect: effectWrite, Available: cancellable, Reason: cancelReason},
 	}
 	if item.AccessRejectedCandidateID != nil {
