@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **Media Manager looks tidy in Cosmos.** With the Docker Compose install, Cosmos' ServApps page now shows the Media Manager stack with the web UI as its card and Media Manager's icon (it picked the database and a grey icon before). The icon's white corners are now transparent, so it sits cleanly on Cosmos' dark homepage.
+
 ## [0.1.0-beta.32] - 2026-11-14
 
 ### Changed
