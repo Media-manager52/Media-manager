@@ -4,6 +4,10 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **A green look.** The dark theme now has dark green surfaces with a faint green glow behind the pages, and links, highlights and the selected menu item are green instead of amber (light and dark). Text keeps at least the same contrast; the logo, buttons and status colours are unchanged.
+
 ## [0.1.0-beta.34] - 2026-11-14
 
 ### Added
