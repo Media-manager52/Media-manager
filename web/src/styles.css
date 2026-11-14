@@ -5,7 +5,8 @@
    owner picked a theme (data-theme on <html>).
    Surface, text, status and shadow values are adapted from HolyArrs
    (https://github.com/HolyArrs/HolyArrs, AGPL-3.0-only, see
-   THIRD_PARTY_NOTICES.md); Media Manager keeps its own amber accent. */
+   THIRD_PARTY_NOTICES.md); Media Manager uses its own green accent, and the dark theme
+   has dark green surfaces with a faint green glow. */
 :root {
   --bg: #ffffff;
   --sidebar: #f6f6f7;
@@ -16,9 +17,9 @@
   --text: #1d1d1f;
   --text-2: #515154;
   --text-3: #6e6e73;
-  --accent: #b7791f;
-  --accent-strong: #8a5a10;
-  --accent-soft: #f7ead2;
+  --accent: #1c7349;
+  --accent-strong: #145c3a;
+  --accent-soft: #dcf1e5;
   --good: #1a6e2e;
   --good-soft: #e3f4e7;
   --warn: #8f4000;
@@ -31,22 +32,23 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 12px rgb(0 0 0 / 6%);
   --shadow-lift: 0 2px 4px rgb(0 0 0 / 8%), 0 12px 28px rgb(0 0 0 / 14%);
   --poster-shadow: 0 1px 2px rgb(20 24 40 / 6%), 0 18px 32px -18px rgb(20 24 40 / 38%);
+  --glow: none;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0b0b0c;
-    --sidebar: #161618;
-    --surface: #161618;
-    --surface-2: #1e1e21;
-    --surface-3: #2a2a2e;
-    --line: #2c2c30;
-    --text: #f5f5f7;
-    --text-2: #a1a1a6;
-    --text-3: #8e8e93;
-    --accent: #e5a50a;
-    --accent-strong: #f2c04d;
-    --accent-soft: #3a2e12;
+    --bg: #090e0c;
+    --sidebar: #0f1714;
+    --surface: #111a16;
+    --surface-2: #17231e;
+    --surface-3: #213029;
+    --line: #22332b;
+    --text: #f1f6f3;
+    --text-2: #a3b5ac;
+    --text-3: #8a9d94;
+    --accent: #3fbf7f;
+    --accent-strong: #74dba6;
+    --accent-soft: #12301f;
     --good: #30d158;
     --good-soft: #11301c;
     --warn: #ffb340;
@@ -59,22 +61,23 @@
     --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 12px rgb(0 0 0 / 28%);
     --shadow-lift: 0 2px 4px rgb(0 0 0 / 34%), 0 12px 28px rgb(0 0 0 / 44%);
     --poster-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 18px 32px -18px rgb(0 0 0 / 85%);
+    --glow: radial-gradient(80rem 46rem at 45% -18%, rgb(63 191 127 / 16%), transparent 64%), radial-gradient(60rem 40rem at 104% 108%, rgb(42 157 143 / 10%), transparent 62%);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0b0b0c;
-  --sidebar: #161618;
-  --surface: #161618;
-  --surface-2: #1e1e21;
-  --surface-3: #2a2a2e;
-  --line: #2c2c30;
-  --text: #f5f5f7;
-  --text-2: #a1a1a6;
-  --text-3: #8e8e93;
-  --accent: #e5a50a;
-  --accent-strong: #f2c04d;
-  --accent-soft: #3a2e12;
+  --bg: #090e0c;
+  --sidebar: #0f1714;
+  --surface: #111a16;
+  --surface-2: #17231e;
+  --surface-3: #213029;
+  --line: #22332b;
+  --text: #f1f6f3;
+  --text-2: #a3b5ac;
+  --text-3: #8a9d94;
+  --accent: #3fbf7f;
+  --accent-strong: #74dba6;
+  --accent-soft: #12301f;
   --good: #30d158;
   --good-soft: #11301c;
   --warn: #ffb340;
@@ -87,6 +90,7 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 12px rgb(0 0 0 / 28%);
   --shadow-lift: 0 2px 4px rgb(0 0 0 / 34%), 0 12px 28px rgb(0 0 0 / 44%);
   --poster-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 18px 32px -18px rgb(0 0 0 / 85%);
+  --glow: radial-gradient(80rem 46rem at 45% -18%, rgb(63 191 127 / 16%), transparent 64%), radial-gradient(60rem 40rem at 104% 108%, rgb(42 157 143 / 10%), transparent 62%);
   color-scheme: dark;
 }
 
@@ -119,7 +123,9 @@
 
 html { background: var(--bg); }
 body {
-  background: var(--bg);
+  background: var(--glow), var(--bg);
+  background-attachment: fixed;
+  min-height: 100vh;
   color: var(--text);
   font-family: var(--font-sans);
   font-feature-settings: "cv11", "ss01";
