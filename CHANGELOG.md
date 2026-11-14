@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.33] - 2026-11-14
+
 ### Changed
 
 - **Media Manager looks tidy in Cosmos.** With the Docker Compose install, Cosmos' ServApps page now shows the Media Manager stack with the web UI as its card and Media Manager's icon (it picked the database and a grey icon before). The icon's white corners are now transparent, so it sits cleanly on Cosmos' dark homepage.
@@ -715,6 +717,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.33]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.33
 [0.1.0-beta.32]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.32
 [0.1.0-beta.31]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.31
 [0.1.0-beta.30]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.30
