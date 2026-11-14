@@ -9929,6 +9929,50 @@
         "x-mm-effect": "write"
       }
     },
+    "/api/v1/workflows/{id}/reject-published-release": {
+      "post": {
+        "description": "Only after a Plex confirmation timed out or publication failed. The unconfirmed links are removed, the exact release and package are excluded, and the round tries the next release; confirmed files are not touched.\n\nSends or queues requests to indexers, Seerr, Plex or metadata services; can spend provider budget.",
+        "operationId": "rejectPublishedRelease",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Success. 202 means the work was queued; 204 means an idempotent no-op."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error with a stable code."
+          }
+        },
+        "summary": "Reject a published release Plex never confirmed and try another",
+        "tags": [
+          "workflows"
+        ],
+        "x-mm-auth": "owner",
+        "x-mm-effect": "provider"
+      }
+    },
     "/api/v1/workflows/{id}/relocate-links": {
       "post": {
         "description": "Link targets and AltMount content are never touched. Plex is not refreshed by this call.\n\nChanges Media Manager state or queues local work. Audited.",

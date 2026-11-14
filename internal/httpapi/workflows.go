@@ -312,6 +312,29 @@ func (server *Server) reconfirmPlex(writer http.ResponseWriter, request *http.Re
 	}
 }
 
+// rejectPublishedRelease is the owner's "reject this release and search
+// again" for a release whose Plex confirmation timed out or whose publication
+// failed: for example a broken or wrong release that Plex will never confirm.
+func (server *Server) rejectPublishedRelease(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("id"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_id", "workflow ID is invalid")
+		return
+	}
+	result, err := server.store.RejectPublishedRelease(request.Context(), id, "owner", "output_verification", postgres.OwnerRejectedPublicationCode,
+		"the owner rejected the published release before Plex confirmed it; it is excluded and another release is tried", time.Now().UTC())
+	switch {
+	case errors.Is(err, postgres.ErrNotFound):
+		writeError(writer, http.StatusNotFound, "not_found", "workflow was not found")
+	case errors.Is(err, postgres.ErrPublicationNotRejectable), errors.Is(err, postgres.ErrConcurrentModification):
+		writeConflict(writer, err, "release_rejection_refused", err.Error())
+	case err != nil:
+		writeError(writer, http.StatusConflict, "release_rejection_failed", "the release cannot be rejected safely")
+	default:
+		writeJSON(writer, http.StatusAccepted, dataEnvelope{Data: map[string]any{"status": "release_rejected", "id": id.String(), "links_removed": result.LinksRemoved, "retry_queued": result.RetryQueued, "round_exhausted": result.RoundExhausted}})
+	}
+}
+
 func (server *Server) reverifyRetainedOutput(writer http.ResponseWriter, request *http.Request) {
 	workflowID, err := uuid.Parse(request.PathValue("id"))
 	if err != nil {

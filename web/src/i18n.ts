@@ -113,6 +113,7 @@ const actionLabels: Record<string, { label: string; help: string }> = {
   open_round_from_known: { label: "Prøv kendte udgivelser", help: "Starter en runde med den bedste udgivelse, der endnu ikke er prøvet." },
   reconcile_altmount: { label: "Tjek AltMount igen", help: "Læser AltMount-jobbet igen og fortsætter. Henter ikke en ny NZB." },
   reconfirm_plex: { label: "Bekræft i Plex igen", help: "Beder Plex om at finde den præcise fil igen." },
+  reject_published_release: { label: "Kassér udgivelsen og søg igen", help: "Fjerner filen fra biblioteket, kasserer udgivelsen og prøver en anden. Brug den, når udgivelsen er ødelagt eller forkert." },
   cancel: { label: "Annullér", help: "Stopper arbejdet. Filer, der allerede ligger i biblioteket, bliver liggende." },
   retry_access_rejected_release: { label: "Prøv afvist udgivelse igen", help: "Prøver den udgivelse, som indexeren afviste med 401/403." },
   recover_altmount_submission: { label: "Afklar afsendelse", help: "Afklarer en afsendelse til AltMount med ukendt udfald." },
