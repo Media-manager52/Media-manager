@@ -41,6 +41,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.34.md](releases/v0.1.0-beta.34.md) | Thirty-fourth public beta (2026-11-14): A release that breaks before Plex confirms it is rejected and another is tried; new owner action to reject a published release. |
 | [releases/v0.1.0-beta.33.md](releases/v0.1.0-beta.33.md) | Thirty-third public beta (2026-11-14): Media Manager shows tidily on Cosmos' ServApps page and homepage. |
 | [releases/v0.1.0-beta.32.md](releases/v0.1.0-beta.32.md) | Thirty-second public beta (2026-11-14): A shorter, plainer Cosmos install form and market listing. |
 | [releases/v0.1.0-beta.31.md](releases/v0.1.0-beta.31.md) | Thirty-first public beta (2026-11-13): Skift til Media Managers AltMount: a normal AltMount moves to Media Manager's build through Cosmos and keeps everything. |
