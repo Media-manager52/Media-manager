@@ -6,9 +6,9 @@ library paths. Security reports are taken seriously.
 
 ## Reporting a vulnerability
 
-- Use **GitHub private vulnerability reporting** on this repository
-  (Security → Report a vulnerability), or contact the repository owner
-  directly. Do not open a public issue for a suspected vulnerability.
+- [Report a vulnerability privately](https://github.com/Media-manager52/Media-manager/security/advisories/new)
+  through GitHub, or contact the repository owner directly. Do not open a public
+  issue for a suspected vulnerability.
 - Include: affected commit/version, the deployment shape (Docker Compose or
   otherwise), reproduction steps, impact, and whether any secret or media path
   could be exposed.

@@ -40,7 +40,19 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/oldboys.md](operations/oldboys.md) | Owner credential setup, encryption key backup/recovery, and pending native provider validation |
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
-| [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+
+## Releases
+
+Find the newest beta and upgrade instructions on the
+[GitHub releases page](https://github.com/Media-manager52/Media-manager/releases).
+The [changelog](../CHANGELOG.md) summarizes changes; the
+[versioning guide](releases/versioning.md) explains tags, image identities and rollback.
+
+<details>
+<summary>Browse release records and verified image digests</summary>
+
+| Release record | Changes |
+| --- | --- |
 | [releases/v0.1.0-beta.37.md](releases/v0.1.0-beta.37.md) | Thirty-seventh public beta (2026-11-16): Eight fixes for quota recovery, missing imports, concurrent Usenet changes, backups and owner status (schema 72). |
 | [releases/v0.1.0-beta.36.md](releases/v0.1.0-beta.36.md) | Thirty-sixth public beta (2026-11-16): abNZB's newest uploads are read as a movie and a series request, indexers' own stated usage counters make Media Manager more careful, and the queue reports where the time goes (schema 71). |
 | [releases/v0.1.0-beta.35.md](releases/v0.1.0-beta.35.md) | Thirty-fifth public beta (2026-11-14): The web UI has a dark green look with a faint green glow. |
@@ -78,6 +90,8 @@ behavioral truth is always the code and the SQL migrations.
 | [releases/v0.1.0-beta.3.md](releases/v0.1.0-beta.3.md) | Third public beta (2026-11-09): Plex login, recommended setup, title actions, plain-language status; images and verification |
 | [releases/v0.1.0-beta.2.md](releases/v0.1.0-beta.2.md) | Second public beta (2026-11-04): website setup, encrypted keys, Seerr without `.env`, 4K editions; images and verification |
 | [releases/v0.1.0-beta.1.md](releases/v0.1.0-beta.1.md) | First public beta (2026-11-04): images, verification, limitations and how each publication gate was closed |
+
+</details>
 
 ## Status, audits, and evidence
 

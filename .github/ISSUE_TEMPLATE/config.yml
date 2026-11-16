@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/Media-manager52/Media-manager/blob/main/docs/README.md
+    about: Installation, configuration, backups and API documentation.
+  - name: Report a security vulnerability
+    url: https://github.com/Media-manager52/Media-manager/security/advisories/new
+    about: Share security reports privately with the maintainer.

@@ -1,0 +1,23 @@
+name: Setup question
+description: Ask for help with installation or configuration.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the [installation guide](https://github.com/Media-manager52/Media-manager/blob/main/docs/getting-started.md) or [Danish guide](https://github.com/Media-manager52/Media-manager/blob/main/docs/onboarding/kom-i-gang.da.md).
+        English and Danish are welcome. Never paste credentials or complete environment files.
+  - type: input
+    id: version
+    attributes:
+      label: Version and installation method
+      placeholder: Release or commit; Cosmos market, published images or source build
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with?
+      description: Include what you have tried and any redacted error message.
+    validations:
+      required: true

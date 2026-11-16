@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest an improvement to Media Manager.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to improve?
+      description: Explain the task or problem you are trying to solve. English and Danish are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe how the improvement would work for the owner.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Optional examples, alternatives or sketches. Use invented data and remove private details.

@@ -73,17 +73,8 @@ A small server is enough for the application containers (roughly 2 CPUs and
 
 ## 1. Get the source
 
-From a shared bundle:
-
 ```sh
-tar xzf media-manager-share-YYYYMMDD.tar.gz
-cd media-manager
-```
-
-Or from the repository:
-
-```sh
-git clone <repository-url> media-manager
+git clone https://github.com/Media-manager52/Media-manager.git media-manager
 cd media-manager
 ```
 
