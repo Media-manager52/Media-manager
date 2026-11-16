@@ -1943,6 +1943,53 @@
         },
         "type": "object"
       },
+      "Postgres_OutboxTiming": {
+        "properties": {
+          "active_p50_ms": {
+            "type": "integer"
+          },
+          "active_p90_ms": {
+            "type": "integer"
+          },
+          "active_total_ms": {
+            "type": "integer"
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "events": {
+            "type": "integer"
+          },
+          "planned_p50_ms": {
+            "type": "integer"
+          },
+          "planned_p90_ms": {
+            "type": "integer"
+          },
+          "ready_wait_p50_ms": {
+            "type": "integer"
+          },
+          "ready_wait_p90_ms": {
+            "type": "integer"
+          },
+          "ready_wait_total_ms": {
+            "type": "integer"
+          },
+          "retried": {
+            "type": "integer"
+          },
+          "retry_p50_ms": {
+            "type": "integer"
+          },
+          "retry_p90_ms": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_Problem": {
         "properties": {
           "area": {
@@ -2079,6 +2126,12 @@
           },
           "scheduled": {
             "type": "integer"
+          },
+          "timings_last_24h": {
+            "items": {
+              "$ref": "#/components/schemas/Postgres_OutboxTiming"
+            },
+            "type": "array"
           }
         },
         "type": "object"

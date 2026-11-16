@@ -4,6 +4,15 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Changed
+
+- **abNZB's newest uploads are read as a movie and a series request.** abNZB leaves the subtitle list and the NFO flag out of its general search answer and includes them in its movie and series answers (measured on the same uploads). Its newest uploads are therefore read with `t=movie` and `t=tvsearch` instead of one `t=search`. Each request keeps its own progress, remembered uploads and gap count (new table `indexer_feed_stream_state`); both use the indexer's one pacing lane and the same tenth of its query allowance, so each is read at most half as often as the one request was where the allowance sets the pace. On the first read each request goes on from the uploads the single request saw last. Every other indexer is read as before. Nothing is selected from the list, as before: a match still only brings the title's own search forward.
+- **The usage counters an indexer states are used to be more careful, never less.** Some indexers state in every answer how many queries and downloads they have counted and what their maximum is (`newznab:apilimits`). Media Manager now keeps the newest such reading per indexer (new table `indexer_provider_limits`) and applies it when it reserves a request: the indexer's maximum replaces the configured limit only when lower, its count replaces Media Manager's own only when higher, and requests reserved after the reading are added to it. A reading that shows the allowance used up blocks requests until a newer reading shows room; when none can arrive, one request an hour is let through as a probe, no earlier than an hour after the reading. A reading is dropped only when a whole limit window old. Own reservations, pacing and cooldowns apply unchanged.
+
+### Added
+
+- **The queue says where the time goes.** Every background event now records when it first became due, how long it then waited for a worker, how long workers held it and how many attempts it took (schema 71, new columns on `outbox_events`). `GET /api/v1/system/queue` gains `timings_last_24h`: per event type the median and 90th percentile of the scheduled wait, the wait in the queue, the work and the delay before retries. An attempt whose worker never reported back counts as waiting, not as work. Only events created after the upgrade are measured.
+
 ## [0.1.0-beta.35] - 2026-11-14
 
 ### Changed

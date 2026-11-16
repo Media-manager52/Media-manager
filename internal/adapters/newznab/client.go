@@ -514,6 +514,13 @@ func (client *Client) requestTargetGuarded(ctx context.Context, workload indexer
 	var validationErr error
 	if readErr == nil && response.StatusCode >= 200 && response.StatusCode < 300 {
 		outcome, validationErr = validate(body)
+		// The indexer's own usage counters, when its answer states them. An
+		// NZB is not an API answer and carries none.
+		if workload != indexers.WorkloadRetrieval {
+			if stated, ok := ParseProviderLimits(body, time.Now()); ok {
+				client.scheduler.ObserveProviderLimits(context.Background(), client.config.IndexerID, stated)
+			}
+		}
 	}
 	recorded = true
 	if recordErr := permit.Record(context.Background(), outcome, response.Header); recordErr != nil {

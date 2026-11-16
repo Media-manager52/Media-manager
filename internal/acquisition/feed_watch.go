@@ -86,8 +86,12 @@ type FeedWatcher struct {
 	// be accepted and at most once a day per title. Without it a new round
 	// stays the owner's action.
 	OpenRounds bool
+	// Streams decides which indexers are read as separate movie and series
+	// requests; nil means newznab.FeedStreams. Tests set it.
+	Streams FeedStreamDecision
 
-	seen     map[uuid.UUID]*feedSeen
+	// seen is kept per indexer and stream (feedSeenKey).
+	seen     map[string]*feedSeen
 	titles   *feedTitles
 	titlesAt time.Time
 }
@@ -128,34 +132,52 @@ func (watcher *FeedWatcher) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	streamStates, err := store.IndexerFeedStreamStates(ctx)
+	if err != nil {
+		return err
+	}
 	for _, integration := range integrations {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 		var config indexerConfig
 		if integration.Kind != "newznab" || !integration.Enabled || json.Unmarshal(integration.Config, &config) != nil || !config.ModeVerified {
 			continue
 		}
-		state := states[integration.ID]
-		state.IndexerInstanceID = integration.ID
-		now := watcher.now()
-		if state.NextReadAt != nil && state.NextReadAt.After(now) {
-			continue
-		}
-		titles, err := watcher.waitingTitles(ctx, now)
-		if err != nil {
-			return err
-		}
-		next, matches := watcher.read(ctx, integration, config, state, titles)
-		inserted, err := store.RecordIndexerFeedRead(ctx, next, matches, watcher.now())
-		if err != nil {
-			// The matches were not saved: forget what this read saw, so the
-			// next read compares the same uploads again.
-			delete(watcher.seen, integration.ID)
-			return err
-		}
-		if inserted > 0 {
-			slog.Info("Newest-uploads watching: new uploads match waiting titles", "indexer", integration.Name, "matches", inserted)
+		// Each stream has its own progress and is due on its own; all of them
+		// share the indexer's pacing and query allowance.
+		streams := feedStreamsFor(config, watcher.Streams)
+		for _, stream := range streams {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			state, known := states[integration.ID], true
+			if stream.Name != "" {
+				state, known = streamStates[postgres.FeedStreamKey{IndexerInstanceID: integration.ID, Stream: stream.Name}]
+			}
+			state.IndexerInstanceID, state.Stream = integration.ID, stream.Name
+			now := watcher.now()
+			if state.NextReadAt != nil && state.NextReadAt.After(now) {
+				continue
+			}
+			if !known && watcher.seenFor(integration.ID, stream.Name).empty() {
+				// A stream that was never read goes on from the uploads the
+				// indexer's single request saw last, so the change of request
+				// does not make a page of known uploads look new.
+				state.RecentGUIDs = states[integration.ID].RecentGUIDs
+			}
+			titles, err := watcher.waitingTitles(ctx, now)
+			if err != nil {
+				return err
+			}
+			next, matches := watcher.read(ctx, integration, config, stream, len(streams), state, titles)
+			inserted, err := store.RecordIndexerFeedRead(ctx, next, matches, watcher.now())
+			if err != nil {
+				// The matches were not saved: forget what this read saw, so the
+				// next read compares the same uploads again.
+				delete(watcher.seen, feedSeenKey(integration.ID, stream.Name))
+				return err
+			}
+			if inserted > 0 {
+				slog.Info("Newest-uploads watching: new uploads match waiting titles", "indexer", integration.Name, "stream", stream.Name, "matches", inserted)
+			}
 		}
 	}
 	result, err := store.AdvanceFeedMatches(ctx, watcher.now(), feedQuiet, feedAdvanceLimit, watcher.OpenRounds)
@@ -195,10 +217,10 @@ func (watcher *FeedWatcher) waitingTitles(ctx context.Context, now time.Time) (*
 
 // read asks one indexer for its newest uploads and returns the reader state
 // to save together with the uploads that match a waiting title.
-func (watcher *FeedWatcher) read(ctx context.Context, integration postgres.Integration, config indexerConfig, state postgres.IndexerFeedState, titles *feedTitles) (postgres.IndexerFeedState, []postgres.FeedMatch) {
+func (watcher *FeedWatcher) read(ctx context.Context, integration postgres.Integration, config indexerConfig, stream feedStream, streams int, state postgres.IndexerFeedState, titles *feedTitles) (postgres.IndexerFeedState, []postgres.FeedMatch) {
 	service := watcher.Search
 	budget := indexers.NewznabBudget(config.MinimumIntervalMS, config.QueryLimit, config.GrabLimit, config.BudgetWindow)
-	interval := feedInterval(time.Duration(state.IntervalSeconds)*time.Second, budget)
+	interval := feedStreamInterval(time.Duration(state.IntervalSeconds)*time.Second, budget, streams)
 	failed := func(outcome string) (postgres.IndexerFeedState, []postgres.FeedMatch) {
 		now := watcher.now()
 		state.ConsecutiveFailures++
@@ -217,8 +239,8 @@ func (watcher *FeedWatcher) read(ctx context.Context, integration postgres.Integ
 	if err != nil {
 		return failed("indexer_client_invalid")
 	}
-	request := newznab.SearchRequest{Mode: "search", Categories: feedRequestCategories(config), Limit: searchPageLimit(config), Extended: true}
-	seen := watcher.seenFor(integration.ID)
+	request := newznab.SearchRequest{Mode: stream.Mode, Categories: stream.Categories, Limit: searchPageLimit(config), Extended: true}
+	seen := watcher.seenFor(integration.ID, stream.Name)
 	if seen.empty() {
 		// After a restart: go on from the uploads the last read saw.
 		for _, id := range state.RecentGUIDs {
@@ -245,11 +267,11 @@ func (watcher *FeedWatcher) read(ctx context.Context, integration postgres.Integ
 		return failed(safeIndexerOutcomeCode(err))
 	}
 	now := watcher.now()
-	interval = nextFeedInterval(interval, pages.firstPageFresh, pages.firstPageSize, firstRead, budget)
+	interval = nextFeedStreamInterval(interval, pages.firstPageFresh, pages.firstPageSize, firstRead, budget, streams)
 	if pages.gap {
 		// Uploads may have been missed: read again as soon as allowed.
-		interval = feedInterval(feedMinInterval, budget)
-		slog.Warn("Newest-uploads watching: a read did not reach the uploads seen before; some may have been missed", "indexer", integration.Name, "uploads", pages.items)
+		interval = feedStreamInterval(feedMinInterval, budget, streams)
+		slog.Warn("Newest-uploads watching: a read did not reach the uploads seen before; some may have been missed", "indexer", integration.Name, "stream", stream.Name, "uploads", pages.items)
 	}
 	next := now.Add(interval)
 	state.LastReadAt, state.NextReadAt, state.LastOutcome, state.ConsecutiveFailures = &now, &next, "ok", 0
@@ -344,20 +366,92 @@ func feedRequestCategories(config indexerConfig) []int {
 	return feedCategories
 }
 
-func (watcher *FeedWatcher) seenFor(indexerID uuid.UUID) *feedSeen {
+// FeedStreamDecision says, by an indexer's API address, which requests its
+// newest uploads are read with; nil means the one ordinary request.
+type FeedStreamDecision func(baseURL string) []newznab.FeedStream
+
+// SingleFeedRequest reads every indexer with the one ordinary request.
+func SingleFeedRequest(string) []newznab.FeedStream { return nil }
+
+// feedStream is one request an indexer's newest uploads are read with. The
+// ordinary single request has no name.
+type feedStream struct {
+	Name       string
+	Mode       string
+	Categories []int
+}
+
+// feedStreamsFor returns the requests one indexer's newest uploads are read
+// with: the ordinary single search request, or one movie and one series
+// request where the indexer's answers to those carry more (see
+// newznab.FeedStreams).
+func feedStreamsFor(config indexerConfig, decide FeedStreamDecision) []feedStream {
+	if decide == nil {
+		decide = newznab.FeedStreams
+	}
+	split := decide(config.BaseURL)
+	if len(split) == 0 {
+		return []feedStream{{Mode: "search", Categories: feedRequestCategories(config)}}
+	}
+	streams := make([]feedStream, 0, len(split))
+	for _, stream := range split {
+		streams = append(streams, feedStream{Name: stream.Name, Mode: stream.Mode, Categories: feedStreamCategories(config, stream)})
+	}
+	return streams
+}
+
+// feedStreamCategories are the categories of one movie or series request: the
+// indexer's own search categories under the stream's root, else the
+// categories the owner selected for that kind, else the root itself.
+func feedStreamCategories(config indexerConfig, stream newznab.FeedStream) []int {
+	var own []int
+	for _, category := range config.Categories {
+		if category >= stream.RootCategory && category < stream.RootCategory+1000 {
+			own = append(own, category)
+		}
+	}
+	if len(own) > 0 {
+		return own
+	}
+	selected := config.SeriesCategoryIDs
+	if stream.Name == newznab.FeedStreamMovie {
+		selected = config.MovieCategoryIDs
+	}
+	if len(config.MovieCategoryIDs) > 0 && len(config.SeriesCategoryIDs) > 0 && !config.CategorySelectionReviewRequired && len(selected) <= maxFeedCategoryIDs {
+		return append([]int{}, selected...)
+	}
+	return []int{stream.RootCategory}
+}
+
+func feedSeenKey(indexerID uuid.UUID, stream string) string {
+	return indexerID.String() + "/" + stream
+}
+
+func (watcher *FeedWatcher) seenFor(indexerID uuid.UUID, stream string) *feedSeen {
+	key := feedSeenKey(indexerID, stream)
 	if watcher.seen == nil {
-		watcher.seen = map[uuid.UUID]*feedSeen{}
+		watcher.seen = map[string]*feedSeen{}
 	}
-	if watcher.seen[indexerID] == nil {
-		watcher.seen[indexerID] = &feedSeen{known: map[string]bool{}}
+	if watcher.seen[key] == nil {
+		watcher.seen[key] = &feedSeen{known: map[string]bool{}}
 	}
-	return watcher.seen[indexerID]
+	return watcher.seen[key]
 }
 
 // feedInterval is the saved read interval within its bounds. The lower bound
 // also keeps the reads, with every page they may take, inside their share of
 // the indexer's query allowance.
 func feedInterval(saved time.Duration, budget indexers.Budget) time.Duration {
+	return feedStreamInterval(saved, budget, 1)
+}
+
+// feedStreamInterval is feedInterval for an indexer read with several
+// requests: together they stay inside the same share of the allowance, so
+// each one's floor is that many times longer.
+func feedStreamInterval(saved time.Duration, budget indexers.Budget, streams int) time.Duration {
+	if streams < 1 {
+		streams = 1
+	}
 	interval := saved
 	if interval <= 0 {
 		interval = feedStartInterval
@@ -366,7 +460,7 @@ func feedInterval(saved time.Duration, budget indexers.Budget) time.Duration {
 	if budget.QueryLimit > 0 && budget.LimitWindow > 0 {
 		// A read may take feedMaxPages requests, so every read is counted as
 		// that many against the share.
-		byBudget := budget.LimitWindow * feedBudgetPages * feedBudgetShare / time.Duration(budget.QueryLimit)
+		byBudget := budget.LimitWindow * feedBudgetPages * feedBudgetShare * time.Duration(streams) / time.Duration(budget.QueryLimit)
 		if byBudget > floor {
 			floor = byBudget
 		}
@@ -383,6 +477,10 @@ func feedInterval(saved time.Duration, budget indexers.Budget) time.Duration {
 // nextFeedInterval follows the indexer's upload rate: read sooner when most
 // of the first page is new, later when little of it is.
 func nextFeedInterval(current time.Duration, fresh, pageSize int, firstRead bool, budget indexers.Budget) time.Duration {
+	return nextFeedStreamInterval(current, fresh, pageSize, firstRead, budget, 1)
+}
+
+func nextFeedStreamInterval(current time.Duration, fresh, pageSize int, firstRead bool, budget indexers.Budget, streams int) time.Duration {
 	next := current
 	switch {
 	case firstRead || pageSize == 0:
@@ -391,7 +489,7 @@ func nextFeedInterval(current time.Duration, fresh, pageSize int, firstRead bool
 	case fresh*10 < pageSize*2:
 		next = current * 3 / 2
 	}
-	return feedInterval(next, budget)
+	return feedStreamInterval(next, budget, streams)
 }
 
 func feedFailureDelay(consecutive int) time.Duration {

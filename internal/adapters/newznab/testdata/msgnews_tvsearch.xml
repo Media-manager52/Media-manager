@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
+<channel>
+<title>Example</title>
+<newznab:apilimits apicurrent="120" apimax="1000"  grabcurrent="29" grabmax="30" apioldesttime="Sat, 14 Nov 2026 13:25:06 +0000" graboldesttime="Sat, 14 Nov 2026 13:52:33 +0000"/>
+<newznab:response offset="0" total="1000"/>
+<item>
+<title>Example.Show.S01E11.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://msgnews.example/details/0000000000000000000000000000000b</guid>
+<link>https://msgnews.example/getnzb/0000000000000000000000000000000b.nzb</link>
+<pubDate>Sun, 15 Nov 2026 11:32:33 +0000</pubDate>
+<newznab:attr name="category" value="5000"/>
+<newznab:attr name="category" value="5020"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="0000000000000000000000000000000b"/>
+<newznab:attr name="sha1" value="e36ccdb0b0ccb606f57ca9534edfd5f3c8ed6fa0"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="season" value="S22"/>
+<newznab:attr name="episode" value="E18"/>
+<newznab:attr name="tvtitle" value="Example Show"/>
+<newznab:attr name="tvairdate" value="Sat, 14 Nov 2026 00:00:00 +0000"/>
+<newznab:attr name="imdb" value="0000011"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="0"/>
+<newznab:attr name="nfo" value="1"/>
+<newznab:attr name="info" value="https://msgnews.example/api?t=getnfo&amp;id=0000000000000000000000000000000b&amp;raw=1"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 10:32:32 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+<newznab:attr name="video" value="AVC"/>
+<newznab:attr name="resolution" value="1280x720"/>
+<newznab:attr name="framerate" value="50"/>
+<newznab:attr name="audio" value="AAC 2"/>
+<newznab:attr name="language" value="Swedish"/>
+</item>
+</channel>
+</rss>

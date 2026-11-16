@@ -118,6 +118,34 @@ not an integration name, release-supplied hostname, subdomain or future API path
 Local transport and acquisition regressions cover the change. No new live
 provider requests or production rollout are claimed by this source note.
 
+## Request shape of the newest-uploads read, and stated usage counters (2026-11-15)
+
+Measured with a bounded number of owner-approved, read-only requests (no NZB
+was retrieved); raw answers are owner-private. The anonymised fixtures in
+`internal/adapters/newznab/testdata/` are cut from them.
+
+- **abNZB answers differ by function.** The same 100 newest uploads were
+  returned by `t=search` (`cat=2000,5000`) and by `t=tvsearch` (`cat=5000`)
+  plus `t=movie` (`cat=2000`), all without `q`. The `subs` attribute (29 of
+  the 100) and the `nfo` flag (all 100) appeared only in the series and movie
+  answers; `attrs=subs` on `t=search` changed nothing, and the documented
+  `sort=posted_asc` was ignored by both functions. Title, size and identity
+  were identical. abNZB's newest uploads are therefore read as one movie and
+  one series request (`newznab.FeedStreams`), each with its own reader state,
+  inside the indexer's one pacing lane and query allowance.
+- **msgnews states everything in `t=search`.** Subtitles, audio language,
+  audio and video format, resolution and the NFO flag were identical for the
+  same upload IDs across `t=search`, `t=tvsearch` and `t=movie`; it keeps the
+  single request.
+- **Stated usage counters.** Both state `newznab:apilimits` in every API
+  answer (not in an NFO or NZB): a query count and maximum, a download
+  maximum, and msgnews also a download count, with the time of the oldest
+  counted request. The counter was seen to skip a request, and the stated
+  times did not agree with UTC on one of them. They are therefore used only
+  to tighten Media Manager's own reservations (`indexers.ProviderLimitDecision`),
+  never to loosen them, and the stated release time is not believed earlier
+  than an hour after a used-up reading.
+
 ## Newest uploads, stated totals and page sizes (2026-11-10)
 
 A bounded study asked seven configured providers (abNZB, DrunkenSlug, msgnews,
