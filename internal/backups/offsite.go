@@ -144,8 +144,13 @@ func OffsiteKey(prefix, filename string) (string, error) {
 }
 
 func offsiteHTTPClient(client *http.Client, timeout time.Duration) *http.Client {
+	copy := http.Client{Timeout: timeout}
 	if client != nil {
-		return client
+		copy = *client
 	}
-	return &http.Client{Timeout: timeout}
+	// An upload redirected to a login page can turn into GET and return 200
+	// without storing anything. Keep credentials and encrypted data at the
+	// reviewed destination, and let callers report the original HTTP status.
+	copy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &copy
 }

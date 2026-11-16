@@ -90,7 +90,7 @@ func (store *Commissioning) ReserveIndexerRequest(ctx context.Context, indexerID
 	}
 	if found {
 		var reservedSince int64
-		if err := transaction.QueryRow(ctx, `SELECT count(*) FROM indexer_request_reservations WHERE indexer_instance_id=$1 AND request_family=$2 AND reserved_at > $3`, indexerID, family, indexers.ProviderReservationsSince(stated)).Scan(&reservedSince); err != nil {
+		if err := transaction.QueryRow(ctx, `SELECT count(*) FROM indexer_request_reservations WHERE indexer_instance_id=$1 AND request_family=$2 AND reserved_at > $3`, indexerID, family, indexers.ProviderReservationsSince(stated, family)).Scan(&reservedSince); err != nil {
 			return time.Time{}, err
 		}
 		tightLimit, tightUsed, statedRetry := indexers.ProviderLimitDecision(stated, family, limit, int(used), int(reservedSince), window, now)
@@ -115,6 +115,15 @@ func (store *Commissioning) ReserveIndexerRequest(ctx context.Context, indexerID
 	if _, err := transaction.Exec(ctx, `INSERT INTO indexer_request_reservations(id,indexer_instance_id,request_family,reserved_at) VALUES($1,$2,$3,$4)`, uuid.NewV7().String(), indexerID, family, now.UTC()); err != nil {
 		return time.Time{}, err
 	}
+	if found && stated.Exhausted(family, window, now) {
+		column := "query_last_probe_at"
+		if family == "grab" {
+			column = "grab_last_probe_at"
+		}
+		if _, err := transaction.Exec(ctx, `UPDATE indexer_provider_limits SET `+column+`=$2 WHERE indexer_instance_id=$1`, indexerID, now.UTC()); err != nil {
+			return time.Time{}, err
+		}
+	}
 	return time.Time{}, transaction.Commit(ctx)
 }
 
@@ -129,10 +138,10 @@ type querier interface {
 
 func loadProviderLimits(ctx context.Context, db querier, indexerID string) (indexers.ProviderLimits, bool, error) {
 	limits := indexers.ProviderLimits{QueryUsed: -1, QueryMax: -1, GrabUsed: -1, GrabMax: -1}
-	var queryUsed, queryMax, grabUsed, grabMax *int
-	var queryOldest, grabOldest *time.Time
-	err := db.QueryRow(ctx, `SELECT observed_at,query_used,query_max,query_oldest_at,grab_used,grab_max,grab_oldest_at FROM indexer_provider_limits WHERE indexer_instance_id=$1`, indexerID).
-		Scan(&limits.ObservedAt, &queryUsed, &queryMax, &queryOldest, &grabUsed, &grabMax, &grabOldest)
+	var queryUsed, queryMax, grabUsed, grabMax, queryCounterMax, grabCounterMax *int
+	var queryOldest, grabOldest, queryAt, grabAt, queryLimitAt, grabLimitAt, queryProbe, grabProbe *time.Time
+	err := db.QueryRow(ctx, `SELECT observed_at,query_used,query_max,query_oldest_at,grab_used,grab_max,grab_oldest_at,query_observed_at,grab_observed_at,query_limit_observed_at,grab_limit_observed_at,query_last_probe_at,grab_last_probe_at,query_counter_max,grab_counter_max FROM indexer_provider_limits WHERE indexer_instance_id=$1`, indexerID).
+		Scan(&limits.ObservedAt, &queryUsed, &queryMax, &queryOldest, &grabUsed, &grabMax, &grabOldest, &queryAt, &grabAt, &queryLimitAt, &grabLimitAt, &queryProbe, &grabProbe, &queryCounterMax, &grabCounterMax)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return indexers.ProviderLimits{}, false, nil
 	}
@@ -147,11 +156,29 @@ func loadProviderLimits(ctx context.Context, db querier, indexerID string) (inde
 			*field.to = *field.from
 		}
 	}
+	if queryCounterMax != nil {
+		limits.QueryCounterMax = *queryCounterMax
+	}
+	if grabCounterMax != nil {
+		limits.GrabCounterMax = *grabCounterMax
+	}
 	if queryOldest != nil {
 		limits.QueryOldest = *queryOldest
 	}
 	if grabOldest != nil {
 		limits.GrabOldest = *grabOldest
+	}
+	for _, field := range []struct {
+		from *time.Time
+		to   *time.Time
+	}{
+		{queryAt, &limits.QueryObservedAt}, {grabAt, &limits.GrabObservedAt},
+		{queryLimitAt, &limits.QueryLimitObservedAt}, {grabLimitAt, &limits.GrabLimitObservedAt},
+		{queryProbe, &limits.QueryLastProbeAt}, {grabProbe, &limits.GrabLastProbeAt},
+	} {
+		if field.from != nil {
+			*field.to = *field.from
+		}
 	}
 	return limits, true, nil
 }
@@ -168,27 +195,81 @@ func (store *Commissioning) SaveProviderLimits(ctx context.Context, indexerID st
 	if !limits.Valid() || IgnoreProviderLimits.Load() {
 		return nil
 	}
+	tx, err := store.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, ReservationLockKey(indexerID)); err != nil {
+		return err
+	}
+	saved, found, err := loadProviderLimits(ctx, tx, indexerID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		saved = indexers.ProviderLimits{QueryUsed: -1, QueryMax: -1, GrabUsed: -1, GrabMax: -1}
+	}
+	mergeProviderLimits(&saved, limits)
+	if saved.QueryCounterMax == 0 {
+		saved.QueryCounterMax = -1
+	}
+	if saved.GrabCounterMax == 0 {
+		saved.GrabCounterMax = -1
+	}
 	number := func(value int) any {
 		if value < 0 {
 			return nil
 		}
 		return value
 	}
-	queryUsed, queryMax, queryOK := limits.QueryUsed, limits.QueryMax, limits.QueryMax > 0
-	grabUsed, grabMax, grabOK := limits.GrabUsed, limits.GrabMax, limits.GrabMax > 0
-	if !queryOK {
-		queryUsed, queryMax = -1, -1
+	_, err = tx.Exec(ctx, `INSERT INTO indexer_provider_limits(indexer_instance_id,observed_at,query_used,query_max,query_oldest_at,grab_used,grab_max,grab_oldest_at,
+        query_observed_at,grab_observed_at,query_limit_observed_at,grab_limit_observed_at,query_counter_max,grab_counter_max)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        ON CONFLICT(indexer_instance_id) DO UPDATE SET observed_at=EXCLUDED.observed_at,query_used=EXCLUDED.query_used,query_max=EXCLUDED.query_max,query_oldest_at=EXCLUDED.query_oldest_at,
+            grab_used=EXCLUDED.grab_used,grab_max=EXCLUDED.grab_max,grab_oldest_at=EXCLUDED.grab_oldest_at,
+            query_observed_at=EXCLUDED.query_observed_at,grab_observed_at=EXCLUDED.grab_observed_at,
+            query_limit_observed_at=EXCLUDED.query_limit_observed_at,grab_limit_observed_at=EXCLUDED.grab_limit_observed_at,query_counter_max=EXCLUDED.query_counter_max,grab_counter_max=EXCLUDED.grab_counter_max`,
+		indexerID, saved.ObservedAt.UTC(), number(saved.QueryUsed), number(saved.QueryMax), dbcore.NullableTime(saved.QueryOldest), number(saved.GrabUsed), number(saved.GrabMax), dbcore.NullableTime(saved.GrabOldest),
+		dbcore.NullableTime(saved.QueryObservedAt), dbcore.NullableTime(saved.GrabObservedAt), dbcore.NullableTime(saved.QueryLimitObservedAt), dbcore.NullableTime(saved.GrabLimitObservedAt), number(saved.QueryCounterMax), number(saved.GrabCounterMax))
+	if err != nil {
+		return err
 	}
-	if !grabOK {
-		grabUsed, grabMax = -1, -1
+	return tx.Commit(ctx)
+}
+
+// A missing family or count is not a newer observation of that value. A
+// maximum-only answer updates its own ceiling, but the paired maximum
+// preserves whether the earlier counter was exhausted. Each family's clock is independent.
+func mergeProviderLimits(saved *indexers.ProviderLimits, next indexers.ProviderLimits) {
+	for _, fields := range []struct {
+		family                          string
+		used, maximum, paired           *int
+		observed, limitObserved, oldest *time.Time
+	}{
+		{"query", &saved.QueryUsed, &saved.QueryMax, &saved.QueryCounterMax, &saved.QueryObservedAt, &saved.QueryLimitObservedAt, &saved.QueryOldest},
+		{"grab", &saved.GrabUsed, &saved.GrabMax, &saved.GrabCounterMax, &saved.GrabObservedAt, &saved.GrabLimitObservedAt, &saved.GrabOldest},
+	} {
+		used, maximum, ok := next.Family(fields.family)
+		if !ok {
+			continue
+		}
+		if next.ObservedAt.After(*fields.limitObserved) {
+			*fields.maximum = maximum
+			*fields.limitObserved = next.ObservedAt.UTC()
+		}
+		if used >= 0 && next.ObservedAt.After(*fields.observed) && !next.ObservedAt.Before(*fields.limitObserved) {
+			*fields.used, *fields.observed, *fields.paired = used, next.ObservedAt.UTC(), maximum
+			if fields.family == "grab" {
+				*fields.oldest = next.GrabOldest
+			} else {
+				*fields.oldest = next.QueryOldest
+			}
+		}
 	}
-	_, err := store.Pool.Exec(ctx, `INSERT INTO indexer_provider_limits(indexer_instance_id,observed_at,query_used,query_max,query_oldest_at,grab_used,grab_max,grab_oldest_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-		ON CONFLICT(indexer_instance_id) DO UPDATE SET observed_at=EXCLUDED.observed_at,query_used=EXCLUDED.query_used,query_max=EXCLUDED.query_max,query_oldest_at=EXCLUDED.query_oldest_at,
-			grab_used=EXCLUDED.grab_used,grab_max=EXCLUDED.grab_max,grab_oldest_at=EXCLUDED.grab_oldest_at
-		WHERE indexer_provider_limits.observed_at < EXCLUDED.observed_at`,
-		indexerID, limits.ObservedAt.UTC(), number(queryUsed), number(queryMax), dbcore.NullableTime(limits.QueryOldest), number(grabUsed), number(grabMax), dbcore.NullableTime(limits.GrabOldest))
-	return err
+	if next.ObservedAt.After(saved.ObservedAt) {
+		saved.ObservedAt = next.ObservedAt.UTC()
+	}
 }
 
 // ReservationLockKey is the advisory-lock key that serializes request budget

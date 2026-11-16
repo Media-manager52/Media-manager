@@ -4,6 +4,17 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **Partial indexer quota answers keep earlier counters.** Query and download counters and ceilings now retain their own observation times; missing fields cannot erase a known exhausted quota or keep an old counter alive indefinitely (schema 72).
+- **Recovery probes stay an hour apart.** Their last actual reservation is stored under the request-budget lock, including across concurrent callers, restarts and the upgrade. Unused hours cannot accumulate a burst of probes.
+- **A verified file lost just before publication can recover.** The missing-file sweep also monitors the current verified import before library links exist. After the existing repeated-missing and healthy-mount checks, the exact failed release is rejected through the normal guarded recovery path.
+- **Concurrent Usenet changes preserve the last active server.** Changes are serialized per AltMount connection across API instances, so simultaneous disables or deletions cannot both pass the check.
+- **An off-site backup cannot succeed by following a redirect to a login page.** S3 and WebDAV requests refuse redirects, including when supplied a custom HTTP client.
+- **Queue timings exclude pre-upgrade events.** Measured completions must have been created after schema 71 was applied. The API and queue page show the measurement start and the number of older unfinished events separately; the page now shows median and p90 for each part of the wait.
+- **Kilder shows the quota actually enforced.** Effective limits, estimated use, remaining requests and quota deferrals use the reservation decision. Local reservations and the provider's timestamped counters stay visible separately; editing still changes the configured budgets.
+- **Henter nu can page through every active workflow.** One combined `state=acquiring` API filter replaces the nine independently truncated lists and keeps a shared deterministic order across pages.
+
 ## [0.1.0-beta.36] - 2026-11-16
 
 ### Changed

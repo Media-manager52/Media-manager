@@ -138,7 +138,7 @@ test("the calendar shows each episode as a picture with its state, and work list
   const tile = page.getByRole("link", { name: /Testserien.*S02E01 · Pilot/ })
   await expect(tile).toBeVisible()
   await expect(tile).toHaveAttribute("href", `/bibliotek/${ids.series}`)
-  await page.route((url) => url.pathname === "/api/v1/workflows" && url.searchParams.get("state") === "queued", (route) => route.fulfill({ json: { data: [
+  await page.route((url) => url.pathname === "/api/v1/workflows" && url.searchParams.get("state") === "acquiring", (route) => route.fulfill({ json: { data: [
     { id: "w-dl", media_id: ids.movie, media_kind: "movie", title: "Hentefilmen", year: 2025, variant: "default", state: "queued", revision: 2, download_percent: 42.4, adopted_replacement_confirmation_required: false, created_at: "2026-11-10T10:00:00Z", updated_at: "2026-11-10T10:00:00Z", available_actions: [] },
   ] } }))
   await page.goto("/arbejde")

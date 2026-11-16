@@ -61,7 +61,9 @@ type IndexerUsage struct {
 	Downloads30d      IndexerDownloads      `json:"downloads_30d"`
 	// NewUploads is the newest-uploads reader's state; absent until the
 	// indexer's list has been read once.
-	NewUploads *IndexerFeedSummary `json:"new_uploads,omitempty"`
+	NewUploads       *IndexerFeedSummary      `json:"new_uploads,omitempty"`
+	EffectiveBudget  *IndexerAllowances       `json:"effective_budget,omitempty"`
+	ProviderCounters *IndexerProviderCounters `json:"provider_counters,omitempty"`
 }
 
 // IndexerDownloads counts the downloads of an indexer's releases that were
@@ -120,36 +122,9 @@ func (store *Store) IndexerUsages(ctx context.Context, now time.Time) ([]Indexer
 	for index := range result {
 		item := &result[index]
 		byID[item.ID.String()] = item
-		windowStart := now.Add(-time.Duration(item.Budget.WindowSeconds) * time.Second)
-		usage, err := store.Pool.Query(ctx, `SELECT request_family,count(*),min(reserved_at) FROM indexer_request_reservations WHERE indexer_instance_id=$1 AND reserved_at>$2 GROUP BY 1`, item.ID.String(), windowStart)
-		if err != nil {
+		if err := store.populateIndexerAllowances(ctx, item, now); err != nil {
 			return nil, err
 		}
-		for usage.Next() {
-			var family string
-			var count int
-			var oldest time.Time
-			if err := usage.Scan(&family, &count, &oldest); err != nil {
-				usage.Close()
-				return nil, err
-			}
-			switch family {
-			case "query":
-				item.Usage.QueriesUsed = count
-			case "grab":
-				item.Usage.GrabsUsed = count
-			}
-			if item.Usage.OldestReservationAt == nil || oldest.Before(*item.Usage.OldestReservationAt) {
-				item.Usage.OldestReservationAt = &oldest
-			}
-		}
-		usage.Close()
-		if err := usage.Err(); err != nil {
-			return nil, err
-		}
-		item.Usage.QueriesRemaining = max(item.Budget.QueryLimit-item.Usage.QueriesUsed, 0)
-		item.Usage.GrabsRemaining = max(item.Budget.GrabLimit-item.Usage.GrabsUsed, 0)
-		item.Usage.BackgroundQueriesRemaining = max(item.Budget.BackgroundQueryLimit-item.Usage.QueriesUsed, 0)
 		item.SearchOutcomes24h = []IndexerOutcomeCount{}
 	}
 	outcomes, err := store.Pool.Query(ctx, `SELECT o.indexer_instance_id::text,o.state,COALESCE(o.detail,''),count(*) FROM search_run_indexers o JOIN search_runs r ON r.id=o.search_run_id
@@ -206,6 +181,7 @@ func (store *Store) IndexerUsages(ctx context.Context, now time.Time) ([]Indexer
 }
 
 type QueueEventCounts struct {
+	LegacyPending   int64      `json:"legacy_pending"`
 	EventType       string     `json:"event_type"`
 	Due             int64      `json:"due"`
 	Scheduled       int64      `json:"scheduled"`
@@ -216,6 +192,8 @@ type QueueEventCounts struct {
 }
 
 type QueueSnapshot struct {
+	TimingStartedAt   time.Time          `json:"timing_started_at"`
+	LegacyPending     int64              `json:"legacy_pending"`
 	Due               int64              `json:"due"`
 	Scheduled         int64              `json:"scheduled"`
 	Leased            int64              `json:"leased"`
@@ -234,27 +212,32 @@ type QueueSnapshot struct {
 // discovery rescans, then oldest first.
 func (store *Store) QueueSnapshot(ctx context.Context, now time.Time) (QueueSnapshot, error) {
 	snapshot := QueueSnapshot{ByType: []QueueEventCounts{}, CheckedAt: now.UTC()}
+	if err := store.Pool.QueryRow(ctx, `SELECT applied_at FROM schema_migrations WHERE version=71`).Scan(&snapshot.TimingStartedAt); err != nil {
+		return QueueSnapshot{}, err
+	}
 	rows, err := store.Pool.Query(ctx, `SELECT event_type,
 		count(*) FILTER (WHERE available_at<=$1 AND (lease_until IS NULL OR lease_until<$1)),
 		count(*) FILTER (WHERE available_at>$1),
 		count(*) FILTER (WHERE lease_until>=$1),
 		count(*) FILTER (WHERE attempts>0 AND (lease_until IS NULL OR lease_until<$1)),
-		min(available_at) FILTER (WHERE available_at<=$1),
-		min(available_at) FILTER (WHERE available_at>$1)
-		FROM outbox_events WHERE completed_at IS NULL GROUP BY 1 ORDER BY 2 DESC,1`, now.UTC())
+		min(available_at) FILTER (WHERE available_at<=$1 AND (lease_until IS NULL OR lease_until<$1)),
+		min(available_at) FILTER (WHERE available_at>$1),
+ count(*) FILTER (WHERE occurred_at<$2)
+		FROM outbox_events WHERE completed_at IS NULL GROUP BY 1 ORDER BY 2 DESC,1`, now.UTC(), snapshot.TimingStartedAt)
 	if err != nil {
 		return QueueSnapshot{}, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var item QueueEventCounts
-		if err := rows.Scan(&item.EventType, &item.Due, &item.Scheduled, &item.Leased, &item.Retrying, &item.OldestDueAt, &item.NextScheduledAt); err != nil {
+		if err := rows.Scan(&item.EventType, &item.Due, &item.Scheduled, &item.Leased, &item.Retrying, &item.OldestDueAt, &item.NextScheduledAt, &item.LegacyPending); err != nil {
 			return QueueSnapshot{}, err
 		}
 		snapshot.Due += item.Due
 		snapshot.Scheduled += item.Scheduled
 		snapshot.Leased += item.Leased
 		snapshot.Retrying += item.Retrying
+		snapshot.LegacyPending += item.LegacyPending
 		snapshot.ByType = append(snapshot.ByType, item)
 	}
 	if err := rows.Err(); err != nil {

@@ -641,6 +641,10 @@ movies prefer TMDB then IMDb; series prefer TVDB then TMDB. It:
 `PreparePublication` (durable plans + versions) → `MarkPublicationPublishing` →
 `library.PublishBatch` (symlinks only) → `CompletePublication`. A filesystem
 failure calls `FailPublication` → workflow attention; never a partial claim.
+A verified current import whose source disappears during preflight remains
+in missing-file monitoring even when no publication version exists yet. The
+same healthy-mount, repeated-missing checks and exact-attempt rejection apply;
+unverified, cancelled or superseded attempts are excluded.
 
 ### 8.3 Confirm
 
@@ -776,6 +780,8 @@ track size/sha256/schema; verification restores into an isolated temporary
 database and requires the exact schema version. Download serves only
 checksum-matching encrypted files. There is deliberately **no** production
 restore automation and no automatic deletion.
+Off-site S3/WebDAV HTTP requests refuse redirects: a PUT redirected to a login
+page must not become a successful GET and be recorded as an external copy.
 
 ## 16. Attention codes and recovery playbook
 

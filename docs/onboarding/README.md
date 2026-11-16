@@ -4,8 +4,8 @@ This is the entry point to the documentation set for the Media Manager
 codebase. It is written for an engineer or AI agent with **zero prior
 context** who must safely read, change, test, and operate the repository.
 
-Source checkpoint: Seerr waiting progress and VPS GitHub workflows
-(2026-10-01), database schema 44, Go 1.27, Node 24 / Vite + React web UI,
+Source checkpoint: quota and recovery review fixes
+(2026-11-16), database schema 72, Go 1.27, Node 24 / Vite + React web UI,
 PostgreSQL 18. This includes the earlier bounded NZB retrieval and access-rejection
 recovery, IPv4-only API egress, configurable acquisition budgets, and recorded
 request search schedules. Existing round snapshots remain immutable.

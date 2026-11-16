@@ -5,6 +5,26 @@ import (
 	"time"
 )
 
+func TestProviderProbesNeverAccumulateUnusedHours(t *testing.T) {
+	observed := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	reading := ProviderLimits{ObservedAt: observed, QueryUsed: 100, QueryMax: 100, GrabUsed: -1, GrabMax: -1}
+	at := observed.Add(5 * time.Hour)
+	limit, used, retry := ProviderLimitDecision(reading, "query", 1000, 0, 0, 24*time.Hour, at)
+	if !retry.IsZero() || used >= limit {
+		t.Fatalf("first probe was refused: %d/%d retry=%v", used, limit, retry)
+	}
+	reading.QueryLastProbeAt = at
+	for _, after := range []time.Duration{0, time.Second, 59 * time.Minute} {
+		_, _, retry = ProviderLimitDecision(reading, "query", 1000, 1, 1, 24*time.Hour, at.Add(after))
+		if !retry.Equal(at.Add(time.Hour)) {
+			t.Fatalf("after %s retry=%v, want one hour after actual probe", after, retry)
+		}
+	}
+	if _, _, retry = ProviderLimitDecision(reading, "query", 1000, 1, 1, 24*time.Hour, at.Add(time.Hour)); !retry.IsZero() {
+		t.Fatal("next hourly probe was refused")
+	}
+}
+
 func TestProviderLimitDecisionOnlyTightens(t *testing.T) {
 	t.Parallel()
 	window := 24 * time.Hour
@@ -30,7 +50,7 @@ func TestProviderLimitDecisionOnlyTightens(t *testing.T) {
 		{name: "a stated maximum without a count only caps the limit", limits: reading(-1, 50), ownLimit: 100, ownUsed: 60, wantLimit: 50, wantUsed: 60},
 		{name: "an impossible maximum is not a reading", limits: reading(5, maxProviderLimit+1), ownLimit: 100, ownUsed: 10, wantLimit: 100, wantUsed: 10},
 		{name: "still applied after 15 minutes", limits: reading(100, 100), ownLimit: 1000, ownUsed: 3, after: 16 * time.Minute, wantLimit: 100, wantUsed: 100, wantBlocked: true},
-		{name: "still applied after 23 hours without a probe left", limits: reading(100, 100), ownLimit: 1000, ownUsed: 3, since: 23, after: 23 * time.Hour, wantLimit: 100, wantUsed: 100, wantBlocked: true},
+		{name: "still applied after 23 hours without a probe left", limits: ProviderLimits{ObservedAt: observed, QueryUsed: 100, QueryMax: 100, QueryLastProbeAt: observed.Add(23 * time.Hour)}, ownLimit: 1000, ownUsed: 3, since: 23, after: 23 * time.Hour, wantLimit: 100, wantUsed: 100, wantBlocked: true},
 		{name: "dropped only when a whole window old", limits: reading(100, 100), ownLimit: 1000, ownUsed: 3, after: window, wantLimit: 1000, wantUsed: 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -59,7 +79,19 @@ func TestProviderLimitDecisionUsedUpAllowsOnlyHourlyProbes(t *testing.T) {
 	usedUp := ProviderLimits{ObservedAt: observed, QueryUsed: 100, QueryMax: 100, GrabUsed: 30, GrabMax: 30,
 		QueryOldest: observed.Add(-window).Add(3 * time.Hour), GrabOldest: observed.Add(-30 * time.Hour)}
 	blocked := func(family string, since int, after time.Duration) (bool, time.Time) {
-		_, _, retryAt := ProviderLimitDecision(usedUp, family, 1000, 0, since, window, observed.Add(after))
+		sample := usedUp
+		if since > 0 {
+			at := observed.Add(time.Duration(2+since) * time.Hour)
+			if family == "grab" {
+				at = observed.Add(time.Duration(since) * time.Hour)
+			}
+			if family == "grab" {
+				sample.GrabLastProbeAt = at
+			} else {
+				sample.QueryLastProbeAt = at
+			}
+		}
+		_, _, retryAt := ProviderLimitDecision(sample, family, 1000, 0, since, window, observed.Add(after))
 		return !retryAt.IsZero(), retryAt
 	}
 	// Queries: the indexer says its oldest request leaves in three hours.

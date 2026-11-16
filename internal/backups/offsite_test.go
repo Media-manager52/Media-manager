@@ -3,12 +3,51 @@ package backups
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestOffsiteUploadsRefuseRedirects(t *testing.T) {
+	for _, kind := range []string{"webdav", "s3"} {
+		for _, status := range []int{301, 302, 303, 307, 308} {
+			t.Run(fmt.Sprintf("%s/%d", kind, status), func(t *testing.T) {
+				followed := false
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/login" {
+						followed = true
+						w.WriteHeader(http.StatusOK)
+						return
+					}
+					http.Redirect(w, r, "/login", status)
+				}))
+				defer server.Close()
+				custom := &http.Client{Timeout: time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+					t.Error("custom redirect callback was allowed to forward the upload")
+					return nil
+				}}
+				cfg := OffsiteConfig{Kind: kind, WebDAV: WebDAVConfig{URL: server.URL, AllowHTTP: true, Client: custom}, S3: S3Config{Endpoint: server.URL, Region: "r", Bucket: "backups", AccessKey: "a", SecretKey: "s", AllowHTTP: true, Client: custom}}
+				store, _, err := NewOffsite(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = store.Put(t.Context(), "test.mmbackup", strings.NewReader("encrypted"), 9, testSHA256("encrypted")); err == nil {
+					t.Fatal("redirected upload was reported as successful")
+				}
+				if followed {
+					t.Fatal("upload followed redirect")
+				}
+				if custom.CheckRedirect == nil {
+					t.Fatal("caller HTTP client was mutated")
+				}
+			})
+		}
+	}
+}
 
 func testSHA256(value string) string {
 	sum := sha256.Sum256([]byte(value))

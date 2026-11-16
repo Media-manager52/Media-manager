@@ -385,3 +385,23 @@ Both APIs require owner authentication and are classified as provider effects.
 The private Stremio/Nuvio companion addon handles AltMount preparation and video
 proxying. Native OldBoys and special-episode interactive browsing are not part
 of this API version. Existing library/acquisition behavior remains separate.
+
+## Quota and queue observations
+
+`GET /api/v1/indexers` keeps the configured `budget` and locally reserved
+`usage.queries_used` / `usage.grabs_used`. `effective_budget` reports the
+reservation decision for queries, grabs and background queries: `limit`,
+`used`, `remaining`, `blocked` and optional `retry_at`. The remaining counts
+in `usage` use this effective decision too. `provider_counters` exposes each
+stated count, its paired `count_maximum`, the latest ceiling and their own observation times, without provider contact.
+Pacing and failure cooldowns remain separate in `pacing`.
+
+`GET /api/v1/system/queue` reports `timing_started_at` (schema 71's application
+time) and `legacy_pending`, also per event type. Queue counts include all
+unfinished work. `timings_last_24h` includes only completed events created
+since that start, so old backlog cannot distort the measured cohort.
+
+`GET /api/v1/workflows?state=acquiring` combines searching, candidate_selected,
+submitting, queued, streaming_ready, import_complete, verifying, publishing
+and plex_scanning before applying the shared updated-at/ID order and paging.
+It is a read filter, not a durable workflow state.

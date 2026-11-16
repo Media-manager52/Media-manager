@@ -29,16 +29,10 @@ const emptyStates: Record<Tab, { title: string; text: string; icon: ReactNode }>
   faerdig: { title: "Intet er færdigt endnu", text: "Titler, der er hentet, kontrolleret og bekræftet i Plex, kommer her.", icon: <CheckCircle2 className="size-8" /> },
   annulleret: { title: "Intet er annulleret", text: "Arbejde, du eller Seerr har stoppet, kommer her.", icon: <XCircle className="size-8" /> },
 }
-/** The persisted workflow states (internal/workflows) in which work is moving. */
-const acquiringStates = ["searching", "candidate_selected", "submitting", "queued", "streaming_ready", "import_complete", "verifying", "publishing", "plex_scanning"]
-
 async function loadTab(tab: Tab, offset: number, signal: AbortSignal): Promise<APIWorkflow[]> {
   switch (tab) {
-    case "henter": {
-      const states = acquiringStates
-      const batches = await Promise.all(states.map((state) => loadWorkflowsByState({ state, active: true, limit: 200, offset: 0, signal })))
-      return batches.flat().sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-    }
+    case "henter":
+      return await loadWorkflowsByState({ state: "acquiring", active: true, limit: pageSize, offset, signal })
     case "handling":
       return await loadAttentionWorkflows(signal)
     case "venter":
@@ -57,7 +51,7 @@ export function WorkPage() {
   const tab = (tabs.some((entry) => entry.value === params.get("vis")) ? params.get("vis") : "henter") as Tab
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState("")
-  const paged = tab !== "henter" && tab !== "handling"
+  const paged = tab !== "handling"
   const query = useQuery({
     queryKey: ["workflows", "tab", tab, page],
     queryFn: ({ signal }) => loadTab(tab, page * pageSize, signal),

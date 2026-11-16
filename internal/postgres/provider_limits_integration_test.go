@@ -5,13 +5,111 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/media-manager/media-manager/internal/indexers"
 	"github.com/media-manager/media-manager/internal/postgres/commissioningstore"
 )
 
+func TestProviderCounterMigrationPreservesAgesAndRecentProbe(t *testing.T) {
+	f := newFailureRecoveryFixture(t, 71)
+	id := f.indexer.ID.String()
+	now := time.Now().UTC().Truncate(time.Second)
+	observed, probed := now.Add(-5*time.Hour), now.Add(-30*time.Minute)
+	if _, err := f.store.Pool.Exec(f.ctx, `INSERT INTO indexer_provider_limits(indexer_instance_id,observed_at,query_used,query_max,grab_max) VALUES($1,$2,100,100,30)`, id, observed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.Pool.Exec(f.ctx, `INSERT INTO indexer_request_reservations(id,indexer_instance_id,request_family,reserved_at) VALUES($1,$2,'query',$3)`, uuid.NewV7().String(), id, probed); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(f.ctx, f.store.Pool); err != nil {
+		t.Fatal(err)
+	}
+	sample, found, err := f.store.LoadProviderLimits(f.ctx, id)
+	if err != nil || !found || !sample.QueryObservedAt.Equal(observed) || !sample.QueryLastProbeAt.Equal(probed) || sample.GrabUsed != -1 {
+		t.Fatalf("migrated sample=%+v found=%v err=%v", sample, found, err)
+	}
+	retry, err := f.store.ReserveIndexerRequest(f.ctx, id, "query", 1000, 24*time.Hour, now)
+	if err != nil || !retry.Equal(probed.Add(time.Hour)) {
+		t.Fatalf("upgrade allowed an early probe: retry=%v err=%v", retry, err)
+	}
+}
+
 func stated(observed time.Time, queryUsed, queryMax, grabUsed, grabMax int) indexers.ProviderLimits {
 	return indexers.ProviderLimits{ObservedAt: observed, QueryUsed: queryUsed, QueryMax: queryMax, GrabUsed: grabUsed, GrabMax: grabMax}
+}
+
+func TestPartialProviderReadingsKeepCounterAgesAndExhaustion(t *testing.T) {
+	f := newFailureRecoveryFixture(t)
+	id := f.indexer.ID.String()
+	at := time.Now().UTC().Truncate(time.Second)
+	save := func(sample indexers.ProviderLimits) {
+		t.Helper()
+		if err := f.store.SaveProviderLimits(f.ctx, id, sample); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(stated(at, 5, 100, 30, 30))
+	save(stated(at.Add(20*time.Minute), 6, 100, -1, 300))
+	sample, _, err := f.store.LoadProviderLimits(f.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.GrabUsed != 30 || sample.GrabMax != 300 || sample.GrabCounterMax != 30 || !sample.GrabObservedAt.Equal(at) || !sample.GrabLimitObservedAt.Equal(at.Add(20*time.Minute)) {
+		t.Fatalf("maximum-only answer erased or refreshed the exhausted count: %+v", sample)
+	}
+	if retry, err := f.store.ReserveIndexerRequest(f.ctx, id, "grab", 1000, 24*time.Hour, at.Add(21*time.Minute)); err != nil || retry.IsZero() {
+		t.Fatalf("maximum-only increase cleared exhaustion: retry=%v err=%v", retry, err)
+	}
+	save(stated(at.Add(23*time.Hour), 7, 100, -1, -1))
+	sample, _, err = f.store.LoadProviderLimits(f.ctx, id)
+	if err != nil || !sample.GrabObservedAt.Equal(at) || !sample.GrabLimitObservedAt.Equal(at.Add(20*time.Minute)) {
+		t.Fatalf("other family refreshed grab age: %+v %v", sample, err)
+	}
+	// The old counter expires at its own full window, while the newer maximum
+	// is still applied. No absent count can extend that old count indefinitely.
+	retry, err := f.store.ReserveIndexerRequest(f.ctx, id, "grab", 100, 24*time.Hour, at.Add(24*time.Hour+time.Second))
+	if err != nil || !retry.IsZero() {
+		t.Fatalf("expired counter still blocks: %v %v", retry, err)
+	}
+}
+
+func TestProviderProbesAreHourlyAcrossConcurrentReservations(t *testing.T) {
+	f := newFailureRecoveryFixture(t)
+	id := f.indexer.ID.String()
+	at := time.Now().UTC().Truncate(time.Second)
+	if err := f.store.SaveProviderLimits(f.ctx, id, stated(at, 100, 100, -1, -1)); err != nil {
+		t.Fatal(err)
+	}
+	probeAt := at.Add(5 * time.Hour)
+	var granted atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			retry, err := f.store.ReserveIndexerRequest(f.ctx, id, "query", 1000, 24*time.Hour, probeAt)
+			if err != nil {
+				t.Error(err)
+			} else if retry.IsZero() {
+				granted.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if granted.Load() != 1 {
+		t.Fatalf("got %d probes together after five unused hours, want 1", granted.Load())
+	}
+	sample, _, err := f.store.LoadProviderLimits(f.ctx, id)
+	if err != nil || !sample.QueryLastProbeAt.Equal(probeAt) {
+		t.Fatalf("probe was not persisted: %+v %v", sample, err)
+	}
+	for _, after := range []time.Duration{time.Second, 59 * time.Minute, time.Hour} {
+		retry, err := f.store.ReserveIndexerRequest(f.ctx, id, "query", 1000, 24*time.Hour, probeAt.Add(after))
+		if err != nil || retry.IsZero() != (after == time.Hour) {
+			t.Fatalf("after %s retry=%v err=%v", after, retry, err)
+		}
+	}
 }
 
 // The indexer's own stated counters tighten the reservations and never
@@ -193,5 +291,50 @@ func TestIgnoredProviderLimitsAreNeitherSavedNorApplied(t *testing.T) {
 	}
 	if saved, _, err := f.store.LoadProviderLimits(f.ctx, id); err != nil || saved.QueryMax != 10 {
 		t.Fatalf("a reading was saved while switched off: %+v err=%v", saved, err)
+	}
+}
+
+func TestPartialProviderReadingPreservesExhaustedGrabCounter(t *testing.T) {
+	f := newFailureRecoveryFixture(t)
+	id := f.indexer.ID.String()
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := f.store.SaveProviderLimits(f.ctx, id, stated(now, 5, 100, 30, 30)); err != nil {
+		t.Fatal(err)
+	}
+	if retry, err := f.store.ReserveIndexerRequest(f.ctx, id, "grab", 100, 24*time.Hour, now.Add(time.Second)); err != nil || retry.IsZero() {
+		t.Fatalf("exhausted initial sample did not block: retry=%v err=%v", retry, err)
+	}
+	partial := indexers.ProviderLimits{ObservedAt: now.Add(time.Minute), QueryUsed: 6, QueryMax: 100, GrabUsed: -1, GrabMax: -1}
+	if err := f.store.SaveProviderLimits(f.ctx, id, partial); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := f.store.ReserveIndexerRequest(f.ctx, id, "grab", 100, 24*time.Hour, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.IsZero() {
+		t.Fatal("a query-only reading erased an exhausted grab counter and permitted a download two minutes later")
+	}
+}
+
+func TestIndexerUsageReflectsProviderGrabBlock(t *testing.T) {
+	f := newFailureRecoveryFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	id := f.indexer.ID.String()
+	if err := f.store.SaveProviderLimits(f.ctx, id, stated(now, 5, 100, 30, 30)); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := f.store.ReserveIndexerRequest(f.ctx, id, "grab", 100, 24*time.Hour, now.Add(time.Second))
+	if err != nil || retry.IsZero() {
+		t.Fatalf("expected provider block: retry=%v err=%v", retry, err)
+	}
+	items, err := f.store.IndexerUsages(f.ctx, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.ID == f.indexer.ID && item.Usage.GrabsRemaining != 0 {
+			t.Fatalf("scheduler blocks downloads, but API reports %d remaining (used=%d maximum=%d)", item.Usage.GrabsRemaining, item.Usage.GrabsUsed, item.Budget.GrabLimit)
+		}
 	}
 }

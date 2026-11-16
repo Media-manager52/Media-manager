@@ -1478,6 +1478,41 @@
         },
         "type": "object"
       },
+      "Postgres_IndexerAllowance": {
+        "properties": {
+          "blocked": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "remaining": {
+            "type": "integer"
+          },
+          "retry_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "used": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IndexerAllowances": {
+        "properties": {
+          "background_queries": {
+            "$ref": "#/components/schemas/Postgres_IndexerAllowance"
+          },
+          "grabs": {
+            "$ref": "#/components/schemas/Postgres_IndexerAllowance"
+          },
+          "queries": {
+            "$ref": "#/components/schemas/Postgres_IndexerAllowance"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_IndexerBudgetView": {
         "properties": {
           "background_query_limit": {
@@ -1577,6 +1612,39 @@
         },
         "type": "object"
       },
+      "Postgres_IndexerProviderCounter": {
+        "properties": {
+          "count_maximum": {
+            "type": "integer"
+          },
+          "maximum": {
+            "type": "integer"
+          },
+          "maximum_observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "used": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Postgres_IndexerProviderCounters": {
+        "properties": {
+          "grabs": {
+            "$ref": "#/components/schemas/Postgres_IndexerProviderCounter"
+          },
+          "queries": {
+            "$ref": "#/components/schemas/Postgres_IndexerProviderCounter"
+          }
+        },
+        "type": "object"
+      },
       "Postgres_IndexerSettingsPatch": {
         "properties": {
           "enabled": {
@@ -1611,6 +1679,9 @@
           "downloads_30d": {
             "$ref": "#/components/schemas/Postgres_IndexerDownloads"
           },
+          "effective_budget": {
+            "$ref": "#/components/schemas/Postgres_IndexerAllowances"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -1629,6 +1700,9 @@
           },
           "pacing": {
             "$ref": "#/components/schemas/Postgres_IndexerPacingView"
+          },
+          "provider_counters": {
+            "$ref": "#/components/schemas/Postgres_IndexerProviderCounters"
           },
           "search_outcomes_24h": {
             "items": {
@@ -2080,6 +2154,9 @@
           "leased": {
             "type": "integer"
           },
+          "legacy_pending": {
+            "type": "integer"
+          },
           "next_scheduled_at": {
             "format": "date-time",
             "type": "string"
@@ -2121,11 +2198,18 @@
           "leased": {
             "type": "integer"
           },
+          "legacy_pending": {
+            "type": "integer"
+          },
           "retrying": {
             "type": "integer"
           },
           "scheduled": {
             "type": "integer"
+          },
+          "timing_started_at": {
+            "format": "date-time",
+            "type": "string"
           },
           "timings_last_24h": {
             "items": {
@@ -9343,7 +9427,7 @@
             }
           },
           {
-            "description": "Only workflows in this durable state (for example needs_attention, blocked, waiting or plex_confirmed).",
+            "description": "Only workflows in this durable state, or acquiring for the active search, download, verification and publication states.",
             "in": "query",
             "name": "state",
             "required": false,

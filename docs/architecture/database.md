@@ -169,6 +169,8 @@ non-obvious.
 | `quality_profiles` | Policy JSON, version, upgrades/default/enabled flags. |
 | `indexer_budget_state` | Rolling query/grab windows and pacing per indexer. The commissioning v2 gate column and the v2 run and step tables were dropped in schema 69; the unused capability profile and operation status tables in schema 70. |
 | `indexer_request_reservations` | Durable per-call reservations (schema 30). |
+| `indexer_provider_limits` | Provider counters and ceilings (schema 71). Schema 72 gives query/grab counters and ceilings separate observation times and stores the last actual recovery probe per family and the ceiling paired with each observed count. Saves and reservations share the same advisory transaction lock. Missing fields preserve prior knowledge without refreshing its age. |
+| `indexer_feed_stream_state` | Independent movie/series newest-upload progress (schema 71), sharing the indexer's pacing and allowance. |
 | `indexer_feed_state` | Newest-uploads reader per indexer: last and next read, current interval, last outcome, consecutive failures (schema 58); the newest 1,000 upload IDs seen (`recent_guids`), successful reads and reads that did not reach an upload seen before (`reads_total`, `gap_reads_total`, `last_read_complete`, schema 63). |
 | `indexer_feed_matches` | Uploads from the newest-uploads lists that matched a waiting workflow, with what was done about each (`pending`, `search_advanced`, `search_due`, `discovery_advanced`, `round_opened` (schema 59), `not_applicable`, `expired`). A note for the reader, not release evidence; rows older than 30 days are removed (schema 58). |
 

@@ -431,18 +431,29 @@ export const retryBackupOffsite = (id: string) => requestJSON<{ id: string; stat
 export const uploadProwlarrBackup = (file: File) => requestJSON<APIProwlarrImport>("/api/v1/imports/prowlarr", { method: "POST", headers: { "Content-Type": "application/zip" }, body: file })
 export const approveProwlarrImport = (id: string, candidates: Array<{ id: string; secret_ref: string }>) => requestJSON<APIProwlarrImport>(`/api/v1/imports/prowlarr/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ candidates }) })
 
+export type APIIndexerAllowance = { limit: number; used: number; remaining: number; blocked: boolean; retry_at?: string }
+export type APIIndexerCounter = { maximum: number; count_maximum?: number; used?: number; observed_at?: string; maximum_observed_at: string }
 export type APIIndexerUsage = {
   id: string; name: string; kind: string; enabled: boolean; commissioned: boolean
   budget: { query_limit: number; grab_limit: number; background_query_limit: number; minimum_interval_ms: number; page_limit?: number; window_seconds: number; source: string }
   usage: { queries_used: number; queries_remaining: number; background_queries_remaining: number; grabs_used: number; grabs_remaining: number; oldest_reservation_at?: string }
   pacing: { last_outcome?: string; last_outcome_at?: string; consecutive_failures: number; next_allowed_at?: string; cooldown_until?: string }
+  effective_budget?: { queries: APIIndexerAllowance; grabs: APIIndexerAllowance; background_queries: APIIndexerAllowance }
+  provider_counters?: { queries?: APIIndexerCounter; grabs?: APIIndexerCounter }
   search_outcomes_24h?: Array<{ state: string; detail?: string; count: number }>
   /** Downloads with a final outcome in the last 30 days; verified ones passed every check. */
   downloads_30d?: { finished: number; verified: number }
   /** The newest-uploads reader; absent until the indexer's list has been read once. last_outcome is "ok", "deferred" or a failure code. */
   new_uploads?: { last_read_at?: string; next_read_at?: string; last_outcome?: string; matches_24h: number; reads?: number; gap_reads?: number }
 }
+export type APIOutboxTiming = {
+  event_type: string; events: number; retried: number; attempts: number
+  planned_p50_ms: number; planned_p90_ms: number; ready_wait_p50_ms: number; ready_wait_p90_ms: number
+  active_p50_ms: number; active_p90_ms: number; retry_p50_ms: number; retry_p90_ms: number
+  ready_wait_total_ms: number; active_total_ms: number
+}
 export type APIQueueSnapshot = {
+  timing_started_at?: string; legacy_pending?: number; timings_last_24h?: APIOutboxTiming[]
   checked_at: string; due: number; scheduled: number; leased: number; retrying: number
   completed_last_10m: number; completed_last_hour: number
   by_type: Array<{ event_type: string; due: number; scheduled: number; leased: number; retrying: number; oldest_due_at?: string; next_scheduled_at?: string }>

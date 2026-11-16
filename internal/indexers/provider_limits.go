@@ -38,6 +38,18 @@ type ProviderLimits struct {
 	GrabUsed    int
 	GrabMax     int
 	GrabOldest  time.Time
+	// Stored counter and maximum ages are independent. Raw answers use
+	// ObservedAt for both; a partial answer never refreshes an absent counter.
+	QueryObservedAt      time.Time
+	GrabObservedAt       time.Time
+	QueryLimitObservedAt time.Time
+	GrabLimitObservedAt  time.Time
+	QueryLastProbeAt     time.Time
+	GrabLastProbeAt      time.Time
+	// The maximum paired with a measured count keeps a known exhausted
+	// reading blocked even if a later maximum-only answer raises the ceiling.
+	QueryCounterMax int
+	GrabCounterMax  int
 }
 
 // maxProviderLimit bounds a stated count or maximum; anything outside is
@@ -57,8 +69,37 @@ const (
 
 // ProviderReservationsSince is the time from which own reservations are added
 // to a reading's count.
-func ProviderReservationsSince(limits ProviderLimits) time.Time {
-	return limits.ObservedAt.UTC().Add(-providerReservationMargin)
+func ProviderReservationsSince(limits ProviderLimits, family string) time.Time {
+	return limits.CounterObservedAt(family).Add(-providerReservationMargin)
+}
+
+func (limits ProviderLimits) CounterObservedAt(family string) time.Time {
+	at := limits.QueryObservedAt
+	if family == "grab" {
+		at = limits.GrabObservedAt
+	}
+	if at.IsZero() {
+		at = limits.ObservedAt
+	}
+	return at.UTC()
+}
+
+func (limits ProviderLimits) MaximumObservedAt(family string) time.Time {
+	at := limits.QueryLimitObservedAt
+	if family == "grab" {
+		at = limits.GrabLimitObservedAt
+	}
+	if at.IsZero() {
+		at = limits.ObservedAt
+	}
+	return at.UTC()
+}
+
+func (limits ProviderLimits) LastProbeAt(family string) time.Time {
+	if family == "grab" {
+		return limits.GrabLastProbeAt
+	}
+	return limits.QueryLastProbeAt
 }
 
 // Valid reports whether the reading states anything usable.
@@ -66,14 +107,14 @@ func (limits ProviderLimits) Valid() bool {
 	if limits.ObservedAt.IsZero() {
 		return false
 	}
-	_, _, queryOK := limits.family("query")
-	_, _, grabOK := limits.family("grab")
+	_, _, queryOK := limits.Family("query")
+	_, _, grabOK := limits.Family("grab")
 	return queryOK || grabOK
 }
 
-// family returns the stated count and maximum of one request family. A stated
+// Family returns the stated count and maximum of one request family. A stated
 // maximum alone (no count) is returned with used -1.
-func (limits ProviderLimits) family(family string) (used, maximum int, ok bool) {
+func (limits ProviderLimits) Family(family string) (used, maximum int, ok bool) {
 	used, maximum = limits.QueryUsed, limits.QueryMax
 	if family == "grab" {
 		used, maximum = limits.GrabUsed, limits.GrabMax
@@ -97,15 +138,15 @@ func (limits ProviderLimits) oldest(family string) time.Time {
 // ProviderLimitDecision says whether a request of one family may be reserved.
 // ownLimit and ownUsed are Media Manager's limit for this request and its own
 // reservations inside window; reservedSince counts own reservations made
-// since ProviderReservationsSince(limits). It returns the limit and count to
+// since ProviderReservationsSince(limits, family). It returns the limit and count to
 // reserve against (never looser than the own ones) and, when the request must
 // wait, the time to try again.
 func ProviderLimitDecision(limits ProviderLimits, family string, ownLimit, ownUsed, reservedSince int, window time.Duration, now time.Time) (limit, used int, retryAt time.Time) {
 	limit, used = ownLimit, ownUsed
 	now = now.UTC()
-	statedUsed, statedMax, ok := limits.family(family)
-	observed := limits.ObservedAt.UTC()
-	if !ok || window <= 0 || observed.IsZero() || !now.Before(observed.Add(window)) {
+	statedUsed, statedMax, ok := limits.Family(family)
+	observed, maximumAt := limits.CounterObservedAt(family), limits.MaximumObservedAt(family)
+	if !ok || window <= 0 || maximumAt.IsZero() || !now.Before(maximumAt.Add(window)) {
 		// Nothing stated, or the reading is a whole window old.
 		return limit, used, time.Time{}
 	}
@@ -116,7 +157,7 @@ func ProviderLimitDecision(limits ProviderLimits, family string, ownLimit, ownUs
 	if statedMax < limit {
 		limit = statedMax
 	}
-	if statedUsed < 0 {
+	if statedUsed < 0 || observed.IsZero() || !now.Before(observed.Add(window)) {
 		return limit, used, time.Time{}
 	}
 	if reservedSince < 0 {
@@ -124,9 +165,9 @@ func ProviderLimitDecision(limits ProviderLimits, family string, ownLimit, ownUs
 	}
 	expires := observed.Add(window)
 	estimate := statedUsed + reservedSince
-	if statedUsed >= statedMax {
-		// Used up at the reading. Probes are the only requests let through,
-		// and each one counts in reservedSince.
+	if limits.counterExhausted(family, statedUsed, statedMax) {
+		// Unused probe opportunities never accumulate. The reservation store
+		// records the last actual probe under the same lock as the request.
 		probeFrom := observed.Add(providerProbeHold)
 		if release := limits.oldest(family).UTC().Add(window); !limits.oldest(family).IsZero() && release.After(probeFrom) {
 			probeFrom = release
@@ -134,16 +175,14 @@ func ProviderLimitDecision(limits ProviderLimits, family string, ownLimit, ownUs
 		if probeFrom.After(expires) {
 			probeFrom = expires
 		}
-		allowed := 0
-		if !now.Before(probeFrom) {
-			allowed = 1 + int(now.Sub(probeFrom)/providerProbeInterval)
+		if next := limits.LastProbeAt(family).Add(providerProbeInterval); !limits.LastProbeAt(family).IsZero() && next.After(probeFrom) {
+			probeFrom = next
 		}
-		if reservedSince >= allowed {
-			next := probeFrom.Add(time.Duration(allowed) * providerProbeInterval)
-			if next.After(expires) {
-				next = expires
-			}
-			return limit, statedMax, next
+		if probeFrom.After(expires) {
+			probeFrom = expires
+		}
+		if now.Before(probeFrom) {
+			return limit, max(ownUsed, statedMax), probeFrom
 		}
 		// A probe: leave exactly one request of room.
 		estimate = statedMax - 1
@@ -164,6 +203,20 @@ func ProviderLimitDecision(limits ProviderLimits, family string, ownLimit, ownUs
 		}
 	}
 	return limit, used, retryAt
+}
+
+// Exhausted reports a still-current counter that permits only recovery probes.
+func (limits ProviderLimits) Exhausted(family string, window time.Duration, now time.Time) bool {
+	used, maximum, ok := limits.Family(family)
+	return ok && limits.counterExhausted(family, used, maximum) && window > 0 && now.Before(limits.CounterObservedAt(family).Add(window)) && now.Before(limits.MaximumObservedAt(family).Add(window))
+}
+
+func (limits ProviderLimits) counterExhausted(family string, used, maximum int) bool {
+	paired := limits.QueryCounterMax
+	if family == "grab" {
+		paired = limits.GrabCounterMax
+	}
+	return used >= maximum || paired > 0 && used >= paired
 }
 
 // ProviderLimitStore keeps the newest reading per indexer. The reservation

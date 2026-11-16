@@ -7,6 +7,7 @@ import { createBackup, loadActivity, loadBackups, loadQueue, loadRecycle, loadRe
 import { AltMountStatusSection } from "@/components/altmount-status"
 import { chipColor, IconChip, initials } from "@/components/icon-chip"
 import { PlexAccessFix } from "@/components/plex-access"
+import { QueueTimings } from "@/components/queue-timings"
 import { useToast } from "@/components/toast"
 import { Badge, Button, Card, CardHeader, cx, Dot, Empty, ErrorBox, KeyValue, PageHeader, PillNav, ShowMore } from "@/components/ui"
 import { formatBytes, formatDateTime, formatNumber, formatRelative, pluralize } from "@/format"
@@ -192,6 +193,7 @@ function Queue() {
           </tbody>
         </table>
       </div>
+      <QueueTimings queue={q} />
     </Card>
   )
 }
