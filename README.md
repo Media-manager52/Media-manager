@@ -13,6 +13,8 @@ and audio and subtitle checks before publication.
 [![Release](https://img.shields.io/github/v/release/Media-manager52/Media-manager?include_prereleases&sort=semver&label=release)](https://github.com/Media-manager52/Media-manager/releases)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
 
+**Latest beta: [v0.1.0-beta.37](https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.37)**
+
 [Install](#installation) · [Documentation](docs/README.md) · [Releases](https://github.com/Media-manager52/Media-manager/releases) · [Get help](.github/SUPPORT.md)
 
 Beta software · Danish interface · Linux amd64
