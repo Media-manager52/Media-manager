@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.36] - 2026-11-16
+
 ### Changed
 
 - **abNZB's newest uploads are read as a movie and a series request.** abNZB leaves the subtitle list and the NFO flag out of its general search answer and includes them in its movie and series answers (measured on the same uploads). Its newest uploads are therefore read with `t=movie` and `t=tvsearch` instead of one `t=search`. Each request keeps its own progress, remembered uploads and gap count (new table `indexer_feed_stream_state`); both use the indexer's one pacing lane and the same tenth of its query allowance, so each is read at most half as often as the one request was where the allowance sets the pace. On the first read each request goes on from the uploads the single request saw last. Every other indexer is read as before. Nothing is selected from the list, as before: a match still only brings the title's own search forward.
@@ -742,6 +744,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.36]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.36
 [0.1.0-beta.35]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.35
 [0.1.0-beta.34]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.34
 [0.1.0-beta.33]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.33
