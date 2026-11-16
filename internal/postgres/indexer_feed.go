@@ -104,7 +104,11 @@ func (store *Store) ListFeedWorkflows(ctx context.Context) ([]FeedWorkflow, erro
 
 // IndexerFeedState is what the reader last did for one indexer.
 type IndexerFeedState struct {
-	IndexerInstanceID   uuid.UUID
+	IndexerInstanceID uuid.UUID
+	// Stream names the request this state belongs to when the indexer's
+	// newest uploads are read as separate movie and series requests ("movie",
+	// "series"); it is empty for the ordinary single request.
+	Stream              string
 	LastReadAt          *time.Time
 	NextReadAt          *time.Time
 	IntervalSeconds     int
@@ -143,6 +147,35 @@ func (store *Store) IndexerFeedStates(ctx context.Context) (map[uuid.UUID]Indexe
 	return result, rows.Err()
 }
 
+// FeedStreamKey identifies the reader state of one stream of one indexer.
+type FeedStreamKey struct {
+	IndexerInstanceID uuid.UUID
+	Stream            string
+}
+
+// IndexerFeedStreamStates returns the reader state of every separately read
+// movie and series stream.
+func (store *Store) IndexerFeedStreamStates(ctx context.Context) (map[FeedStreamKey]IndexerFeedState, error) {
+	rows, err := store.Pool.Query(ctx, `SELECT indexer_instance_id::text,stream,last_read_at,next_read_at,interval_seconds,last_outcome,consecutive_failures,last_item_count,last_new_count,
+		recent_guids,reads_total,gap_reads_total,last_read_complete FROM indexer_feed_stream_state`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[FeedStreamKey]IndexerFeedState{}
+	for rows.Next() {
+		var state IndexerFeedState
+		var idText string
+		if err := rows.Scan(&idText, &state.Stream, &state.LastReadAt, &state.NextReadAt, &state.IntervalSeconds, &state.LastOutcome, &state.ConsecutiveFailures, &state.LastItemCount, &state.LastNewCount,
+			&state.RecentGUIDs, &state.ReadsTotal, &state.GapReadsTotal, &state.LastReadComplete); err != nil {
+			return nil, err
+		}
+		state.IndexerInstanceID, _ = uuid.Parse(idText)
+		result[FeedStreamKey{IndexerInstanceID: state.IndexerInstanceID, Stream: state.Stream}] = state
+	}
+	return result, rows.Err()
+}
+
 // FeedMatch is one new upload that passed the title, identity and scope
 // checks of a waiting workflow.
 type FeedMatch struct {
@@ -164,14 +197,22 @@ func (store *Store) RecordIndexerFeedRead(ctx context.Context, state IndexerFeed
 	if recent == nil {
 		recent = []string{}
 	}
-	if _, err := transaction.Exec(ctx, `INSERT INTO indexer_feed_state(indexer_instance_id,last_read_at,next_read_at,interval_seconds,last_outcome,consecutive_failures,last_item_count,last_new_count,updated_at,
-			recent_guids,reads_total,gap_reads_total,last_read_complete)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		ON CONFLICT (indexer_instance_id) DO UPDATE SET last_read_at=EXCLUDED.last_read_at,next_read_at=EXCLUDED.next_read_at,interval_seconds=EXCLUDED.interval_seconds,
+	// A separately read movie or series stream keeps its state in its own
+	// table; the ordinary single request keeps using indexer_feed_state.
+	table, columns, values, conflict := "indexer_feed_state", "", "", "indexer_instance_id"
+	arguments := []any{state.IndexerInstanceID.String(), state.LastReadAt, state.NextReadAt, state.IntervalSeconds, state.LastOutcome, state.ConsecutiveFailures, state.LastItemCount, state.LastNewCount, now.UTC(),
+		recent, state.ReadsTotal, state.GapReadsTotal, state.LastReadComplete}
+	if state.Stream != "" {
+		table, columns, values, conflict = "indexer_feed_stream_state", ",stream", ",$14", "indexer_instance_id,stream"
+		arguments = append(arguments, state.Stream)
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO `+table+`(indexer_instance_id,last_read_at,next_read_at,interval_seconds,last_outcome,consecutive_failures,last_item_count,last_new_count,updated_at,
+			recent_guids,reads_total,gap_reads_total,last_read_complete`+columns+`)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13`+values+`)
+		ON CONFLICT (`+conflict+`) DO UPDATE SET last_read_at=EXCLUDED.last_read_at,next_read_at=EXCLUDED.next_read_at,interval_seconds=EXCLUDED.interval_seconds,
 			last_outcome=EXCLUDED.last_outcome,consecutive_failures=EXCLUDED.consecutive_failures,last_item_count=EXCLUDED.last_item_count,last_new_count=EXCLUDED.last_new_count,updated_at=EXCLUDED.updated_at,
 			recent_guids=EXCLUDED.recent_guids,reads_total=EXCLUDED.reads_total,gap_reads_total=EXCLUDED.gap_reads_total,last_read_complete=EXCLUDED.last_read_complete`,
-		state.IndexerInstanceID.String(), state.LastReadAt, state.NextReadAt, state.IntervalSeconds, state.LastOutcome, state.ConsecutiveFailures, state.LastItemCount, state.LastNewCount, now.UTC(),
-		recent, state.ReadsTotal, state.GapReadsTotal, state.LastReadComplete); err != nil {
+		arguments...); err != nil {
 		return 0, err
 	}
 	inserted := 0
@@ -578,10 +619,25 @@ type IndexerFeedSummary struct {
 }
 
 func (store *Store) IndexerFeedSummaries(ctx context.Context, now time.Time) (map[uuid.UUID]IndexerFeedSummary, error) {
-	rows, err := store.Pool.Query(ctx, `SELECT feed.indexer_instance_id::text,feed.last_read_at,feed.next_read_at,feed.last_outcome,
+	// An indexer read as separate movie and series requests is shown as one
+	// reader: the latest read, the earliest next read, the sums of the counts
+	// and, when the streams differ, the outcome that is not "ok". Its rows
+	// replace the single-request row once they are the newer ones.
+	rows, err := store.Pool.Query(ctx, `WITH streams AS (
+			SELECT indexer_instance_id,max(last_read_at) last_read_at,min(next_read_at) next_read_at,
+				COALESCE(min(last_outcome) FILTER (WHERE last_outcome NOT IN ('ok','')),min(last_outcome)) last_outcome,
+				sum(reads_total)::bigint reads_total,sum(gap_reads_total)::bigint gap_reads_total,max(updated_at) updated_at
+			FROM indexer_feed_stream_state GROUP BY indexer_instance_id),
+		feed AS (
+			SELECT single.indexer_instance_id,single.last_read_at,single.next_read_at,single.last_outcome,single.reads_total,single.gap_reads_total FROM indexer_feed_state single
+			WHERE NOT EXISTS(SELECT 1 FROM streams WHERE streams.indexer_instance_id=single.indexer_instance_id AND streams.updated_at>=single.updated_at)
+			UNION ALL
+			SELECT streams.indexer_instance_id,streams.last_read_at,streams.next_read_at,streams.last_outcome,streams.reads_total,streams.gap_reads_total FROM streams
+			WHERE NOT EXISTS(SELECT 1 FROM indexer_feed_state single WHERE single.indexer_instance_id=streams.indexer_instance_id AND single.updated_at>streams.updated_at))
+		SELECT feed.indexer_instance_id::text,feed.last_read_at,feed.next_read_at,feed.last_outcome,
 		(SELECT count(*) FROM indexer_feed_matches hit WHERE hit.indexer_instance_id=feed.indexer_instance_id AND hit.seen_at>$1),
 		feed.reads_total,feed.gap_reads_total
-		FROM indexer_feed_state feed`, now.UTC().Add(-24*time.Hour))
+		FROM feed`, now.UTC().Add(-24*time.Hour))
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
+<channel>
+<title>Example</title>
+<newznab:apilimits apicurrent="120" apimax="1000"   grabmax="30" apioldesttime="Sat, 14 Nov 2026 07:04:29 +0000" />
+<newznab:response offset="0" total="1000"/>
+<item>
+<title>Example.Show.S01E01.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://abnzb.example/details/00000000000000000000000000000001</guid>
+<link>https://abnzb.example/getnzb/00000000000000000000000000000001.nzb</link>
+<pubDate>Sun, 15 Nov 2026 06:42:05 +0000</pubDate>
+<newznab:attr name="category" value="5000"/>
+<newznab:attr name="category" value="5040"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="00000000000000000000000000000001"/>
+<newznab:attr name="sha1" value="685638cda0a3bb0795b7532963573df9b9b7e015"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="season" value="S01"/>
+<newznab:attr name="episode" value="E01"/>
+<newznab:attr name="tvtitle" value="Example Show"/>
+<newznab:attr name="subs" value="English, English, Arabic, Czech, Danish, German, Greek, es-419, es-ES, Finnish, fil, French, Unknown (he), Croatian, Hungarian, Unknown (id), Italian, Japanese, Korean, Malay, Unknown (nb), Dutch, Polish, pt-BR, pt-PT, Romanian, Russian, Swedish, Thai, Turkish, Ukrainian, Vietnamese, zh-Hans, zh-Hant"/>
+<newznab:attr name="tvairdate" value="Thu, 12 Nov 2026 00:00:00 +0000"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="-1"/>
+<newznab:attr name="nfo" value="1"/>
+<newznab:attr name="info" value="https://abnzb.example/api?t=getnfo&amp;id=00000000000000000000000000000001&amp;raw=1"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 11:42:04 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+</item>
+<item>
+<title>Example.Show.S01E02.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://abnzb.example/details/00000000000000000000000000000002</guid>
+<link>https://abnzb.example/getnzb/00000000000000000000000000000002.nzb</link>
+<pubDate>Sun, 15 Nov 2026 06:40:59 +0000</pubDate>
+<newznab:attr name="category" value="5000"/>
+<newznab:attr name="category" value="5040"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="00000000000000000000000000000002"/>
+<newznab:attr name="sha1" value="96d7664c5e25f059c01f6a62210b75074a63d793"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="season" value="S01"/>
+<newznab:attr name="episode" value="E03"/>
+<newznab:attr name="tvtitle" value="Example Show"/>
+<newznab:attr name="subs" value="English, English, Arabic, Czech, Danish, German, Greek, es-419, es-ES, Finnish, fil, French, Unknown (he), Croatian, Hungarian, Unknown (id), Italian, Japanese, Korean, Malay, Unknown (nb), Dutch, Polish, pt-BR, pt-PT, Romanian, Russian, Swedish, Thai, Turkish, Ukrainian, Vietnamese, zh-Hans, zh-Hant"/>
+<newznab:attr name="tvairdate" value="Thu, 12 Nov 2026 00:00:00 +0000"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="-1"/>
+<newznab:attr name="nfo" value="1"/>
+<newznab:attr name="info" value="https://abnzb.example/api?t=getnfo&amp;id=00000000000000000000000000000002&amp;raw=1"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 11:40:59 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+</item>
+<item>
+<title>Example.Show.S01E03.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://abnzb.example/details/00000000000000000000000000000003</guid>
+<link>https://abnzb.example/getnzb/00000000000000000000000000000003.nzb</link>
+<pubDate>Sun, 15 Nov 2026 06:50:43 +0000</pubDate>
+<newznab:attr name="category" value="5000"/>
+<newznab:attr name="category" value="5040"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="00000000000000000000000000000003"/>
+<newznab:attr name="sha1" value="875bc6022bc2d279be3fd3b7d88aedcdacce614a"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="season" value="S03"/>
+<newznab:attr name="episode" value="E03"/>
+<newznab:attr name="tvtitle" value="Example Show"/>
+<newznab:attr name="tvairdate" value="Fri, 06 Nov 2026 00:00:00 +0000"/>
+<newznab:attr name="imdb" value="0000003"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="-1"/>
+<newznab:attr name="nfo" value="1"/>
+<newznab:attr name="info" value="https://abnzb.example/api?t=getnfo&amp;id=00000000000000000000000000000003&amp;raw=1"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 11:50:43 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+</item>
+<item>
+<title>Example.Show.S01E04.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://abnzb.example/details/00000000000000000000000000000004</guid>
+<link>https://abnzb.example/getnzb/00000000000000000000000000000004.nzb</link>
+<pubDate>Sun, 15 Nov 2026 06:52:54 +0000</pubDate>
+<newznab:attr name="category" value="5000"/>
+<newznab:attr name="category" value="5040"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="00000000000000000000000000000004"/>
+<newznab:attr name="sha1" value="db54de0001b303d05872cc1e739a3505123180a3"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="season" value="S52"/>
+<newznab:attr name="episode" value="E06"/>
+<newznab:attr name="tvtitle" value="Example Show"/>
+<newznab:attr name="subs" value="Unknown"/>
+<newznab:attr name="tvairdate" value="Sat, 14 Nov 2026 00:00:00 +0000"/>
+<newznab:attr name="imdb" value="0000004"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="-1"/>
+<newznab:attr name="nfo" value="0"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 11:52:53 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+</item>
+</channel>
+</rss>

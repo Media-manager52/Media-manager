@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
+<channel>
+<title>Example</title>
+<newznab:apilimits apicurrent="120" apimax="1000"   grabmax="30" apioldesttime="Sat, 14 Nov 2026 07:04:29 +0000" />
+<newznab:response offset="0" total="1000"/>
+<item>
+<title>Example.Movie.5.2024.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://abnzb.example/details/00000000000000000000000000000005</guid>
+<link>https://abnzb.example/getnzb/00000000000000000000000000000005.nzb</link>
+<pubDate>Sat, 14 Nov 2026 23:27:02 +0000</pubDate>
+<newznab:attr name="category" value="2000"/>
+<newznab:attr name="category" value="2040"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="00000000000000000000000000000005"/>
+<newznab:attr name="sha1" value="8a5a65cbb8d72779a41a9994be080639587b5650"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="subs" value="English, English, English, Arabic, Bulgarian, Chinese, Chinese, Chinese, Czech, Danish, Dutch, Estonian, Spanish, Finnish, French, French, German, Greek, Unknown (he), Hindi, Hungarian, Unknown (id), Italian, Japanese, Korean, Spanish, Latvian/Lettish, Lithuanian, Malay, Norwegian, Polish, Portuguese, Portuguese, Russian, Slovak, Slovenian, Swedish, Tamil, Tegulu, Thai, Turkish, Ukrainian, Vietnamese"/>
+<newznab:attr name="imdb" value="0000005"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="-1"/>
+<newznab:attr name="nfo" value="0"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 04:27:01 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+</item>
+<item>
+<title>Example.Movie.6.2024.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://abnzb.example/details/00000000000000000000000000000006</guid>
+<link>https://abnzb.example/getnzb/00000000000000000000000000000006.nzb</link>
+<pubDate>Sat, 14 Nov 2026 22:24:58 +0000</pubDate>
+<newznab:attr name="category" value="2000"/>
+<newznab:attr name="category" value="2040"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="00000000000000000000000000000006"/>
+<newznab:attr name="sha1" value="9db83e06ca256ed0dca1ae2dd386578db5ef3382"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="subs" value="English, English, English, zh-Hans, zh-Hant, Czech, Danish, de-DE, Greek, Estonian, Finnish, fr-FR, Unknown (id), Korean, Lithuanian, Latvian/Lettish, Dutch, Norwegian, Polish, pt-PT, Slovak, Slovenian, Swedish, Thai, Ukrainian, Vietnamese, yue-Hant"/>
+<newznab:attr name="imdb" value="0000006"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="-1"/>
+<newznab:attr name="nfo" value="0"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 03:24:57 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+</item>
+<item>
+<title>Example.Movie.7.2024.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://abnzb.example/details/00000000000000000000000000000007</guid>
+<link>https://abnzb.example/getnzb/00000000000000000000000000000007.nzb</link>
+<pubDate>Sun, 15 Nov 2026 06:40:32 +0000</pubDate>
+<newznab:attr name="category" value="2000"/>
+<newznab:attr name="category" value="2040"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="00000000000000000000000000000007"/>
+<newznab:attr name="sha1" value="50fd4d97bd9dc76d06fda3ab53016b8f68ff91a3"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="imdb" value="0000007"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="-1"/>
+<newznab:attr name="nfo" value="0"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 11:40:32 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+</item>
+<item>
+<title>Example.Movie.8.2024.1080p.WEB.h264-GRP</title>
+<guid isPermaLink="true">https://abnzb.example/details/00000000000000000000000000000008</guid>
+<link>https://abnzb.example/getnzb/00000000000000000000000000000008.nzb</link>
+<pubDate>Sun, 15 Nov 2026 06:04:47 +0000</pubDate>
+<newznab:attr name="category" value="2000"/>
+<newznab:attr name="category" value="2010"/>
+<newznab:attr name="size" value="1000000000"/>
+<newznab:attr name="guid" value="00000000000000000000000000000008"/>
+<newznab:attr name="sha1" value="38fa3f585db67c176a56a94475215ffecf1b77c6"/>
+<newznab:attr name="files" value="1"/>
+<newznab:attr name="poster" value="poster@example.invalid"/>
+<newznab:attr name="subs" value="English, English, Finnish"/>
+<newznab:attr name="imdb" value="0000008"/>
+<newznab:attr name="grabs" value="1"/>
+<newznab:attr name="comments" value="1"/>
+<newznab:attr name="password" value="-1"/>
+<newznab:attr name="nfo" value="1"/>
+<newznab:attr name="info" value="https://abnzb.example/api?t=getnfo&amp;id=00000000000000000000000000000008&amp;raw=1"/>
+<newznab:attr name="usenetdate" value="Sun, 15 Nov 2026 11:04:46 +0000"/>
+<newznab:attr name="group" value="alt.binaries.example"/>
+</item>
+</channel>
+</rss>

@@ -259,6 +259,12 @@ func run() error {
 	if simklClient != nil {
 		metadataProviderStates["simkl"], metadataProviderStates["imdb"] = "direct_configured", "via_simkl_when_available"
 	}
+	// INDEXER_STATED_LIMITS=off ignores the usage counters indexers state in
+	// their answers: none is saved and none is applied to a reservation. Media
+	// Manager's own reservations, pacing and cooldowns are unaffected.
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("INDEXER_STATED_LIMITS")), "off") {
+		postgres.IgnoreIndexerStatedLimits()
+	}
 	scheduler := indexers.NewScheduler(4, store)
 	var oldBoysCredentials *oldboyscredentials.Service
 	if key := optionalSecret(oldboyscredentials.KeyReference); key != "" {
@@ -435,7 +441,14 @@ func run() error {
 		// day per title; FEED_OPEN_ROUNDS=off keeps every new round the
 		// owner's action.
 		openRounds := !strings.EqualFold(strings.TrimSpace(os.Getenv("FEED_OPEN_ROUNDS")), "off")
-		go (&acquisition.FeedWatcher{Search: searchService, OpenRounds: openRounds}).Run(workerContext)
+		// FEED_SPLIT=off reads every indexer's newest uploads with the one
+		// ordinary request again, also where a movie and a series request
+		// carry more (newznab.FeedStreams).
+		var feedStreams acquisition.FeedStreamDecision
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("FEED_SPLIT")), "off") {
+			feedStreams = acquisition.SingleFeedRequest
+		}
+		go (&acquisition.FeedWatcher{Search: searchService, OpenRounds: openRounds, Streams: feedStreams}).Run(workerContext)
 	}
 	go func() {
 		_, _ = store.PlanDueRecyclePurges(workerContext, time.Now().UTC(), 100)

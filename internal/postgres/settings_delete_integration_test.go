@@ -112,6 +112,8 @@ func TestSettingsDeleteKnowsEveryCascade(t *testing.T) {
 	want := []string{
 		"integration_instances <- indexer_feed_matches c",          // newest-uploads reader notes; belong to the indexer
 		"integration_instances <- indexer_feed_state c",            // newest-uploads reader notes; belong to the indexer
+		"integration_instances <- indexer_feed_stream_state c",     // newest-uploads reader notes per stream; belong to the indexer
+		"integration_instances <- indexer_provider_limits c",       // the indexer's own stated usage counters; belong to the indexer
 		"integration_instances <- indexer_request_reservations c",  // checked
 		"integration_instances <- integration_connection_checks c", // belongs to the integration
 		"integration_instances <- integration_secrets c",           // belongs to the integration

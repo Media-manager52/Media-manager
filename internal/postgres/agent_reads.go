@@ -223,7 +223,10 @@ type QueueSnapshot struct {
 	CompletedLast10m  int64              `json:"completed_last_10m"`
 	CompletedLastHour int64              `json:"completed_last_hour"`
 	ByType            []QueueEventCounts `json:"by_type"`
-	CheckedAt         time.Time          `json:"checked_at"`
+	// TimingsLast24h says how the events finished in the last 24 hours spent
+	// their time: scheduled wait, waiting in the queue, work and retries.
+	TimingsLast24h []OutboxTiming `json:"timings_last_24h"`
+	CheckedAt      time.Time      `json:"checked_at"`
 }
 
 // QueueSnapshot describes the durable background queue. The worker handles
@@ -257,7 +260,10 @@ func (store *Store) QueueSnapshot(ctx context.Context, now time.Time) (QueueSnap
 	if err := rows.Err(); err != nil {
 		return QueueSnapshot{}, err
 	}
-	err = store.Pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE completed_at>$1),count(*) FROM outbox_events WHERE completed_at>$2`, now.Add(-10*time.Minute), now.Add(-time.Hour)).Scan(&snapshot.CompletedLast10m, &snapshot.CompletedLastHour)
+	if err := store.Pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE completed_at>$1),count(*) FROM outbox_events WHERE completed_at>$2`, now.Add(-10*time.Minute), now.Add(-time.Hour)).Scan(&snapshot.CompletedLast10m, &snapshot.CompletedLastHour); err != nil {
+		return QueueSnapshot{}, err
+	}
+	snapshot.TimingsLast24h, err = store.OutboxTimings(ctx, now.Add(-24*time.Hour))
 	return snapshot, err
 }
 

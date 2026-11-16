@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/media-manager/media-manager/internal/postgres/dbcore"
+	"sync/atomic"
 	"time"
 	"uuid"
 
@@ -78,6 +79,29 @@ func (store *Commissioning) ReserveIndexerRequest(ctx context.Context, indexerID
 	if err := transaction.QueryRow(ctx, `SELECT count(*),min(reserved_at) FROM indexer_request_reservations WHERE indexer_instance_id=$1 AND request_family=$2 AND reserved_at > $3`, indexerID, family, windowStart).Scan(&used, &oldest); err != nil {
 		return time.Time{}, err
 	}
+	// The indexer's own stated counters may tighten the limit and the count,
+	// never loosen them. The decision is taken under the same lock as the
+	// reservation, so two processes cannot both take the last request.
+	stated, found := indexers.ProviderLimits{}, false
+	if !IgnoreProviderLimits.Load() {
+		if stated, found, err = loadProviderLimits(ctx, transaction, indexerID); err != nil {
+			return time.Time{}, err
+		}
+	}
+	if found {
+		var reservedSince int64
+		if err := transaction.QueryRow(ctx, `SELECT count(*) FROM indexer_request_reservations WHERE indexer_instance_id=$1 AND request_family=$2 AND reserved_at > $3`, indexerID, family, indexers.ProviderReservationsSince(stated)).Scan(&reservedSince); err != nil {
+			return time.Time{}, err
+		}
+		tightLimit, tightUsed, statedRetry := indexers.ProviderLimitDecision(stated, family, limit, int(used), int(reservedSince), window, now)
+		if !statedRetry.IsZero() {
+			if err := transaction.Commit(ctx); err != nil {
+				return time.Time{}, err
+			}
+			return statedRetry, nil
+		}
+		limit, used = tightLimit, int64(tightUsed)
+	}
 	if used >= int64(limit) {
 		retryAt := now.UTC().Add(window)
 		if oldest != nil {
@@ -92,6 +116,79 @@ func (store *Commissioning) ReserveIndexerRequest(ctx context.Context, indexerID
 		return time.Time{}, err
 	}
 	return time.Time{}, transaction.Commit(ctx)
+}
+
+// IgnoreProviderLimits switches the indexers' own stated counters off for the
+// whole process: no reading is saved or applied. It is set once at start-up.
+var IgnoreProviderLimits atomic.Bool
+
+// querier is what loadProviderLimits needs from a pool or a transaction.
+type querier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func loadProviderLimits(ctx context.Context, db querier, indexerID string) (indexers.ProviderLimits, bool, error) {
+	limits := indexers.ProviderLimits{QueryUsed: -1, QueryMax: -1, GrabUsed: -1, GrabMax: -1}
+	var queryUsed, queryMax, grabUsed, grabMax *int
+	var queryOldest, grabOldest *time.Time
+	err := db.QueryRow(ctx, `SELECT observed_at,query_used,query_max,query_oldest_at,grab_used,grab_max,grab_oldest_at FROM indexer_provider_limits WHERE indexer_instance_id=$1`, indexerID).
+		Scan(&limits.ObservedAt, &queryUsed, &queryMax, &queryOldest, &grabUsed, &grabMax, &grabOldest)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return indexers.ProviderLimits{}, false, nil
+	}
+	if err != nil {
+		return indexers.ProviderLimits{}, false, err
+	}
+	for _, field := range []struct {
+		from *int
+		to   *int
+	}{{queryUsed, &limits.QueryUsed}, {queryMax, &limits.QueryMax}, {grabUsed, &limits.GrabUsed}, {grabMax, &limits.GrabMax}} {
+		if field.from != nil {
+			*field.to = *field.from
+		}
+	}
+	if queryOldest != nil {
+		limits.QueryOldest = *queryOldest
+	}
+	if grabOldest != nil {
+		limits.GrabOldest = *grabOldest
+	}
+	return limits, true, nil
+}
+
+// LoadProviderLimits returns the newest reading of an indexer's own stated
+// counters, if it ever stated any.
+func (store *Commissioning) LoadProviderLimits(ctx context.Context, indexerID string) (indexers.ProviderLimits, bool, error) {
+	return loadProviderLimits(ctx, store.Pool, indexerID)
+}
+
+// SaveProviderLimits keeps a reading unless a newer one is already saved: an
+// answer that arrives late must not put older numbers back.
+func (store *Commissioning) SaveProviderLimits(ctx context.Context, indexerID string, limits indexers.ProviderLimits) error {
+	if !limits.Valid() || IgnoreProviderLimits.Load() {
+		return nil
+	}
+	number := func(value int) any {
+		if value < 0 {
+			return nil
+		}
+		return value
+	}
+	queryUsed, queryMax, queryOK := limits.QueryUsed, limits.QueryMax, limits.QueryMax > 0
+	grabUsed, grabMax, grabOK := limits.GrabUsed, limits.GrabMax, limits.GrabMax > 0
+	if !queryOK {
+		queryUsed, queryMax = -1, -1
+	}
+	if !grabOK {
+		grabUsed, grabMax = -1, -1
+	}
+	_, err := store.Pool.Exec(ctx, `INSERT INTO indexer_provider_limits(indexer_instance_id,observed_at,query_used,query_max,query_oldest_at,grab_used,grab_max,grab_oldest_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT(indexer_instance_id) DO UPDATE SET observed_at=EXCLUDED.observed_at,query_used=EXCLUDED.query_used,query_max=EXCLUDED.query_max,query_oldest_at=EXCLUDED.query_oldest_at,
+			grab_used=EXCLUDED.grab_used,grab_max=EXCLUDED.grab_max,grab_oldest_at=EXCLUDED.grab_oldest_at
+		WHERE indexer_provider_limits.observed_at < EXCLUDED.observed_at`,
+		indexerID, limits.ObservedAt.UTC(), number(queryUsed), number(queryMax), dbcore.NullableTime(limits.QueryOldest), number(grabUsed), number(grabMax), dbcore.NullableTime(limits.GrabOldest))
+	return err
 }
 
 // ReservationLockKey is the advisory-lock key that serializes request budget

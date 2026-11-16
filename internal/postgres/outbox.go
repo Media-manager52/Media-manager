@@ -27,6 +27,17 @@ type OutboxEvent struct {
 // counts as repeatedly failing for claim order.
 const outboxFailingAttempts = 5
 
+// Queue timing. Every claim adds the time the event was due but unclaimed to
+// ready_wait_ms: since it became due, or since the previous worker's lease ran
+// out when that worker never reported back. Every release (done, failed or
+// deferred) adds the time the worker held the event to active_ms. An attempt
+// whose worker vanished adds nothing to active_ms, so that time shows up as
+// the unexplained remainder rather than as work. See OutboxTimings.
+const (
+	outboxReadyWaitSQL = `GREATEST(0,(extract(epoch FROM now()-GREATEST(event.available_at,COALESCE(event.lease_until,event.available_at)))*1000)::bigint)`
+	outboxActiveSQL    = `GREATEST(0,(extract(epoch FROM now()-COALESCE(last_claimed_at,now()))*1000)::bigint)`
+)
+
 // OutboxLane limits which event types a worker may claim. Long, self-contained
 // jobs get their own lane so they cannot hold up everything else.
 type OutboxLane struct {
@@ -63,7 +74,9 @@ func (store *Store) ClaimOutboxLane(ctx context.Context, owner string, limit int
     ELSE CASE WHEN attempts >= $7 THEN 1 ELSE 0 END END,occurred_at,id FOR UPDATE SKIP LOCKED LIMIT $1
 )
 UPDATE outbox_events AS event
-SET lease_owner=$2,lease_until=now()+($3 * interval '1 second'),attempts=attempts+1
+SET lease_owner=$2,lease_until=now()+($3 * interval '1 second'),attempts=attempts+1,
+  first_ready_at=COALESCE(event.first_ready_at,event.available_at),first_claimed_at=COALESCE(event.first_claimed_at,now()),last_claimed_at=now(),
+  claim_count=event.claim_count+1,ready_wait_ms=event.ready_wait_ms+`+outboxReadyWaitSQL+`
 FROM picked WHERE event.id=picked.id
 RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.aggregate_revision,event.event_type,event.payload,event.attempts,event.occurred_at,COALESCE(event.last_error,'')`, limit, owner, lease.Seconds(), preferDiscovery, lane.Only, lane.Except, outboxFailingAttempts)
 	if err != nil {
@@ -95,7 +108,7 @@ RETURNING event.id::text,event.aggregate_type,event.aggregate_id::text,event.agg
 }
 
 func (store *Store) CompleteOutbox(ctx context.Context, id uuid.UUID, owner string) error {
-	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET completed_at=now(),lease_owner=NULL,lease_until=NULL,last_error=NULL WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner)
+	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET completed_at=now(),lease_owner=NULL,lease_until=NULL,last_error=NULL,active_ms=active_ms+`+outboxActiveSQL+` WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner)
 	if err != nil {
 		return err
 	}
@@ -109,7 +122,7 @@ func (store *Store) FailOutbox(ctx context.Context, id uuid.UUID, owner, detail 
 	if len(detail) > 1000 {
 		detail = dbcore.TruncateText(detail, 1000)
 	}
-	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,lease_owner=NULL,lease_until=NULL,last_error=$4 WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail)
+	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,lease_owner=NULL,lease_until=NULL,last_error=$4,active_ms=active_ms+`+outboxActiveSQL+` WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail)
 	if err != nil {
 		return err
 	}
@@ -135,7 +148,7 @@ func (store *Store) deferOutbox(ctx context.Context, id uuid.UUID, owner, detail
 	if len(detail) > 1000 {
 		detail = dbcore.TruncateText(detail, 1000)
 	}
-	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,attempts=CASE WHEN $5 THEN attempts ELSE GREATEST(attempts-1,0) END,lease_owner=NULL,lease_until=NULL,last_error=$4 WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail, preserveAttempts)
+	command, err := store.Pool.Exec(ctx, `UPDATE outbox_events SET available_at=$3,attempts=CASE WHEN $5 THEN attempts ELSE GREATEST(attempts-1,0) END,lease_owner=NULL,lease_until=NULL,last_error=$4,active_ms=active_ms+`+outboxActiveSQL+` WHERE id=$1 AND lease_owner=$2 AND completed_at IS NULL`, id.String(), owner, retryAt.UTC(), detail, preserveAttempts)
 	if err != nil {
 		return err
 	}
