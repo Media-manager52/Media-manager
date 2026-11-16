@@ -4,6 +4,8 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+## [0.1.0-beta.37] - 2026-11-16
+
 ### Fixed
 
 - **Partial indexer quota answers keep earlier counters.** Query and download counters and ceilings now retain their own observation times; missing fields cannot erase a known exhausted quota or keep an old counter alive indefinitely (schema 72).
@@ -755,6 +757,7 @@ The first public beta: `main` at `0041902`, database schema 51. Everything Media
 - A subtitle-failed season output remained unpublished, undeleted, and visible for owner review as required.
 - The supported Docker stack, schema 30, production UI build, Go race suite, browser suite, and GitLab pipeline have passing evidence.
 
+[0.1.0-beta.37]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.37
 [0.1.0-beta.36]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.36
 [0.1.0-beta.35]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.35
 [0.1.0-beta.34]: https://github.com/Media-manager52/Media-manager/releases/tag/v0.1.0-beta.34
