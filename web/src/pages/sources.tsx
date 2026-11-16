@@ -34,7 +34,10 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
   const [deleting, setDeleting] = useState(false)
   const shownName = indexer.name.replace(/\s*\{DK\}\s*/i, "")
   const { budget, usage, pacing } = indexer
-  const usedShare = budget.query_limit ? usage.queries_used / budget.query_limit : 0
+  const queries = indexer.effective_budget?.queries ?? { limit: budget.query_limit, used: usage.queries_used, remaining: usage.queries_remaining, blocked: usage.queries_remaining === 0 }
+  const grabs = indexer.effective_budget?.grabs ?? { limit: budget.grab_limit, used: usage.grabs_used, remaining: usage.grabs_remaining, blocked: usage.grabs_remaining === 0 }
+  const quotaBlocked = queries.blocked || grabs.blocked
+  const usedShare = queries.limit ? queries.used / queries.limit : 0
   const failing = pacing.consecutive_failures > 0
   const cooling = isFuture(pacing.cooldown_until)
   const outcomes = indexer.search_outcomes_24h ?? []
@@ -53,7 +56,7 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
           <div className="min-w-0">
             <h2 className="font-semibold">{indexer.name.replace(/\s*\{DK\}\s*/i, "")}</h2>
             <div className="mt-1 flex flex-wrap gap-1.5">
-              {!indexer.enabled ? <Badge>Slået fra</Badge> : failing ? <Badge tone="bad">{pacing.consecutive_failures} fejl i træk</Badge> : cooling ? <Badge tone="warn">Holder pause</Badge> : <Badge tone="good">Kører</Badge>}
+              {!indexer.enabled ? <Badge>Slået fra</Badge> : failing ? <Badge tone="bad">{pacing.consecutive_failures} fejl i træk</Badge> : quotaBlocked ? <Badge tone="warn">Kvote opbrugt</Badge> : cooling ? <Badge tone="warn">Holder pause</Badge> : <Badge tone="good">Kører</Badge>}
               {!indexer.commissioned && indexer.enabled ? <Badge tone="warn">Ikke godkendt</Badge> : null}
               <Badge>{indexer.kind === "oldboys" ? "OldBoys" : "Newznab"}</Badge>
             </div>
@@ -72,13 +75,17 @@ function IndexerCard({ indexer }: { indexer: APIIndexerUsage }) {
       </div>
       <div className="space-y-3 px-5 py-4 text-sm">
         <div>
-          <div className="mb-1 flex justify-between"><span className="text-text-2">Søgninger</span><span className="tabular">{formatNumber(usage.queries_used)} / {formatNumber(budget.query_limit)}</span></div>
-          <Progress value={usage.queries_used} max={budget.query_limit} tone={usedShare > 0.9 ? "bad" : usedShare > 0.7 ? "warn" : "info"} label="Søgninger brugt" />
+          <div className="mb-1 flex justify-between"><span className="text-text-2">Søgninger</span><span className="tabular">{formatNumber(queries.used)} / {formatNumber(queries.limit)}</span></div>
+          <Progress value={queries.used} max={queries.limit} tone={usedShare > 0.9 ? "bad" : usedShare > 0.7 ? "warn" : "info"} label="Søgninger brugt" />
         </div>
         <div>
-          <div className="mb-1 flex justify-between"><span className="text-text-2">Hentninger (NZB)</span><span className="tabular">{formatNumber(usage.grabs_used)} / {formatNumber(budget.grab_limit)}</span></div>
-          <Progress value={usage.grabs_used} max={budget.grab_limit} tone="info" label="Hentninger brugt" />
+          <div className="mb-1 flex justify-between"><span className="text-text-2">Hentninger (NZB)</span><span className="tabular">{formatNumber(grabs.used)} / {formatNumber(grabs.limit)}</span></div>
+          <Progress value={grabs.used} max={grabs.limit} tone={grabs.blocked ? "warn" : "info"} label="Hentninger brugt" />
         </div>
+        {indexer.effective_budget ? <p className="text-xs text-text-3">Tilbage nu: {formatNumber(queries.remaining)} søgninger · {formatNumber(grabs.remaining)} hentninger. Egne reservationer: {formatNumber(usage.queries_used)} søgninger · {formatNumber(usage.grabs_used)} hentninger.</p> : null}
+        {([ ["Søgninger", indexer.provider_counters?.queries], ["Hentninger", indexer.provider_counters?.grabs] ] as const).map(([label, counter]) => counter ? <p key={label} className="text-xs text-text-3">{label} hos kilden: {counter.used == null ? "forbrug ikke oplyst" : formatNumber(counter.used)} / {formatNumber(counter.count_maximum ?? counter.maximum)}{counter.observed_at ? ` · aflæst ${formatRelative(counter.observed_at)}` : ` · grænse aflæst ${formatRelative(counter.maximum_observed_at)}`}{counter.observed_at && counter.observed_at !== counter.maximum_observed_at ? ` · seneste grænse ${formatNumber(counter.maximum)} aflæst ${formatRelative(counter.maximum_observed_at)}` : ""}</p> : null)}
+        {queries.blocked ? <p className="text-xs text-warn">Søgninger venter på ledig kvote{queries.retry_at ? ` · prøver tidligst ${formatDateTime(queries.retry_at)}` : ""}.</p> : null}
+        {grabs.blocked ? <p className="text-xs text-warn">Hentninger venter på ledig kvote{grabs.retry_at ? ` · prøver tidligst ${formatDateTime(grabs.retry_at)}` : ""}.</p> : null}
         {downloads ? (
           <div>
             <div className="mb-1 flex justify-between gap-3"><span className="text-text-2" title="Godkendt betyder, at filen blev hentet og bestod kontrollen af sprog og kvalitet.">Godkendte, 30 dage</span><span className="tabular whitespace-nowrap">{downloads.finished ? `${formatNumber(downloads.verified)} af ${formatNumber(downloads.finished)} (${formatNumber(Math.round((downloads.verified / downloads.finished) * 100))} %)` : "Ingen downloads"}</span></div>

@@ -159,11 +159,13 @@ func (store *Store) rejectUnconfirmedBrokenFile(ctx context.Context, altMountID 
 		FROM altmount_output_inventories inventory
 		JOIN altmount_jobs job ON job.id=inventory.job_id AND job.altmount_instance_id=$2
 		JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id AND inventory.root_relative || '/' || asset.relative_path=$1
-		JOIN library_link_versions version ON version.source_asset_id=asset.id AND version.altmount_job_id=job.id AND version.state IN ('planned','publishing','verified','quarantined')
-		JOIN workflows workflow ON workflow.id=version.workflow_id AND workflow.grab_attempt_id=job.id AND workflow.terminal_at IS NULL
+		LEFT JOIN library_link_versions version ON version.source_asset_id=asset.id AND version.altmount_job_id=job.id AND version.state IN ('planned','publishing','verified','quarantined')
+		JOIN workflows workflow ON workflow.id=job.workflow_id AND workflow.grab_attempt_id=job.id AND workflow.terminal_at IS NULL
 		  AND workflow.state='needs_attention' AND workflow.attention_code IN ('plex_timeout','publication_failed')
 		WHERE $1 LIKE inventory.root_relative || '/%'
-		ORDER BY workflow.id LIMIT 1`, filePath, altMountID.String()).Scan(&workflowText)
+        AND (version.id IS NOT NULL OR (workflow.attention_code='publication_failed' AND job.state='import_complete' AND asset.media_info IS NOT NULL
+          AND EXISTS(SELECT 1 FROM subtitle_verifications verification WHERE verification.inventory_id=inventory.id AND verification.altmount_job_id=job.id AND verification.status='verified')))
+        ORDER BY workflow.id LIMIT 1`, filePath, altMountID.String()).Scan(&workflowText)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RepairUnmanaged, nil
 	}

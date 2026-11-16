@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 	"uuid"
 )
@@ -25,6 +26,27 @@ type UsenetServerAudit struct {
 	Name     string   `json:"name,omitempty"`
 	Fields   []string `json:"fields,omitempty"`
 	Order    []string `json:"order,omitempty"`
+}
+
+// LockUsenetServerChanges serializes the read/check/change sequence across API
+// processes. The transaction holds only an advisory lock, never provider data.
+func (store *Store) LockUsenetServerChanges(ctx context.Context, integrationID uuid.UUID) (func(), error) {
+	tx, err := store.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "usenet-servers:"+integrationID.String()); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, err
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tx.Rollback(cleanup)
+		})
+	}, nil
 }
 
 // RecordUsenetServerChange audits one change to AltMount's Usenet servers

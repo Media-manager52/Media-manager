@@ -196,3 +196,70 @@ func contains(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestMissingSourceBeforePublicationCanRecover(t *testing.T) {
+	f := newFailureRecoveryFixture(t)
+	_, path := seedPreflightPublicationFailure(t, f)
+	paths, err := f.store.CurrentAltMountPublications(f.ctx, f.altMount.ID)
+	if err != nil || !contains(paths, path) {
+		t.Fatalf("missing source not monitored: paths=%v err=%v", paths, err)
+	}
+	outcome, err := f.store.PlanMissingAltMountFile(f.ctx, f.altMount.ID, path, time.Now().UTC())
+	if err != nil || outcome != RepairReleaseRejected {
+		t.Fatalf("recovery=%s err=%v", outcome, err)
+	}
+}
+
+func TestPreflightSourceRecoveryRequiresVerifiedCurrentAttempt(t *testing.T) {
+	for _, change := range []string{"unverified", "cancelled", "different_attempt"} {
+		t.Run(change, func(t *testing.T) {
+			f := newFailureRecoveryFixture(t)
+			id, path := seedPreflightPublicationFailure(t, f)
+			var err error
+			switch change {
+			case "unverified":
+				_, err = f.store.Pool.Exec(f.ctx, `UPDATE subtitle_verifications SET status='unverified' WHERE workflow_id=$1`, id.String())
+			case "cancelled":
+				_, err = f.store.Pool.Exec(f.ctx, `UPDATE workflows SET state='cancelled',terminal_at=now() WHERE id=$1`, id.String())
+			case "different_attempt":
+				_, err = f.store.Pool.Exec(f.ctx, `UPDATE workflows SET grab_attempt_id=NULL WHERE id=$1`, id.String())
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			paths, err := f.store.CurrentAltMountPublications(f.ctx, f.altMount.ID)
+			if err != nil || contains(paths, path) {
+				t.Fatalf("unsafe recovery monitored: paths=%v err=%v", paths, err)
+			}
+			outcome, err := f.store.PlanMissingAltMountFile(f.ctx, f.altMount.ID, path, time.Now().UTC())
+			if err != nil || outcome != RepairUnmanaged {
+				t.Fatalf("unsafe recovery=%s err=%v", outcome, err)
+			}
+		})
+	}
+}
+
+func seedPreflightPublicationFailure(t *testing.T, f *failureRecoveryFixture) (uuid.UUID, string) {
+	t.Helper()
+	w := f.newMovieWorkflow(t, "Review Missing Source", "999001")
+	r := seedRetrievalCandidate(t, f.ctx, f.store, w.ID, f.indexer.ID, "review-missing-source")
+	intent, err := f.store.BeginAltMountSubmission(f.ctx, r, testNZBPackageIdentity(91), time.Now().UTC())
+	if err != nil || !intent.ShouldSubmit {
+		t.Fatalf("submission: %+v %v", intent, err)
+	}
+	job, inventory, assets := seedSubmittedSubtitleOutput(t, f.ctx, f.store, w.ID, r.CandidateID, intent.JobID, "review-missing-source")
+	if _, err := f.store.RecordSubtitleVerification(f.ctx, job, inventory, verifiedSubtitleResult(t, assets[0], assets[1]), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.CompleteImport(f.ctx, job, true, "verified", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.FailPublication(f.ctx, w.ID, intent.JobID, "publication preflight failed: stat source: no such file or directory", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var path string
+	if err := f.store.Pool.QueryRow(f.ctx, `SELECT inventory.root_relative || '/' || asset.relative_path FROM altmount_output_inventories inventory JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id WHERE inventory.id=$1 AND asset.id=$2`, inventory.String(), assets[0].String()).Scan(&path); err != nil {
+		t.Fatal(err)
+	}
+	return w.ID, path
+}

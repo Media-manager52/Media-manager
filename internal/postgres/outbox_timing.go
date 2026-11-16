@@ -46,7 +46,8 @@ func (store *Store) OutboxTimings(ctx context.Context, since time.Time) ([]Outbo
 			SELECT event_type,claim_count,ready_wait_ms,active_ms,
 				GREATEST(0,(extract(epoch FROM first_ready_at-occurred_at)*1000)::bigint) planned_ms,
 				GREATEST(0,(extract(epoch FROM completed_at-first_ready_at)*1000)::bigint-ready_wait_ms-active_ms) retry_ms
-			FROM outbox_events WHERE completed_at IS NOT NULL AND completed_at>$1 AND first_ready_at IS NOT NULL)
+			FROM outbox_events WHERE completed_at IS NOT NULL AND completed_at>$1 AND first_ready_at IS NOT NULL
+			AND occurred_at >= (SELECT applied_at FROM schema_migrations WHERE version=71))
 		SELECT event_type,count(*),count(*) FILTER (WHERE claim_count>1),COALESCE(sum(claim_count),0)::bigint,
 			percentile_disc(0.5) WITHIN GROUP (ORDER BY planned_ms),percentile_disc(0.9) WITHIN GROUP (ORDER BY planned_ms),
 			percentile_disc(0.5) WITHIN GROUP (ORDER BY ready_wait_ms),percentile_disc(0.9) WITHIN GROUP (ORDER BY ready_wait_ms),

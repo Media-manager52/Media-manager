@@ -197,7 +197,7 @@ func (store *Store) workflowSummariesFiltered(ctx context.Context, limit, offset
 		LEFT JOIN LATERAL (SELECT c.id::text,c.title,i.name AS indexer_name `+store.accessRejectedRetryQuery()+` AND w.id=workflow.id) access_retry ON true
 		WHERE ($4::uuid IS NOT NULL OR media.deleted_at IS NULL) AND (NOT $2 OR (workflow.terminal_at IS NULL AND NOT (workflow.state='waiting' AND `+seasonCoveredByEpisodesSQL+`)))
 			AND ($3::uuid IS NULL OR workflow.media_id=$3::uuid) AND ($4::uuid IS NULL OR workflow.id=$4::uuid)
-			AND ($5::text IS NULL OR workflow.state=$5)
+			AND ($5::text IS NULL OR workflow.state=$5 OR ($5='acquiring' AND workflow.state IN ('searching','candidate_selected','submitting','queued','streaming_ready','import_complete','verifying','publishing','plex_scanning')))
 			AND (NOT $6 OR workflow.state IN ('needs_attention','blocked','quarantined','transport_unknown')
 				OR (workflow.state='waiting' AND EXISTS(
 					SELECT 1 FROM workflow_retry_discovery discovery

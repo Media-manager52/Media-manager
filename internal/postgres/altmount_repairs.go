@@ -137,6 +137,16 @@ func (store *Store) CurrentAltMountPublications(ctx context.Context, altMountID 
 		WHERE (version.state='current' AND workflow.terminal_at IS NOT NULL)
 		   OR (version.state IN ('verified','quarantined') AND version.altmount_job_id=job.id AND workflow.grab_attempt_id=job.id
 		       AND workflow.terminal_at IS NULL AND workflow.state='needs_attention' AND workflow.attention_code IN ('plex_timeout','publication_failed'))
+		UNION
+		SELECT inventory.root_relative || '/' || asset.relative_path
+		FROM altmount_jobs job
+		JOIN workflows workflow ON workflow.grab_attempt_id=job.id AND workflow.id=job.workflow_id
+		JOIN altmount_output_inventories inventory ON inventory.job_id=job.id
+		JOIN altmount_output_assets asset ON asset.inventory_id=inventory.id AND asset.media_info IS NOT NULL
+		WHERE job.altmount_instance_id=$1 AND workflow.terminal_at IS NULL
+		  AND workflow.state='needs_attention' AND workflow.attention_code='publication_failed'
+		  AND job.state='import_complete'
+		  AND EXISTS(SELECT 1 FROM subtitle_verifications verification WHERE verification.inventory_id=inventory.id AND verification.status='verified' AND verification.altmount_job_id=job.id)
 		ORDER BY 1`, altMountID.String())
 	if err != nil {
 		return nil, err

@@ -32,7 +32,7 @@ func (server *Server) listWorkflows(writer http.ResponseWriter, request *http.Re
 		offset = parsed
 	}
 	state := strings.TrimSpace(request.URL.Query().Get("state"))
-	if state != "" && !validWorkflowState(state) {
+	if state != "" && state != "acquiring" && !validWorkflowState(state) {
 		writeError(writer, http.StatusUnprocessableEntity, "invalid_state", "state must be a known workflow state")
 		return
 	}

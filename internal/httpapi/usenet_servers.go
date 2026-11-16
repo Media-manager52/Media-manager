@@ -132,12 +132,19 @@ func (server *Server) createUsenetServer(writer http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
+	unlock, err := server.store.LockUsenetServerChanges(ctx, integration.ID)
+	if err != nil {
+		writeDatabaseError(writer, err, "could not lock Usenet server settings")
+		return
+	}
+	defer unlock()
 	defer client.Logout(ctx)
 	created, err := client.CreateProvider(ctx, input)
 	if err != nil {
 		writeUsenetServerError(writer, err)
 		return
 	}
+	unlock() // Release the connection before the separate audit write.
 	server.auditUsenetServer(ctx, integration.ID, postgres.UsenetServerCreated, postgres.UsenetServerAudit{ServerID: created.ID, Host: created.Host, Name: created.Name})
 	writeJSON(writer, http.StatusCreated, dataEnvelope{Data: created})
 }
@@ -159,6 +166,12 @@ func (server *Server) updateUsenetServer(writer http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
+	unlock, err := server.store.LockUsenetServerChanges(ctx, integration.ID)
+	if err != nil {
+		writeDatabaseError(writer, err, "could not lock Usenet server settings")
+		return
+	}
+	defer unlock()
 	defer client.Logout(ctx)
 	if input.Enabled != nil && !*input.Enabled {
 		if !server.keepsAnActiveUsenetServer(ctx, writer, client, id) {
@@ -170,6 +183,7 @@ func (server *Server) updateUsenetServer(writer http.ResponseWriter, request *ht
 		writeUsenetServerError(writer, err)
 		return
 	}
+	unlock() // Release the connection before the separate audit write.
 	server.auditUsenetServer(ctx, integration.ID, postgres.UsenetServerChanged, postgres.UsenetServerAudit{ServerID: updated.ID, Host: updated.Host, Name: updated.Name, Fields: changedUsenetFields(input)})
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: updated})
 }
@@ -182,6 +196,12 @@ func (server *Server) deleteUsenetServer(writer http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
+	unlock, err := server.store.LockUsenetServerChanges(ctx, integration.ID)
+	if err != nil {
+		writeDatabaseError(writer, err, "could not lock Usenet server settings")
+		return
+	}
+	defer unlock()
 	defer client.Logout(ctx)
 	servers, err := client.ListProviders(ctx)
 	if err != nil {
@@ -206,6 +226,7 @@ func (server *Server) deleteUsenetServer(writer http.ResponseWriter, request *ht
 		writeUsenetServerError(writer, err)
 		return
 	}
+	unlock() // Release the connection before the separate audit write.
 	server.auditUsenetServer(ctx, integration.ID, postgres.UsenetServerDeleted, postgres.UsenetServerAudit{ServerID: removed.ID, Host: removed.Host, Name: removed.Name})
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]string{"status": "removed"}})
 }
@@ -230,11 +251,18 @@ func (server *Server) reorderUsenetServers(writer http.ResponseWriter, request *
 	if !ok {
 		return
 	}
+	unlock, err := server.store.LockUsenetServerChanges(ctx, integration.ID)
+	if err != nil {
+		writeDatabaseError(writer, err, "could not lock Usenet server settings")
+		return
+	}
+	defer unlock()
 	defer client.Logout(ctx)
 	if err := client.ReorderProviders(ctx, input.IDs); err != nil {
 		writeUsenetServerError(writer, err)
 		return
 	}
+	unlock() // Release the connection before the separate audit write.
 	server.auditUsenetServer(ctx, integration.ID, postgres.UsenetServerReordered, postgres.UsenetServerAudit{Order: input.IDs})
 	writeJSON(writer, http.StatusOK, dataEnvelope{Data: map[string]string{"status": "reordered"}})
 }

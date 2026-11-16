@@ -78,7 +78,7 @@ Routes live in `web/src/routes.tsx`; each screen is one file in
 | `/bibliotek/:id` | A title: metadata, seasons and episodes, workflows, files | `media/{id}/detail` |
 | `/tilfoej` | Tilføj: TMDB search via Seerr, then verified add | `discovery/*`, `POST media` |
 | `/anmodninger` | Seerr requests, approve or decline | `requests`, `requests/{id}/approve|decline` |
-| `/arbejde` | Workflows by tab (henter, kræver handling, venter, afventer, I Plex, annulleret) | `workflows?state=` |
+| `/arbejde` | Workflows by tab; Henter nu pages through the combined acquiring filter | `workflows?state=acquiring` or a durable state |
 | `/arbejde/:id` | One workflow: steps, actions, searches, candidates, facts | `workflows/{id}`, `/searches`, `/candidates` |
 | `/kalender` | Episodes from the last week and upcoming | `calendar` |
 | `/kilder` | Indexers: limits, use, pacing, edit; OldBoys keys | `indexers`, `PATCH settings/integrations/{id}`, `settings/oldboys/credentials` |
@@ -173,3 +173,12 @@ MM_API_URL=http://127.0.0.1:28081 npm run dev
 
 `MM_API_TOKEN` may be set for local development only. The dev proxy then adds
 it as the bearer token. Never commit it or put it in a build.
+
+### Quota and timing presentation
+
+Kilder uses `effective_budget` for progress, remaining requests and quota
+warnings; configured budgets stay the inputs to Rediger. Local reservations
+and timestamped provider counters are labelled separately. Background queue
+counts include all unfinished work, while `components/queue-timings.tsx`
+labels median/p90 completion timings with their cohort start and the count
+of older unfinished events excluded from those timings.
