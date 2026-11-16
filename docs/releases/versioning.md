@@ -11,6 +11,7 @@ Earlier releases: [`v0.1.0-beta.11`](v0.1.0-beta.11.md), [`v0.1.0-beta.10`](v0.1
 
 - Product version: semantic version `0.1.0-beta.N` (pre-release).
 - Git tag: `v0.1.0-beta.N`.
+- Update the README's **Latest beta** link to the matching published tag with each beta release.
 - `MEDIA_MANAGER_VERSION` embeds the same value in the API binary and image
   labels; `MEDIA_MANAGER_COMMIT` embeds the exact Git commit. The automated
   publish workflow labels image builds `github-<sha12>` for traceability; a
