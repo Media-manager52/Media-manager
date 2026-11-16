@@ -41,6 +41,7 @@ behavioral truth is always the code and the SQL migrations.
 | [operations/altmount-patches/README.md](operations/altmount-patches/README.md) | Reproducible source patches and regression tests for the deployed companion AltMount fixes |
 | [operations/install-release.md](operations/install-release.md) | Immutable-image installation, first-run checklist, upgrade and encrypted restore |
 | [releases/versioning.md](releases/versioning.md) | Version/tag/image-identity contract, supported architecture, license and rollback rules |
+| [releases/v0.1.0-beta.36.md](releases/v0.1.0-beta.36.md) | Thirty-sixth public beta (2026-11-16): abNZB's newest uploads are read as a movie and a series request, indexers' own stated usage counters make Media Manager more careful, and the queue reports where the time goes (schema 71). |
 | [releases/v0.1.0-beta.35.md](releases/v0.1.0-beta.35.md) | Thirty-fifth public beta (2026-11-14): The web UI has a dark green look with a faint green glow. |
 | [releases/v0.1.0-beta.34.md](releases/v0.1.0-beta.34.md) | Thirty-fourth public beta (2026-11-14): A release that breaks before Plex confirms it is rejected and another is tried; new owner action to reject a published release. |
 | [releases/v0.1.0-beta.33.md](releases/v0.1.0-beta.33.md) | Thirty-third public beta (2026-11-14): Media Manager shows tidily on Cosmos' ServApps page and homepage. |
