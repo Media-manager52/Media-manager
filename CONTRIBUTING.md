@@ -2,6 +2,12 @@
 
 Media Manager is an owner-operated, safety-sensitive application. Keep changes small, reviewable, and grounded in the existing architecture. Do not introduce new infrastructure or abstractions when the current Go, PostgreSQL, React/Vite (`web/`), Cosmos Cloud edge, and Docker Compose stack can express the change directly.
 
+## Questions, bugs and suggestions
+
+See the [support guide](.github/SUPPORT.md) for setup help, issue forms and
+private security reporting. English and Danish are welcome. Search existing
+issues before opening a new report, and include the affected version or commit.
+
 ## Before changing code
 
 1. Read `README.md`, [`docs/README.md`](docs/README.md), and the relevant
@@ -21,6 +27,12 @@ guides under `docs/` (start with [`docs/onboarding/README.md`](docs/onboarding/R
 7. Open a pull request with the problem, evidence, safety impact, checks performed, and any remaining limitation. Never describe synthetic evidence as live verification.
 
 ## Verification
+
+Documentation-only changes:
+
+```sh
+node scripts/check-docs.mjs
+```
 
 Frontend changes:
 
@@ -46,9 +58,12 @@ GOFLAGS=-mod=readonly go test -count=1 -race ./cmd/... ./internal/...
 The browser suite runs the production bundle against a mocked API, blocks
 unexpected network access, and checks every page at desktop and mobile sizes
 with Playwright and axe. GitHub Actions (`.github/workflows/verify.yml`) runs the
-same frontend, browser and PostgreSQL-backed Go jobs on every pull request (the
+same frontend, browser and PostgreSQL-backed Go jobs on trusted repository pushes (the
 backend job also applies every migration to a disposable PostgreSQL 18
 database), plus a `containers` job that builds and smoke-tests both images.
+
+Fork pull requests do not run on the owner's runner; see the
+[CI guide](docs/operations/ci.md) for runner isolation and review requirements.
 
 README screenshots come from invented demo data, never from a real library:
 

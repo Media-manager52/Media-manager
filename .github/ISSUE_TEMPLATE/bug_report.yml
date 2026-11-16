@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible problem in Media Manager.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English and Danish are welcome. Share only redacted logs and screenshots.
+        For security vulnerabilities, use [private reporting](https://github.com/Media-manager52/Media-manager/security/advisories/new).
+  - type: input
+    id: version
+    attributes:
+      label: Media Manager version or commit
+      description: Find this under System in the web UI.
+      placeholder: v0.1.0-beta.N or the full commit
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Cosmos market
+        - Docker Compose with published images
+        - Docker Compose built from source
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the page or action involved. Use invented titles and paths where possible.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. The page shows ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional context
+      description: Optional redacted logs, error codes or screenshots. Never include credentials or complete environment files.
