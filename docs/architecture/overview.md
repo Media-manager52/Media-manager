@@ -85,7 +85,9 @@ There is no queue service. Work is state + events in PostgreSQL.
 - **Producer side.** Store methods insert an event in the same transaction as
   the state change, so an event can never exist without its state or vice versa.
 - **Consumer side.** `platform.Worker` (`internal/platform/worker.go`):
-  - Polls every second; claims **1** event per batch via
+  - Claims **1** event per batch and immediately continues while work is
+    ready; waits for the one-second poll only when idle or a store operation
+    fails. Claims use
     `Store.ClaimOutbox` (`FOR UPDATE SKIP LOCKED`), so multiple API replicas
     would not double-process. Due events are claimed in three tiers, oldest
     first within each: lifecycle work (AltMount, publication, Plex, Seerr,

@@ -17,37 +17,9 @@ import (
 // while a backup is stuck in its handler, ordinary events still finish, and
 // the main lane never picks up a second backup.
 func TestBackupLaneDoesNotHoldUpOtherWork(t *testing.T) {
-	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	schema := "mm_lane_" + strings.ReplaceAll(uuid.NewV7().String(), "-", "")
-	admin, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Exec(context.Background(), `DROP SCHEMA `+schema+` CASCADE`)
-	parsed, err := url.Parse(databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := parsed.Query()
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	store, err := postgres.Open(ctx, parsed.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if err := postgres.Migrate(ctx, store.Pool); err != nil {
-		t.Fatal(err)
-	}
+	store := newWorkerTestStore(t, ctx)
 	insert := func(eventType string) uuid.UUID {
 		id := uuid.NewV7()
 		if _, err := store.Pool.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_type,aggregate_id,aggregate_revision,event_type,payload,occurred_at,available_at) VALUES($1,'test',$2,1,$3,'{}',now(),now())`, id.String(), uuid.NewV7().String(), eventType); err != nil {
@@ -106,4 +78,38 @@ func TestBackupLaneDoesNotHoldUpOtherWork(t *testing.T) {
 	if err := <-backupDone; err != nil {
 		t.Fatal(err)
 	}
+}
+
+func newWorkerTestStore(t *testing.T, ctx context.Context) *postgres.Store {
+	t.Helper()
+	databaseURL := os.Getenv("MEDIA_MANAGER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("MEDIA_MANAGER_TEST_DATABASE_URL is not set")
+	}
+	schema := "mm_lane_" + strings.ReplaceAll(uuid.NewV7().String(), "-", "")
+	admin, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(admin.Close)
+	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = admin.Exec(context.Background(), `DROP SCHEMA `+schema+` CASCADE`) })
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("search_path", schema)
+	parsed.RawQuery = query.Encode()
+	store, err := postgres.Open(ctx, parsed.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+	if err := postgres.Migrate(ctx, store.Pool); err != nil {
+		t.Fatal(err)
+	}
+	return store
 }

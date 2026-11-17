@@ -73,7 +73,9 @@ func (worker *Worker) Run(ctx context.Context) error
   failed 5 times (`outboxFailingAttempts`), then searches and discovery
   (alternating). A repeatedly failing event therefore never holds up healthy
   work, whatever its age.
-- Claims one event per iteration, renews the lease while the handler runs,
+- Claims one event per iteration and continues immediately after a successful
+  acknowledgement, including a deferred event. The poll interval applies only
+  when no event is due or a store operation fails. It renews the lease while the handler runs,
   completes/defer/fails as described in [overview.md](overview.md#3-the-durable-outbox-the-heart-of-the-system).
 - Unknown event type → failed with "no handler registered" and a 30-minute retry.
 - Completed events are history, and some enqueue paths deduplicate against it

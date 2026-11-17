@@ -4,6 +4,11 @@ Notable Media Manager changes are recorded here. The structure follows [Keep a C
 
 ## Unreleased
 
+### Fixed
+
+- **Ready queue work no longer waits for an idle poll after every event.** The worker continues immediately after acknowledging an event, including a paced deferral, and waits only when its lane is empty or a store operation fails. Events still run one at a time with the same lifecycle priority, alternating search/discovery order, leases, provider pacing and budgets.
+- **Invalid output filename encoding no longer retries a database error forever.** A completed AltMount output whose exact paths cannot be represented in UTF-8 fails inspection through the guarded release-failure path. Its files remain untouched, and valid Unicode names are preserved exactly.
+
 ## [0.1.0-beta.37] - 2026-11-16
 
 ### Fixed
