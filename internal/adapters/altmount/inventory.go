@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/media-manager/media-manager/internal/library"
 )
@@ -29,8 +30,12 @@ type Inventory struct {
 }
 
 var ErrOutputMapping = errors.New("AltMount output path is outside the configured read-only mapping")
+var ErrOutputEncoding = errors.New("AltMount output contains a path that is not valid UTF-8")
 
 func Enumerate(mapping OutputMapping, reportedPath string) (Inventory, error) {
+	if !utf8.ValidString(reportedPath) || !utf8.ValidString(mapping.ReportedRoot) || !utf8.ValidString(mapping.LocalReadOnlyRoot) {
+		return Inventory{}, ErrOutputEncoding
+	}
 	if !filepath.IsAbs(mapping.ReportedRoot) || !filepath.IsAbs(mapping.LocalReadOnlyRoot) || !filepath.IsAbs(reportedPath) || strings.ContainsRune(reportedPath, '\x00') {
 		return Inventory{}, ErrOutputMapping
 	}
@@ -76,6 +81,9 @@ func Enumerate(mapping OutputMapping, reportedPath string) (Inventory, error) {
 	sort.Slice(result.Files, func(i, j int) bool { return result.Files[i].RelativePath < result.Files[j].RelativePath })
 	hash := sha256.New()
 	for _, file := range result.Files {
+		if !utf8.ValidString(file.RelativePath) {
+			return Inventory{}, ErrOutputEncoding
+		}
 		if _, err := library.ValidateRelative(file.RelativePath); err != nil {
 			return Inventory{}, ErrOutputMapping
 		}

@@ -189,6 +189,9 @@ func (service *AltMountReconcileService) Handle(ctx context.Context, event postg
 		}
 	}
 	if item.Status == altmount.StatusCompleted && err != nil {
+		if errors.Is(err, altmount.ErrOutputEncoding) {
+			return service.Store.CompleteReleaseFailure(ctx, job, postgres.InspectionFailedCode, "AltMount output contains filenames that are not valid UTF-8; exact paths cannot be recorded safely. Output is retained unchanged.", time.Now().UTC())
+		}
 		completedAt := item.UpdatedAt
 		if item.CompletedAt != nil && !item.CompletedAt.IsZero() {
 			completedAt = *item.CompletedAt

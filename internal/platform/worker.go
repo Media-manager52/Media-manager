@@ -128,7 +128,8 @@ func runHandler(ctx context.Context, cancel context.CancelFunc, handler Handler,
 // testable boundary for the same claim/handler/acknowledgement path used by
 // Run; callers must not use it as a replacement worker loop.
 func (worker *Worker) RunBatch(ctx context.Context) error {
-	return worker.runBatch(ctx)
+	_, err := worker.runBatch(ctx)
+	return err
 }
 
 func (worker *Worker) Run(ctx context.Context) error {
@@ -144,8 +145,18 @@ func (worker *Worker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(worker.PollInterval)
 	defer ticker.Stop()
 	for {
-		if err := worker.runBatch(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		processed, err := worker.runBatch(ctx)
+		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.ErrorContext(ctx, "outbox batch failed", "error", err)
+		}
+		// Polling is for an empty queue or a failed store operation. Ready
+		// work continues immediately, still one event at a time; handlers
+		// retain all provider reservations, pacing and deferral deadlines.
+		if processed && err == nil {
+			continue
 		}
 		select {
 		case <-ticker.C:
@@ -155,10 +166,10 @@ func (worker *Worker) Run(ctx context.Context) error {
 	}
 }
 
-func (worker *Worker) runBatch(ctx context.Context) error {
+func (worker *Worker) runBatch(ctx context.Context) (bool, error) {
 	events, err := worker.Store.ClaimOutboxLane(ctx, worker.Owner, 1, worker.Lease, worker.preferDiscovery, worker.Lane)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, event := range events {
 		// Rotate on claim rather than completion: pacing and budget deferrals
@@ -235,20 +246,20 @@ func (worker *Worker) runBatch(ctx context.Context) error {
 					deferErr = worker.Store.DeferOutbox(ctx, event.ID, worker.Owner, safeError(handlerErr), retryAt)
 				}
 				if deferErr != nil {
-					return deferErr
+					return true, deferErr
 				}
 				continue
 			}
 			if failErr := worker.Store.FailOutbox(ctx, event.ID, worker.Owner, safeError(handlerErr), retryAt); failErr != nil {
-				return failErr
+				return true, failErr
 			}
 			continue
 		}
 		if err := worker.Store.CompleteOutbox(ctx, event.ID, worker.Owner); err != nil {
-			return err
+			return true, err
 		}
 	}
-	return nil
+	return len(events) > 0, nil
 }
 
 func nextRetryAt(handlerErr error, attempts int, now time.Time) time.Time {
